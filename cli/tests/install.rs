@@ -1,3 +1,5 @@
+#![cfg(unix)]
+// These process tests isolate user directories through HOME, which is Unix-specific.
 use std::{fs, process::Command};
 #[test]
 fn install_is_repeatable_and_preserves_foreign_and_edited_files() {
