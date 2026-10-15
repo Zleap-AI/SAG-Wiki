@@ -106,7 +106,19 @@ pub fn inspect(name: &str, path: &Path) -> Result<Installation> {
         version: owned.map(|r| r.version),
     })
 }
-pub fn binary_path(home: &Path) -> PathBuf {
+pub fn binary_path(home: &Path) -> Result<PathBuf> {
+    let record = crate::cli_protocol::data_dir()?.join("cli-install-path.json");
+    match fs::read(record) {
+        Ok(bytes) => {
+            let path: PathBuf = serde_json::from_slice(&bytes).context("CLI 安装位置记录无效")?;
+            if !path.is_absolute() || !path.starts_with(home) {
+                bail!("CLI 安装位置不属于当前用户目录")
+            }
+            return Ok(path);
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e.into()),
+    }
     let name = if cfg!(windows) { "sag.exe" } else { "sag" };
     if let Some(paths) = std::env::var_os("PATH") {
         for dir in std::env::split_paths(&paths) {
@@ -115,15 +127,23 @@ pub fn binary_path(home: &Path) -> PathBuf {
                 && dir.is_dir()
                 && fs::metadata(&dir).is_ok_and(|m| !m.permissions().readonly())
             {
-                return dir.join(name);
+                return Ok(dir.join(name));
             }
         }
     }
-    home.join(".local/bin").join(name)
+    Ok(home.join(".local/bin").join(name))
 }
 pub fn binary(source: &Path, target: &Path, uninstall: bool) -> Result<()> {
+    let data = crate::cli_protocol::data_dir()?;
+    let record = data.join("cli-install-path.json");
     if uninstall {
-        return remove_owned(target);
+        remove_owned(target)?;
+        match fs::remove_file(record) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(e.into()),
+        }
+        return Ok(());
     }
     if source == target {
         check_owned(target)?;
@@ -138,5 +158,7 @@ pub fn binary(source: &Path, target: &Path, uninstall: bool) -> Result<()> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(target, fs::Permissions::from_mode(0o755))?;
     }
+    fs::create_dir_all(data)?;
+    fs::write(record, serde_json::to_vec(target)?)?;
     Ok(())
 }

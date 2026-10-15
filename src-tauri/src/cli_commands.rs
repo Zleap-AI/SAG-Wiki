@@ -12,7 +12,7 @@ pub struct IntegrationSettings {
 pub fn get_cli_settings(state: State<Arc<AppState>>) -> CommandResult<IntegrationSettings> {
     let home = dirs::home_dir().ok_or("无法获取用户目录")?;
     let mut installations =
-        vec![install::inspect("cli", &install::binary_path(&home)).map_err(error)?];
+        vec![install::inspect("cli", &install::binary_path(&home).map_err(error)?).map_err(error)?];
     for name in install::HARNESS_NAMES {
         installations.push(
             install::inspect(name, &install::skill_path(&home, name).map_err(error)?)
@@ -48,7 +48,7 @@ pub async fn install_cli_integration(
     };
     tauri::async_runtime::spawn_blocking(move || {
         if target == "cli" {
-            let path = install::binary_path(&home);
+            let path = install::binary_path(&home).map_err(error)?;
             install::binary(&source, &path, uninstall).map_err(error)?;
             Ok(format!(
                 "{}：{}。请确保此目录在 PATH 中：{}",
@@ -71,7 +71,7 @@ pub async fn install_cli_integration(
 #[tauri::command]
 pub async fn test_cli_connection(path: String) -> CommandResult<String> {
     let home = dirs::home_dir().ok_or("无法获取用户目录")?;
-    let binary = install::binary_path(&home);
+    let binary = install::binary_path(&home).map_err(error)?;
     if !install::inspect("cli", &binary).map_err(error)?.installed {
         return Err("请先安装 SAG CLI".into());
     }

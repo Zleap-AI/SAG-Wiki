@@ -1,8 +1,9 @@
+#[path = "protocol.rs"]
+mod cli_protocol;
 mod install;
-mod protocol;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
-use protocol::*;
+use cli_protocol::*;
 use std::{
     io::{BufRead, BufReader, Read, Write},
     net::{Shutdown, TcpStream},
@@ -74,7 +75,7 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
         let uninstall = matches!(args.command, CliCommand::Uninstall { .. });
         let home = dirs::home_dir().context("无法获取用户目录")?;
         let path = if target == "cli" {
-            let path = install::binary_path(&home);
+            let path = install::binary_path(&home)?;
             install::binary(&std::env::current_exe()?, &path, uninstall)?;
             path
         } else {

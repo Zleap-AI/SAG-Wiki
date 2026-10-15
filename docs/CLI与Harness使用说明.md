@@ -41,7 +41,7 @@ sag uninstall cli
 | OpenCode | `~/.config/opencode/skills/sag/SKILL.md` |
 | Factory Droid | `~/.factory/skills/sag/SKILL.md` |
 
-重复安装可更新 SAG 自有文件。安装记录保存文件校验值和版本；检测到外部文件或用户修改时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。不会更改 AGENTS.md、MCP 配置或增加文件监听进程。
+重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；即使后续 PATH 顺序变化，更新和卸载仍使用原安装位置。检测到外部文件或用户修改时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。不会更改 AGENTS.md、MCP 配置或增加文件监听进程。
 
 Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默认不需要管理员权限安装 CLI。Windows 打包入口为 `npm run package:windows`。本轮在 macOS 验证；Windows 安装、签名和升级行为未验证。
 
