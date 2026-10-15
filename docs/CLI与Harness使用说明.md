@@ -67,3 +67,7 @@ Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默�
 - [OpenCode Skill 安装位置](https://opencode.ai/docs/skills/)
 
 Factory 官方文档本轮无法读取；其路径参考固定版本 mgrep，实际支持情况须在对应客户端确认。
+
+## 开发验证
+
+`npm run tauri -- dev` 会先生成调试版 CLI，再启动界面。直接运行 Rust 测试前，先执行 `npm run build:cli:dev` 以准备打包资源；后端回归使用 `cargo test --manifest-path src-tauri/Cargo.toml --lib --bins`，原生 CLI 测试使用 `cargo test --manifest-path cli/Cargo.toml`。
