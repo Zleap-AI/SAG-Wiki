@@ -31,13 +31,13 @@
     session.graph={...session.graph,nodes:session.graph.nodes.length===0?entryNodes(result.documents):session.graph.nodes.filter(n=>known.has(n.id)).map(n=>({...n,...known.get(n.id)!})),edges:[],neighbors:null};
     if(!known.has(session.graph.center!))session.graph.center=null;
     if(!known.has(session.graph.selected!))session.graph.selected=null;
-    session.history=[];session.version=result.version;notice='文件已更新，请重新展开关联。';closeEvidence();
+    session.history=[];session.version=result.version;found=null;querySequence++;if(query.trim())void search();notice='文件已更新，请重新展开关联。';closeEvidence();
    }
   }catch(e){if(active&&request===sequence){error=String(e);session.graph={...session.graph,edges:[],neighbors:null}}}finally{if(active&&request===sequence)loading=false}
  }
  async function search(){
   const request=++querySequence;const text=query.trim();found=null;if(!text)return;
-  try{const result=await api<ExploreOverview>('explore_overview',{scope,query:text,visible:[]});if(active&&request===querySequence)found=result}catch(e){if(active&&request===querySequence){error=String(e);retry=search}}
+  try{const result=await api<ExploreOverview>('explore_overview',{scope,query:text,visible:[]});if(active&&request===querySequence&&result.version>=session.version)found=result}catch(e){if(active&&request===querySequence){error=String(e);retry=search}}
  }
  function searchInput(){clearTimeout(searchTimer);querySequence++;found=null;searchTimer=setTimeout(search,180)}
  function choose(id:number){if(suppressClick){suppressClick=false;return}session.graph={...graph,selected:id}}

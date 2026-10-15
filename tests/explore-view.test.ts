@@ -128,3 +128,14 @@ it('画布达到 80 个节点时拒绝再添加节点',async()=>{
  await vi.waitFor(()=>expect(document.body.textContent).toContain('图已达到显示上限'));
  expect(session.graph.nodes).toHaveLength(80);expect(session.graph.edges).toHaveLength(0);
 });
+it('名称查询不会展示旧索引版本的结果',async()=>{
+ const session=createLibrarySession();session.version=2;session.initialized=true;session.graph.nodes=[{...a,x:0,y:0}];
+ setup(session);document.querySelector<HTMLButtonElement>('[data-explore-tab]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.explore-node')).not.toBeNull());
+ session.version=2;
+ invoke.mockImplementation(async()=>({scope:'/notes',version:1,total:1,documents:[b],known_documents:[],indexing:false,partial:false}));
+ const input=document.querySelector<HTMLInputElement>('[aria-label="按文件名查找入口"]')!;
+ input.value='旧结果';input.dispatchEvent(new Event('input',{bubbles:true}));
+ await vi.waitFor(()=>expect(invoke.mock.calls.some(([name,args])=>name==='explore_overview'&&args.query==='旧结果')).toBe(true));
+ await tick();expect(document.querySelector('.explore-picker')).toBeNull();
+});
