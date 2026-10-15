@@ -125,7 +125,7 @@
        <div class="settings-card-actions"><Button.Root type="button" class="outline" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root>{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}</div>
       </section>
      {/each}
-     <section class="model-mcp-settings" aria-labelledby="model-mcp-heading">
+     <section class="settings-group settings-fields model-mcp-settings" aria-labelledby="model-mcp-heading">
       <div class="settings-group-heading"><h3 id="model-mcp-heading">{$t("MCP 服务")}</h3></div>
       <McpSettings bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={id=>{for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}}}/>
      </section>

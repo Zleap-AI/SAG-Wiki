@@ -118,5 +118,5 @@
 
 .model-settings-card .provider-field .ui-select{width:100%;margin-top:8px}
 
-.settings-window .model-mcp-settings{margin:24px 0}
 .settings-window .model-mcp-settings>.settings-group-heading{margin-bottom:8px}
+.settings-window .model-mcp-settings>.settings-group:last-child{margin-bottom:0}
