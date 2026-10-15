@@ -9,5 +9,6 @@ fn main() {
     println!("cargo:rerun-if-changed=native/sag_rank.c");
     println!("cargo:rerun-if-changed=native/sqlite3.h");
     println!("cargo:rerun-if-changed=native/sqlite3ext.h");
+    println!("cargo:rerun-if-changed=icons");
     tauri_build::build()
 }
