@@ -735,7 +735,7 @@
   "文件已更新，请刷新探索": "Files have changed. Refresh exploration.",
   "探索请求超出允许范围": "The exploration request exceeds the allowed limits.",
   "无效的探索分页位置": "Invalid exploration page position.",
-  "关联结果已过期，请重新设为中心": "Connections have expired. Set the center again.",
+  "关联结果已过期，请重新设为中心": "Connections expired. Select the document again.",
   "探索快照与当前范围不一致": "These connections belong to a different scope.",
   "继续展开需要有效的探索快照": "Refresh connections before loading more.",
   "中心文档已移除或不在当前范围": "The center document was removed or is outside this scope.",
@@ -788,5 +788,17 @@
   "提示词和工具绑定按模型分别保存；上下文与请求设置对所有模型生效。": "Prompts and tool bindings are saved per model. Context and request settings apply to all models.",
   "当前服务或模型未适配这个思考强度，请在问答设置中恢复默认": "This provider or model does not support this reasoning level. Reset it in Chat settings.",
   "安装 {value0}": "Install {value0}",
-  "卸载中…": "Uninstalling…"
+  "卸载中…": "Uninstalling…",
+  "搜索文档，开始探索": "Find a document to explore",
+  "选择一篇文档开始探索": "Choose a document to explore",
+  "点击文档，自动查看相关内容和原文依据。": "Select a document to discover related content and original passages.",
+  "当前范围 {value0} 个文档": "{value0} documents in this folder",
+  "返回上一步": "Back",
+  "回到当前文档": "Return to current document",
+  "更换文档": "Choose another document",
+  "当前文档": "Current document",
+  "依据": "Evidence",
+  "点击文档继续探索，点击依据核对原文。": "Select a document to continue. Open evidence to compare passages.",
+  "文件已更新，关联已刷新。": "Files changed. Connections refreshed.",
+  "已达到显示上限，请选择其他文档继续探索。": "View limit reached. Select another document to continue."
 }

@@ -17,6 +17,7 @@ it('从子目录原文返回原来的探索范围，并保留问答范围',async
   if(command==='list_files')return[doc];
   if(command==='list_entries')return[{path:'/notes/nested',name:'nested',directory:true}];
   if(command==='explore_overview')return{scope:'/notes',version:1,total:1,documents:[doc],known_documents:[doc],indexing:false,partial:false};
+  if(command==='explore_neighbors')return{version:1,snapshot:'one',center:doc,documents:[],edges:[],total:0,has_more:false,next_offset:0,candidate_limit_reached:false};
   if(command==='read_document')return{path:doc.path,name:doc.name,body:'正文',hash:'a'};
   return[];
  });
@@ -25,8 +26,9 @@ it('从子目录原文返回原来的探索范围，并保留问答范围',async
  document.querySelector<HTMLButtonElement>('button[title="/notes"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('[data-explore-tab]')).not.toBeNull());
  document.querySelector<HTMLButtonElement>('[data-explore-tab]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.explore-node')).not.toBeNull());
- document.querySelector('.explore-node')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.explore-entry')).not.toBeNull());
+ document.querySelector('.explore-entry')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));await tick();
+ await vi.waitFor(()=>expect([...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='打开文档')).toBeDefined());
  [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='打开文档')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.readonly-document')).not.toBeNull());
  document.querySelector<HTMLButtonElement>('[title="返回文件夹"]')!.click();

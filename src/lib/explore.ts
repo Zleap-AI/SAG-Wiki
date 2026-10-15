@@ -11,13 +11,14 @@ export function emptyGraph():ExploreGraph {return{nodes:[],edges:[],center:null,
 export function createLibrarySession():LibrarySession {return{mode:'files',fileScroll:0,initialized:false,version:0,graph:emptyGraph(),history:[]}}
 export function copyGraph(graph:ExploreGraph):ExploreGraph {return JSON.parse(JSON.stringify(graph))}
 export function entryNodes(documents:ExploreDocument[]):ExploreNode[]{return documents.map((doc,i)=>({...doc,x:60+(i%4)*220,y:55+Math.floor(i/4)*95}))}
+export const EXPLORE_NODE_WIDTH=220;
+export const EXPLORE_NODE_HEIGHT=92;
 export function addNeighbors(graph:ExploreGraph,result:ExploreNeighbors):ExploreGraph{
- const next=copyGraph(graph);const anchor=next.nodes.find(n=>n.id===result.center.id)!;
- for(const doc of result.documents){if(next.nodes.some(n=>n.id===doc.id))continue;
-  let index=0,x=0,y=0;
-  do{const angle=index*2.399963229728653;const radius=245+Math.floor(index/8)*130;x=anchor.x+Math.cos(angle)*radius;y=anchor.y+Math.sin(angle)*radius;index++;}while(next.nodes.some(n=>Math.abs(n.x-x)<205&&Math.abs(n.y-y)<85));
-  next.nodes.push({...doc,x,y});
- }
- for(const edge of result.edges){if(!next.edges.some(e=>e.source===edge.source&&e.target===edge.target))next.edges.push(edge)}
- next.center=result.center.id;next.selected=result.center.id;next.neighbors=result;return next;
+ const documents=graph.center===result.center.id?graph.nodes.filter(n=>n.id!==result.center.id):[];
+ for(const doc of result.documents){if(!documents.some(n=>n.id===doc.id))documents.push({...doc,x:0,y:0})}
+ const edges=graph.center===result.center.id?[...graph.edges]:[];
+ for(const edge of result.edges){if(!edges.some(e=>e.source===edge.source&&e.target===edge.target))edges.push(edge)}
+ const rows=Math.ceil(documents.length/2);
+ const nodes=[{...result.center,x:320,y:Math.max(0,rows-1)*58},...documents.map((doc,index)=>({...doc,x:index%2===0?0:640,y:Math.floor(index/2)*116}))];
+ return{...graph,nodes,edges,center:result.center.id,selected:result.center.id,neighbors:result};
 }
