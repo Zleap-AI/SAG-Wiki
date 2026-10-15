@@ -763,7 +763,6 @@
   "选择文件夹并保存后可测试连接。": "Select a folder and save settings to test the connection.",
   "安装位置": "Installation path",
   "编程工具": "Coding tools",
-  "安装 Skill 后，重新启动对应工具即可使用。": "Install the skill, then restart the coding tool.",
   "Skill 安装位置": "Skill installation paths",
   "关闭窗口后仍可使用 CLI；退出应用后停止服务。": "CLI stays available when the window closes. Quitting the app stops the service.",
   "检索问题和候选片段会发送到已配置的 JEV 服务。": "Search queries and candidate passages are sent to your configured JEV service.",
@@ -800,5 +799,9 @@
   "点击文档继续探索，点击依据核对原文。": "Select a document to continue. Open evidence to compare passages.",
   "文件已更新，关联已刷新。": "Files changed. Connections refreshed.",
   "已达到显示上限，请选择其他文档继续探索。": "View limit reached. Select another document to continue.",
-  "终端路径在安装时自动配置。安装后请新开终端运行 sag。": "The terminal path is configured automatically during installation. Open a new terminal to run sag."
+  "终端路径在安装时自动配置。安装后请新开终端运行 sag。": "The terminal path is configured automatically during installation. Open a new terminal to run sag.",
+  "安装 SAG Skill，让编程工具知道如何通过 CLI 搜索已授权的本地文件。": "Install the SAG skill so your coding tool knows how to search authorized local files through the CLI.",
+  "{value0} 的安装命令": "Install command for {value0}",
+  "也可在终端运行对应命令，或让编程工具执行安装；使用命令前需先安装上方的 SAG CLI。": "You can also run the command in a terminal or ask your coding tool to install it. Install SAG CLI above before using these commands.",
+  "安装完成后，请在对应工具中新开会话以加载 Skill。": "After installation, start a new session in your coding tool to load the skill."
 }

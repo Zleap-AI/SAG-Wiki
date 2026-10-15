@@ -94,14 +94,15 @@
 
   <section class="cli-section" aria-labelledby="cli-tools-heading">
    <header class="cli-section-heading"><h3 id="cli-tools-heading">{$t('编程工具')}</h3></header>
-   <p class="cli-section-description">{$t('安装 Skill 后，重新启动对应工具即可使用。')}</p>
+   <p class="cli-section-description">{$t('安装 SAG Skill，让编程工具知道如何通过 CLI 搜索已授权的本地文件。')}</p>
    <div class="cli-panel cli-integrations">
     {#each integrations as item(item.name)}
      <div class="cli-install-row">
-      <div class="cli-install-info"><strong>{names[item.name]}</strong><p>Skill<span aria-hidden="true"> · </span>{item.installed?$t('已安装'):$t('未安装')}</p></div>
+      <div class="cli-install-info"><strong>{names[item.name]}</strong><p>SAG Skill<span aria-hidden="true"> · </span>{item.installed?$t('已安装'):$t('未安装')}</p><code class="cli-install-command" aria-label={$t('{value0} 的安装命令',{value0:names[item.name]})}>sag install {item.name}</code></div>
       <Button.Root type="button" class="outline cli-action" disabled={disabled} aria-label={$t(item.installed?'卸载 {value0}':'安装 {value0}',{value0:names[item.name]})} onclick={()=>manage(item)}>{operation?.target===item.name&&operation.kind!=='test'?$t(operation.kind==='uninstall'?'卸载中…':'安装中…'):$t(item.installed?'卸载':'安装')}</Button.Root>
      </div>
     {/each}
+    <div class="cli-skill-help"><p>{$t('也可在终端运行对应命令，或让编程工具执行安装；使用命令前需先安装上方的 SAG CLI。')}</p><p>{$t('安装完成后，请在对应工具中新开会话以加载 Skill。')}</p></div>
     <Collapsible.Root class="cli-location">
      <Collapsible.Trigger class="cli-disclosure"><span aria-hidden="true">{@html icon('chevron')}</span>{$t('Skill 安装位置')}</Collapsible.Trigger>
      <Collapsible.Content class="cli-location-content">{#each integrations as item(item.name)}<div class="cli-skill-path"><strong>{names[item.name]}</strong><code>{item.path}</code></div>{/each}</Collapsible.Content>
@@ -154,6 +155,10 @@
  .cli-settings :global(.cli-location-content){padding:0 16px 14px;color:var(--color-secondary);font-size:var(--text-caption);line-height:1.6}
  .cli-settings :global(.cli-location-content code){display:block;overflow-wrap:anywhere;font:11px/1.6 var(--font-mono)}
  .cli-settings :global(.cli-location-content p){margin:6px 0 0}
+ .cli-install-command{display:block;margin-top:7px;user-select:text;overflow-wrap:anywhere;font:11px/1.6 var(--font-mono);color:var(--color-secondary)}
+ .cli-skill-help{padding:12px 16px;border-top:1px solid var(--color-rule);font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
+ .cli-skill-help p{margin:0}
+ .cli-skill-help p+p{margin-top:4px}
  .cli-skill-path+.cli-skill-path{margin-top:12px}
  .cli-skill-path strong{display:block;margin-bottom:4px;font-size:var(--text-caption);font-weight:500;color:var(--color-ink)}
  .cli-note,.cli-feedback{display:flex;align-items:flex-start;gap:8px;font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
