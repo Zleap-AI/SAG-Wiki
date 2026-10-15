@@ -14,7 +14,7 @@ beforeEach(()=>{installed=new Set(['cli']);setLanguage('zh-CN');invoke.mockImple
  if(command==='get_cli_settings')return {access:{enabled:false,roots:[]},installations:['cli','claude-code','codex','opencode'].map(name=>({name,path:`/home/skills/${name}`,installed:installed.has(name),version:installed.has(name)?'0.1.0':null}))};
  if(command==='install_cli_integration'){args.uninstall?installed.delete(args.target):installed.add(args.target);return 'installed';}
 });});
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();});
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();vi.restoreAllMocks();});
 function click(text:string){const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()===text);expect(button,text).toBeDefined();button!.click();}
 async function ready(){await vi.waitFor(()=>expect(document.querySelector('[aria-label="允许搜索 Project"]')).not.toBeNull());}
 
@@ -69,12 +69,30 @@ it.each([['cli','SAG CLI'],['claude-code','Claude Code'],['codex','Codex'],['ope
  installed.clear();
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
  expect(document.querySelectorAll('.cli-install-row')).toHaveLength(4);
- for(const row of document.querySelectorAll('.cli-install-row'))expect(row.querySelectorAll('button')).toHaveLength(1);
+ for(const row of document.querySelectorAll('.cli-install-row')){
+  expect(row.querySelectorAll('.cli-action')).toHaveLength(1);
+  expect(row.textContent).not.toMatch(/已安装|未安装/);
+ }
  const action=()=>document.querySelector<HTMLButtonElement>(`[aria-label="${installed.has(target)?'卸载':'安装'} ${name}"]`)!;
  expect(action()?.textContent?.trim()).toBe('安装');action().click();
  await vi.waitFor(()=>expect(action()?.textContent?.trim()).toBe('卸载'));
+ expect(action().classList.contains('cli-uninstall')).toBe(true);
  expect(invoke).toHaveBeenCalledWith('install_cli_integration',{target,uninstall:false});
  action().click();await vi.waitFor(()=>expect(action()?.textContent?.trim()).toBe('安装'));
  expect(invoke).toHaveBeenCalledWith('install_cli_integration',{target,uninstall:true});
  expect(document.querySelector('.cli-settings')?.textContent).not.toContain('更新');
+});
+
+
+it('copies each tool installation command without installing it',async()=>{
+ const writeText=vi.fn().mockResolvedValue(undefined);
+ vi.spyOn(navigator.clipboard,'writeText').mockImplementation(writeText);
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ for(const [target,name] of [['claude-code','Claude Code'],['codex','Codex'],['opencode','OpenCode']]){
+  const copy=document.querySelector<HTMLButtonElement>(`[aria-label="复制 ${name} 安装命令"]`);
+  expect(copy).not.toBeNull();copy!.click();
+  await vi.waitFor(()=>expect(document.querySelector('[role=status]')?.textContent).toContain(`已复制 ${name} 的安装命令`));
+  expect(writeText).toHaveBeenLastCalledWith(`sag install ${target}`);
+ }
+ expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration')).toBe(false);
 });

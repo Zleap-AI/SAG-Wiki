@@ -803,5 +803,8 @@
   "安装 SAG Skill，让编程工具知道如何通过 CLI 搜索已授权的本地文件。": "Install the SAG skill so your coding tool knows how to search authorized local files through the CLI.",
   "{value0} 的安装命令": "Install command for {value0}",
   "也可在终端运行对应命令，或让编程工具执行安装；使用命令前需先安装上方的 SAG CLI。": "You can also run the command in a terminal or ask your coding tool to install it. Install SAG CLI above before using these commands.",
-  "安装完成后，请在对应工具中新开会话以加载 Skill。": "After installation, start a new session in your coding tool to load the skill."
+  "安装完成后，请在对应工具中新开会话以加载 Skill。": "After installation, start a new session in your coding tool to load the skill.",
+  "复制 {value0} 安装命令": "Copy the install command for {value0}",
+  "复制安装命令": "Copy install command",
+  "已复制 {value0} 的安装命令": "Copied the install command for {value0}"
 }
