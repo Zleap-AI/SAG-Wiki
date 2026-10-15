@@ -36,6 +36,12 @@ enum CliCommand {
         target: String,
     },
     Status,
+    /// 将当前目录或指定目录加入知识库并授权 CLI 搜索。
+    Add {
+        directory: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     Search {
         query: String,
         #[arg(conflicts_with = "path")]
@@ -93,6 +99,12 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
     let (command, path, json, timeout) = match args.command {
         CliCommand::Install { .. } | CliCommand::Uninstall { .. } => unreachable!(),
         CliCommand::Status => (Command::Status, cwd.clone(), false, 10),
+        CliCommand::Add { directory, json } => (
+            Command::Add,
+            cwd.join(directory.unwrap_or_default()),
+            json,
+            10,
+        ),
         CliCommand::Search {
             query,
             directory,
@@ -157,6 +169,19 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
     match serde_json::from_slice(&line)? {
         Response::Error(error) => bail!("{error}"),
         Response::Status(status) => println!("已连接 SAG-Desktop\nCLI 接入：{}\n目录已授权：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
+        Response::Added(output) => {
+            if json { println!("{}", serde_json::to_string(&output)?); }
+            else {
+                println!("已加入知识库：{}", output.path);
+                if output.cli_authorized { println!("CLI 已授权搜索此目录。"); }
+                else { println!("CLI 接入已关闭，请在 SAG-Desktop 设置中启用。"); }
+                match output.index_status.as_str() {
+                    "ready" => println!("索引已就绪，可以运行 sag search。"),
+                    "error" => println!("索引失败，请在 SAG-Desktop 查看详情。"),
+                    _ => println!("正在建立索引，请用 sag status 查看进度；就绪后可运行 sag search。"),
+                }
+            }
+        }
         Response::Search(mut output) => {
             for item in &mut output.results {
                 if let Some(relative) = pathdiff::diff_paths(&item.absolute_path, &cwd) {

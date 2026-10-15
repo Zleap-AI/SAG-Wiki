@@ -117,3 +117,68 @@ fn factory_droid_is_not_a_supported_installation_target() {
             .contains("factory-droid"));
     }
 }
+
+#[test]
+fn add_defaults_to_current_directory_and_accepts_an_explicit_path() {
+    use std::{
+        fs,
+        io::{BufRead, BufReader, Write},
+        net::TcpListener,
+    };
+    let data = tempfile::tempdir().unwrap();
+    let cwd = data.path().join("项目 space");
+    fs::create_dir_all(cwd.join("child")).unwrap();
+    let cwd = cwd.canonicalize().unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    fs::write(data.path().join("cli-endpoint.json"), serde_json::json!({"protocol_version":1,"port":listener.local_addr().unwrap().port(),"pid":1,"token":"test-token"}).to_string()).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let server_cwd = cwd.clone();
+    let server = std::thread::spawn(move || {
+        for suffix in ["", "child"] {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+            let (mut stream, _) = loop {
+                match listener.accept() {
+                    Ok(connection) => break connection,
+                    Err(e)
+                        if e.kind() == std::io::ErrorKind::WouldBlock
+                            && std::time::Instant::now() < deadline =>
+                    {
+                        std::thread::sleep(std::time::Duration::from_millis(10))
+                    }
+                    Err(e) => panic!("CLI did not send add request: {e}"),
+                }
+            };
+            let mut line = String::new();
+            BufReader::new(stream.try_clone().unwrap())
+                .read_line(&mut line)
+                .unwrap();
+            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+            assert_eq!(request["command"]["command"], "add");
+            assert_eq!(
+                std::path::Path::new(request["path"].as_str().unwrap()),
+                server_cwd.join(suffix)
+            );
+            writeln!(stream,"{}",serde_json::json!({"type":"added","data":{"path":server_cwd.join(suffix),"index_status":"pending","cli_authorized":true}})).unwrap();
+        }
+    });
+    let run = |args: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_sag"))
+            .current_dir(&cwd)
+            .env("SAG_DESKTOP_DATA_DIR", data.path())
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let result = run(&["add"]);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    assert!(String::from_utf8_lossy(&result.stdout).contains("已加入知识库"));
+    let result = run(&["add", "child", "--json"]);
+    assert!(result.status.success());
+    let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(response["index_status"], "pending");
+    server.join().unwrap();
+}

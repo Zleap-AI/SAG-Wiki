@@ -41,7 +41,7 @@ struct AppState {
     cli: Arc<cli_service::CliService>,
     approvals: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
     scan: mpsc::Sender<IndexRequest>,
-    watcher: Mutex<notify::RecommendedWatcher>,
+    watcher: Arc<Mutex<notify::RecommendedWatcher>>,
     data_dir: PathBuf,
 }
 fn emit(app: &tauri::AppHandle, event: &str, payload: impl serde::Serialize + Clone) {
@@ -121,15 +121,7 @@ async fn explore_evidence(scope: String, snapshot: String, source: i64, target: 
 }
 #[tauri::command]
 fn add_root(path: String, state: State<Arc<AppState>>) -> CommandResult<String> {
-    let root = state.store.add_root(Path::new(&path)).map_err(error)?;
-    state
-        .watcher
-        .lock()
-        .unwrap()
-        .watch(Path::new(&root), RecursiveMode::Recursive)
-        .map_err(error)?;
-    state.scan.send(IndexRequest::Scan { root: root.clone(), verify: false }).map_err(error)?;
-    Ok(root)
+    indexer::add_root(&state.store, &state.watcher, &state.scan, Path::new(&path)).map_err(error)
 }
 #[tauri::command]
 fn remove_root(path: String, state: State<Arc<AppState>>) -> CommandResult<()> {
@@ -884,7 +876,17 @@ pub fn run() {
             });
             let client = reqwest::Client::builder().build()?;
             let query_lock = Arc::new(tokio::sync::Mutex::new(()));
-            let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance)?;
+            let watcher = Arc::new(Mutex::new(watcher));
+            let add_store = store.clone();
+            let add_watcher = watcher.clone();
+            let add_tx = tx.clone();
+            let add_app = app.handle().clone();
+            let add_root = Arc::new(move |path: &Path| {
+                let root = indexer::add_root(&add_store, &add_watcher, &add_tx, path)?;
+                emit(&add_app, "data-changed", ());
+                Ok(root)
+            });
+            let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance, add_root)?;
             app.manage(Arc::new(AppState {
                 explorer: Arc::new(explore::Explorer::new(store.clone())),
                 store,
@@ -894,7 +896,7 @@ pub fn run() {
                 cli,
                 approvals: Mutex::new(HashMap::new()),
                 scan: tx,
-                watcher: Mutex::new(watcher),
+                watcher,
                 data_dir: data,
             }));
             Ok(())

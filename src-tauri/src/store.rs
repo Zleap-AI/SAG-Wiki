@@ -438,6 +438,10 @@ impl Store {
         tx.commit()?;
         Ok(value)
     }
+    pub fn mark_root_pending(&self, root: &str) -> Result<()> {
+        self.connection().execute("UPDATE roots SET status='pending',error=NULL WHERE path=?", [root])?;
+        Ok(())
+    }
     pub fn remove_root(&self, path: &str) -> Result<()> {
         let mut c = self.connection();
         let tx = c.transaction()?;

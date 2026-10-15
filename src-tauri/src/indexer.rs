@@ -17,6 +17,20 @@ pub enum IndexRequest {
     Paths { root: String, paths: Vec<PathBuf> },
 }
 
+pub fn add_root(
+    store: &Store,
+    watcher: &std::sync::Mutex<notify::RecommendedWatcher>,
+    scan: &mpsc::Sender<IndexRequest>,
+    path: &std::path::Path,
+) -> Result<String> {
+    use notify::Watcher;
+    let root = store.add_root(path)?;
+    watcher.lock().unwrap().watch(std::path::Path::new(&root), notify::RecursiveMode::Recursive)?;
+    store.mark_root_pending(&root)?;
+    scan.send(IndexRequest::Scan { root: root.clone(), verify: false })?;
+    Ok(root)
+}
+
 pub fn event_requests(event: &Event, roots: &[Root], settings: &Settings) -> Vec<IndexRequest> {
     if !settings.watch {
         return vec![];

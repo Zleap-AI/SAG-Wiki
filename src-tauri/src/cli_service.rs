@@ -35,6 +35,7 @@ pub struct CliService {
     stop: CancellationToken,
     query_lock: Arc<tokio::sync::Mutex<()>>,
     _instance: File,
+    add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
 }
 // Held for the full application lifetime, including when access is disabled.
 pub fn lock_instance(data: &Path) -> Result<File> {
@@ -54,6 +55,7 @@ impl CliService {
         data: PathBuf,
         query_lock: Arc<tokio::sync::Mutex<()>>,
         instance: File,
+        add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
     ) -> Result<Arc<Self>> {
         let access_file = data.join("cli-access.json");
         let access = match fs::read(access_file) {
@@ -83,6 +85,7 @@ impl CliService {
             stop: CancellationToken::new(),
             query_lock,
             _instance: instance,
+            add_root,
         });
         let path = service.data.join("cli-endpoint.json");
         // The private file is replaced atomically; stale records never claim a live port.
@@ -154,26 +157,38 @@ impl CliService {
     pub fn access(&self) -> Access {
         self.access.read().unwrap().clone()
     }
+    fn save_access(&self, access: &Access) -> Result<()> {
+        let mut temp = tempfile::NamedTempFile::new_in(&self.data)?;
+        temp.write_all(&serde_json::to_vec(access)?)?;
+        temp.persist(self.data.join("cli-access.json"))?;
+        Ok(())
+    }
     pub fn configure(&self, mut access: Access) -> Result<()> {
+        let mut current = self.access.write().unwrap();
         let roots = self.store.roots()?;
-        for root in &access.roots {
-            if !roots.iter().any(|r| &r.path == root) {
-                bail!("请选择已添加的根目录")
+        for root in &mut access.roots {
+            if current.roots.contains(root) || roots.iter().any(|r| r.path == *root) {
+                continue;
             }
+            let canonical = Path::new(root).canonicalize()?;
+            if !canonical.is_dir() || !roots.iter().any(|r| canonical.starts_with(&r.path)) {
+                bail!("请选择已添加的文件夹或其子目录")
+            }
+            *root = store::path_text(&canonical)?;
         }
         access.roots.sort();
         access.roots.dedup();
-        let mut current = self.access.write().unwrap();
-        let mut temp = tempfile::NamedTempFile::new_in(&self.data)?;
-        temp.write_all(&serde_json::to_vec(&access)?)?;
-        temp.persist(self.data.join("cli-access.json"))?;
+        self.save_access(&access)?;
         *current = access;
         Ok(())
     }
     pub fn revoke_root(&self, path: &str) -> Result<()> {
-        let mut access = self.access();
-        access.roots.retain(|root| root != path);
-        self.configure(access)
+        let mut current = self.access.write().unwrap();
+        let mut next = current.clone();
+        next.roots.retain(|root| !Path::new(root).starts_with(path));
+        self.save_access(&next)?;
+        *current = next;
+        Ok(())
     }
     fn authorized(&self, requested: &Path) -> Result<PathBuf> {
         let path = self.store.authorize(requested)?;
@@ -224,6 +239,25 @@ impl CliService {
         }
         match request.command {
             Command::Status => Ok(Response::Status(self.status(&request.path)?)),
+            Command::Add => {
+                let mut current = self.access.write().unwrap();
+                if !current.enabled {
+                    bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
+                }
+                let path = request.path.canonicalize().context("无法打开这个文件夹")?;
+                if !path.is_dir() { bail!("请选择文件夹") }
+                (self.add_root)(&path)?;
+                let mut next = current.clone();
+                next.roots.push(store::path_text(&path)?);
+                next.roots.sort();
+                next.roots.dedup();
+                self.save_access(&next)?;
+                *current = next;
+                let index_status = self.store.roots()?.into_iter()
+                    .find(|item| path.starts_with(&item.path))
+                    .context("目录已从知识库移除，请重新添加")?.status;
+                Ok(Response::Added(AddOutput { path: store::path_text(&path)?, index_status, cli_authorized: true }))
+            }
             Command::Search {
                 query,
                 max_results,

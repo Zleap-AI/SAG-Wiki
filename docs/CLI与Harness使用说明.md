@@ -7,12 +7,14 @@
 3. 安装 SAG CLI。界面显示实际安装路径，安装器自动配置终端路径；完成后新开终端即可运行 `sag`。macOS/Linux 在当前 Shell 配置中添加独立的 SAG 区段，Windows 配置当前用户 PATH。卸载时只移除 SAG 添加的内容，保留用户原有配置；不会覆盖缺少 SAG 安装记录的同名文件。
 4. 安装对应 Harness 的 Skill，并重新启动 Harness。测试按钮执行已安装 CLI 的 `status`；真实模型是否使用 Skill，仍需通过任务记录确认。
 
-关闭窗口后应用继续后台运行。退出 SAG-Desktop 后 CLI 不可用；CLI 不会启动应用。默认关闭搜索授权。本机监听仅提供 status/search，认证信息保存在当前用户的数据目录，不进入命令参数。
+关闭窗口后应用继续后台运行。退出 SAG-Desktop 后 CLI 不可用；CLI 不会启动应用。默认关闭搜索授权。本机监听提供 status、search 和用户明确执行的 add，认证信息保存在当前用户的数据目录，不进入命令参数。
 
 ## 命令
 
 ```sh
 sag status
+sag add
+sag add /path/to/project --json
 sag search "登录之后在哪里验证权限？"
 sag search -c "配置如何影响请求重试？" ./src -m 5
 sag search "连接池在哪里初始化？" --path ./server --json
@@ -23,6 +25,8 @@ sag install opencode
 sag uninstall codex
 sag uninstall cli
 ```
+
+`sag add` 默认添加当前目录，也可指定一个目录。CLI 总开关必须已开启；命令会复用桌面端的添加与索引流程，并授权搜索本次指定的目录。已添加目录不会重复创建；若指定目录已包含在父级知识库中，只授权指定目录，不扩大到父目录。索引在后台进行，命令返回当前索引状态，用 `sag status` 检查就绪情况。`--json` 返回路径、索引状态和 CLI 授权状态。添加的目录会出现在桌面知识库，子目录授权也会显示在 CLI 设置页，可取消勾选后保存以撤销。
 
 默认搜索当前执行目录；位置参数和 `--path` 不能同时使用。默认最多 10 个片段，允许 1–100。`-c` 仅改变输出，不改变召回与排序。路径相对于命令执行目录；JSON 同时返回完整路径、行号、实际范围和截断标记。仅 `-c` 返回 `content`。分离的原文范围分别输出，避免把不连续片段标成连续行。
 

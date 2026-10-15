@@ -22,12 +22,18 @@
  $: cli=installations.find(item=>item.name==='cli');
  $: integrations=installations.filter(item=>item.name!=='cli'&&item.name in names);
 
+ function containsPath(root:string,path:string){
+  const prefix=root.replace(/[\\/]$/,'');
+  return path===root||path.startsWith(prefix+'/')||path.startsWith(prefix+'\\');
+ }
  async function load(){
   const [config,added]=await Promise.all([api<{access:CliAccess;installations:Installation[]}>('get_cli_settings'),api<Root[]>('list_roots')]);
   savedAccess=config.access;
   const current=access??config.access;
-  access={...current,roots:current.roots.filter(path=>added.some(root=>root.path===path))};
-  installations=config.installations;roots=added;loaded=true;
+  const authorized=current.roots.filter(path=>added.some(root=>containsPath(root.path,path)));
+  access={...current,roots:authorized};
+  roots=[...added,...authorized.filter(path=>!added.some(root=>root.path===path)).map(path=>({...added.find(root=>containsPath(root.path,path))!,path,name:path.split(/[\\/]/).pop()!}))];
+  installations=config.installations;loaded=true;
  }
  async function refresh(){pending=true;error='';try{await load();}catch(e){error=String(e);}finally{pending=false;}}
  onMount(()=>{void refresh();});

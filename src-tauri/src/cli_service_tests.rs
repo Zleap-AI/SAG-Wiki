@@ -2,6 +2,14 @@ use super::*;
 use serde_json::{json, Value};
 
 fn fixture() -> (tempfile::TempDir, Arc<CliService>, PathBuf) {
+    let (dir, service, root, rx) = fixture_with_queue();
+    let store = service.store.clone();
+    std::thread::spawn(move || {
+        for request in rx { crate::indexer::apply_request(&store, request, |_| {}).unwrap(); }
+    });
+    (dir, service, root)
+}
+fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sync::mpsc::Receiver<crate::indexer::IndexRequest>) {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("项目 ' quoted");
     fs::create_dir(&root).unwrap();
@@ -14,15 +22,20 @@ fn fixture() -> (tempfile::TempDir, Arc<CliService>, PathBuf) {
     let store = Arc::new(Store::open(&dir.path().join("test.sqlite")).unwrap());
     store.add_root(&root).unwrap();
     store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+    let watcher = Arc::new(std::sync::Mutex::new(notify::recommended_watcher(|_: notify::Result<notify::Event>| {}).unwrap()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let add_store = store.clone();
+    let add_root = Arc::new(move |path: &Path| crate::indexer::add_root(&add_store, &watcher, &tx, path));
     let service = CliService::start(
         store,
         reqwest::Client::new(),
         dir.path().into(),
         Arc::new(tokio::sync::Mutex::new(())),
         lock_instance(dir.path()).unwrap(),
+        add_root,
     )
     .unwrap();
-    (dir, service, root)
+    (dir, service, root, rx)
 }
 async fn send(
     service: &CliService,
@@ -286,6 +299,9 @@ async fn removing_a_root_revokes_access_and_settings_remain_editable() {
             roots: vec![path.into()],
         })
         .unwrap();
+    let child = root.join("nested");
+    fs::create_dir(&child).unwrap();
+    service.configure(Access { enabled: true, roots: vec![path.into(), child.to_str().unwrap().into()] }).unwrap();
     service.store.remove_root(path).unwrap();
     service.revoke_root(path).unwrap();
     assert!(service.access().roots.is_empty());
@@ -317,4 +333,74 @@ async fn saturated_connections_do_not_stop_the_listener() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     let reply = send(&service, &root, Command::Status, None).await;
     assert!(matches!(reply, Response::Status(_)), "{reply:?}");
+}
+
+#[tokio::test]
+async fn add_registers_indexes_and_authorizes_only_the_requested_folder() {
+    let (dir, service, root) = fixture();
+    let new = dir.path().join("新项目");
+    fs::create_dir(&new).unwrap();
+    let new = new.canonicalize().unwrap();
+    fs::write(new.join("notes.md"), "# 新项目\n索引内容").unwrap();
+    assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Error(_)));
+    assert!(!service.store.roots().unwrap().iter().any(|r| Path::new(&r.path)==new));
+    service.configure(Access { enabled:true, roots:vec![] }).unwrap();
+    assert!(matches!(send(&service,&new,Command::Add,Some("bad-token")).await,Response::Error(_)));
+    assert!(!service.store.roots().unwrap().iter().any(|r| Path::new(&r.path)==new));
+    assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Added(_)));
+    for _ in 0..100 {
+        if service.status(&new).unwrap().index_ready { break; }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(service.status(&new).unwrap().index_ready);
+    assert!(service.store.document(&new.join("notes.md")).is_ok());
+    assert!(service.status(&new).unwrap().allowed);
+    assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Added(_)));
+    assert_eq!(service.store.roots().unwrap().iter().filter(|r| Path::new(&r.path)==new).count(),1);
+    let child = root.join("子目录");
+    fs::create_dir(&child).unwrap();
+    assert!(matches!(send(&service,&child,Command::Add,None).await,Response::Added(_)));
+    assert!(service.status(&child).unwrap().allowed);
+    assert!(!service.status(&root).unwrap().allowed,"adding a child must not grant its parent");
+    assert!(matches!(send(&service,&root.join("session.rs"),Command::Add,None).await,Response::Error(_)));
+    assert!(matches!(send(&service,&dir.path().join("missing"),Command::Add,None).await,Response::Error(_)));
+}
+
+
+#[tokio::test]
+async fn offline_existing_authorization_does_not_block_add_or_disabling_cli() {
+    let (dir, service, root, _queue) = fixture_with_queue();
+    service.configure(Access { enabled: true, roots: vec![root.to_str().unwrap().into()] }).unwrap();
+    fs::rename(&root, root.with_file_name("moved")).unwrap();
+    let new = dir.path().join("new");
+    fs::create_dir(&new).unwrap();
+    assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Added(_)));
+    assert!(service.status(&new).unwrap().allowed);
+    let mut access = service.access();
+    access.enabled = false;
+    service.configure(access).unwrap();
+    assert!(!service.access().enabled);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn parallel_adds_preserve_authorizations_and_queued_index_is_not_ready() {
+    let (dir, service, existing, _queue) = fixture_with_queue();
+    service.configure(Access { enabled: true, roots: vec![] }).unwrap();
+    let Response::Added(existing_result) = send(&service,&existing,Command::Add,None).await else { panic!("add failed") };
+    assert_eq!(existing_result.index_status,"pending");
+    assert!(!service.status(&existing).unwrap().index_ready);
+    let root = dir.path().join("outer");
+    fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let child = root.join("child");
+    fs::create_dir(&child).unwrap();
+    let (a,b) = tokio::join!(send(&service,&root,Command::Add,None),send(&service,&child,Command::Add,None));
+    for result in [a,b] {
+        let Response::Added(output) = result else { panic!("add failed: {result:?}") };
+        assert_eq!(output.index_status,"pending");
+    }
+    let access = service.access();
+    assert!(access.roots.contains(&root.to_str().unwrap().into()));
+    assert!(access.roots.contains(&child.to_str().unwrap().into()));
+    assert!(!service.status(&root).unwrap().index_ready);
 }

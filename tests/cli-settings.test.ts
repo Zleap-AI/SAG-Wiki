@@ -96,3 +96,17 @@ it('copies each tool installation command without installing it',async()=>{
  }
  expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration')).toBe(false);
 });
+
+it('shows CLI-authorized subfolders and preserves their scope when saving',async()=>{
+ const normalInvoke=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,...args)=>{
+  const result=await normalInvoke(command,...args);
+  return command==='get_cli_settings'?{...result,access:{enabled:true,roots:['/project/docs']}}:result;
+ });
+ const onClose=vi.fn();
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose}});await ready();
+ expect(document.querySelector('[aria-label="允许搜索 docs"]')?.getAttribute('data-state')).toBe('checked');
+ expect(document.querySelector('[aria-label="允许搜索 Project"]')?.getAttribute('data-state')).toBe('unchecked');
+ click('保存设置');await vi.waitFor(()=>expect(onClose).toHaveBeenCalled());
+ expect(invoke).toHaveBeenCalledWith('save_cli_settings',{access:{enabled:true,roots:['/project/docs']}});
+});

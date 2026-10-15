@@ -35,6 +35,7 @@ pub struct Request {
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
     Status,
+    Add,
     Search {
         query: String,
         max_results: usize,
@@ -59,6 +60,12 @@ pub struct SearchOutput {
     pub truncated: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
+pub struct AddOutput {
+    pub path: String,
+    pub index_status: String,
+    pub cli_authorized: bool,
+}
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Status {
     pub protocol_version: u32,
     pub connected: bool,
@@ -72,6 +79,7 @@ pub struct Status {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Response {
     Status(Status),
+    Added(AddOutput),
     Search(SearchOutput),
     Error(String),
 }
