@@ -76,3 +76,34 @@ it('关联依据使用现有的弹出层，可通过 Escape 关闭',async()=>{
  document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector('.explore-evidence')).toBeNull());
 });
+it('重置清空中心、连线和展开状态，收起在请求中禁用',async()=>{
+ const {session}=setup();document.querySelector<HTMLButtonElement>('[data-explore-tab]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.explore-node')).toHaveLength(2));
+ document.querySelector('[data-document-id="1"]')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));await tick();
+ [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='设为中心')!.click();
+ await vi.waitFor(()=>expect(session.graph.edges).toHaveLength(1));
+ session.graph.nodes.push({id:99,path:'/notes/extra.md',name:'extra.md',hash:'z',file_type:'md',x:800,y:800});
+ session.graph.edges.push({...edge,source:1,target:99});
+ [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='重置视图')!.click();
+ await vi.waitFor(()=>expect(session.graph.center).toBeNull());
+ expect(session.graph.edges).toHaveLength(0);expect(session.graph.neighbors).toBeNull();expect(session.graph.nodes).toHaveLength(2);
+ let resolve!:(value:unknown)=>void;invoke.mockImplementation(async(command)=>command==='explore_neighbors'?new Promise(r=>resolve=r):null);
+ document.querySelector('[data-document-id="1"]')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));await tick();
+ [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='设为中心')!.click();
+ await vi.waitFor(()=>expect(resolve).toBeTypeOf('function'));
+ expect(document.querySelector<HTMLButtonElement>('[aria-label="收起此节点"]')!.disabled).toBe(true);
+});
+it('关联失败后重试同一个展开请求',async()=>{
+ setup();document.querySelector<HTMLButtonElement>('[data-explore-tab]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.explore-node')).toHaveLength(2));
+ let attempts=0;
+ invoke.mockImplementation(async(command)=>{
+  if(command==='explore_neighbors'){attempts++;if(attempts===1)throw new Error('temporary failure');return{version:1,snapshot:'snap',center:a,documents:[b],edges:[edge],total:1,has_more:false,next_offset:1,candidate_limit_reached:false};}
+  return null;
+ });
+ document.querySelector('[data-document-id="1"]')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));await tick();
+ [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='设为中心')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('[role="alert"]')).not.toBeNull());
+ [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='重试')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.explore-edge')).toHaveLength(1));expect(attempts).toBe(2);
+});

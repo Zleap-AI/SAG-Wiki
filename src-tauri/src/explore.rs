@@ -523,21 +523,16 @@ impl Explorer {
             .iter()
             .find(|doc| doc.id == target && doc.hash == edge.target_hash)
             .ok_or_else(|| anyhow::anyhow!("文件已更新，请刷新探索"))?;
-        let expression = format!(
-            "body : ({})",
-            edge.terms
-                .iter()
-                .map(|term| text::quote(term))
-                .collect::<Vec<_>>()
-                .join(" OR ")
-        );
+        // Locate both sides with the same highest-weight term. Independent OR
+        // ranking can select disjoint passages even when the documents overlap.
+        let expression = format!("body : {}", text::quote(&edge.terms[0]));
         let a = self.store.candidate_query(
             &expression,
             None,
             std::slice::from_ref(&left.path),
             &[],
             &[],
-            6,
+            3,
         )?;
         let b = self.store.candidate_query(
             &expression,
@@ -545,7 +540,7 @@ impl Explorer {
             std::slice::from_ref(&right.path),
             &[],
             &[],
-            6,
+            3,
         )?;
         let normalized = |text: &str| text.nfkc().collect::<String>().to_lowercase();
         let mut pairs = Vec::new();
@@ -931,6 +926,107 @@ mod tests {
             .unwrap()
             .documents
             .is_empty());
+    }
+    #[test]
+    fn evidence_pairs_the_same_term_across_long_documents() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        fs::create_dir(&root).unwrap();
+        let terms = [
+            "alphaunique",
+            "betaunique",
+            "gammaunique",
+            "deltaunique",
+            "epsilonunique",
+            "zetaunique",
+            "etaunique",
+            "thetaunique",
+            "iotaunique",
+            "kappaunique",
+            "lambdaunique",
+            "muunique",
+        ];
+        let make = |reverse: bool| {
+            terms
+                .iter()
+                .enumerate()
+                .map(|(i, term)| {
+                    let short = (i < 6) != reverse;
+                    format!(
+                        "{} {}",
+                        format!("{term} ").repeat(if short { 2 } else { 1 }),
+                        if short {
+                            " ".into()
+                        } else {
+                            format!("{} ", if reverse { "astronomy" } else { "photography" })
+                                .repeat(300)
+                        }
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n")
+        };
+        fs::write(root.join("a.md"), make(false)).unwrap();
+        fs::write(root.join("b.md"), make(true)).unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let scope = store.add_root(&root).unwrap();
+        store.scan(&scope, |_| {}).unwrap();
+        let explorer = Explorer::new(store);
+        let center = explorer
+            .overview(&scope, "a.md", &[])
+            .unwrap()
+            .documents
+            .remove(0);
+        let result = explorer
+            .neighbors(&scope, center.id, None, 0, &CancellationToken::new())
+            .unwrap();
+        assert_eq!(result.documents.len(), 1);
+        let edge = &result.edges[0];
+        let evidence = explorer
+            .evidence(&scope, &result.snapshot, edge.source, edge.target)
+            .unwrap();
+        assert!(!evidence.pairs.is_empty());
+        for pair in evidence.pairs {
+            assert!(!pair.terms.is_empty());
+            for term in pair.terms {
+                assert!(pair.left.content.contains(&term));
+                assert!(pair.right.content.contains(&term));
+            }
+        }
+    }
+    #[test]
+    fn file_type_settings_invalidate_existing_exploration() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        fs::create_dir(&root).unwrap();
+        for name in ["a.md", "b.md"] {
+            fs::write(root.join(name), "文件监听按照变化路径处理增量索引。").unwrap();
+        }
+        let store = Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let scope = store.add_root(&root).unwrap();
+        store.scan(&scope, |_| {}).unwrap();
+        let explorer = Explorer::new(store.clone());
+        let center = explorer
+            .overview(&scope, "a.md", &[])
+            .unwrap()
+            .documents
+            .remove(0);
+        let result = explorer
+            .neighbors(&scope, center.id, None, 0, &CancellationToken::new())
+            .unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.markdown = false;
+        store.save_settings(&settings).unwrap();
+        assert!(explorer
+            .neighbors(
+                &scope,
+                center.id,
+                Some(&result.snapshot),
+                0,
+                &CancellationToken::new()
+            )
+            .is_err());
+        assert_eq!(explorer.overview(&scope, "", &[]).unwrap().total, 0);
     }
     #[test]
     #[ignore = "manual local index benchmark; creates only a temporary SQLite database"]

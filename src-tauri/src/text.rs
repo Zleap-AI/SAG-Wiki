@@ -13,7 +13,8 @@ static TOKEN_CACHE: LazyLock<Mutex<IndexMap<String, Vec<String>>>> = LazyLock::n
 pub fn tokenize(text: &str) -> Vec<String> {
     {
         let mut cache = TOKEN_CACHE.lock().expect("token cache mutex poisoned");
-        if let Some(tokens) = cache.shift_remove(text) {
+        // Cache eviction order does not affect tokens; avoid shifting thousands of entries.
+        if let Some(tokens) = cache.swap_remove(text) {
             cache.insert(text.to_owned(), tokens.clone());
             return tokens;
         }
@@ -21,7 +22,7 @@ pub fn tokenize(text: &str) -> Vec<String> {
     let tokens = tokenize_uncached(text);
     let mut cache = TOKEN_CACHE.lock().expect("token cache mutex poisoned");
     cache.insert(text.to_owned(), tokens.clone());
-    if cache.len() > 8192 { cache.shift_remove_index(0); }
+    if cache.len() > 8192 { cache.swap_remove_index(0); }
     tokens
 }
 fn tokenize_uncached(text: &str) -> Vec<String> {
@@ -534,4 +535,15 @@ mod tests {
             assert!(!is_supported(std::path::Path::new(name)));
         }
     }
+    #[test]
+    fn cache_eviction_preserves_tokenization() {
+        for index in 0..8_300 {
+            let source = format!("文档标识符 marker_{index} mixedCase");
+            let expected = tokenize_uncached(&source);
+            assert_eq!(tokenize(&source), expected);
+            assert_eq!(tokenize(&source), expected);
+        }
+        assert!(TOKEN_CACHE.lock().unwrap().len() <= 8192);
+    }
+
 }

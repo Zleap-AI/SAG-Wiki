@@ -4,3 +4,5 @@
 .library-topbar .library-tabs button{padding:5px 23px}.library-topbar .library-top-action button{padding:6px 10px}
 
 .real-client .library-topbar{display:grid;grid-template-columns:minmax(100px,1fr) auto minmax(100px,1fr)}
+
+.library-files,.explore-view,.explore-node-shell{animation:explore-enter 160ms ease-out}@keyframes explore-enter{from{opacity:0}to{opacity:1}}@media(prefers-reduced-motion:reduce){.library-files,.explore-view,.explore-node-shell{animation:none}}
