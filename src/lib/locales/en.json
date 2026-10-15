@@ -821,5 +821,6 @@
   "已恢复目录，正在重新索引。": "Folder restored. Reindexing…",
   "从知识库移除": "Remove from knowledge base",
   "正在读取…": "Loading…",
-  "恢复目录": "Restore folder"
+  "恢复目录": "Restore folder",
+  "项目忽略规则自动读取 .gitignore 和 .sagignore。可用 *.log、目录名/ 和 !文件名 编写规则；.sagignore 优先。修改后自动更新索引，原文件仍可浏览。": "Project ignore rules are read from .gitignore and .sagignore. Use patterns such as *.log, folder/ and !filename; .sagignore takes precedence. Changes update the index automatically, while source files remain browsable."
 }

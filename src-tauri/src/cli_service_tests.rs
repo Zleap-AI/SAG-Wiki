@@ -498,3 +498,72 @@ async fn removed_subdirectory_stays_out_of_index_until_added_again() {
     assert!(service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
     assert_eq!(service.store.document(&file).unwrap().body, "changed local content");
 }
+
+#[tokio::test]
+async fn project_ignore_files_control_initial_and_incremental_indexing() {
+    let (_dir, service, root, queue) = fixture_with_queue();
+    fs::create_dir(root.join("generated")).unwrap();
+    fs::create_dir(root.join("nested")).unwrap();
+    for name in ["drop.md", "drop-keep.md", "keep.secret.md", "internal.private.md", "generated/output.md", "nested/no.md", "nested/ok.md"] {
+        fs::write(root.join(name), "ignore fixture content").unwrap();
+    }
+    fs::write(root.join(".gitignore"), "generated/\ndrop*.md\n!drop-keep.md\n*.secret.md\n").unwrap();
+    fs::write(root.join(".sagignore"), "*.private.md\n!keep.secret.md\n").unwrap();
+    fs::write(root.join("nested/.gitignore"), "*.md\n!ok.md\n").unwrap();
+    assert!(matches!(send(&service, &root, Command::Add, None).await, Response::Added(_)));
+    for request in queue.try_iter() { crate::indexer::apply_request(&service.store, request, |_| {}).unwrap(); }
+    let paths: Vec<_> = service.store.files().unwrap().into_iter().map(|file| file.path).collect();
+    for name in ["drop.md", "internal.private.md", "generated/output.md", "nested/no.md"] {
+        assert!(!paths.contains(&root.join(name).to_str().unwrap().to_owned()), "{name} should be ignored");
+    }
+    for name in ["drop-keep.md", "keep.secret.md", "nested/ok.md"] {
+        assert!(paths.contains(&root.join(name).to_str().unwrap().to_owned()), "{name} should be indexed");
+    }
+    fs::write(root.join("drop.md"), "modified ignored file").unwrap();
+    service.store.update_paths(root.to_str().unwrap(), &[root.join("drop.md")], |_| {}).unwrap();
+    assert!(!service.store.files().unwrap().iter().any(|file| file.path.ends_with("/drop.md")));
+    assert_eq!(fs::read_to_string(root.join("drop.md")).unwrap(), "modified ignored file");
+}
+
+#[tokio::test]
+async fn changing_ignore_files_reconciles_existing_index_and_restores_unignored_files() {
+    let (_dir, service, root, queue) = fixture_with_queue();
+    let file = root.join("changing.md");
+    fs::write(&file, "content remains on disk").unwrap();
+    send(&service, &root, Command::Add, None).await;
+    for request in queue.try_iter() { crate::indexer::apply_request(&service.store, request, |_| {}).unwrap(); }
+    assert!(service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
+    let rules = root.join(".sagignore");
+    for (contents, present) in [(Some("changing.md\n"), false), (Some(""), true), (Some("changing.md\n"), false), (None, true)] {
+        let event = if let Some(contents) = contents {
+            fs::write(&rules, contents).unwrap();
+            notify::Event::new(notify::EventKind::Modify(notify::event::ModifyKind::Any))
+        } else {
+            fs::remove_file(&rules).unwrap();
+            notify::Event::new(notify::EventKind::Remove(notify::event::RemoveKind::File))
+        }.add_path(rules.clone());
+        for request in crate::indexer::event_requests(&event, &service.store.roots().unwrap(), &service.store.settings().unwrap()) {
+            crate::indexer::apply_request(&service.store, request, |_| {}).unwrap();
+        }
+        assert_eq!(service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()), present);
+    }
+    assert_eq!(fs::read_to_string(file).unwrap(), "content remains on disk");
+}
+
+#[tokio::test]
+async fn malformed_ignore_rules_preserve_existing_index_and_report_the_error() {
+    let (_dir, service, root, queue) = fixture_with_queue();
+    let original: Vec<_> = service.store.files().unwrap().into_iter().map(|file| file.path).collect();
+    let rules = root.join(".sagignore");
+    fs::write(&rules, "[z-a]\n").unwrap();
+    send(&service, &root, Command::Add, None).await;
+    let error = crate::indexer::apply_request(&service.store, queue.recv().unwrap(), |_| {}).unwrap_err();
+    assert!(error.to_string().contains(".sagignore"), "{error}");
+    assert!(!service.status(&root).unwrap().index_ready);
+    let after: Vec<_> = service.store.files().unwrap().into_iter().map(|file| file.path).collect();
+    assert_eq!(after, original);
+    fs::write(&rules, "").unwrap();
+    send(&service, &root, Command::Add, None).await;
+    crate::indexer::apply_request(&service.store, queue.recv().unwrap(), |_| {}).unwrap();
+    assert!(service.status(&root).unwrap().index_ready);
+}

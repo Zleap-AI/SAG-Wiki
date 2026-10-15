@@ -54,6 +54,9 @@ pub fn event_requests(event: &Event, roots: &[Root], settings: &Settings) -> Vec
     roots
         .iter()
         .filter_map(|root| {
+            if event.paths.iter().any(|path| path.starts_with(&root.path) && crate::ignore_rules::is_rule_file(path)) {
+                return Some(IndexRequest::Scan { root: root.path.clone(), verify: false });
+            }
             let paths: Vec<_> = event
                 .paths
                 .iter()

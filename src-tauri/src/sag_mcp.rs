@@ -1,5 +1,5 @@
 use crate::{
-    models, retrieval,
+    ignore_rules, models, retrieval,
     store::{self, Store},
     text,
     types::*,
@@ -162,36 +162,34 @@ impl SagTools {
         mut visit: impl FnMut(&Path, &Path, fs::Metadata) -> Result<bool>,
     ) -> Result<()> {
         let excluded = self.store.excluded_directories()?;
+        let projects = self.store.roots()?;
         for root in paths {
+            let project = projects.iter().find(|project| root.starts_with(&project.path)).context("目录已从知识库移除")?;
+            let mut ignore = ignore_rules::matcher(Path::new(&project.path));
             let base = if root.is_dir() {
                 root.clone()
             } else {
                 root.parent().unwrap().to_path_buf()
             };
-            let walker = WalkDir::new(&root)
+            let mut walker = WalkDir::new(&root)
                 .min_depth(usize::from(root.is_dir()))
                 .max_depth(if recursive { usize::MAX } else { 1 })
                 .follow_links(false)
-                .sort_by_file_name();
-            for entry in walker.into_iter().filter_entry(|entry| {
-                !excluded.iter().any(|path| entry.path().starts_with(path)) && (entry.depth() == 0
-                    || (!entry.file_type().is_symlink()
-                        && (self.settings.show_hidden
-                            || !entry.file_name().to_string_lossy().starts_with('.'))
-                        && !(entry.file_type().is_dir()
-                            && self
-                                .settings
-                                .excluded
-                                .iter()
-                                .any(|name| entry.file_name() == name.as_str()))))
-            }) {
-                if self.cancel.is_cancelled() {
-                    bail!("已停止")
-                }
+                .sort_by_file_name()
+                .into_iter();
+            while let Some(entry) = walker.next() {
+                if self.cancel.is_cancelled() { bail!("已停止") }
                 let entry = entry.with_context(|| format!("无法列出目录：{}", root.display()))?;
-                if entry.file_type().is_symlink() {
+                let skipped = excluded.iter().any(|path| entry.path().starts_with(path))
+                    || entry.depth() > 0 && (entry.file_type().is_symlink()
+                        || !self.settings.show_hidden && entry.file_name().to_string_lossy().starts_with('.')
+                        || entry.file_type().is_dir() && self.settings.excluded.iter().any(|name| entry.file_name() == name.as_str()))
+                    || ignore_rules::is_ignored(&mut ignore, entry.path(), entry.file_type().is_dir())?;
+                if skipped {
+                    if entry.file_type().is_dir() { walker.skip_current_dir(); }
                     continue;
                 }
+                if entry.file_type().is_symlink() { continue; }
                 if !visit(entry.path(), &base, entry.metadata()?)? {
                     return Ok(());
                 }
@@ -641,6 +639,20 @@ pub(crate) mod tests {
         let matches = tools.execute("grep", json!({"query":"needle"})).await.unwrap();
         assert!(!matches.sources.is_empty());
         assert!(matches.sources.iter().all(|source| !Path::new(&source.path).starts_with(&child)));
+    }
+    #[tokio::test]
+    async fn list_and_grep_respect_project_ignore_files() {
+        let (_dir, tools, root) = fixture();
+        fs::write(root.join("secret.md"), "needle should be ignored").unwrap();
+        fs::write(root.join("private.md"), "needle should also be ignored").unwrap();
+        fs::write(root.join(".gitignore"), "secret.md\n").unwrap();
+        fs::write(root.join(".sagignore"), "private.md\n").unwrap();
+        let listed = tools.execute("list", json!({})).await.unwrap();
+        assert!(!listed.data.to_string().contains("secret.md"));
+        assert!(!listed.data.to_string().contains("private.md"));
+        let found = tools.execute("grep", json!({"query":"needle"})).await.unwrap();
+        assert!(!found.sources.is_empty());
+        assert!(found.sources.iter().all(|source| !source.path.ends_with("secret.md") && !source.path.ends_with("private.md")));
     }
     #[tokio::test]
     async fn scope_symlinks_errors_and_cancellation() {

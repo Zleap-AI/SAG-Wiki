@@ -1,4 +1,4 @@
-use crate::{text, types::*};
+use crate::{ignore_rules, text, types::*};
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
@@ -12,7 +12,6 @@ use std::{
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
-use walkdir::WalkDir;
 struct PreparedChunk {
     chunk: text::Chunk,
     heading: String,
@@ -689,6 +688,10 @@ impl Store {
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         }
+        if paths.iter().any(|path| path.starts_with(root) && ignore_rules::is_rule_file(path)) {
+            return self.scan_inner(root, progress);
+        }
+        let mut ignore = ignore_rules::matcher(Path::new(root));
         enum Work { Directory(PathBuf, Vec<PathBuf>), File(PathBuf), Remove(PathBuf) }
         let mut work = Vec::new();
         let mut total = 0;
@@ -711,12 +714,13 @@ impl Store {
                 }
                 Err(error) => return Err(error.into()),
             };
-            if metadata.file_type().is_symlink() || !path.canonicalize()?.starts_with(root)
+            if ignore_rules::is_ignored(&mut ignore, path, metadata.is_dir())?
+                || metadata.file_type().is_symlink() || !path.canonicalize()?.starts_with(root)
                 || text::in_hidden_directory(Path::new(root), path, metadata.is_dir()) {
                 work.push(Work::Remove(path.clone()));
                 total += 1;
             } else if metadata.is_dir() {
-                let files = Self::index_files(path, &settings, &excluded)?;
+                let files = Self::index_files(Path::new(root), path, &settings, &excluded)?;
                 total += files.len().max(1);
                 work.push(Work::Directory(path.clone(), files));
             } else if metadata.is_file() && text::is_indexable(path, &settings.file_types) {
@@ -776,22 +780,32 @@ impl Store {
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         };
-        let files = Self::index_files(Path::new(root), &settings, &self.excluded_directories()?)?;
+        let files = Self::index_files(Path::new(root), Path::new(root), &settings, &self.excluded_directories()?)?;
         self.scan_directory(root, Path::new(root), &files, &settings, false, progress)
     }
-    fn index_files(directory: &Path, settings: &Settings, excluded: &[String]) -> Result<Vec<PathBuf>> {
-        WalkDir::new(directory)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| !excluded.iter().any(|path| e.path().starts_with(path)) && (e.depth() == 0 || (
-                !(e.file_type().is_dir() && e.file_name().as_encoded_bytes().starts_with(b"."))
-                    && !settings.excluded.iter().any(|x| e.file_name() == x.as_str()))))
-            .filter_map(|entry| match entry {
-                Ok(entry) if entry.file_type().is_file() && text::is_indexable(entry.path(), &settings.file_types) => Some(Ok(entry.into_path())),
-                Ok(_) => None,
-                Err(error) => Some(Err(anyhow::Error::from(error))),
-            })
-            .collect()
+    fn index_files(root: &Path, directory: &Path, settings: &Settings, excluded: &[String]) -> Result<Vec<PathBuf>> {
+        let target = directory.to_path_buf();
+        let excluded = excluded.to_vec();
+        let names = settings.excluded.clone();
+        let mut builder = ignore_rules::builder(root);
+        builder.filter_entry(move |entry| {
+            let path = entry.path();
+            (path.starts_with(&target) || target.starts_with(path))
+                && !excluded.iter().any(|removed| path.starts_with(removed))
+                && (entry.depth() == 0 || !(entry.file_type().is_some_and(|ty| ty.is_dir())
+                    && entry.file_name().as_encoded_bytes().starts_with(b"."))
+                    && !names.iter().any(|name| entry.file_name() == name.as_str()))
+        });
+        let mut files = Vec::new();
+        for entry in builder.build() {
+            let entry = entry?;
+            if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
+            if entry.path().starts_with(directory) && entry.file_type().is_some_and(|ty| ty.is_file())
+                && text::is_indexable(entry.path(), &settings.file_types) {
+                files.push(entry.into_path());
+            }
+        }
+        Ok(files)
     }
     fn scan_directory(&self, root: &str, directory: &Path, files: &[PathBuf], settings: &Settings, verify: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let mut seen = HashSet::new();
@@ -853,7 +867,8 @@ impl Store {
         Ok(count)
     }
     pub fn index_file(&self, root: &str, path: &Path, max_chars: usize) -> Result<bool> {
-        if text::in_hidden_directory(Path::new(root), path, false)
+        let mut ignore = ignore_rules::matcher(Path::new(root));
+        if ignore_rules::is_ignored(&mut ignore, path, false)? || text::in_hidden_directory(Path::new(root), path, false)
             || !text::is_indexable(path, &self.settings()?.file_types) {
             self.remove_indexed(&path_text(path)?)?;
             return Ok(false);

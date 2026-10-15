@@ -96,7 +96,7 @@
       <div class="setting-row"><label for="index-workers"><strong>{$t("索引并行数")}</strong><p>{$t("默认 8，可设为 1–64；下次索引任务生效，不会重建已有索引")}</p></label><Input id="index-workers" aria-label={$t("索引并行数")} type="number" min="1" max="64" required bind:value={settings.index_workers}/></div>
       <div class="setting-row"><div><strong>{$t("显示隐藏文件夹")}</strong><p>{$t("仅影响文件树显示，隐藏子目录不会进入索引。")}</p></div><Switch bind:checked={settings.show_hidden} label={$t("显示隐藏文件夹")}/></div>
      </section>
-     <section class="settings-group settings-fields"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p></section>
+     <section class="settings-group settings-fields"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p><p class="settings-help">{$t("项目忽略规则自动读取 .gitignore 和 .sagignore。可用 *.log、目录名/ 和 !文件名 编写规则；.sagignore 优先。修改后自动更新索引，原文件仍可浏览。")}</p></section>
      <RemovedDirectories/>
     {:else if page==='models'}
      {#if value.credential_error}<p class="form-error">{$t(value.credential_error)}</p>{/if}

@@ -8,6 +8,7 @@ mod cli_protocol;
 mod document_text;
 mod explore;
 mod indexer;
+mod ignore_rules;
 mod mcp;
 mod models;
 mod retrieval;
