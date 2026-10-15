@@ -124,3 +124,6 @@
 .settings-window .mcp-connection-title .icon{width:12px;height:12px}
 .settings-window .mcp-connection[open] .mcp-connection-title .icon{transform:rotate(90deg)}
 .settings-window .mcp-connection>.setting-row{padding:12px 0}
+
+.settings-window .answer-model-selection{margin-bottom:18px}
+.settings-window .answer-model-selection>.field-label{margin-bottom:8px}

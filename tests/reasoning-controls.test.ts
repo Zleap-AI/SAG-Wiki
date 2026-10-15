@@ -21,7 +21,7 @@ it('不同服务与模型只提供已配置的思考档位',()=>{
 it('滑块用键盘选择强度，按模型保存并支持恢复默认',async()=>{
  const value:Settings={answer:{url:'https://api.302ai.cn/v1',model:'qwen3.6-flash',models:['qwen3.6-flash','deepseek-flash'],has_key:false},jev:{url:'http://localhost',model:'jev',models:[],has_key:false},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:2200},theme:'light',start_page:'ask',editor_size:15,show_hidden:true,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048,model_profiles:{'deepseek-flash':{system_prompt:'保留',sag2_enabled:false,mcp_servers:[],mcp_tools:{},reasoning_effort:'low'}}};
  const onSave=vi.fn(async(_settings:Settings)=>{});
- app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onSave,onClose:()=>{}}});
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onSave,onClose:()=>{}}});
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="思考强度"]')).not.toBeNull());
  document.querySelector<HTMLButtonElement>('[aria-label="思考强度"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('[role="slider"]')).not.toBeNull());

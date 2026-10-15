@@ -376,7 +376,7 @@ pub(crate) fn payload(config: &ModelConfig, messages: Vec<Value>, stream: bool) 
     if let Some(effort) = config.reasoning_effort {
         let level = capability
             .and_then(|entry| entry.levels.iter().find(|level| level.value == effort))
-            .context("当前服务或模型未适配这个思考强度，请在模型设置中恢复默认")?;
+            .context("当前服务或模型未适配这个思考强度，请在问答设置中恢复默认")?;
         p.as_object_mut().unwrap().extend(level.parameters.clone());
     }
     Ok(p)

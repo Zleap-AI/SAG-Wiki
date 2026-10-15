@@ -2,7 +2,7 @@
 import{it,expect,vi}from 'vitest';import{mount,unmount,tick}from 'svelte';import SettingsPanel from '../src/components/Settings.svelte';import type{Settings}from '../src/lib/types';
 it('allows context budgets above 128000 without imposing a numeric maximum',async()=>{
  const value:Settings={answer:{url:'http://localhost',model:'test',models:['test'],has_key:false},jev:{url:'http://localhost',model:'jev',models:[],has_key:false},retrieval:{candidate_k:100,seed_k:10,expansion_term_limit:20,max_hops:2,top_k:10,chunk_chars:2200},theme:'light',start_page:'ask',editor_size:15,show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048};
- const onSave=vi.fn().mockResolvedValue(undefined);const app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onClose:()=>{},onSave}});
+ const onSave=vi.fn().mockResolvedValue(undefined);const app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave}});
  try{
   await vi.waitFor(()=>expect(document.querySelector('#answer-context')).not.toBeNull());
   const input=document.querySelector<HTMLInputElement>('#answer-context')!;

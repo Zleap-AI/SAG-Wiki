@@ -56,10 +56,10 @@ it('restores saved English across all settings pages and preserves original file
  expect(document.body.textContent).toContain('用户原来的问题');expect(document.body.textContent).toContain('资料');
  expect(document.querySelector('.sidebar-nav')?.textContent).toContain('Chat');
  click('Settings');await tick();
- for(const page of ['General','Appearance','Files and editing','Shortcuts','Model settings','Search settings','Data and privacy','About']){
+ for(const page of ['General','Appearance','File settings','Shortcuts','Model settings','Chat settings','Search settings','Data and privacy','About']){
   click(page);await tick();
   expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe(page);
-  if(page==='Model settings')expect(document.querySelector('.settings-content')?.textContent).toContain('MCP servers');
+  if(page==='Chat settings')expect(document.querySelector('.settings-content')?.textContent).toContain('MCP servers');
   expect(document.querySelector('.settings-content')?.textContent,page).not.toMatch(/[\u3400-\u9fff]/);
  }
  click('Close settings');await tick();

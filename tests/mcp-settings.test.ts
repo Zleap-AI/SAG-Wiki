@@ -18,11 +18,20 @@ afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerH
 it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onClose:()=>{},onSave}});
+ await tick();
+ const pages=[...document.querySelectorAll('.settings-nav button')].map(item=>item.textContent?.trim());
+ expect(pages).toContain('文件设置');expect(pages).not.toContain('文件与编辑');
+ expect(pages[pages.indexOf('模型设置')+1]).toBe('问答设置');
+ expect(query('系统提示词')).toBeNull();
+ button('问答设置').click();await tick();
+ expect([...document.querySelectorAll('.settings-content h3')].map(item=>item.textContent)).toEqual(['提示词','工具绑定','上下文与请求']);
  await vi.waitFor(()=>expect(query('系统提示词')).not.toBeNull());
  expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('10');
  expect(query('启用 SAG 内置工具').getAttribute('aria-checked')).toBe('true');
  query('启用 SAG 内置工具').click();await tick();
  await input('系统提示词','第一个模型的提示词');
+ button('模型设置').click();await tick();button('问答设置').click();await tick();
+ expect(query<HTMLTextAreaElement>('系统提示词').value).toBe('第一个模型的提示词');
  query('绑定 DeepWiki').click();await tick();query('DeepWiki 的工具列表').click();await tick();query('启用 DeepWiki / ask_question').click();await tick();
  const select=query('配置回答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector('[data-value="second"]')).not.toBeNull());
@@ -38,7 +47,7 @@ it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
 it('模型工具列表默认折叠，切换模型后保持折叠，并保留独立的工具选择',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
  const profile={system_prompt:'',sag2_enabled:true,mcp_servers:['wiki'],mcp_tools:{wiki:tools.map(tool=>tool.name)}};
- app=mount(SettingsPanel,{target:document.body,props:{value:{...value,model_profiles:{first:structuredClone(profile),second:structuredClone(profile)}},initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,model_profiles:{first:structuredClone(profile),second:structuredClone(profile)}},initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(query('DeepWiki 的工具列表')).not.toBeNull());
  expect(query('DeepWiki 的工具列表').getAttribute('aria-expanded')).toBe('false');
  await vi.waitFor(()=>expect(document.querySelector<HTMLElement>('.model-mcp-server:not(.sag-tools) .model-tool-content')!.hidden).toBe(true));
@@ -60,7 +69,7 @@ it('模型工具列表默认折叠，切换模型后保持折叠，并保留独�
 });
 it('SAG 内置 MCP 默认有四个工具，可按模型单独选择并保存',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
- app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(query('SAG 的工具列表')).not.toBeNull());
  expect(query('SAG 的工具列表').getAttribute('aria-expanded')).toBe('false');
  query('SAG 的工具列表').click();await tick();
@@ -78,7 +87,7 @@ it('SAG 内置 MCP 默认有四个工具，可按模型单独选择并保存',as
  expect(onSave.mock.calls[0][0].model_profiles.second.mcp_tools['builtin:sag']).toBeUndefined();
 });
 it('MCP 连接配置与工具选择位于同一卡片，工具列表仍可折叠',async()=>{
- app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onClose:()=>{},onSave:vi.fn()}});
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave:vi.fn()}});
  await vi.waitFor(()=>expect(query('绑定 DeepWiki')).not.toBeNull());
  expect(document.querySelectorAll('.mcp-server')).toHaveLength(1);
  query('DeepWiki 的连接设置').click();await tick();
@@ -92,7 +101,7 @@ it('MCP 连接配置与工具选择位于同一卡片，工具列表仍可折叠
 });
 it('旧模型配置默认开启 SAG2，关闭后重新打开仍保持关闭',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
- app=mount(SettingsPanel,{target:document.body,props:{value:{...value,model_profiles:{first:{system_prompt:'原有提示词',mcp_servers:['wiki']}}},initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,model_profiles:{first:{system_prompt:'原有提示词',mcp_servers:['wiki']}}},initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(query('启用 SAG 内置工具')).not.toBeNull());
  expect(query('启用 SAG 内置工具').getAttribute('aria-checked')).toBe('true');
  query('启用 SAG 内置工具').click();await tick();await submit();
@@ -100,13 +109,13 @@ it('旧模型配置默认开启 SAG2，关闭后重新打开仍保持关闭',asy
  expect(saved.model_profiles.first.sag2_enabled).toBe(false);
  expect(saved.model_profiles.first.mcp_servers).toEqual(['wiki']);
  await unmount(app);app=undefined;
- app=mount(SettingsPanel,{target:document.body,props:{value:saved,initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value:saved,initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(query('启用 SAG 内置工具')).not.toBeNull());
  expect(query('启用 SAG 内置工具').getAttribute('aria-checked')).toBe('false');
 });
 it('模型设置中可添加和测试 MCP，并立即绑定工具后一起保存',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);api.mockResolvedValue(tools);
- app=mount(SettingsPanel,{target:document.body,props:{value:{...value,mcp_servers:[],model_profiles:{}},initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,mcp_servers:[],model_profiles:{}},initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(button('添加 DeepWiki 示例')).toBeDefined());
  expect([...document.querySelectorAll('.settings-nav button')].map(item=>item.textContent?.trim())).not.toContain('MCP 工具');
  expect(document.querySelectorAll('.sag-tools')).toHaveLength(1);
@@ -121,7 +130,7 @@ it('模型设置中可添加和测试 MCP，并立即绑定工具后一起保存
 });
 it('粘贴多服务JSON后可连接，凭据与设置分开保存，导入不自动执行',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);api.mockResolvedValue(tools);
- app=mount(SettingsPanel,{target:document.body,props:{value:{...value,mcp_servers:[]},initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,mcp_servers:[]},initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(button('导入 JSON')).toBeDefined());button('导入 JSON').click();await tick();
  await input('MCP JSON 配置',JSON.stringify({mcpServers:{Docs:{url:'https://example.com/mcp',headers:{Authorization:'Bearer test-import'}},Local:{command:'python3',args:['server.py','argument with spaces'],env:{TEST_TOKEN:'test-env'}}}}));
  button('导入配置').click();await tick();expect(api).not.toHaveBeenCalled();expect(document.body.textContent).toContain('已导入 2 个服务');
@@ -135,14 +144,14 @@ it('粘贴多服务JSON后可连接，凭据与设置分开保存，导入不自
 });
 it('同名导入不覆盖现有服务，错误导入不产生部分配置',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
- app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(button('导入 JSON')).toBeDefined());button('导入 JSON').click();await tick();
  await input('MCP JSON 配置',JSON.stringify({mcpServers:{New:{url:'https://new.example/mcp'},DeepWiki:{url:'https://wrong.example/mcp'}}}));button('导入配置').click();await tick();
  expect(document.body.textContent).toContain('已存在同名服务');await submit();expect(onSave.mock.calls[0][0].mcp_servers).toEqual([server]);
 });
 it('编辑已展开服务时保持展开，并清除旧工具目录',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
- app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(document.querySelector('details')).not.toBeNull());
  const details=document.querySelector('details')!;details.open=true;details.dispatchEvent(new Event('toggle'));await tick();
  await input('MCP 服务地址','https://changed.example/mcp');
@@ -151,7 +160,7 @@ it('编辑已展开服务时保持展开，并清除旧工具目录',async()=>{
 });
 it('移除服务清理所有模型的服务绑定和工具选择',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
- app=mount(SettingsPanel,{target:document.body,props:{value:{...value,model_profiles:{first:{system_prompt:'',mcp_servers:['wiki'],mcp_tools:{wiki:['ask_question']}}}},initial:'models',onClose:()=>{},onSave}});
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,model_profiles:{first:{system_prompt:'',mcp_servers:['wiki'],mcp_tools:{wiki:['ask_question']}}}},initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(document.querySelector('summary')).not.toBeNull());document.querySelector('summary')!.click();await tick();button('移除服务').click();await tick();await submit();
  expect(onSave.mock.calls[0][0].mcp_servers).toEqual([]);expect(onSave.mock.calls[0][0].model_profiles.first).toEqual({system_prompt:'',mcp_servers:[],mcp_tools:{}});
 });
