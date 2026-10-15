@@ -38,6 +38,7 @@ pub struct CliService {
     query_lock: Arc<tokio::sync::Mutex<()>>,
     _instance: File,
     add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
+    remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
 }
 // Held for the full application lifetime, including when access is disabled.
 pub fn lock_instance(data: &Path) -> Result<File> {
@@ -58,6 +59,7 @@ impl CliService {
         query_lock: Arc<tokio::sync::Mutex<()>>,
         instance: File,
         add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
+        remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
     ) -> Result<Arc<Self>> {
         let access_file = data.join("cli-access.json");
         let access = match fs::read(access_file) {
@@ -88,6 +90,7 @@ impl CliService {
             query_lock,
             _instance: instance,
             add_root,
+            remove_root,
         });
         let path = service.data.join("cli-endpoint.json");
         // The private file is replaced atomically; stale records never claim a live port.
@@ -218,6 +221,17 @@ impl CliService {
         }
         match request.command {
             Command::Status => Ok(Response::Status(self.status(&request.path)?)),
+            Command::Remove => {
+                if !self.access().enabled {
+                    bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
+                }
+                let path = match self.store.roots()?.into_iter().find(|root| Path::new(&root.path) == request.path) {
+                    Some(root) => PathBuf::from(root.path),
+                    None => request.path.canonicalize().context("无法打开这个文件夹")?,
+                };
+                (self.remove_root)(&path)?;
+                Ok(Response::Removed { path: store::path_text(&path)? })
+            }
             Command::Add => {
                 if !self.access().enabled {
                     bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")

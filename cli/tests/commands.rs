@@ -119,12 +119,13 @@ fn factory_droid_is_not_a_supported_installation_target() {
 }
 
 #[test]
-fn add_defaults_to_current_directory_and_accepts_an_explicit_path() {
+fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
     use std::{
         fs,
         io::{BufRead, BufReader, Write},
         net::TcpListener,
     };
+    for (command, response_type, message) in [("add", "added", "已加入知识库"), ("remove", "removed", "已从知识库移除")] {
     let data = tempfile::tempdir().unwrap();
     let cwd = data.path().join("项目 space");
     fs::create_dir_all(cwd.join("child")).unwrap();
@@ -153,12 +154,14 @@ fn add_defaults_to_current_directory_and_accepts_an_explicit_path() {
                 .read_line(&mut line)
                 .unwrap();
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["command"]["command"], "add");
+            assert_eq!(request["command"]["command"], command);
             assert_eq!(
                 std::path::Path::new(request["path"].as_str().unwrap()),
                 server_cwd.join(suffix)
             );
-            writeln!(stream,"{}",serde_json::json!({"type":"added","data":{"path":server_cwd.join(suffix),"index_status":"pending","cli_authorized":true}})).unwrap();
+            let mut data = serde_json::json!({"path":server_cwd.join(suffix)});
+            if command == "add" { data["index_status"] = "pending".into(); data["cli_authorized"] = true.into(); }
+            writeln!(stream,"{}",serde_json::json!({"type":response_type,"data":data})).unwrap();
         }
     });
     let run = |args: &[&str]| {
@@ -169,16 +172,17 @@ fn add_defaults_to_current_directory_and_accepts_an_explicit_path() {
             .output()
             .unwrap()
     };
-    let result = run(&["add"]);
+    let result = run(&[command]);
     assert!(
         result.status.success(),
         "{}",
         String::from_utf8_lossy(&result.stderr)
     );
-    assert!(String::from_utf8_lossy(&result.stdout).contains("已加入知识库"));
-    let result = run(&["add", "child", "--json"]);
+    assert!(String::from_utf8_lossy(&result.stdout).contains(message));
+    let result = run(&[command, "child", "--json"]);
     assert!(result.status.success());
     let response: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(response["index_status"], "pending");
+    assert_eq!(response["path"], cwd.join("child").to_str().unwrap());
     server.join().unwrap();
+    }
 }

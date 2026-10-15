@@ -26,6 +26,8 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
     let (tx, rx) = std::sync::mpsc::channel();
     let add_store = store.clone();
     let add_root = Arc::new(move |path: &Path| crate::indexer::add_root(&add_store, &watcher, &tx, path));
+    let remove_store = store.clone();
+    let remove_root = Arc::new(move |path: &Path| remove_store.remove_root(&crate::store::path_text(path)?));
     let service = CliService::start(
         store,
         reqwest::Client::new(),
@@ -33,6 +35,7 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
         Arc::new(tokio::sync::Mutex::new(())),
         lock_instance(dir.path()).unwrap(),
         add_root,
+        remove_root,
     )
     .unwrap();
     (dir, service, root, rx)
@@ -419,4 +422,46 @@ async fn new_install_is_enabled_and_parent_scope_discovers_indexed_children() {
     assert!(service.status(&root).unwrap().allowed);
     service.configure(Access { enabled: false }).unwrap();
     assert!(matches!(send(&service,&root,search(false),None).await,Response::Error(_)));
+}
+
+#[tokio::test]
+async fn remove_unregisters_only_the_requested_root_and_preserves_local_files() {
+    let (dir, service, root, _queue) = fixture_with_queue();
+    let original = fs::read(root.join("session.rs")).unwrap();
+    let child = root.join("child");
+    fs::create_dir(&child).unwrap();
+    fs::write(child.join("notes.md"), b"keep nested file").unwrap();
+    let other = dir.path().join("other");
+    fs::create_dir(&other).unwrap();
+    assert!(matches!(send(&service, &other, Command::Add, None).await, Response::Added(_)));
+
+    service.configure(Access { enabled: false }).unwrap();
+    assert!(matches!(send(&service, &root, Command::Remove, None).await, Response::Error(_)));
+    service.configure(Access { enabled: true }).unwrap();
+    assert!(matches!(send(&service, &root, Command::Remove, Some("bad-token")).await, Response::Error(_)));
+    assert!(matches!(send(&service, &child, Command::Remove, None).await, Response::Error(_)));
+    assert!(service.status(&root).unwrap().allowed);
+
+    let Response::Removed { path } = send(&service, &root, Command::Remove, None).await else { panic!("remove failed") };
+    assert_eq!(path, root.to_str().unwrap());
+    let Response::Status(status) = send(&service, &root, Command::Status, None).await else { panic!("status failed") };
+    assert!(!status.allowed);
+    assert!(service.status(&other).unwrap().allowed);
+    assert!(matches!(send(&service, &root, search(true), None).await, Response::Error(_)));
+    assert_eq!(fs::read(root.join("session.rs")).unwrap(), original);
+    assert_eq!(fs::read(child.join("notes.md")).unwrap(), b"keep nested file");
+    assert!(matches!(send(&service, &root, Command::Remove, None).await, Response::Error(_)));
+}
+
+#[tokio::test]
+async fn remove_accepts_an_offline_registered_path_and_keeps_moved_files() {
+    let (dir, service, root, _queue) = fixture_with_queue();
+    let moved = root.with_file_name("moved");
+    let original = fs::read(root.join("session.rs")).unwrap();
+    fs::rename(&root, &moved).unwrap();
+    let Response::Removed { path } = send(&service, &root, Command::Remove, None).await else { panic!("offline remove failed") };
+    assert_eq!(path, root.to_str().unwrap());
+    let Response::Status(status) = send(&service, dir.path(), Command::Status, None).await else { panic!("status failed") };
+    assert!(!status.allowed);
+    assert_eq!(fs::read(moved.join("session.rs")).unwrap(), original);
 }

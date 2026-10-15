@@ -36,8 +36,14 @@ enum CliCommand {
         target: String,
     },
     Status,
-    /// 将当前目录或指定目录加入知识库并授权 CLI 搜索。
+    /// 将当前目录或指定目录加入知识库。
     Add {
+        directory: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
+    /// 从知识库移除当前目录或指定目录，保留本地文件。
+    Remove {
         directory: Option<PathBuf>,
         #[arg(long)]
         json: bool,
@@ -101,6 +107,12 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
         CliCommand::Status => (Command::Status, cwd.clone(), false, 10),
         CliCommand::Add { directory, json } => (
             Command::Add,
+            cwd.join(directory.unwrap_or_default()),
+            json,
+            10,
+        ),
+        CliCommand::Remove { directory, json } => (
+            Command::Remove,
             cwd.join(directory.unwrap_or_default()),
             json,
             10,
@@ -181,6 +193,10 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
                     _ => println!("正在建立索引，请用 sag status 查看进度；就绪后可运行 sag search。"),
                 }
             }
+        }
+        Response::Removed { path } => {
+            if json { println!("{}", serde_json::json!({"path":path})); }
+            else { println!("已从知识库移除：{path}\n本地文件已保留。"); }
         }
         Response::Search(mut output) => {
             for item in &mut output.results {

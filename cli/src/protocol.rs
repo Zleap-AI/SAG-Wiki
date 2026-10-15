@@ -36,6 +36,7 @@ pub struct Request {
 pub enum Command {
     Status,
     Add,
+    Remove,
     Search {
         query: String,
         max_results: usize,
@@ -80,6 +81,7 @@ pub struct Status {
 pub enum Response {
     Status(Status),
     Added(AddOutput),
+    Removed { path: String },
     Search(SearchOutput),
     Error(String),
 }

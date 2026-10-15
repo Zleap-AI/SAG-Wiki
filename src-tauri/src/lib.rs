@@ -887,7 +887,14 @@ pub fn run() {
                 emit(&add_app, "data-changed", ());
                 Ok(root)
             });
-            let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance, add_root)?;
+            let remove_store = store.clone();
+            let remove_app = app.handle().clone();
+            let remove_root = Arc::new(move |path: &Path| {
+                remove_store.remove_root(&store::path_text(path)?)?;
+                emit(&remove_app, "data-changed", ());
+                Ok(())
+            });
+            let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance, add_root, remove_root)?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             app.manage(Arc::new(AppState {
                 explorer: Arc::new(explore::Explorer::new(store.clone())),
