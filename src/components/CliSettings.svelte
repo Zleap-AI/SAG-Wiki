@@ -33,7 +33,8 @@
  function toggle(path:string,checked:boolean){
   if(access)access={...access,roots:checked?[...access.roots,path]:access.roots.filter(root=>root!==path)};
  }
- async function manage(item:Installation,uninstall=false){
+ async function manage(item:Installation){
+  const uninstall=item.installed;
   pending=true;error='';notice='';connection='';operation={target:item.name,kind:uninstall?'uninstall':'install'};
   try{
    await api('install_cli_integration',{target:item.name,uninstall});
@@ -79,8 +80,7 @@
      <div class="cli-install-row cli-binary-row">
       <span class="cli-product-icon" aria-hidden="true">{@html icon('codeBlock')}</span>
       <div class="cli-install-info"><div class="cli-install-title"><strong>SAG CLI</strong><span class="cli-badge" data-installed={cli.installed}>{cli.installed?$t('已安装'):$t('未安装')}</span></div><p>{cli.version?`v${cli.version}`:$t('安装后可在终端运行 sag 命令。')}</p></div>
-      <Button.Root type="button" class={cli.installed?'outline cli-action':'primary cli-action'} disabled={disabled} onclick={()=>manage(cli!)}>{operation?.target==='cli'&&operation.kind==='install'?$t('安装中…'):cli.installed?$t('更新'):$t('安装 CLI')}</Button.Root>
-      {#if cli.installed}<Button.Root type="button" class="cli-remove" disabled={disabled} aria-label={$t('卸载 {value0}',{value0:'SAG CLI'})} title={$t('卸载')} onclick={()=>manage(cli!,true)}>{@html icon('delete')}</Button.Root>{/if}
+      <Button.Root type="button" class={cli.installed?'outline cli-action':'primary cli-action'} disabled={disabled} aria-label={$t(cli.installed?'卸载 {value0}':'安装 {value0}',{value0:'SAG CLI'})} onclick={()=>manage(cli!)}>{operation?.target==='cli'&&operation.kind!=='test'?$t(operation.kind==='uninstall'?'卸载中…':'安装中…'):$t(cli.installed?'卸载':'安装')}</Button.Root>
      </div>
      <div class="cli-connection-row"><span>{$t('检查应用连接与目录授权。')}</span><Button.Root type="button" class="outline cli-action" disabled={disabled||!cli.installed||!selected||unsaved} onclick={testConnection}>{operation?.kind==='test'?$t('连接中…'):$t('测试连接')}</Button.Root></div>
      {#if !cli.installed||!selected||unsaved}<p class="cli-prerequisite">{!cli.installed?$t('安装 CLI 后可测试连接。'):unsaved?$t('请先保存访问权限，再测试连接。'):$t('选择文件夹并保存后可测试连接。')}</p>{/if}
@@ -99,8 +99,7 @@
     {#each integrations as item(item.name)}
      <div class="cli-install-row">
       <div class="cli-install-info"><strong>{names[item.name]}</strong><p>Skill<span aria-hidden="true"> · </span>{item.installed?$t('已安装'):$t('未安装')}</p></div>
-      <Button.Root type="button" class="outline cli-action" disabled={disabled} onclick={()=>manage(item)}>{operation?.target===item.name&&operation.kind==='install'?$t('安装中…'):item.installed?$t('更新'):$t('安装')}</Button.Root>
-      {#if item.installed}<Button.Root type="button" class="cli-remove" disabled={disabled} aria-label={$t('卸载 {value0}',{value0:names[item.name]})} title={$t('卸载')} onclick={()=>manage(item,true)}>{@html icon('delete')}</Button.Root>{/if}
+      <Button.Root type="button" class="outline cli-action" disabled={disabled} aria-label={$t(item.installed?'卸载 {value0}':'安装 {value0}',{value0:names[item.name]})} onclick={()=>manage(item)}>{operation?.target===item.name&&operation.kind!=='test'?$t(operation.kind==='uninstall'?'卸载中…':'安装中…'):$t(item.installed?'卸载':'安装')}</Button.Root>
      </div>
     {/each}
     <Collapsible.Root class="cli-location">
@@ -143,8 +142,6 @@
  .cli-product-icon{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--color-rule);border-radius:8px;background:var(--color-panel);flex-shrink:0}
  .cli-product-icon :global(.icon){width:18px;height:18px}
  .cli-settings :global(.cli-action){min-width:66px;min-height:32px;white-space:nowrap;flex-shrink:0}
- .cli-settings :global(.cli-remove){display:grid;place-items:center;width:32px;height:32px;border:0;border-radius:6px;background:var(--color-transparent);color:var(--color-secondary);flex-shrink:0}
- .cli-settings :global(.cli-remove .icon){width:15px;height:15px}
  .cli-settings :global(button:disabled){opacity:.5;cursor:default}
  .cli-settings :global(button:focus-visible){outline:2px solid var(--color-focus);outline-offset:3px}
  .cli-connection-row{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 16px;border-top:1px solid var(--color-rule);font-size:var(--text-caption);color:var(--color-secondary)}
@@ -174,6 +171,6 @@
  .cli-empty{display:flex;align-items:center;gap:10px;padding:18px 16px;color:var(--color-secondary)}
  .cli-empty :global(.icon){width:18px;height:18px;flex-shrink:0}
  .cli-empty p{margin:0;font-size:var(--text-caption);line-height:1.6}
- @media(hover:hover){.cli-folder:hover{background:var(--color-panel)}.cli-settings :global(.cli-remove:not(:disabled):hover),.cli-settings :global(.cli-disclosure:hover){background:var(--color-hover);color:var(--color-ink)}}
+ @media(hover:hover){.cli-folder:hover{background:var(--color-panel)}.cli-settings :global(.cli-disclosure:hover){background:var(--color-hover);color:var(--color-ink)}}
  @media(max-width:600px){.cli-section-heading{align-items:flex-start}.cli-install-row{gap:8px}.cli-access-row{gap:12px}.cli-connection-row{gap:8px}.cli-binary-row{flex-wrap:wrap}.cli-binary-row .cli-install-info{min-width:120px}.cli-product-icon{display:none}}
 </style>

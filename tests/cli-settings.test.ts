@@ -8,11 +8,11 @@ const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 let app:ReturnType<typeof mount>;
 const value:Settings={answer:{url:'https://example.com/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:false},retrieval:{candidate_k:100,seed_k:10,expansion_term_limit:20,max_hops:2,top_k:10,chunk_chars:2200},theme:'light',start_page:'ask',editor_size:15,show_hidden:true,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048};
-let installed=false;
-beforeEach(()=>{installed=false;setLanguage('zh-CN');invoke.mockImplementation(async(command)=>{
+let installed=new Set(['cli']);
+beforeEach(()=>{installed=new Set(['cli']);setLanguage('zh-CN');invoke.mockImplementation(async(command,args)=>{
  if(command==='list_roots')return [{path:'/project',name:'Project',status:'ready',count:5,error:null}];
- if(command==='get_cli_settings')return {access:{enabled:false,roots:[]},installations:['cli','claude-code','codex','opencode'].map(name=>({name,path:`/home/skills/${name}`,installed:name==='cli'||installed,version:name==='cli'||installed?'0.1.0':null}))};
- if(command==='install_cli_integration'){installed=true;return 'installed';}
+ if(command==='get_cli_settings')return {access:{enabled:false,roots:[]},installations:['cli','claude-code','codex','opencode'].map(name=>({name,path:`/home/skills/${name}`,installed:installed.has(name),version:installed.has(name)?'0.1.0':null}))};
+ if(command==='install_cli_integration'){args.uninstall?installed.delete(args.target):installed.add(args.target);return 'installed';}
 });});
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();});
 function click(text:string){const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()===text);expect(button,text).toBeDefined();button!.click();}
@@ -62,4 +62,19 @@ it('reports partial failure without announcing success or closing, and lets the 
  click('保存设置');await vi.waitFor(()=>expect(document.querySelector('.settings-feedback')?.textContent).toContain('其他设置已保存，但 CLI 权限未保存：'));
  expect(onSave).toHaveBeenCalledOnce();expect(onSaved).not.toHaveBeenCalled();expect(onClose).not.toHaveBeenCalled();
  invoke.mockImplementation(normalInvoke);click('保存设置');await vi.waitFor(()=>expect(onSaved).toHaveBeenCalledOnce());expect(onClose).toHaveBeenCalledOnce();
+});
+
+
+it.each([['cli','SAG CLI'],['claude-code','Claude Code'],['codex','Codex'],['opencode','OpenCode']])('%s has one button that switches between install and uninstall',async(target,name)=>{
+ installed.clear();
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ expect(document.querySelectorAll('.cli-install-row')).toHaveLength(4);
+ for(const row of document.querySelectorAll('.cli-install-row'))expect(row.querySelectorAll('button')).toHaveLength(1);
+ const action=()=>document.querySelector<HTMLButtonElement>(`[aria-label="${installed.has(target)?'卸载':'安装'} ${name}"]`)!;
+ expect(action()?.textContent?.trim()).toBe('安装');action().click();
+ await vi.waitFor(()=>expect(action()?.textContent?.trim()).toBe('卸载'));
+ expect(invoke).toHaveBeenCalledWith('install_cli_integration',{target,uninstall:false});
+ action().click();await vi.waitFor(()=>expect(action()?.textContent?.trim()).toBe('安装'));
+ expect(invoke).toHaveBeenCalledWith('install_cli_integration',{target,uninstall:true});
+ expect(document.querySelector('.cli-settings')?.textContent).not.toContain('更新');
 });

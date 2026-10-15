@@ -786,5 +786,7 @@
   "配置问答模型与 Jev 的连接信息。": "Configure connections for the chat model and Jev.",
   "配置提示词、工具绑定与问答请求参数。": "Configure prompts, tool bindings, and chat request parameters.",
   "提示词和工具绑定按模型分别保存；上下文与请求设置对所有模型生效。": "Prompts and tool bindings are saved per model. Context and request settings apply to all models.",
-  "当前服务或模型未适配这个思考强度，请在问答设置中恢复默认": "This provider or model does not support this reasoning level. Reset it in Chat settings."
+  "当前服务或模型未适配这个思考强度，请在问答设置中恢复默认": "This provider or model does not support this reasoning level. Reset it in Chat settings.",
+  "安装 {value0}": "Install {value0}",
+  "卸载中…": "Uninstalling…"
 }
