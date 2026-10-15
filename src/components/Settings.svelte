@@ -7,15 +7,17 @@
  import Switch from "./ui/Switch.svelte";
  import ReasoningControl from "./ReasoningControl.svelte";
  import{Button,Collapsible,Checkbox}from 'bits-ui';
- import type{Settings,ModelConfig,Retrieval,FileTypes}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
+ import type{Settings,ModelConfig,Retrieval,FileTypes,CliAccess}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
  import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo,ModelProfile}from '../lib/types';
  import SagTools from './SagTools.svelte';
  import IndexSettings from './IndexSettings.svelte';
  import CliSettings from './CliSettings.svelte';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
  export let onShowGuide:(()=>void)|undefined=undefined;
+ export let onSaved:(()=>void)|undefined=undefined;
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
  let settings={...structuredClone(value),language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??10,index_workers:value.index_workers??8,file_types:{markdown:true,text:true,code:true,config:true,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let cliAccess:CliAccess|undefined=undefined,cliBusy=false;
  let languageSaved=false;
  let providerChoice={answer:providerFor('answer',value.answer.url),jev:providerFor('jev',value.jev.url)};
  let autoFilledKey:ModelKind|null=null;
@@ -33,7 +35,7 @@
  function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom'||kind==='jev')providerChoice[kind]=providerFor(kind,address);status='';error='';}
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id==='custom'||id===current)return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN')});
- $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件与编辑"),'folder'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'chat'],['retrieval',$t("检索设置"),'search'],['mcp',$t("MCP 工具"),'plug'],['cli',$t("CLI 与 Harness"),'codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
+ $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件与编辑"),'folder'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'chat'],['retrieval',$t("检索设置"),'search'],['mcp',$t("MCP 工具"),'plug'],['cli','CLI','codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
  let descriptions:Record<string,string>; $:descriptions={general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("连接回答模型与 SAG2 检索模型。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),mcp:$t("连接外部工具，并由回答模型按需调用。"),cli:$t("让编程工具通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 2 次；加上首次召回，共 3 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段最大字符数"),$t("默认 2200；超长段落和代码按句子或行继续拆分。修改后自动重建索引"),400,12000]];
  let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与 RTF"),'.txt · .rst · .rtf'],['code',$t("代码"),$t("Python、JavaScript、TypeScript、Rust、HTML、CSS 等")],['config',$t("配置文件"),'JSON · YAML · TOML · XML · INI']];
@@ -63,7 +65,7 @@
   profile.mcp_tools={...profile.mcp_tools,[server.id]:enabled?[...selected,name]:selected.filter(tool=>tool!==name)};
   settings={...settings};
  }
- async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,jevKey,credentials);languageSaved=true;answerKey='';jevKey='';onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
+ async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
 </script>
@@ -73,7 +75,7 @@
   <form on:submit|preventDefault={save} class="settings-form">
    <nav class="settings-nav" aria-label={$t("设置分类")}>
     {#each pages as [id,label,glyph]}
-     <Button.Root type="button" aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
+     <Button.Root type="button" disabled={cliBusy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
     {/each}
    </nav>
    <div class="settings-content">
@@ -172,7 +174,7 @@
     {:else if page==='mcp'}
      <McpSettings bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={id=>{for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}}}/>
     {:else if page==='cli'}
-     <CliSettings/>
+     <CliSettings bind:access={cliAccess} bind:pending={cliBusy} saving={busy}/>
     {:else if page==='privacy'}
      <div class="settings-info-box">{$t("原文件、索引、历史和草稿保存在本地。模型服务会收到当前查询所需的问题与原文片段。")}</div>
      <section class="settings-group"><div class="setting-row"><div><strong>{$t("应用数据位置")}</strong><p>{$t("SQLite 索引、配置与问答历史")}</p></div><Button.Root type="button" class="outline" onclick={()=>api('open_data_directory').catch(e=>error=$t(String(e)))}>{$t("打开目录")}</Button.Root></div></section>
@@ -183,6 +185,6 @@
      <div class="settings-about">{@html logo}<h3>SAG</h3><p>{$t("向你的文件提问")}</p><span>0.1.0 · Tauri + Rust + SQLite</span></div><p class="settings-about-note">{$t("本地文件、快速索引、SAG2 检索。当前开发版。")}</p>
     {/if}
    </div>
-   <div class="settings-footer"><div class="settings-feedback"><span class="form-error" role="alert">{$t(error)}</span><span class="settings-status" role="status">{$t(status)}</span></div><Button.Root type="button" class="settings-cancel" onclick={onClose}>{$t("取消")}</Button.Root><Button.Root type="submit" class="primary" disabled={busy||!!mcpTesting}>{$t("保存设置")}</Button.Root></div>
+   <div class="settings-footer"><div class="settings-feedback"><span class="form-error" role="alert">{$t(error)}</span><span class="settings-status" role="status">{$t(status)}</span></div><Button.Root type="button" class="settings-cancel" onclick={onClose}>{$t("取消")}</Button.Root><Button.Root type="submit" class="primary" disabled={busy||!!mcpTesting||cliBusy}>{$t("保存设置")}</Button.Root></div>
   </form>
 </Modal>

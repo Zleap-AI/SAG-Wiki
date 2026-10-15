@@ -28,11 +28,11 @@ struct Args {
 #[derive(Subcommand)]
 enum CliCommand {
     Install {
-        #[arg(value_parser = ["cli", "claude-code", "codex", "opencode", "factory-droid"])]
+        #[arg(value_parser = ["cli", "claude-code", "codex", "opencode"])]
         target: String,
     },
     Uninstall {
-        #[arg(value_parser = ["cli", "claude-code", "codex", "opencode", "factory-droid"])]
+        #[arg(value_parser = ["cli", "claude-code", "codex", "opencode"])]
         target: String,
     },
     Status,

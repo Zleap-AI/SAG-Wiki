@@ -99,3 +99,21 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     assert_eq!(value["results"][0]["absolute_path"], path.to_str().unwrap());
     server.join().unwrap();
 }
+
+#[test]
+fn factory_droid_is_not_a_supported_installation_target() {
+    for command in ["install", "uninstall"] {
+        let result = Command::new(env!("CARGO_BIN_EXE_sag"))
+            .args([command, "factory-droid"])
+            .output()
+            .unwrap();
+        assert_eq!(result.status.code(), Some(2));
+        let help = Command::new(env!("CARGO_BIN_EXE_sag"))
+            .args([command, "--help"])
+            .output()
+            .unwrap();
+        assert!(!String::from_utf8(help.stdout)
+            .unwrap()
+            .contains("factory-droid"));
+    }
+}

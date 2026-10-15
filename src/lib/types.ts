@@ -23,3 +23,5 @@ export type ToolCallRecord={id:string;query:string;source_count:number;tool_name
 export type Progress={reasoning_delta?:string|null;replace?:boolean;id:string;stage:string;delta:string|null;count:number;tool?:{call:ToolCallRecord;finished:boolean}|null};
 export type SearchPagination={total:number;page:number;page_size:number};
 export type QueryOutput={terms:string[];elapsed_ms?:number;results:Candidate[];pagination?:SearchPagination|null;trace:{hop:number;candidates:number[];terms:{term:string;score:number}[];evidence:number[]}[];conversation:Conversation|null};
+
+export type CliAccess={enabled:boolean;roots:string[]};

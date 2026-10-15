@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const HARNESS_NAMES: [&str; 4] = ["claude-code", "codex", "opencode", "factory-droid"];
+pub const HARNESS_NAMES: [&str; 3] = ["claude-code", "codex", "opencode"];
 pub const SKILL: &str = include_str!("../skills/sag/SKILL.md");
 const OWNER: &str = "com.sag.desktop.cli";
 #[derive(Serialize, Deserialize)]
@@ -30,7 +30,6 @@ pub fn skill_path(home: &Path, harness: &str) -> Result<PathBuf> {
         "claude-code" => home.join(".claude/skills"),
         "codex" => home.join(".agents/skills"),
         "opencode" => home.join(".config/opencode/skills"),
-        "factory-droid" => home.join(".factory/skills"),
         _ => bail!("未知 Harness：{harness}"),
     };
     Ok(base.join("sag/SKILL.md"))

@@ -1,9 +1,9 @@
-# CLI 与 Harness
+# CLI
 
 ## 启用与安装
 
 1. 在 SAG-Desktop 中添加项目文件夹并完成索引，配置 JEV。
-2. 打开设置 → CLI 与 Harness，启用 CLI 接入，勾选可供搜索的文件夹，点击“应用 CLI 设置”。此按钮立即保存该区域，不受设置窗口底部“取消”影响。
+2. 打开设置 → CLI，启用 CLI，勾选允许搜索的文件夹，点击底部“保存设置”。点击“取消”将放弃尚未保存的权限修改。
 3. 安装 SAG CLI。界面显示实际安装路径；如果所在目录尚未加入 PATH，请手动加入。程序不会修改 Shell 配置，也不会覆盖缺少 SAG 安装记录的同名文件。
 4. 安装对应 Harness 的 Skill，并重新启动 Harness。测试按钮执行已安装 CLI 的 `status`；真实模型是否使用 Skill，仍需通过任务记录确认。
 
@@ -20,7 +20,6 @@ sag search -c "任务如何取消？" --timeout 900 --json
 sag install claude-code
 sag install codex
 sag install opencode
-sag install factory-droid
 sag uninstall codex
 sag uninstall cli
 ```
@@ -39,7 +38,6 @@ sag uninstall cli
 | Claude Code | `~/.claude/skills/sag/SKILL.md` |
 | Codex | `~/.agents/skills/sag/SKILL.md` |
 | OpenCode | `~/.config/opencode/skills/sag/SKILL.md` |
-| Factory Droid | `~/.factory/skills/sag/SKILL.md` |
 
 重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；即使后续 PATH 顺序变化，更新和卸载仍使用原安装位置。检测到外部文件或用户修改时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。不会更改 AGENTS.md、MCP 配置或增加文件监听进程。
 
@@ -66,7 +64,7 @@ Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默�
 - [Codex Skill 安装位置](https://learn.chatgpt.com/docs/build-skills)
 - [OpenCode Skill 安装位置](https://opencode.ai/docs/skills/)
 
-Factory 官方文档本轮无法读取；其路径参考固定版本 mgrep，实际支持情况须在对应客户端确认。
+当前提供 Claude Code、Codex 和 OpenCode 的 Skill 安装。
 
 ## 开发验证
 
