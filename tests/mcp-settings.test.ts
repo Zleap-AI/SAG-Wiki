@@ -77,17 +77,18 @@ it('SAG 内置 MCP 默认有四个工具，可按模型单独选择并保存',as
  expect(onSave.mock.calls[0][0].model_profiles.first.mcp_tools['builtin:sag']).toEqual(['list','read','grep']);
  expect(onSave.mock.calls[0][0].model_profiles.second.mcp_tools['builtin:sag']).toBeUndefined();
 });
-it('模型设置中 MCP 服务的工具目录默认折叠，可重复展开和收起',async()=>{
+it('MCP 连接配置与工具选择位于同一卡片，工具列表仍可折叠',async()=>{
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'models',onClose:()=>{},onSave:vi.fn()}});
- await vi.waitFor(()=>expect(document.querySelector('.mcp-server>summary')).not.toBeNull());
- document.querySelector<HTMLElement>('.mcp-server>summary')!.click();await tick();
- expect(query('DeepWiki 的可用工具').getAttribute('aria-expanded')).toBe('false');
- await vi.waitFor(()=>expect(document.querySelector<HTMLElement>('.mcp-tool-catalog .model-tool-content')!.hidden).toBe(true));
- query('DeepWiki 的可用工具').click();await tick();
- expect(document.querySelectorAll('.mcp-tool-list li')).toHaveLength(2);
- await vi.waitFor(()=>expect(document.querySelector<HTMLElement>('.mcp-tool-catalog .model-tool-content')!.hidden).toBe(false));
- query('DeepWiki 的可用工具').click();await tick();
- expect(query('DeepWiki 的可用工具').getAttribute('aria-expanded')).toBe('false');
+ await vi.waitFor(()=>expect(query('绑定 DeepWiki')).not.toBeNull());
+ expect(document.querySelectorAll('.mcp-server')).toHaveLength(1);
+ query('DeepWiki 的连接设置').click();await tick();
+ expect(query('MCP 服务地址').closest('.mcp-server')).toBe(query('绑定 DeepWiki').closest('.mcp-server'));
+ query('绑定 DeepWiki').click();await tick();
+ expect(query('DeepWiki 的工具列表').getAttribute('aria-expanded')).toBe('false');
+ query('DeepWiki 的工具列表').click();await tick();
+ expect(query('启用 DeepWiki / ask_question').getAttribute('aria-checked')).toBe('true');
+ query('DeepWiki 的工具列表').click();await tick();
+ expect(query('DeepWiki 的工具列表').getAttribute('aria-expanded')).toBe('false');
 });
 it('旧模型配置默认开启 SAG2，关闭后重新打开仍保持关闭',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
@@ -111,7 +112,9 @@ it('模型设置中可添加和测试 MCP，并立即绑定工具后一起保存
  expect(document.querySelectorAll('.sag-tools')).toHaveLength(1);
  button('添加 DeepWiki 示例').click();await tick();
  expect(query<HTMLInputElement>('MCP 服务地址').value).toBe('https://mcp.deepwiki.com/mcp');
- button('测试连接',document.querySelector('.mcp-server')!).click();await vi.waitFor(()=>expect(document.body.textContent).toContain('已获取 2 个工具'));
+ expect(document.querySelectorAll('.mcp-server')).toHaveLength(1);
+ expect(query('绑定 DeepWiki').closest('.mcp-server')).toBe(query('MCP 服务地址').closest('.mcp-server'));
+ button('测试连接',document.querySelector('.mcp-server')!).click();await vi.waitFor(()=>expect(document.body.textContent).toContain('共 2 个工具'));
  expect(api).toHaveBeenCalledWith('test_mcp',expect.objectContaining({server:expect.objectContaining({transport:'http',require_confirmation:false}),credentials:null}));
  query('绑定 DeepWiki').click();await tick();query('DeepWiki 的工具列表').click();await tick();query('启用 DeepWiki / ask_question').click();await tick();
  await submit();const saved=onSave.mock.calls[0][0];expect(saved.mcp_servers[0].tools).toEqual(tools);expect(saved.model_profiles.first.mcp_servers).toEqual([saved.mcp_servers[0].id]);expect(saved.model_profiles.first.mcp_tools[saved.mcp_servers[0].id]).toEqual(['read_wiki_structure']);
@@ -122,7 +125,7 @@ it('粘贴多服务JSON后可连接，凭据与设置分开保存，导入不自
  await vi.waitFor(()=>expect(button('导入 JSON')).toBeDefined());button('导入 JSON').click();await tick();
  await input('MCP JSON 配置',JSON.stringify({mcpServers:{Docs:{url:'https://example.com/mcp',headers:{Authorization:'Bearer test-import'}},Local:{command:'python3',args:['server.py','argument with spaces'],env:{TEST_TOKEN:'test-env'}}}}));
  button('导入配置').click();await tick();expect(api).not.toHaveBeenCalled();expect(document.body.textContent).toContain('已导入 2 个服务');
- button('测试连接',document.querySelector('.mcp-server')!).click();await vi.waitFor(()=>expect(document.body.textContent).toContain('已获取 2 个工具'));
+ button('测试连接',document.querySelector('.mcp-server')!).click();await vi.waitFor(()=>expect(document.body.textContent).toContain('共 2 个工具'));
  expect(api).toHaveBeenCalledWith('test_mcp',expect.objectContaining({credentials:{headers:{Authorization:'Bearer test-import'},env:{}}}));
  await submit();const [settings,,,credentials]=onSave.mock.calls[0];
  expect(settings.mcp_servers.map((s:McpServer)=>s.name)).toEqual(['Docs','Local']);

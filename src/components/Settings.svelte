@@ -6,10 +6,9 @@
  import Select from "./ui/Select.svelte";
  import Switch from "./ui/Switch.svelte";
  import ReasoningControl from "./ReasoningControl.svelte";
- import{Button,Collapsible,Checkbox}from 'bits-ui';
+ import{Button,Checkbox}from 'bits-ui';
  import type{Settings,ModelConfig,Retrieval,FileTypes,CliAccess}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
- import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo,ModelProfile}from '../lib/types';
- import SagTools from './SagTools.svelte';
+ import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo}from '../lib/types';
  import IndexSettings from './IndexSettings.svelte';
  import CliSettings from './CliSettings.svelte';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
@@ -54,16 +53,6 @@
    }
    settings={...settings,mcp_servers:settings.mcp_servers.map(item=>item.id===server.id?{...item,tools}:item)};
   }catch(error){mcpErrors={...mcpErrors,[server.id]:$t(String(error))}}finally{mcpTesting=''}
- }
- function bindServer(profile:ModelProfile,server:McpServer,enabled:boolean){
-  profile.mcp_servers=enabled?[...profile.mcp_servers,server.id]:profile.mcp_servers.filter(id=>id!==server.id);
-  if(enabled&&server.tools){profile.mcp_tools??={};profile.mcp_tools[server.id]??=server.tools.map(tool=>tool.name);}
-  settings={...settings};
- }
- function selectTool(profile:ModelProfile,server:McpServer,name:string,enabled:boolean){
-  const selected=profile.mcp_tools?.[server.id]??server.tools!.map(tool=>tool.name);
-  profile.mcp_tools={...profile.mcp_tools,[server.id]:enabled?[...selected,name]:selected.filter(tool=>tool!==name)};
-  settings={...settings};
  }
  async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
@@ -125,10 +114,6 @@
        <div class="settings-card-actions"><Button.Root type="button" class="outline" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root>{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}</div>
       </section>
      {/each}
-     <section class="settings-group settings-fields model-mcp-settings" aria-labelledby="model-mcp-heading">
-      <div class="settings-group-heading"><h3 id="model-mcp-heading">{$t("MCP 服务")}</h3></div>
-      <McpSettings bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={id=>{for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}}}/>
-     </section>
      <section class="settings-group settings-fields model-profile-settings">
       <div class="settings-group-heading"><h3>{$t("提示词与工具绑定")}</h3></div>
       <label class="field-label">{$t("回答模型")}<Select label={$t("配置回答模型")} bind:value={profileModel} items={profileNames.map(model=>({value:model,label:model}))}/></label>
@@ -136,30 +121,8 @@
        <div class="setting-row model-reasoning-row"><div><strong>{$t("思考强度")}</strong><p>{$t("按模型单独保存；强度越高，回答通常需要更长时间。")}</p></div><ReasoningControl model={profileModel} endpoint={settings.answer.url} value={settings.model_profiles[profileModel].reasoning_effort} onChange={value=>settings.model_profiles[profileModel].reasoning_effort=value}/></div>
        <label class="field-label">{$t("系统提示词")}<Textarea aria-label={$t("系统提示词")} bind:value={settings.model_profiles[profileModel].system_prompt} rows={6} placeholder={$t("留空使用内置提示词；可设置回答角色、语言和风格。")}/></label>
        <p class="settings-help">{$t("此提示词只用于当前选择的模型。清空后恢复内置提示词。")}</p>
-       <div class="model-mcp-bindings"><strong>{$t("启用工具")}</strong>
-        {#key profileModel}<SagTools profile={settings.model_profiles[profileModel]} onChange={profile=>settings.model_profiles[profileModel]=profile}/>{/key}
-        {#each settings.mcp_servers as server(server.id)}
-         {@const profile=settings.model_profiles[profileModel]}
-         {@const bound=profile.mcp_servers.includes(server.id)}
-         <div class="model-mcp-server">
-          <div class="setting-row"><strong>{server.name}</strong><Switch label={$t("绑定 {value0}",{value0:server.name})} checked={bound} disabled={!bound&&!server.tools?.length} onCheckedChange={checked=>bindServer(profile,server,checked)}/></div>
-          {#if server.tools&&bound}
-           {#key profileModel}<Collapsible.Root class="model-tool-disclosure">
-            <div class="model-tool-toolbar">
-             <Collapsible.Trigger class="model-tool-toggle" aria-label={$t("{value0} 的工具列表",{value0:server.name})}>
-              <span class="model-tool-chevron" aria-hidden="true">{@html icon('chevron')}</span><span>{$t("工具列表")}</span>
-              <small>{$t("共 {value0} 个工具 · 已启用 {value1} 个",{value0:server.tools.length,value1:(profile.mcp_tools?.[server.id]??server.tools.map(tool=>tool.name)).filter(name=>server.tools?.some(tool=>tool.name===name)).length})}</small>
-             </Collapsible.Trigger>
-             <Button.Root type="button" class="settings-text-button model-tool-refresh" disabled={!!mcpTesting} onclick={()=>testMcp(server)}>{mcpTesting===server.id?$t("正在连接…"):$t("刷新工具列表")}</Button.Root>
-            </div>
-            <Collapsible.Content class="model-tool-content"><div class="model-mcp-tools">{#each server.tools as tool(tool.name)}<div class="setting-row"><div><strong>{tool.name}</strong><p>{tool.description}</p></div><Switch label={$t("启用 {value0} / {value1}",{value0:server.name,value1:tool.name})} checked={(profile.mcp_tools?.[server.id]??server.tools.map(item=>item.name)).includes(tool.name)} onCheckedChange={checked=>selectTool(profile,server,tool.name,checked)}/></div>{/each}</div></Collapsible.Content>
-           </Collapsible.Root>{/key}
-          {:else}
-           <div class="model-tool-toolbar"><p class="settings-help">{#if server.tools}{$t("共 {value0} 个工具",{value0:server.tools.length})}{:else}{$t("先测试连接以获取工具列表。")}{/if}</p><Button.Root type="button" class="settings-text-button model-tool-refresh" disabled={!!mcpTesting} onclick={()=>testMcp(server)}>{mcpTesting===server.id?$t("正在连接…"):server.tools?$t("刷新工具列表"):$t("测试连接并获取工具")}</Button.Root></div>
-          {/if}
-          {#if mcpErrors[server.id]}<p class="form-error model-tool-error" role="alert">{$t(mcpErrors[server.id])}</p>{/if}
-         </div>
-        {:else}<p class="settings-help">{$t("在上方添加并测试 MCP 服务后，可在这里为当前模型启用。")}</p>{/each}
+       <div class="model-mcp-bindings"><strong>{$t("工具与 MCP 服务")}</strong>
+        <McpSettings model={profileModel} bind:profile={settings.model_profiles[profileModel]} bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={id=>{for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}}}/>
        </div>
       {/if}
      </section>

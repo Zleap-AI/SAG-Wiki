@@ -93,9 +93,6 @@
 .settings-window .model-mcp-tools strong{display:block;font-family:var(--font-mono);font-size:var(--text-caption);overflow-wrap:anywhere}
 .settings-window .model-mcp-tools .setting-row p{display:block;overflow:visible;margin-top:5px;line-height:1.6}
 .settings-window .model-tool-error{padding:0 14px 12px;margin:0;font-size:var(--text-caption)}
-.settings-window .mcp-tool-catalog{margin-top:14px;padding-top:12px;border-top:1px solid var(--color-rule)}
-.settings-window .mcp-tool-catalog .mcp-tool-list{max-height:none;margin:9px 0 0;padding:0;overflow:visible}
-.settings-window .mcp-tool-catalog .mcp-tool-list strong{font-family:var(--font-mono);font-size:var(--text-caption);overflow-wrap:anywhere}
 @keyframes settings-tools-open{from{height:0;opacity:0}to{height:var(--bits-collapsible-content-height);opacity:1}}
 @keyframes settings-tools-close{from{height:var(--bits-collapsible-content-height);opacity:1}to{height:0;opacity:0}}
 @media(prefers-reduced-motion:reduce){.settings-window .model-tool-content{animation:none}.settings-window .model-tool-chevron>.icon{transition:none}}
@@ -118,5 +115,12 @@
 
 .model-settings-card .provider-field .ui-select{width:100%;margin-top:8px}
 
-.settings-window .model-mcp-settings>.settings-group-heading{margin-bottom:8px}
-.settings-window .model-mcp-settings>.settings-group:last-child{margin-bottom:0}
+.settings-window .mcp-connection{border-top:1px solid var(--color-rule);padding:0 14px}
+.settings-window .mcp-connection[open]{padding-bottom:14px}
+.settings-window .mcp-connection>summary{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;cursor:pointer;font-size:var(--text-caption);color:var(--color-secondary)}
+.settings-window .mcp-connection-title{display:flex;align-items:center;gap:6px}
+.settings-window .mcp-connection-title>span{display:flex}
+.settings-window .mcp-connection-title strong{font:inherit}
+.settings-window .mcp-connection-title .icon{width:12px;height:12px}
+.settings-window .mcp-connection[open] .mcp-connection-title .icon{transform:rotate(90deg)}
+.settings-window .mcp-connection>.setting-row{padding:12px 0}

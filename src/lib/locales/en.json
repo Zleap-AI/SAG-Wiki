@@ -778,7 +778,8 @@
   "其他设置已保存，但 CLI 权限未保存：{value0}": "Other settings were saved, but CLI access could not be saved: {value0}",
   "MCP 服务": "MCP servers",
   "配置模型连接、MCP 服务与工具权限。": "Configure model connections, MCP servers, and tool access.",
-  "在上方添加并测试 MCP 服务后，可在这里为当前模型启用。": "Add and test MCP servers above, then enable them here for this model.",
-  "导入 JSON 或添加 MCP 服务，测试连接后在下方选择模型并启用工具。": "Import JSON or add an MCP server, test the connection, then enable its tools for a model below.",
-  "{value0} 的可用工具": "Available tools for {value0}"
+  "添加或导入 MCP 服务，测试连接后为当前模型启用并选择工具。": "Add or import an MCP server, test the connection, then enable it and choose tools for this model.",
+  "工具与 MCP 服务": "Tools and MCP servers",
+  "连接设置": "Connection settings",
+  "{value0} 的连接设置": "Connection settings for {value0}"
 }
