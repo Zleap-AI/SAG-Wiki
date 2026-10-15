@@ -190,6 +190,7 @@ impl Store {
         register_rank(&db)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
+ CREATE TABLE IF NOT EXISTS root_exclusions(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE INDEX IF NOT EXISTS index_issues_root ON index_issues(root);
  CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY AUTOINCREMENT,root TEXT NOT NULL,path TEXT UNIQUE NOT NULL,name TEXT NOT NULL,hash TEXT NOT NULL,mtime INTEGER NOT NULL,size INTEGER NOT NULL DEFAULT 0);
@@ -391,6 +392,19 @@ impl Store {
         tx.commit()?;
         Ok(roots)
     }
+    pub fn excluded_directories(&self) -> Result<Vec<String>> {
+        let db = self.connection();
+        let mut query = db.prepare("SELECT path FROM root_exclusions ORDER BY path")?;
+        let paths = query.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(paths)
+    }
+    fn path_excluded(db: &Connection, path: &str) -> Result<bool> {
+        Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM root_exclusions WHERE path=?1 OR instr(?1,path || ?2)=1)",
+            params![path,std::path::MAIN_SEPARATOR.to_string()], |row| row.get(0))?)
+    }
+    pub fn is_excluded(&self, path: &Path) -> Result<bool> {
+        Self::path_excluded(&self.connection(), &path_text(path)?)
+    }
     pub fn authorize(&self, path: &Path) -> Result<PathBuf> {
         let canonical = path
             .canonicalize()
@@ -402,6 +416,7 @@ impl Store {
         {
             bail!("该路径不在已添加的文件夹内")
         };
+        if self.is_excluded(&canonical)? { bail!("此目录已从知识库移除，请先重新添加") }
         Ok(canonical)
     }
     pub fn add_root(&self, path: &Path) -> Result<String> {
@@ -411,6 +426,12 @@ impl Store {
         };
         let roots = self.roots()?;
         if let Some(r) = roots.iter().find(|r| path.starts_with(&r.path)) {
+            let value = path_text(&path)?;
+            let mut db = self.connection();
+            let tx = db.transaction()?;
+            tx.execute("DELETE FROM root_exclusions WHERE path=?", [&value])?;
+            if Self::path_excluded(&tx, &value)? { bail!("请先重新添加已移除的上级目录") }
+            tx.commit()?;
             return Ok(r.path.clone());
         };
         let value = path_text(&path)?;
@@ -433,6 +454,7 @@ impl Store {
                 params![value, r.path],
             )?;
             tx.execute("UPDATE index_issues SET root=? WHERE root=?", params![value, r.path])?;
+            tx.execute("UPDATE root_exclusions SET root=? WHERE root=?", params![value, r.path])?;
             tx.execute("DELETE FROM roots WHERE path=?", [&r.path])?;
         }
         tx.commit()?;
@@ -440,6 +462,25 @@ impl Store {
     }
     pub fn mark_root_pending(&self, root: &str) -> Result<()> {
         self.connection().execute("UPDATE roots SET status='pending',error=NULL WHERE path=?", [root])?;
+        Ok(())
+    }
+    pub fn remove_path(&self, path: &Path) -> Result<()> {
+        let value = path_text(path)?;
+        let roots = self.roots()?;
+        if roots.iter().any(|root| root.path == value) { return self.remove_root(&value); }
+        let root = roots.iter().find(|root| path.starts_with(&root.path)).context("此文件夹不在知识库中")?;
+        if !path.is_dir() { bail!("只能移除知识库中的文件夹") }
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        if Self::path_excluded(&tx, &value)? { bail!("此文件夹已从知识库移除") }
+        let prefix = format!("{}{}", value.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+        tx.execute("DELETE FROM root_exclusions WHERE instr(path,?1)=1", [&prefix])?;
+        tx.execute("INSERT INTO root_exclusions(path,root) VALUES(?,?)", params![value,root.path])?;
+        Self::remove_indexed_under_tx(&tx, &root.path, path)?;
+        tx.execute("UPDATE metadata SET version=version+1", [])?;
+        tx.commit()?;
+        drop(db);
+        if root.status == "partial" { self.finish_indexing(&root.path)?; }
         Ok(())
     }
     pub fn remove_root(&self, path: &str) -> Result<()> {
@@ -466,6 +507,7 @@ impl Store {
         for item in fs::read_dir(path)? {
             let item = item?;
             let name = item.file_name().to_string_lossy().to_string();
+            if self.is_excluded(&item.path())? { continue; }
             if !show_hidden && name.starts_with('.') {
                 continue;
             };
@@ -650,7 +692,9 @@ impl Store {
         enum Work { Directory(PathBuf, Vec<PathBuf>), File(PathBuf), Remove(PathBuf) }
         let mut work = Vec::new();
         let mut total = 0;
+        let excluded = self.excluded_directories()?;
         for path in paths {
+            if excluded.iter().any(|directory| path.starts_with(directory)) { continue; }
             let Ok(relative) = path.strip_prefix(root) else { continue; };
             if relative.components().any(|part| settings.excluded.iter().any(|name| part.as_os_str() == name.as_str())) { continue; }
             if text::in_hidden_directory(Path::new(root), path, false) {
@@ -672,7 +716,7 @@ impl Store {
                 work.push(Work::Remove(path.clone()));
                 total += 1;
             } else if metadata.is_dir() {
-                let files = Self::index_files(path, &settings)?;
+                let files = Self::index_files(path, &settings, &excluded)?;
                 total += files.len().max(1);
                 work.push(Work::Directory(path.clone(), files));
             } else if metadata.is_file() && text::is_indexable(path, &settings.file_types) {
@@ -712,15 +756,19 @@ impl Store {
         Ok(count)
     }
     fn remove_indexed_under(&self, root: &str, path: &Path) -> Result<usize> {
-        let path = path_text(path)?;
-        let prefix = format!("{}{}", path.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
         let mut db = self.connection();
         let tx = db.transaction()?;
+        let removed = Self::remove_indexed_under_tx(&tx, root, path)?;
+        tx.commit()?;
+        Ok(removed)
+    }
+    fn remove_indexed_under_tx(tx: &rusqlite::Transaction<'_>, root: &str, path: &Path) -> Result<usize> {
+        let path = path_text(path)?;
+        let prefix = format!("{}{}", path.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?1 AND (d.path=?2 OR instr(d.path,?3)=1))", params![root,path,prefix])?;
         let removed = tx.execute("DELETE FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
         tx.execute("DELETE FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
-        tx.commit()?;
         Ok(removed)
     }
     fn scan_inner(&self, root: &str, progress: impl Fn(IndexProgress)) -> Result<usize> {
@@ -728,16 +776,16 @@ impl Store {
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         };
-        let files = Self::index_files(Path::new(root), &settings)?;
+        let files = Self::index_files(Path::new(root), &settings, &self.excluded_directories()?)?;
         self.scan_directory(root, Path::new(root), &files, &settings, false, progress)
     }
-    fn index_files(directory: &Path, settings: &Settings) -> Result<Vec<PathBuf>> {
+    fn index_files(directory: &Path, settings: &Settings, excluded: &[String]) -> Result<Vec<PathBuf>> {
         WalkDir::new(directory)
             .follow_links(false)
             .into_iter()
-            .filter_entry(|e| e.depth() == 0 || (
+            .filter_entry(|e| !excluded.iter().any(|path| e.path().starts_with(path)) && (e.depth() == 0 || (
                 !(e.file_type().is_dir() && e.file_name().as_encoded_bytes().starts_with(b"."))
-                    && !settings.excluded.iter().any(|x| e.file_name() == x.as_str())))
+                    && !settings.excluded.iter().any(|x| e.file_name() == x.as_str()))))
             .filter_map(|entry| match entry {
                 Ok(entry) if entry.file_type().is_file() && text::is_indexable(entry.path(), &settings.file_types) => Some(Ok(entry.into_path())),
                 Ok(_) => None,
@@ -863,6 +911,7 @@ impl Store {
                 let reason = error.to_string();
                 let mut db = self.connection();
                 let tx = db.transaction()?;
+                if Self::path_excluded(&tx, &path)? { return Ok(None); }
                 tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.path=?)", [&path])?;
                 let removed = tx.execute("DELETE FROM documents WHERE path=?", [&path])?;
                 if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
@@ -886,6 +935,7 @@ impl Store {
         if !registered {
             bail!("索引任务已取消：文件夹已移除")
         }
+        if Self::path_excluded(tx, &file.path)? { return Ok(false); }
         tx.execute("DELETE FROM index_issues WHERE path=?", [&file.path])?;
         let previous: Option<(i64, String)> = tx
             .query_row(

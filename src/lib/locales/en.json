@@ -813,5 +813,13 @@
   "检查应用连接。": "Check the application connection.",
   "请先保存 CLI 开关，再测试连接。": "Save the CLI toggle before testing the connection.",
   "安装 SAG Skill，让编程工具知道如何通过 CLI 搜索已加入知识库的本地文件。": "Install the SAG skill so your coding tool can search local knowledge-base files through the CLI.",
-  "也可在终端运行对应命令，或让编程工具执行安装。SAG CLI 随应用自动安装。": "Run the command in a terminal or ask your coding tool to install it. SAG CLI is installed automatically with the app."
+  "也可在终端运行对应命令，或让编程工具执行安装。SAG CLI 随应用自动安装。": "Run the command in a terminal or ask your coding tool to install it. SAG CLI is installed automatically with the app.",
+  "已移除的子目录": "Removed subdirectories",
+  "这些目录不显示在知识库中，也不参与搜索。恢复立即生效，本地文件始终保留。": "These folders are hidden from the knowledge base and excluded from search. Restoring takes effect immediately. Local files are always kept.",
+  "暂无已移除的子目录。": "No removed subdirectories.",
+  "正在恢复…": "Restoring…",
+  "已恢复目录，正在重新索引。": "Folder restored. Reindexing…",
+  "从知识库移除": "Remove from knowledge base",
+  "正在读取…": "Loading…",
+  "恢复目录": "Restore folder"
 }

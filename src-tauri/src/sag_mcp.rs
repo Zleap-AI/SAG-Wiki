@@ -161,6 +161,7 @@ impl SagTools {
         recursive: bool,
         mut visit: impl FnMut(&Path, &Path, fs::Metadata) -> Result<bool>,
     ) -> Result<()> {
+        let excluded = self.store.excluded_directories()?;
         for root in paths {
             let base = if root.is_dir() {
                 root.clone()
@@ -173,7 +174,7 @@ impl SagTools {
                 .follow_links(false)
                 .sort_by_file_name();
             for entry in walker.into_iter().filter_entry(|entry| {
-                entry.depth() == 0
+                !excluded.iter().any(|path| entry.path().starts_with(path)) && (entry.depth() == 0
                     || (!entry.file_type().is_symlink()
                         && (self.settings.show_hidden
                             || !entry.file_name().to_string_lossy().starts_with('.'))
@@ -182,7 +183,7 @@ impl SagTools {
                                 .settings
                                 .excluded
                                 .iter()
-                                .any(|name| entry.file_name() == name.as_str())))
+                                .any(|name| entry.file_name() == name.as_str()))))
             }) {
                 if self.cancel.is_cancelled() {
                     bail!("已停止")
@@ -627,6 +628,19 @@ pub(crate) mod tests {
             .unwrap();
         assert_eq!(sensitive.sources.len(), 1);
         assert_eq!(fs::read(root.join("README.md")).unwrap(), original);
+    }
+    #[tokio::test]
+    async fn list_and_grep_skip_removed_subdirectories() {
+        let (_dir, tools, root) = fixture();
+        let child = root.join("removed");
+        fs::create_dir(&child).unwrap();
+        fs::write(child.join("hidden.md"), "needle excluded content").unwrap();
+        tools.store.remove_path(&child).unwrap();
+        let listed = tools.execute("list", json!({})).await.unwrap();
+        assert!(!listed.data.to_string().contains("removed"));
+        let matches = tools.execute("grep", json!({"query":"needle"})).await.unwrap();
+        assert!(!matches.sources.is_empty());
+        assert!(matches.sources.iter().all(|source| !Path::new(&source.path).starts_with(&child)));
     }
     #[tokio::test]
     async fn scope_symlinks_errors_and_cancellation() {

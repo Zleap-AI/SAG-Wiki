@@ -27,7 +27,7 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
     let add_store = store.clone();
     let add_root = Arc::new(move |path: &Path| crate::indexer::add_root(&add_store, &watcher, &tx, path));
     let remove_store = store.clone();
-    let remove_root = Arc::new(move |path: &Path| remove_store.remove_root(&crate::store::path_text(path)?));
+    let remove_root = Arc::new(move |path: &Path| remove_store.remove_path(path));
     let service = CliService::start(
         store,
         reqwest::Client::new(),
@@ -439,7 +439,7 @@ async fn remove_unregisters_only_the_requested_root_and_preserves_local_files() 
     assert!(matches!(send(&service, &root, Command::Remove, None).await, Response::Error(_)));
     service.configure(Access { enabled: true }).unwrap();
     assert!(matches!(send(&service, &root, Command::Remove, Some("bad-token")).await, Response::Error(_)));
-    assert!(matches!(send(&service, &child, Command::Remove, None).await, Response::Error(_)));
+    assert!(matches!(send(&service, &root.join("session.rs"), Command::Remove, None).await, Response::Error(_)));
     assert!(service.status(&root).unwrap().allowed);
 
     let Response::Removed { path } = send(&service, &root, Command::Remove, None).await else { panic!("remove failed") };
@@ -464,4 +464,37 @@ async fn remove_accepts_an_offline_registered_path_and_keeps_moved_files() {
     let Response::Status(status) = send(&service, dir.path(), Command::Status, None).await else { panic!("status failed") };
     assert!(!status.allowed);
     assert_eq!(fs::read(moved.join("session.rs")).unwrap(), original);
+}
+
+#[tokio::test]
+async fn removed_subdirectory_stays_out_of_index_until_added_again() {
+    let (dir, service, root, queue) = fixture_with_queue();
+    let child = root.join("excluded");
+    fs::create_dir(&child).unwrap();
+    let file = child.join("notes.md");
+    fs::write(&file, "subdirectory content").unwrap();
+    assert!(matches!(send(&service, &child, Command::Add, None).await, Response::Added(_)));
+    for request in queue.try_iter() { crate::indexer::apply_request(&service.store, request, |_| {}).unwrap(); }
+    assert!(service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
+
+    assert!(matches!(send(&service, &child, Command::Remove, None).await, Response::Removed { .. }));
+    assert!(!service.status(&child).unwrap().allowed);
+    assert!(service.status(&root).unwrap().allowed);
+    assert!(!service.store.entries(&root, true).unwrap().iter().any(|item| item.path == child.to_str().unwrap()));
+    assert!(service.store.document(&file).is_err());
+    assert!(!service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
+    fs::write(&file, "changed local content").unwrap();
+    assert!(matches!(send(&service, &root, Command::Add, None).await, Response::Added(_)));
+    for request in queue.try_iter() { crate::indexer::apply_request(&service.store, request, |_| {}).unwrap(); }
+    service.store.update_paths(root.to_str().unwrap(), &[file.clone(), child.clone()], |_| {}).unwrap();
+    assert!(!service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
+    let reopened = Store::open(&dir.path().join("test.sqlite")).unwrap();
+    assert!(reopened.document(&file).is_err());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "changed local content");
+
+    assert!(matches!(send(&service, &child, Command::Add, None).await, Response::Added(_)));
+    for request in queue.try_iter() { crate::indexer::apply_request(&service.store, request, |_| {}).unwrap(); }
+    assert!(service.status(&child).unwrap().allowed);
+    assert!(service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
+    assert_eq!(service.store.document(&file).unwrap().body, "changed local content");
 }

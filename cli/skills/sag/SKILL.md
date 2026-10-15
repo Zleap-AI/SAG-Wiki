@@ -13,7 +13,7 @@ SAG-Desktop installs the CLI and enables it on first launch. It must remain runn
 
 When the current project has not been indexed, run `sag add` in its directory yourself. This adds it to the knowledge base and starts indexing. Check `sag status`; if indexing is still in progress, wait for it to finish before searching. No sync flag is needed. Do not add unrelated projects or broaden the search to a parent directory merely to find more results. If the user has turned CLI off, report that setting instead of enabling it yourself.
 
-When the user asks to remove a project from the knowledge base, run `sag remove` in that project or pass its exact registered root directory. This removes only knowledge-base records and indexes; local files remain unchanged. A subdirectory cannot be removed independently from its registered parent.
+When the user asks to remove a project from the knowledge base, run `sag remove` in that project or pass a registered root directory or a subdirectory. This removes only knowledge-base records and indexes; local files remain unchanged. A removed subdirectory stays excluded from automatic indexing. When the user asks to restore it, run `sag add` for that same subdirectory.
 
 If a command fails for another reason, report its reason and continue with the harness's normal tools; do not repeat it without a relevant change.
 

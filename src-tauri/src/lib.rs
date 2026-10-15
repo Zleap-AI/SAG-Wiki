@@ -125,8 +125,12 @@ fn add_root(path: String, state: State<Arc<AppState>>) -> CommandResult<String> 
     indexer::add_root(&state.store, &state.watcher, &state.scan, Path::new(&path)).map_err(error)
 }
 #[tauri::command]
+fn list_removed_directories(state: State<Arc<AppState>>) -> CommandResult<Vec<String>> {
+    state.store.excluded_directories().map_err(error)
+}
+#[tauri::command]
 fn remove_root(path: String, state: State<Arc<AppState>>) -> CommandResult<()> {
-    state.store.remove_root(&path).map_err(error)?;
+    state.store.remove_path(Path::new(&path)).map_err(error)?;
     Ok(())
 }
 #[tauri::command]
@@ -890,7 +894,7 @@ pub fn run() {
             let remove_store = store.clone();
             let remove_app = app.handle().clone();
             let remove_root = Arc::new(move |path: &Path| {
-                remove_store.remove_root(&store::path_text(path)?)?;
+                remove_store.remove_path(path)?;
                 emit(&remove_app, "data-changed", ());
                 Ok(())
             });
@@ -933,6 +937,7 @@ pub fn run() {
             explore_evidence,
             add_root,
             remove_root,
+            list_removed_directories,
             refresh_root,
             reindex_all,
             save_document,

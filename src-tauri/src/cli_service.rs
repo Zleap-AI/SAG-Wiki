@@ -177,6 +177,7 @@ impl CliService {
     fn indexed_scope(&self, requested: &Path) -> Result<(PathBuf, Vec<crate::types::Root>)> {
         let path = requested.canonicalize()?;
         if !path.is_dir() { bail!("CLI 搜索范围必须是目录") }
+        if self.store.is_excluded(&path)? { return Ok((path, vec![])); }
         let roots = self.store.roots()?.into_iter()
             .filter(|root| path.starts_with(&root.path) || Path::new(&root.path).starts_with(&path))
             .collect();
