@@ -1,0 +1,10 @@
+{"type":"thread.started","thread_id":"01a14175-b25b-7f31-a3f8-19946cc1bee0"}
+{"type":"item.completed","item":{"id":"item_0","type":"error","message":"Model metadata for `anthropic/claude-sonnet-4.5` not found. Defaulting to fallback metadata; this can degrade performance and cause issues."}}
+{"type":"turn.started"}
+{"type":"error","message":"Reconnecting... 1/5 (unexpected status 403 Forbidden: The request is prohibited due to a violation of provider Terms Of Service., url: https://openrouter.ai/api/v1/responses, cf-ray: a4b1e7242add0ab6-LAX)"}
+{"type":"error","message":"Reconnecting... 2/5 (unexpected status 403 Forbidden: The request is prohibited due to a violation of provider Terms Of Service., url: https://openrouter.ai/api/v1/responses, cf-ray: a4b1e72619c4196e-LAX)"}
+{"type":"error","message":"Reconnecting... 3/5 (unexpected status 403 Forbidden: The request is prohibited due to a violation of provider Terms Of Service., url: https://openrouter.ai/api/v1/responses, cf-ray: a4b1e729581f9dea-LAX)"}
+{"type":"error","message":"Reconnecting... 4/5 (unexpected status 403 Forbidden: The request is prohibited due to a violation of provider Terms Of Service., url: https://openrouter.ai/api/v1/responses, cf-ray: a4b1e72eedf490fe-LAX)"}
+{"type":"error","message":"Reconnecting... 5/5 (unexpected status 403 Forbidden: The request is prohibited due to a violation of provider Terms Of Service., url: https://openrouter.ai/api/v1/responses, cf-ray: a4b1e7394fa949d0-LAX)"}
+{"type":"error","message":"unexpected status 403 Forbidden: The request is prohibited due to a violation of provider Terms Of Service., url: https://openrouter.ai/api/v1/responses, cf-ray: a4b1e74f88d8e9e4-LAX"}
+{"type":"turn.failed","error":{"message":"unexpected status 403 Forbidden: The request is prohibited due to a violation of provider Terms Of Service., url: https://openrouter.ai/api/v1/responses, cf-ray: a4b1e74f88d8e9e4-LAX"}}

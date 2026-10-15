@@ -1,0 +1,6 @@
+{
+  "main_process_disabled_rss_kib": 200064,
+  "main_process_enabled_rss_kib": 202704,
+  "status_median_ms": 5.32,
+  "status_after_window_close": true
+}

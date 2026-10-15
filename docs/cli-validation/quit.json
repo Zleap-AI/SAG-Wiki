@@ -1,0 +1,5 @@
+{
+  "endpoint_cleaned": true,
+  "status_exit_after_quit": 1,
+  "message": "无法连接 SAG-Desktop，请启动应用并在设置中检查 CLI 接入: No such file or directory (os error 2)"
+}
