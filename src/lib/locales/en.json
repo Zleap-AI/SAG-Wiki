@@ -684,5 +684,20 @@
   "自定义": "Custom",
   "Typesafe": "Typesafe",
   "已保存的接口": "Saved endpoint",
-  "切换供应商后，请填写对应的 API 密钥。": "Enter an API key for the selected provider."
+  "切换供应商后，请填写对应的 API 密钥。": "Enter an API key for the selected provider.",
+  "CLI 与 Harness": "CLI & Harness",
+  "让编程工具通过 SAG 搜索本地项目。": "Let coding tools search local projects through SAG.",
+  "关闭窗口后仍可使用 CLI；退出 SAG 后不可用。深入检索会把问题和候选片段发送到已配置的 JEV 服务。": "CLI remains available after closing the window, while SAG is running. Deep search sends questions and candidate passages to your configured JEV service.",
+  "启用 CLI 接入": "Enable CLI access",
+  "仅允许搜索下方授权的已添加目录。": "Only the authorized folders below can be searched.",
+  "请先在文件区域添加项目目录。": "Add a project folder in Files first.",
+  "CLI 设置已应用。": "CLI settings applied.",
+  "应用 CLI 设置": "Apply CLI settings",
+  "已安装": "Installed",
+  "未安装": "Not installed",
+  "更新": "Update",
+  "安装": "Install",
+  "卸载": "Uninstall",
+  "测试 CLI 连接": "Test CLI connection",
+  "安装后重新启动 Harness。测试按钮检查 CLI 连接；实际任务调用需在 Harness 中验证。": "Restart the harness after installation. This button tests the CLI connection; verify real task execution inside the harness."
 }

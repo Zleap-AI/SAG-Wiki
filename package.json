@@ -8,7 +8,9 @@
     "build": "svelte-check --tsconfig ./tsconfig.json && vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "tauri": "tauri",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:cli": "node scripts/build-cli.mjs",
+    "package:windows": "tauri build --config src-tauri/tauri.windows.conf.json"
   },
   "dependencies": {
     "@lucide/icons": "1.56.0",

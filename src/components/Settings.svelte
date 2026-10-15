@@ -11,6 +11,7 @@
  import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo,ModelProfile}from '../lib/types';
  import SagTools from './SagTools.svelte';
  import IndexSettings from './IndexSettings.svelte';
+ import CliSettings from './CliSettings.svelte';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
  export let onShowGuide:(()=>void)|undefined=undefined;
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
@@ -32,8 +33,8 @@
  function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom'||kind==='jev')providerChoice[kind]=providerFor(kind,address);status='';error='';}
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id==='custom'||id===current)return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN')});
- $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件与编辑"),'folder'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'chat'],['retrieval',$t("检索设置"),'search'],['mcp',$t("MCP 工具"),'plug'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
- let descriptions:Record<string,string>; $:descriptions={general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("连接回答模型与 SAG2 检索模型。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),mcp:$t("连接外部工具，并由回答模型按需调用。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
+ $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件与编辑"),'folder'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'chat'],['retrieval',$t("检索设置"),'search'],['mcp',$t("MCP 工具"),'plug'],['cli',$t("CLI 与 Harness"),'codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
+ let descriptions:Record<string,string>; $:descriptions={general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("连接回答模型与 SAG2 检索模型。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),mcp:$t("连接外部工具，并由回答模型按需调用。"),cli:$t("让编程工具通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 2 次；加上首次召回，共 3 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段最大字符数"),$t("默认 2200；超长段落和代码按句子或行继续拆分。修改后自动重建索引"),400,12000]];
  let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与 RTF"),'.txt · .rst · .rtf'],['code',$t("代码"),$t("Python、JavaScript、TypeScript、Rust、HTML、CSS 等")],['config',$t("配置文件"),'JSON · YAML · TOML · XML · INI']];
  $:indexSettingsChanged=fileTypeOptions.some(([kind])=>settings.file_types[kind]!==({markdown:true,text:true,code:true,config:true,...value.file_types})[kind])||JSON.stringify(settings.excluded)!==JSON.stringify(value.excluded)||settings.retrieval.chunk_chars!==value.retrieval.chunk_chars;
@@ -170,6 +171,8 @@
      <details class="settings-limits"><summary>{$t("算法固定规则")}</summary><p>{$t("每次检索最多 3 轮 Jev 评分，本地排序不增加模型请求。单轮预算为 64,000 tokens，单候选与共享证据合计不超过 32,000 tokens；超限时提示调整候选数量，原文不截断。")}</p></details>
     {:else if page==='mcp'}
      <McpSettings bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={id=>{for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}}}/>
+    {:else if page==='cli'}
+     <CliSettings/>
     {:else if page==='privacy'}
      <div class="settings-info-box">{$t("原文件、索引、历史和草稿保存在本地。模型服务会收到当前查询所需的问题与原文片段。")}</div>
      <section class="settings-group"><div class="setting-row"><div><strong>{$t("应用数据位置")}</strong><p>{$t("SQLite 索引、配置与问答历史")}</p></div><Button.Root type="button" class="outline" onclick={()=>api('open_data_directory').catch(e=>error=$t(String(e)))}>{$t("打开目录")}</Button.Root></div></section>

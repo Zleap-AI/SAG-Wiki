@@ -1,4 +1,10 @@
 mod agent;
+mod cli_service;
+mod cli_commands;
+#[path = "../../cli/src/install.rs"]
+mod cli_install;
+#[path = "../../cli/src/protocol.rs"]
+mod cli_protocol;
 mod document_text;
 mod indexer;
 mod mcp;
@@ -29,7 +35,8 @@ struct AppState {
     store: Arc<Store>,
     client: reqwest::Client,
     tasks: Mutex<HashMap<String, CancellationToken>>,
-    query_lock: tokio::sync::Mutex<()>,
+    query_lock: Arc<tokio::sync::Mutex<()>>,
+    cli: Arc<cli_service::CliService>,
     approvals: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
     scan: mpsc::Sender<IndexRequest>,
     watcher: Mutex<notify::RecommendedWatcher>,
@@ -104,7 +111,8 @@ fn add_root(path: String, state: State<Arc<AppState>>) -> CommandResult<String> 
 }
 #[tauri::command]
 fn remove_root(path: String, state: State<Arc<AppState>>) -> CommandResult<()> {
-    state.store.remove_root(&path).map_err(error)
+    state.store.remove_root(&path).map_err(error)?;
+    state.cli.revoke_root(&path).map_err(error)
 }
 #[tauri::command]
 fn refresh_root(path: String, state: State<Arc<AppState>>) -> CommandResult<()> {
@@ -758,6 +766,7 @@ pub fn run() {
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&data)?;
+            let instance = cli_service::lock_instance(&data)?;
             let store = Arc::new(Store::open(&data.join("sag.sqlite"))?);
             let icon = app.default_window_icon().unwrap().clone();
             #[cfg(target_os = "macos")]
@@ -851,11 +860,15 @@ pub fn run() {
                     }
                 }
             });
+            let client = reqwest::Client::builder().build()?;
+            let query_lock = Arc::new(tokio::sync::Mutex::new(()));
+            let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance)?;
             app.manage(Arc::new(AppState {
                 store,
-                client: reqwest::Client::builder().build()?,
+                client,
                 tasks: Mutex::new(HashMap::new()),
-                query_lock: tokio::sync::Mutex::new(()),
+                query_lock,
+                cli,
                 approvals: Mutex::new(HashMap::new()),
                 scan: tx,
                 watcher: Mutex::new(watcher),
@@ -870,6 +883,10 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            cli_commands::get_cli_settings,
+            cli_commands::save_cli_settings,
+            cli_commands::install_cli_integration,
+            cli_commands::test_cli_connection,
             reveal_main_window,
             quit_application,
             list_roots,
@@ -902,6 +919,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("无法启动 SAG 桌面客户端");
     app.run(|app, event| match event {
+        tauri::RunEvent::Exit => app.state::<Arc<AppState>>().cli.shutdown(),
         tauri::RunEvent::ExitRequested { code: None, api, .. } => {
             api.prevent_exit();
             emit(app, "quit-requested", ());

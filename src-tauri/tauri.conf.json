@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build:cli && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -46,7 +46,8 @@
       "licenses/LUCIDE.txt",
       "licenses/BITS-UI.txt",
       "licenses/SHADCN-SVELTE.txt",
-      "licenses/MORPHDOM.txt"
+      "licenses/MORPHDOM.txt",
+      "bin/*"
     ]
   }
 }

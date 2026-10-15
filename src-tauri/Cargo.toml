@@ -10,6 +10,7 @@ cc = "1"
 tauri-build = { version = "2", features = [] }
 [dependencies]
 anyhow = "1"
+dirs = "6"
 tempfile = "3"
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-dialog = "2"
@@ -27,7 +28,7 @@ indexmap = "2"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "rustls", "gzip"] }
 rmcp = { version = "3.5.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
 glob = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros"] }
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "net", "io-util"] }
 tokio-util = "0.7"
 futures-util = "0.3"
 flate2 = "1"
