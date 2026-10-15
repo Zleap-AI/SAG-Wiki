@@ -6,6 +6,7 @@ mod cli_install;
 #[path = "../../cli/src/protocol.rs"]
 mod cli_protocol;
 mod document_text;
+mod explore;
 mod indexer;
 mod mcp;
 mod models;
@@ -33,6 +34,7 @@ fn error(e: impl std::fmt::Display) -> String {
 }
 struct AppState {
     store: Arc<Store>,
+    explorer: Arc<explore::Explorer>,
     client: reqwest::Client,
     tasks: Mutex<HashMap<String, CancellationToken>>,
     query_lock: Arc<tokio::sync::Mutex<()>>,
@@ -96,6 +98,26 @@ async fn read_document(path: String, state: State<'_, Arc<AppState>>) -> Command
     })
     .await
     .map_err(error)?
+}
+#[tauri::command]
+async fn explore_overview(scope: String, query: String, visible: Vec<i64>, state: State<'_, Arc<AppState>>) -> CommandResult<explore::ExploreOverview> {
+    let explorer = state.explorer.clone();
+    tauri::async_runtime::spawn_blocking(move || explorer.overview(&scope, &query, &visible).map_err(error)).await.map_err(error)?
+}
+#[tauri::command]
+async fn explore_neighbors(scope: String, center_id: i64, snapshot: Option<String>, offset: usize, request_id: String, state: State<'_, Arc<AppState>>) -> CommandResult<explore::ExploreNeighbors> {
+    let state = state.inner().clone();
+    let cancel = CancellationToken::new();
+    state.tasks.lock().unwrap().insert(request_id.clone(), cancel.clone());
+    let explorer = state.explorer.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || explorer.neighbors(&scope, center_id, snapshot.as_deref(), offset, &cancel).map_err(error)).await;
+    state.tasks.lock().unwrap().remove(&request_id);
+    result.map_err(error)?
+}
+#[tauri::command]
+async fn explore_evidence(scope: String, snapshot: String, source: i64, target: i64, state: State<'_, Arc<AppState>>) -> CommandResult<explore::ExploreEvidence> {
+    let explorer = state.explorer.clone();
+    tauri::async_runtime::spawn_blocking(move || explorer.evidence(&scope, &snapshot, source, target).map_err(error)).await.map_err(error)?
 }
 #[tauri::command]
 fn add_root(path: String, state: State<Arc<AppState>>) -> CommandResult<String> {
@@ -864,6 +886,7 @@ pub fn run() {
             let query_lock = Arc::new(tokio::sync::Mutex::new(()));
             let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance)?;
             app.manage(Arc::new(AppState {
+                explorer: Arc::new(explore::Explorer::new(store.clone())),
                 store,
                 client,
                 tasks: Mutex::new(HashMap::new()),
@@ -893,6 +916,9 @@ pub fn run() {
             list_entries,
             list_files,
             read_document,
+            explore_overview,
+            explore_neighbors,
+            explore_evidence,
             add_root,
             remove_root,
             refresh_root,

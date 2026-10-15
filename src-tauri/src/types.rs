@@ -114,6 +114,12 @@ pub struct FileInfo {
     pub path: String,
     pub name: String,
 }
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DocumentTerm {
+    pub term: String,
+    pub count: usize,
+    pub boost: f64,
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SourceSpan {
     pub start_byte: usize,

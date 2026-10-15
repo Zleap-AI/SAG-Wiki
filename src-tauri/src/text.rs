@@ -37,6 +37,48 @@ fn tokenize_uncached(text: &str) -> Vec<String> {
 pub fn index_text(text: &str) -> String {
     tokenize(text).join(" ")
 }
+pub const EXPLORE_SUMMARY_VERSION: i64 = 2;
+pub fn explore_summary<'a>(path: &std::path::Path, chunks: impl Iterator<Item = (&'a str, &'a str)>) -> Vec<crate::types::DocumentTerm> {
+    let code = matches!(file_kind(path), Some(FileKind::Code | FileKind::Config));
+    let title: HashSet<_> = tokenize(path.file_stem().and_then(|s| s.to_str()).unwrap_or("")).into_iter().collect();
+    let mut headings = HashSet::new();
+    let mut counts = std::collections::HashMap::<String, usize>::new();
+    let mut seen_passages = HashSet::new();
+    for (heading, content) in chunks {
+        headings.extend(tokenize(heading));
+        if !seen_passages.insert(content.trim()) { continue; }
+        let mut importing = false;
+        let content = content.lines().filter(|line| {
+            let line = line.trim();
+            let label = line.trim_start_matches(['/', '*', '#', ' ']).to_lowercase();
+            if ["copyright ", "©", "all rights reserved", "版权所有", "免责声明"].iter().any(|prefix| label.starts_with(prefix)) { return false; }
+            if !code { return true; }
+            if importing {
+                importing = !(line.contains(';') || line.contains("from ") || line.ends_with(')'));
+                return false;
+            }
+            if ["import ", "from ", "use ", "#include "].iter().any(|prefix| line.starts_with(prefix)) {
+                importing = line.ends_with('{') || line.ends_with('(');
+                return false;
+            }
+            true
+        }).collect::<Vec<_>>().join("\n");
+        for term in tokenize(&content) {
+            let term = term.as_str();
+            if term.chars().count() < 2 || term.chars().all(|c| c.is_numeric()) { continue; }
+            if matches!(term, "copyright" | "reserved" | "免责声明" | "版权所有" | "以及" | "可以" | "一个" | "进行" | "通过" | "需要" | "相关" | "使用" | "内容" | "本文") { continue; }
+            if code && matches!(term, "import" | "from" | "export" | "default" | "const" | "let" | "var" | "return" | "function" | "class" | "true" | "false" | "null" | "undefined" | "public" | "private" | "static" | "void" | "string" | "number" | "async" | "await" | "self" | "this" | "else" | "new" | "pub" | "use" | "mut" | "impl" | "std" | "def" | "int" | "bool") { continue; }
+            *counts.entry(term.to_owned()).or_default() += 1;
+        }
+    }
+    let mut terms: Vec<_> = counts.into_iter().map(|(term, count)| {
+        let boost = 1.0 + if title.contains(&term) { 1.5 } else { 0.0 } + if headings.contains(&term) { 0.5 } else { 0.0 };
+        crate::types::DocumentTerm { term, count, boost }
+    }).collect();
+    terms.sort_by(|a,b| (b.boost * (1.0 + (b.count as f64).ln())).total_cmp(&(a.boost * (1.0 + (a.count as f64).ln()))).then(a.term.cmp(&b.term)));
+    terms.truncate(64);
+    terms
+}
 pub fn quote(text: &str) -> String {
     format!("\"{}\"", text.replace('"', "\"\""))
 }

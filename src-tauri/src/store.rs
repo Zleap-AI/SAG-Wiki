@@ -26,6 +26,7 @@ struct PreparedFile {
     size: i64,
     title: String,
     chunks: Vec<PreparedChunk>,
+    explore_terms: Vec<DocumentTerm>,
 }
 pub struct Store {
     db: Mutex<Connection>,
@@ -201,6 +202,7 @@ impl Store {
  CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,title TEXT NOT NULL,messages TEXT NOT NULL,updated INTEGER NOT NULL,deleted INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS drafts(path TEXT PRIMARY KEY,value TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS metadata(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS explore_summaries(document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,hash TEXT NOT NULL,algorithm INTEGER NOT NULL,terms TEXT NOT NULL);
  INSERT OR IGNORE INTO metadata VALUES(1,0);
 ")?;
         let has_size: bool = db.query_row(
@@ -346,7 +348,14 @@ impl Store {
         if !(10..=600).contains(&s.timeout_secs) {
             bail!("超时应为 10–600 秒")
         }
-        self.connection().execute("INSERT INTO preferences VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(s)?])?;
+        let previous = self.settings()?;
+        let mut db = self.connection();
+        let transaction = db.transaction()?;
+        transaction.execute("INSERT INTO preferences VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(s)?])?;
+        if previous.file_types != s.file_types || previous.excluded != s.excluded {
+            transaction.execute("UPDATE metadata SET version=version+1", [])?;
+        }
+        transaction.commit()?;
         Ok(())
     }
     pub fn roots(&self) -> Result<Vec<Root>> {
@@ -822,7 +831,7 @@ impl Store {
         let body = body(path, &bytes)?;
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let title = text::index_text(&name);
-        let chunks = text::chunks_for_file(&body, max_chars, text::is_markdown(path))
+        let chunks: Vec<PreparedChunk> = text::chunks_for_file(&body, max_chars, text::is_markdown(path))
             .into_iter()
             .map(|chunk| PreparedChunk {
                 heading: text::index_text(&chunk.heading),
@@ -830,6 +839,7 @@ impl Store {
                 chunk,
             })
             .collect();
+        let explore_terms = text::explore_summary(path, chunks.iter().map(|chunk| (chunk.chunk.heading.as_str(), chunk.chunk.content.as_str())));
         Ok(Some(PreparedFile {
             path: path_string,
             name,
@@ -838,6 +848,7 @@ impl Store {
             size,
             title,
             chunks,
+            explore_terms,
         }))
     }
     fn prepare_indexed_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
@@ -914,6 +925,8 @@ impl Store {
             )?;
             tx.last_insert_rowid()
         };
+        tx.execute("INSERT INTO explore_summaries(document_id,hash,algorithm,terms) VALUES(?1,?2,?3,?4) ON CONFLICT(document_id) DO UPDATE SET hash=excluded.hash,algorithm=excluded.algorithm,terms=excluded.terms",
+            params![id, file.fingerprint, text::EXPLORE_SUMMARY_VERSION, serde_json::to_string(&file.explore_terms)?])?;
         for prepared in file.chunks {
             let chunk = prepared.chunk;
             let start = chunk.ranges.first().unwrap().0;
