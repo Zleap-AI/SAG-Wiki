@@ -113,23 +113,14 @@ pub fn binary_path(home: &Path) -> Result<PathBuf> {
             if !path.is_absolute() || !path.starts_with(home) {
                 bail!("CLI 安装位置不属于当前用户目录")
             }
-            return Ok(path);
+            if path.try_exists()? {
+                return Ok(path);
+            }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
     let name = if cfg!(windows) { "sag.exe" } else { "sag" };
-    if let Some(paths) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            if dir.is_absolute()
-                && dir.starts_with(home)
-                && dir.is_dir()
-                && fs::metadata(&dir).is_ok_and(|m| !m.permissions().readonly())
-            {
-                return Ok(dir.join(name));
-            }
-        }
-    }
     Ok(home.join(".local/bin").join(name))
 }
 pub fn binary(source: &Path, target: &Path, uninstall: bool) -> Result<()> {

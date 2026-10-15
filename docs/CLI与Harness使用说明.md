@@ -34,7 +34,7 @@ sag uninstall cli
 
 | 对象 | 用户级位置 |
 | --- | --- |
-| CLI | 优先使用用户目录内的现有 PATH 目录，否则 `~/.local/bin` |
+| CLI | 固定使用 `~/.local/bin`（Windows 文件名为 `sag.exe`） |
 | Claude Code | `~/.claude/skills/sag/SKILL.md` |
 | Codex | `~/.agents/skills/sag/SKILL.md` |
 | OpenCode | `~/.config/opencode/skills/sag/SKILL.md` |
