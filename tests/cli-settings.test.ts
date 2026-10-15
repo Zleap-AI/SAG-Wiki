@@ -29,7 +29,6 @@ it('saves CLI enabled changes only with the settings form, across tab switches a
  await tick();
  expect(invoke.mock.calls.some(([command])=>command==='save_cli_settings')).toBe(false);
  expect([...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()==='测试连接')?.disabled).toBe(true);
- expect(document.body.textContent).toContain('请先保存 CLI 开关，再测试连接。');
  click('安装');await vi.waitFor(()=>expect(document.querySelector('[role=status]')?.textContent).toContain('已安装'));
  click('通用');await tick();click('CLI');await ready();
  expect(document.querySelector('[aria-label="启用 CLI"]')?.getAttribute('data-state')).toBe('checked');
@@ -67,7 +66,7 @@ it('reports partial failure without announcing success or closing, and lets the 
 it.each([['claude-code','Claude Code'],['codex','Codex'],['opencode','OpenCode']])('%s has one button that switches between install and uninstall',async(target,name)=>{
  installed.clear();
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
- expect(document.querySelectorAll('.cli-install-row')).toHaveLength(4);
+ expect(document.querySelectorAll('.cli-install-row')).toHaveLength(3);
  for(const row of document.querySelectorAll('.cli-install-row')){
   expect(row.querySelectorAll('.cli-action')).toHaveLength(1);
   expect(row.textContent).not.toMatch(/已安装|未安装/);
@@ -104,14 +103,15 @@ it('uses automatic scope without requesting a folder authorization list',async()
 });
 
 
-it('shows only a connection test on the built-in CLI row',async()=>{
+it('omits the command-line tool panel while preserving CLI and skill settings',async()=>{
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
- const row=document.querySelector('.cli-binary-row')!;
- expect(row.querySelectorAll('button')).toHaveLength(1);
- expect(row.querySelector('button')?.textContent).toBe('测试连接');
- expect(document.querySelector('[aria-label="卸载 SAG CLI"]')).toBeNull();
- expect(document.querySelector('[aria-label="安装 SAG CLI"]')).toBeNull();
- row.querySelector('button')!.click();
+ expect(document.body.textContent).not.toContain('命令行工具');
+ expect(document.querySelector('#cli-access-heading')?.parentElement?.textContent).toContain('测试连接');
+ const testButton=[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()==='测试连接')!;
+ testButton.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('test_cli_connection',undefined));
- expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration')).toBe(false);
+ expect(document.querySelector('#cli-command-heading')).toBeNull();
+ expect(document.querySelectorAll('.cli-section')).toHaveLength(2);
+ expect(document.querySelector('[aria-label="启用 CLI"]')).not.toBeNull();
+ expect(document.querySelectorAll('.cli-install-row')).toHaveLength(3);
 });

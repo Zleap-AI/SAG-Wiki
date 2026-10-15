@@ -13,13 +13,12 @@
  type Installation={name:string;path:string;installed:boolean;version:string|null};
  let installations:Installation[]=[],loaded=false,error='',notice='',connection='';
  let operation:{target:string;kind:'install'|'uninstall'|'test'}|null=null;
- let savedAccess:CliAccess|undefined;
  let copiedCommand:string|null=null;
- const names:Record<string,string>={cli:'SAG CLI','claude-code':'Claude Code',codex:'Codex',opencode:'OpenCode'};
+ let savedAccess:CliAccess|undefined;
+ const names:Record<string,string>={'claude-code':'Claude Code',codex:'Codex',opencode:'OpenCode'};
  $: disabled=pending||saving;
  $: unsaved=!!access&&!!savedAccess&&access.enabled!==savedAccess.enabled;
- $: cli=installations.find(item=>item.name==='cli');
- $: integrations=installations.filter(item=>item.name!=='cli'&&item.name in names);
+ $: integrations=installations.filter(item=>item.name in names);
 
  async function load(){
   const config=await api<{access:CliAccess;installations:Installation[];install_error?:string|null}>('get_cli_settings');
@@ -58,33 +57,17 @@
   <div class="cli-loading" role="status">{$t('正在读取 CLI 设置…')}</div>
  {:else if access}
   <section class="cli-section" aria-labelledby="cli-access-heading">
-   <header class="cli-section-heading"><h3 id="cli-access-heading">{$t('CLI 服务')}</h3><span>{$t('保存设置后生效')}</span></header>
+   <header class="cli-section-heading"><h3 id="cli-access-heading">{$t('CLI 服务')}</h3><div class="cli-service-actions"><span>{$t('保存设置后生效')}</span><Button.Root type="button" class="outline cli-action" disabled={disabled||unsaved} onclick={testConnection}>{operation?.kind==='test'?$t('连接中…'):$t('测试连接')}</Button.Root></div></header>
    <div class="cli-panel">
     <div class="cli-access-row">
      <div><strong>{$t('启用 CLI')}</strong><p>{$t('首次启动自动安装并启用。搜索当前目录下已加入知识库的内容。')}</p></div>
      <Switch checked={access.enabled} onCheckedChange={enabled=>access={enabled}} disabled={disabled} label={$t('启用 CLI')}/>
     </div>
     <p class="cli-auto-scope">{$t('无需选择授权范围。编程工具可运行 sag add，将当前项目加入知识库后搜索。')}</p>
+    {#if unsaved}<p class="cli-auto-scope">{$t('请先保存 CLI 开关，再测试连接。')}</p>{/if}
+    {#if connection}<div class="cli-connection-result" role="status"><strong>{$t('连接状态')}</strong><pre>{connection}</pre></div>{/if}
    </div>
   </section>
-
-  {#if cli}
-   <section class="cli-section" aria-labelledby="cli-command-heading">
-    <header class="cli-section-heading"><h3 id="cli-command-heading">{$t('命令行工具')}</h3></header>
-    <div class="cli-panel">
-     <div class="cli-install-row cli-binary-row">
-      <span class="cli-product-icon" aria-hidden="true">{@html icon('codeBlock')}</span>
-      <div class="cli-install-info"><strong>SAG CLI</strong><p>{cli.version?`v${cli.version}`:$t('安装后可在终端运行 sag 命令。')}</p></div>
-      <Button.Root type="button" class="outline cli-action" disabled={disabled||!cli.installed||unsaved} onclick={testConnection}>{operation?.kind==='test'?$t('连接中…'):$t('测试连接')}</Button.Root>
-     </div>
-     {#if !cli.installed||unsaved}<p class="cli-prerequisite">{!cli.installed?$t('安装 CLI 后可测试连接。'):$t('请先保存 CLI 开关，再测试连接。')}</p>{/if}
-     <Collapsible.Root class="cli-location">
-      <Collapsible.Trigger class="cli-disclosure"><span aria-hidden="true">{@html icon('chevron')}</span>{$t('安装位置')}</Collapsible.Trigger>
-      <Collapsible.Content class="cli-location-content"><code>{cli.path}</code><p>{$t('终端路径在安装时自动配置。安装后请新开终端运行 sag。')}</p></Collapsible.Content>
-     </Collapsible.Root>
-    </div>
-   </section>
-  {/if}
 
   <section class="cli-section" aria-labelledby="cli-tools-heading">
    <header class="cli-section-heading"><h3 id="cli-tools-heading">{$t('编程工具')}</h3></header>
@@ -93,7 +76,7 @@
     {#each integrations as item(item.name)}
      <div class="cli-install-row">
       <div class="cli-install-info"><strong>{names[item.name]}</strong><div class="cli-command-copy"><code class="cli-install-command" aria-label={$t('{value0} 的安装命令',{value0:names[item.name]})}>sag install {item.name}</code><Button.Root type="button" class="icon-button cli-copy" disabled={disabled} aria-label={$t('复制 {value0} 安装命令',{value0:names[item.name]})} title={copiedCommand===item.name?$t('已复制'):$t('复制安装命令')} onclick={()=>copyCommand(item.name)}>{@html icon(copiedCommand===item.name?'check':'copy')}</Button.Root></div></div>
-      <Button.Root type="button" class={item.installed?'outline cli-action cli-uninstall':'outline cli-action'} disabled={disabled} aria-label={$t(item.installed?'卸载 {value0}':'安装 {value0}',{value0:names[item.name]})} onclick={()=>manage(item)}>{operation?.target===item.name&&operation.kind!=='test'?$t(operation.kind==='uninstall'?'卸载中…':'安装中…'):$t(item.installed?'卸载':'安装')}</Button.Root>
+      <Button.Root type="button" class={item.installed?'outline cli-action cli-uninstall':'outline cli-action'} disabled={disabled} aria-label={$t(item.installed?'卸载 {value0}':'安装 {value0}',{value0:names[item.name]})} onclick={()=>manage(item)}>{operation?.target===item.name?$t(operation.kind==='uninstall'?'卸载中…':'安装中…'):$t(item.installed?'卸载':'安装')}</Button.Root>
      </div>
     {/each}
     <div class="cli-skill-help"><p>{$t('也可在终端运行对应命令，或让编程工具执行安装。SAG CLI 随应用自动安装。')}</p><p>{$t('安装完成后，请在对应工具中新开会话以加载 Skill。')}</p></div>
@@ -107,7 +90,6 @@
  {/if}
  {#if error}<div class="cli-feedback cli-error" role="alert"><span aria-hidden="true">{@html icon('info')}</span><div><strong>{$t('操作未完成')}</strong><p>{error}</p></div>{#if !loaded}<Button.Root type="button" class="outline" disabled={pending} onclick={refresh}>{$t('重试')}</Button.Root>{/if}</div>{/if}
  {#if notice}<div class="cli-feedback" role="status"><span aria-hidden="true">{@html icon('check')}</span><p>{notice}</p></div>{/if}
- {#if connection}<div class="cli-connection-result" role="status"><strong>{$t('连接状态')}</strong><pre>{connection}</pre></div>{/if}
 </div>
 
 <style>
@@ -115,23 +97,22 @@
  .cli-section{min-width:0}
  .cli-section-heading{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
  .cli-section-heading h3{margin:0;font:600 14px/1.5 var(--font-body)}
- .cli-section-heading>span,.cli-section-description{font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
+ .cli-section-description{font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
+ .cli-service-actions{display:flex;align-items:center;gap:12px}
+ .cli-service-actions>span{font-size:var(--text-caption);color:var(--color-secondary)}
  .cli-section-description{margin:-4px 0 10px}
  .cli-panel{border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper);overflow:hidden}
  .cli-access-row{display:flex;align-items:center;justify-content:space-between;gap:24px;padding:16px}
  .cli-access-row strong,.cli-install-info>strong{font-size:var(--text-ui);font-weight:500;line-height:1.5}
- .cli-access-row p,.cli-install-info p{margin:4px 0 0;font-size:var(--text-caption);line-height:1.5;color:var(--color-secondary)}
+ .cli-access-row p{margin:4px 0 0;font-size:var(--text-caption);line-height:1.5;color:var(--color-secondary)}
  .cli-auto-scope{margin:0;padding:0 16px 16px;font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
  .cli-install-row{display:flex;align-items:center;gap:12px;padding:14px 16px;min-height:68px}
  .cli-install-row+.cli-install-row{border-top:1px solid var(--color-rule)}
  .cli-install-info{flex:1;min-width:0}
- .cli-product-icon{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--color-rule);border-radius:8px;background:var(--color-panel);flex-shrink:0}
- .cli-product-icon :global(.icon){width:18px;height:18px}
  .cli-settings :global(.cli-action){min-width:66px;min-height:32px;white-space:nowrap;flex-shrink:0}
  .cli-settings :global(.cli-action.cli-uninstall){background:var(--color-danger);border-color:var(--color-danger);color:var(--color-danger-ink)}
  .cli-settings :global(button:disabled){opacity:.5;cursor:default}
  .cli-settings :global(button:focus-visible){outline:2px solid var(--color-focus);outline-offset:3px}
- .cli-prerequisite{margin:0;padding:0 16px 12px;font-size:var(--text-caption);line-height:1.5;color:var(--color-secondary)}
  .cli-settings :global(.cli-location){border-top:1px solid var(--color-rule)}
  .cli-settings :global(.cli-disclosure){display:flex;align-items:center;gap:6px;width:100%;padding:10px 16px;text-align:left;background:var(--color-transparent);border:0;color:var(--color-secondary);font:400 var(--text-caption)/1.5 var(--font-body)}
  .cli-settings :global(.cli-disclosure>span){display:flex}
@@ -157,10 +138,10 @@
  .cli-feedback{padding:12px 14px;border:1px solid var(--color-rule);border-radius:8px;background:var(--color-paper);color:var(--color-ink)}
  .cli-error{color:var(--color-ink);border-color:var(--color-secondary)}
  .cli-error strong{display:block;font-size:var(--text-caption);font-weight:500;margin-bottom:3px}
- .cli-connection-result{padding:14px 16px;border:1px solid var(--color-rule);border-radius:8px;background:var(--color-paper)}
+ .cli-connection-result{padding:14px 16px;border-top:1px solid var(--color-rule)}
  .cli-connection-result>strong{font-size:var(--text-caption);font-weight:500}
  .cli-connection-result pre{margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.7 var(--font-mono);color:var(--color-secondary)}
  .cli-loading{padding:24px 0;font-size:var(--text-ui);color:var(--color-secondary)}
  @media(hover:hover){.cli-settings :global(.cli-action.cli-uninstall:not(:disabled):hover){background:var(--color-danger-hover);border-color:var(--color-danger-hover)}.cli-settings :global(.cli-disclosure:hover){background:var(--color-hover);color:var(--color-ink)}}
- @media(max-width:600px){.cli-section-heading{align-items:flex-start}.cli-install-row{gap:8px}.cli-access-row{gap:12px}.cli-binary-row{flex-wrap:wrap}.cli-binary-row .cli-install-info{min-width:120px}.cli-product-icon{display:none}}
+ @media(max-width:600px){.cli-section-heading{align-items:flex-start}.cli-install-row{gap:8px}.cli-access-row{gap:12px}}
 </style>
