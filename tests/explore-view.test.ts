@@ -3,6 +3,7 @@ import {afterEach, expect, it, vi} from 'vitest';
 import {mount, unmount, tick} from 'svelte';
 import LibraryWorkspace from '../src/components/LibraryWorkspace.svelte';
 import {createLibrarySession} from '../src/lib/explore';
+import {setLanguage} from '../src/lib/i18n';
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 let app:ReturnType<typeof mount>;
@@ -138,4 +139,15 @@ it('名称查询不会展示旧索引版本的结果',async()=>{
  input.value='旧结果';input.dispatchEvent(new Event('input',{bubbles:true}));
  await vi.waitFor(()=>expect(invoke.mock.calls.some(([name,args])=>name==='explore_overview'&&args.query==='旧结果')).toBe(true));
  await tick();expect(document.querySelector('.explore-picker')).toBeNull();
+});
+
+it('探索控件跟随英文界面语言',async()=>{
+ setLanguage('en');setup();
+ expect(document.querySelector('[data-files-tab]')?.textContent).toBe('Files');
+ expect(document.querySelector('[data-explore-tab]')?.textContent).toBe('Explore');
+ document.querySelector<HTMLButtonElement>('[data-explore-tab]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.explore-node')).toHaveLength(2));
+ document.querySelector('[data-document-id="1"]')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));await tick();
+ expect(document.body.textContent).toContain('Set as center');
+ expect(document.body.textContent).toContain('Open document');
 });
