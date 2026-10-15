@@ -1,0 +1,16 @@
+node_modules/
+dist/
+src-tauri/target/
+*.log
+.env*
+!*.example
+
+.cache/
+
+releases/
+**/__pycache__/
+.DS_Store
+credentials.json
+*.sqlite
+*.sqlite-*
+src-tauri/gen/

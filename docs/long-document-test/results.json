@@ -1,0 +1,756 @@
+{
+  "verified_chunks": 139,
+  "max_chunk_characters": 2200,
+  "cases": [
+    {
+      "case": "long-paragraph",
+      "question": "星河验收方案的释放验证码是什么？",
+      "expected": "LYRA-73492",
+      "answer": "星河验收方案的释放验证码是 LYRA-73492 [1]。",
+      "elapsed_ms": 4383,
+      "input_tokens": 2086,
+      "output_tokens": 18,
+      "plan": {
+        "limit": 4096,
+        "reserved_output": 512,
+        "estimated_input": 2493,
+        "omitted_sources": 8,
+        "omitted_history": 0,
+        "input_tokens": null,
+        "output_tokens": null
+      },
+      "evidence": [
+        {
+          "id": 154,
+          "document_id": 1,
+          "path": "/Users/jomymac/Desktop/SAG/SAG-Desktop/.cache/long-validation/files/长段落.md",
+          "title": "长段落.md",
+          "heading": "星河验收方案",
+          "content": "阶段899记录用于核对存档，常规检测已完成，参考编号为 L0899。阶段900记录用于核对存档，常规检测已完成，参考编号为 L0900。阶段901记录用于核对存档，常规检测已完成，参考编号为 L0901。阶段902记录用于核对存档，常规检测已完成，参考编号为 L0902。阶段903记录用于核对存档，常规检测已完成，参考编号为 L0903。阶段904记录用于核对存档，常规检测已完成，参考编号为 L0904。阶段905记录用于核对存档，常规检测已完成，参考编号为 L0905。阶段906记录用于核对存档，常规检测已完成，参考编号为 L0906。阶段907记录用于核对存档，常规检测已完成，参考编号为 L0907。阶段908记录用于核对存档，常规检测已完成，参考编号为 L0908。阶段909记录用于核对存档，常规检测已完成，参考编号为 L0909。阶段910记录用于核对存档，常规检测已完成，参考编号为 L0910。阶段911记录用于核对存档，常规检测已完成，参考编号为 L0911。阶段912记录用于核对存档，常规检测已完成，参考编号为 L0912。阶段913记录用于核对存档，常规检测已完成，参考编号为 L0913。阶段914记录用于核对存档，常规检测已完成，参考编号为 L0914。阶段915记录用于核对存档，常规检测已完成，参考编号为 L0915。阶段916记录用于核对存档，常规检测已完成，参考编号为 L0916。阶段917记录用于核对存档，常规检测已完成，参考编号为 L0917。阶段918记录用于核对存档，常规检测已完成，参考编号为 L0918。阶段919记录用于核对存档，常规检测已完成，参考编号为 L0919。阶段920记录用于核对存档，常规检测已完成，参考编号为 L0920。阶段921记录用于核对存档，常规检测已完成，参考编号为 L0921。阶段922记录用于核对存档，常规检测已完成，参考编号为 L0922。阶段923记录用于核对存档，常规检测已完成，参考编号为 L0923。阶段924记录用于核对存档，常规检测已完成，参考编号为 L0924。阶段925记录用于核对存档，常规检测已完成，参考编号为 L0925。阶段926记录用于核对存档，常规检测已完成，参考编号为 L0926。阶段927记录用于核对存档，常规检测已完成，参考编号为 L0927。阶段928记录用于核对存档，常规检测已完成，参考编号为 L0928。阶段929记录用于核对存档，常规检测已完成，参考编号为 L0929。阶段930记录用于核对存档，常规检测已完成，参考编号为 L0930。阶段931记录用于核对存档，常规检测已完成，参考编号为 L0931。阶段932记录用于核对存档，常规检测已完成，参考编号为 L0932。阶段933记录用于核对存档，常规检测已完成，参考编号为 L0933。阶段934记录用于核对存档，常规检测已完成，参考编号为 L0934。阶段935记录用于核对存档，常规检测已完成，参考编号为 L0935。阶段936记录用于核对存档，常规检测已完成，参考编号为 L0936。阶段937记录用于核对存档，常规检测已完成，参考编号为 L0937。阶段938记录用于核对存档，常规检测已完成，参考编号为 L0938。阶段939记录用于核对存档，常规检测已完成，参考编号为 L0939。阶段940记录用于核对存档，常规检测已完成，参考编号为 L0940。阶段941记录用于核对存档，常规检测已完成，参考编号为 L0941。阶段942记录用于核对存档，常规检测已完成，参考编号为 L0942。阶段943记录用于核对存档，常规检测已完成，参考编号为 L0943。阶段944记录用于核对存档，常规检测已完成，参考编号为 L0944。阶段945记录用于核对存档，常规检测已完成，参考编号为 L0945。阶段946记录用于核对存档，常规检测已完成，参考编号为 L0946。阶段947记录用于核对存档，常规检测已完成，参考编号为 L0947。阶段948记录用于核对存档，常规检测已完成，参考编号为 L0948。阶段949记录用于核对存档，常规检测已完成，参考编号为 L0949。星河验收方案的释放验证码是 LYRA-73492，只在验收结束时使用。后续第0项只记录常规收尾检查。后续第1项只记录常规收尾检查。后续第2项只记录常规收尾检查。后续第3项只记录常规收尾检查。后续第4项只记录常规收尾检查。后续第5项只记录常规收尾检查。后续第6项只记录常规收尾检查。后续第7项只记录常规收尾检查。后续第8项只记录常规收尾检查。后续第9项只记录常规收尾检查。后续第10项只记录常规收尾检查。后续第11项只记录常规收尾检查。后续第12项只记录常规收尾检查。后续第13项只记录常规收尾检查。后续第14项只记录常规收尾检查。后续第15项只记录常规收尾检查。后续第16项只记录常规收尾检查。后续第17项只记录常规收尾检查。后续第18项只记录常规收尾检查。后续第19项只记录常规收尾检查。后续第20项只记录常规收尾检查。后续第21项只记录常规收尾检查。后续第22项只记录常规收尾检查。后续第23项只记录常规收尾检查。后续第24项只记录常规收尾检查。后续第25项只记录常规收尾检查。后续第26项只记录常规收尾检查。",
+          "start_line": 3,
+          "end_line": 3,
+          "source_ranges": [
+            [
+              3,
+              3
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 75428,
+              "end_byte": 80973,
+              "start_line": 3,
+              "start_column": 30457,
+              "end_line": 3,
+              "end_column": 32648
+            }
+          ],
+          "bm25": -14.620263756889585,
+          "score": 0.98,
+          "order": 0,
+          "hash": "35f73aa24920eceec2b824eda088e9b7e13dfc31a613b5d8e86a130fe9473346"
+        },
+        {
+          "id": 156,
+          "document_id": 1,
+          "path": "/Users/jomymac/Desktop/SAG/SAG-Desktop/.cache/long-validation/files/长段落.md",
+          "title": "长段落.md",
+          "heading": "星河验收方案",
+          "content": "后续第160项只记录常规收尾检查。后续第161项只记录常规收尾检查。后续第162项只记录常规收尾检查。后续第163项只记录常规收尾检查。后续第164项只记录常规收尾检查。后续第165项只记录常规收尾检查。后续第166项只记录常规收尾检查。后续第167项只记录常规收尾检查。后续第168项只记录常规收尾检查。后续第169项只记录常规收尾检查。后续第170项只记录常规收尾检查。后续第171项只记录常规收尾检查。后续第172项只记录常规收尾检查。后续第173项只记录常规收尾检查。后续第174项只记录常规收尾检查。后续第175项只记录常规收尾检查。后续第176项只记录常规收尾检查。后续第177项只记录常规收尾检查。后续第178项只记录常规收尾检查。后续第179项只记录常规收尾检查。后续第180项只记录常规收尾检查。后续第181项只记录常规收尾检查。后续第182项只记录常规收尾检查。后续第183项只记录常规收尾检查。后续第184项只记录常规收尾检查。后续第185项只记录常规收尾检查。后续第186项只记录常规收尾检查。后续第187项只记录常规收尾检查。后续第188项只记录常规收尾检查。后续第189项只记录常规收尾检查。后续第190项只记录常规收尾检查。后续第191项只记录常规收尾检查。后续第192项只记录常规收尾检查。后续第193项只记录常规收尾检查。后续第194项只记录常规收尾检查。后续第195项只记录常规收尾检查。后续第196项只记录常规收尾检查。后续第197项只记录常规收尾检查。后续第198项只记录常规收尾检查。后续第199项只记录常规收尾检查。",
+          "start_line": 3,
+          "end_line": 3,
+          "source_ranges": [
+            [
+              3,
+              3
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 86885,
+              "end_byte": 88685,
+              "start_line": 3,
+              "start_column": 34836,
+              "end_line": 3,
+              "end_column": 35516
+            }
+          ],
+          "bm25": -7.293702878352867,
+          "score": 0.03,
+          "order": 1,
+          "hash": "35f73aa24920eceec2b824eda088e9b7e13dfc31a613b5d8e86a130fe9473346"
+        }
+      ],
+      "trace": [
+        {
+          "hop": 0,
+          "candidates": [
+            154,
+            156,
+            142,
+            143,
+            144,
+            145,
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152,
+            153,
+            141,
+            140,
+            155,
+            168,
+            160,
+            161,
+            162,
+            163,
+            164,
+            165,
+            166,
+            167,
+            159,
+            158
+          ],
+          "terms": [],
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "case": "long-code",
+      "question": "验收代码里的 launch_quota 返回什么 batch_limit 和 region？",
+      "expected": "north-2",
+      "answer": "根据提供的验收代码，`launch_quota` 函数返回的字典中包含以下值：\n\n*   **batch_limit**: 37 [1]\n*   **region**: \"north-2\" [1]",
+      "elapsed_ms": 4024,
+      "input_tokens": 2378,
+      "output_tokens": 45,
+      "plan": {
+        "limit": 4096,
+        "reserved_output": 512,
+        "estimated_input": 2397,
+        "omitted_sources": 7,
+        "omitted_history": 0,
+        "input_tokens": null,
+        "output_tokens": null
+      },
+      "evidence": [
+        {
+          "id": 168,
+          "document_id": 3,
+          "path": "/Users/jomymac/Desktop/SAG/SAG-Desktop/.cache/long-validation/files/长代码块.md",
+          "title": "长代码块.md",
+          "heading": "验收代码",
+          "content": "    sample_576 = 576  # ordinary step\n    sample_577 = 577  # ordinary step\n    sample_578 = 578  # ordinary step\n    sample_579 = 579  # ordinary step\n    sample_580 = 580  # ordinary step\n    sample_581 = 581  # ordinary step\n    sample_582 = 582  # ordinary step\n    sample_583 = 583  # ordinary step\n    sample_584 = 584  # ordinary step\n    sample_585 = 585  # ordinary step\n    sample_586 = 586  # ordinary step\n    sample_587 = 587  # ordinary step\n    sample_588 = 588  # ordinary step\n    sample_589 = 589  # ordinary step\n    sample_590 = 590  # ordinary step\n    sample_591 = 591  # ordinary step\n    sample_592 = 592  # ordinary step\n    sample_593 = 593  # ordinary step\n    sample_594 = 594  # ordinary step\n    sample_595 = 595  # ordinary step\n    sample_596 = 596  # ordinary step\n    sample_597 = 597  # ordinary step\n    sample_598 = 598  # ordinary step\n    sample_599 = 599  # ordinary step\n    return {\"batch_limit\": 37, \"region\": \"north-2\"}\n```",
+          "start_line": 581,
+          "end_line": 606,
+          "source_ranges": [
+            [
+              581,
+              606
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 21714,
+              "end_byte": 22681,
+              "start_line": 581,
+              "start_column": 1,
+              "end_line": 606,
+              "end_column": 4
+            }
+          ],
+          "bm25": -26.55152210866595,
+          "score": 0.83,
+          "order": 0,
+          "hash": "771b98952a78f9252836edca9a89cfcfdd16eef341ef3ef04c9cf98b9f031020"
+        },
+        {
+          "id": 158,
+          "document_id": 3,
+          "path": "/Users/jomymac/Desktop/SAG/SAG-Desktop/.cache/long-validation/files/长代码块.md",
+          "title": "长代码块.md",
+          "heading": "验收代码",
+          "content": "```python\ndef launch_quota():\n    sample_0 = 0  # ordinary step\n    sample_1 = 1  # ordinary step\n    sample_2 = 2  # ordinary step\n    sample_3 = 3  # ordinary step\n    sample_4 = 4  # ordinary step\n    sample_5 = 5  # ordinary step\n    sample_6 = 6  # ordinary step\n    sample_7 = 7  # ordinary step\n    sample_8 = 8  # ordinary step\n    sample_9 = 9  # ordinary step\n    sample_10 = 10  # ordinary step\n    sample_11 = 11  # ordinary step\n    sample_12 = 12  # ordinary step\n    sample_13 = 13  # ordinary step\n    sample_14 = 14  # ordinary step\n    sample_15 = 15  # ordinary step\n    sample_16 = 16  # ordinary step\n    sample_17 = 17  # ordinary step\n    sample_18 = 18  # ordinary step\n    sample_19 = 19  # ordinary step\n    sample_20 = 20  # ordinary step\n    sample_21 = 21  # ordinary step\n    sample_22 = 22  # ordinary step\n    sample_23 = 23  # ordinary step\n    sample_24 = 24  # ordinary step\n    sample_25 = 25  # ordinary step\n    sample_26 = 26  # ordinary step\n    sample_27 = 27  # ordinary step\n    sample_28 = 28  # ordinary step\n    sample_29 = 29  # ordinary step\n    sample_30 = 30  # ordinary step\n    sample_31 = 31  # ordinary step\n    sample_32 = 32  # ordinary step\n    sample_33 = 33  # ordinary step\n    sample_34 = 34  # ordinary step\n    sample_35 = 35  # ordinary step\n    sample_36 = 36  # ordinary step\n    sample_37 = 37  # ordinary step\n    sample_38 = 38  # ordinary step\n    sample_39 = 39  # ordinary step\n    sample_40 = 40  # ordinary step\n    sample_41 = 41  # ordinary step\n    sample_42 = 42  # ordinary step\n    sample_43 = 43  # ordinary step\n    sample_44 = 44  # ordinary step\n    sample_45 = 45  # ordinary step\n    sample_46 = 46  # ordinary step\n    sample_47 = 47  # ordinary step\n    sample_48 = 48  # ordinary step\n    sample_49 = 49  # ordinary step\n    sample_50 = 50  # ordinary step\n    sample_51 = 51  # ordinary step\n    sample_52 = 52  # ordinary step\n    sample_53 = 53  # ordinary step\n    sample_54 = 54  # ordinary step\n    sample_55 = 55  # ordinary step\n    sample_56 = 56  # ordinary step\n    sample_57 = 57  # ordinary step\n    sample_58 = 58  # ordinary step\n    sample_59 = 59  # ordinary step\n",
+          "start_line": 3,
+          "end_line": 64,
+          "source_ranges": [
+            [
+              3,
+              64
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 16,
+              "end_byte": 2186,
+              "start_line": 3,
+              "start_column": 1,
+              "end_line": 65,
+              "end_column": 1
+            }
+          ],
+          "bm25": -24.736245328622775,
+          "score": 0.06,
+          "order": 1,
+          "hash": "771b98952a78f9252836edca9a89cfcfdd16eef341ef3ef04c9cf98b9f031020"
+        },
+        {
+          "id": 165,
+          "document_id": 3,
+          "path": "/Users/jomymac/Desktop/SAG/SAG-Desktop/.cache/long-validation/files/长代码块.md",
+          "title": "长代码块.md",
+          "heading": "验收代码",
+          "content": "    sample_405 = 405  # ordinary step\n    sample_406 = 406  # ordinary step\n    sample_407 = 407  # ordinary step\n    sample_408 = 408  # ordinary step\n    sample_409 = 409  # ordinary step\n    sample_410 = 410  # ordinary step\n    sample_411 = 411  # ordinary step\n    sample_412 = 412  # ordinary step\n    sample_413 = 413  # ordinary step\n    sample_414 = 414  # ordinary step\n    sample_415 = 415  # ordinary step\n    sample_416 = 416  # ordinary step\n    sample_417 = 417  # ordinary step\n    sample_418 = 418  # ordinary step\n    sample_419 = 419  # ordinary step\n    sample_420 = 420  # ordinary step\n    sample_421 = 421  # ordinary step\n    sample_422 = 422  # ordinary step\n    sample_423 = 423  # ordinary step\n    sample_424 = 424  # ordinary step\n    sample_425 = 425  # ordinary step\n    sample_426 = 426  # ordinary step\n    sample_427 = 427  # ordinary step\n    sample_428 = 428  # ordinary step\n    sample_429 = 429  # ordinary step\n    sample_430 = 430  # ordinary step\n    sample_431 = 431  # ordinary step\n    sample_432 = 432  # ordinary step\n    sample_433 = 433  # ordinary step\n    sample_434 = 434  # ordinary step\n    sample_435 = 435  # ordinary step\n    sample_436 = 436  # ordinary step\n    sample_437 = 437  # ordinary step\n    sample_438 = 438  # ordinary step\n    sample_439 = 439  # ordinary step\n    sample_440 = 440  # ordinary step\n    sample_441 = 441  # ordinary step\n    sample_442 = 442  # ordinary step\n    sample_443 = 443  # ordinary step\n    sample_444 = 444  # ordinary step\n    sample_445 = 445  # ordinary step\n    sample_446 = 446  # ordinary step\n    sample_447 = 447  # ordinary step\n    sample_448 = 448  # ordinary step\n    sample_449 = 449  # ordinary step\n    sample_450 = 450  # ordinary step\n    sample_451 = 451  # ordinary step\n    sample_452 = 452  # ordinary step\n    sample_453 = 453  # ordinary step\n    sample_454 = 454  # ordinary step\n    sample_455 = 455  # ordinary step\n    sample_456 = 456  # ordinary step\n    sample_457 = 457  # ordinary step\n    sample_458 = 458  # ordinary step\n    sample_459 = 459  # ordinary step\n    sample_460 = 460  # ordinary step\n    sample_461 = 461  # ordinary step\n",
+          "start_line": 410,
+          "end_line": 466,
+          "source_ranges": [
+            [
+              410,
+              466
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 15216,
+              "end_byte": 17382,
+              "start_line": 410,
+              "start_column": 1,
+              "end_line": 467,
+              "end_column": 1
+            }
+          ],
+          "bm25": -6.060884926648624,
+          "score": 0.02,
+          "order": 7,
+          "hash": "771b98952a78f9252836edca9a89cfcfdd16eef341ef3ef04c9cf98b9f031020"
+        }
+      ],
+      "trace": [
+        {
+          "hop": 0,
+          "candidates": [
+            168,
+            158,
+            160,
+            161,
+            162,
+            163,
+            164,
+            165,
+            166,
+            167,
+            159,
+            156,
+            154,
+            142,
+            143,
+            144,
+            145,
+            146,
+            147,
+            148,
+            149,
+            150,
+            151,
+            152,
+            153,
+            141,
+            140,
+            155
+          ],
+          "terms": [],
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "case": "original-python",
+      "question": "logical_path 会拒绝反斜杠和 .. 路径段吗？抛出什么异常？",
+      "expected": "OctxSecurityError",
+      "answer": "是的，`logical_path` 会拒绝反斜杠和 `..` 路径段。\n\n1.  **关于反斜杠**：代码中明确检查如果值包含反斜杠 `\"\\\"`，则抛出异常 [1]。\n2.  **关于 `..`**：代码将路径按 `/` 分割后，检查是否存在空字符串、`.` 或 `..` 作为路径段，如果存在则抛出异常 [1]。\n\n**抛出的异常类型**：\n在这两种情况下，都会抛出 `OctxSecurityError` 异常 [1]。\n\n*   对于反斜杠，错误信息为：\"logical path must use POSIX separators\" [1]。\n*   对于 `..`（以及 `.` 或空段），错误信息为：\"logical path contains an unsafe segment\" [1]。",
+      "elapsed_ms": 10220,
+      "input_tokens": 1678,
+      "output_tokens": 181,
+      "plan": {
+        "limit": 4096,
+        "reserved_output": 512,
+        "estimated_input": 2298,
+        "omitted_sources": 7,
+        "omitted_history": 0,
+        "input_tokens": null,
+        "output_tokens": null
+      },
+      "evidence": [
+        {
+          "id": 223,
+          "document_id": 8,
+          "path": "/Users/jomymac/Desktop/open-context/src/octx/_paths.py",
+          "title": "_paths.py",
+          "heading": "",
+          "content": "from __future__ import annotations\r\n\r\nimport re\r\nimport unicodedata\r\nfrom pathlib import PurePosixPath\r\n\r\nfrom octx.errors import OctxSecurityError\r\n\r\n_WINDOWS_DRIVE = re.compile(r\"^[A-Za-z]:\")\r\n\r\n\r\ndef logical_path(value: str) -> str:\r\n    if not isinstance(value, str) or not value:\r\n        raise OctxSecurityError(\"logical path must be a non-empty string\")\r\n    if \"\\x00\" in value:\r\n        raise OctxSecurityError(\"logical path contains NUL\", path=value)\r\n    if \"\\\\\" in value:\r\n        raise OctxSecurityError(\"logical path must use POSIX separators\", path=value)\r\n    if value.startswith(\"/\") or value.startswith(\"//\") or _WINDOWS_DRIVE.match(value):\r\n        raise OctxSecurityError(\"logical path must be relative\", path=value)\r\n    if unicodedata.normalize(\"NFC\", value) != value:\r\n        raise OctxSecurityError(\"logical path must use Unicode NFC\", path=value)\r\n    parts = value.split(\"/\")\r\n    if any(part in {\"\", \".\", \"..\"} for part in parts):\r\n        raise OctxSecurityError(\"logical path contains an unsafe segment\", path=value)\r\n    normalized = PurePosixPath(*parts).as_posix()\r\n    if normalized != value:\r\n        raise OctxSecurityError(\"logical path is not canonical\", path=value)\r\n    return normalized\r\n\r\n\r\ndef is_concept_path(path: str) -> bool:\r\n    if not path.startswith(\"knowledge/\") or not path.endswith(\".md\"):\r\n        return False\r\n    return PurePosixPath(path).name not in {\"index.md\", \"log.md\"}\r\n\r\n\r\ndef is_reserved_knowledge_path(path: str) -> bool:\r\n    return path.startswith(\"knowledge/\") and PurePosixPath(path).name in {\"index.md\", \"log.md\"}\r\n",
+          "start_line": 1,
+          "end_line": 39,
+          "source_ranges": [
+            [
+              1,
+              39
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 0,
+              "end_byte": 1586,
+              "start_line": 1,
+              "start_column": 1,
+              "end_line": 40,
+              "end_column": 1
+            }
+          ],
+          "bm25": -7.526304425834501,
+          "score": 0.97,
+          "order": 0,
+          "hash": "93c13c97cdc0696e37aa8d461864ea6d59d934abfd8441a74be37325855b1b28"
+        },
+        {
+          "id": 177,
+          "document_id": 4,
+          "path": "/Users/jomymac/Desktop/open-context/src/octx/package.py",
+          "title": "package.py",
+          "heading": "",
+          "content": "        no_follow = getattr(os, \"O_NOFOLLOW\", 0)\r\n        directory_flag = getattr(os, \"O_DIRECTORY\", 0)\r\n        supports_openat = os.open in os.supports_dir_fd and no_follow and directory_flag\r\n        if not supports_openat:\r\n            parent = candidate.parent\r\n            while parent != self.source:\r\n                if parent.is_symlink():\r\n                    raise OctxSecurityError(\"working directory path contains a symbolic link\", path=path)\r\n                parent = parent.parent\r\n            descriptor = os.open(candidate, os.O_RDONLY | no_follow)\r\n            if _file_signature(os.fstat(descriptor)) != expected_signature:\r\n                os.close(descriptor)\r\n                raise OctxSecurityError(\"working directory file changed after open\", path=path)\r\n            return os.fdopen(descriptor, \"rb\"), expected_signature\r\n\r\n        current = os.open(self.source, os.O_RDONLY | no_follow | directory_flag)\r\n        try:\r\n            if _directory_signature(os.fstat(current)) != self._source_signature:\r\n                raise OctxSecurityError(\"working directory changed after it was opened\", path=str(self.source))\r\n            parts = path.split(\"/\")\r\n            for part in parts[:-1]:\r\n                following = os.open(part, os.O_RDONLY | no_follow | directory_flag, dir_fd=current)\r\n                os.close(current)\r\n                current = following\r\n            descriptor = os.open(parts[-1], os.O_RDONLY | no_follow, dir_fd=current)\r\n        finally:\r\n            os.close(current)\r\n        if _file_signature(os.fstat(descriptor)) != expected_signature:\r\n            os.close(descriptor)\r\n            raise OctxSecurityError(\"working directory file changed after open\", path=path)\r\n        return os.fdopen(descriptor, \"rb\"), expected_signature\r\n\r\n    def _open_any(self, path: str) -> BinaryIO:\r\n        self._ensure_open()\r\n        path = logical_path(path)\r\n        if path not in self._entries:\r\n            raise OctxFormatError(\"package file is missing\", path=path, code=\"OCTX_FILE_MISSING\")\r\n        if self.source_kind == \"directory\":\r\n            try:\r\n                stream, expected_signature = self._open_directory_entry(path)\r\n",
+          "start_line": 471,
+          "end_line": 510,
+          "source_ranges": [
+            [
+              471,
+              510
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 17419,
+              "end_byte": 19602,
+              "start_line": 471,
+              "start_column": 1,
+              "end_line": 511,
+              "end_column": 1
+            }
+          ],
+          "bm25": -5.216657727360971,
+          "score": 0.5,
+          "order": 9,
+          "hash": "0f8f780bad6c4ae1e70fa1cf1741c3ab215cf5d8b9e7b7409d6c3add1f0d3e3d"
+        },
+        {
+          "id": 190,
+          "document_id": 4,
+          "path": "/Users/jomymac/Desktop/open-context/src/octx/package.py",
+          "title": "package.py",
+          "heading": "",
+          "content": "        raise OctxSecurityError(\"OCTX archive source must remain a regular file\", path=str(source))\r\n    signature = _file_signature(metadata)\r\n    try:\r\n        file = os.fdopen(descriptor, \"rb\")\r\n    except BaseException:\r\n        os.close(descriptor)\r\n        raise\r\n    archive: zipfile.ZipFile | None = None\r\n    try:\r\n        declared_entries, directory_start, eocd_offset = _preflight_zip(file, source, limits)\r\n        if _file_signature(os.fstat(descriptor)) != signature:\r\n            raise OctxSecurityError(\"archive changed while it was scanned\", path=str(source))\r\n        try:\r\n            archive = zipfile.ZipFile(_ZipCommentlessView(file, eocd_offset))\r\n        except Exception as error:\r\n            if _file_signature(os.fstat(descriptor)) != signature:\r\n                raise OctxSecurityError(\"archive changed while it was scanned\", path=str(source)) from error\r\n            raise _invalid_archive(source, str(error)) from error\r\n        infos = archive.infolist()\r\n        if len(infos) != declared_entries:\r\n            raise _invalid_archive(source, \"central directory entry count is inconsistent\")\r\n        _validate_local_headers(file, source, infos, directory_start=directory_start)\r\n        entries: dict[str, zipfile.ZipInfo] = {}\r\n        seen: set[str] = set()\r\n        total = 0\r\n        for info in infos:\r\n            if info.orig_filename != info.filename:\r\n                raise OctxSecurityError(\"ZIP path contains a truncated or ambiguous filename\", path=info.orig_filename)\r\n            candidate = (\r\n                info.orig_filename[:-1] if info.is_dir() and info.orig_filename.endswith(\"/\") else info.orig_filename\r\n            )\r\n            path = logical_path(candidate)\r\n            if path in seen:\r\n                raise OctxSecurityError(\"archive contains duplicate logical paths\", path=path)\r\n            seen.add(path)\r\n            if any(ord(character) > 127 for character in info.filename) and not info.flag_bits & 0x800:\r\n                raise OctxSecurityError(\"non-ASCII ZIP path is not marked as UTF-8\", path=path)\r\n            if info.flag_bits & 0x1:\r\n",
+          "start_line": 1082,
+          "end_line": 1119,
+          "source_ranges": [
+            [
+              1082,
+              1119
+            ]
+          ],
+          "source_spans": [
+            {
+              "start_byte": 45578,
+              "end_byte": 47692,
+              "start_line": 1082,
+              "start_column": 1,
+              "end_line": 1120,
+              "end_column": 1
+            }
+          ],
+          "bm25": -5.720394010725584,
+          "score": 0.48,
+          "order": 5,
+          "hash": "0f8f780bad6c4ae1e70fa1cf1741c3ab215cf5d8b9e7b7409d6c3add1f0d3e3d"
+        }
+      ],
+      "trace": [
+        {
+          "hop": 0,
+          "candidates": [
+            223,
+            211,
+            179,
+            192,
+            209,
+            190,
+            201,
+            206,
+            175,
+            177,
+            169,
+            217,
+            189,
+            207,
+            214,
+            208,
+            202,
+            212,
+            213,
+            244,
+            184,
+            210,
+            193,
+            266,
+            176,
+            203,
+            218,
+            271,
+            265,
+            245,
+            267,
+            263,
+            253,
+            221,
+            254,
+            205,
+            178,
+            204,
+            191,
+            222,
+            274,
+            196,
+            257,
+            181,
+            182,
+            197,
+            180,
+            262,
+            183,
+            258,
+            252,
+            194,
+            272,
+            270,
+            249,
+            268,
+            256,
+            172,
+            273,
+            220,
+            251,
+            199,
+            171,
+            276,
+            216,
+            174,
+            269,
+            250,
+            255,
+            243,
+            215,
+            246,
+            260,
+            232,
+            200,
+            188,
+            226,
+            264,
+            261,
+            173,
+            229,
+            247,
+            275,
+            198,
+            187,
+            219,
+            242,
+            186,
+            185
+          ],
+          "terms": [],
+          "evidence": []
+        },
+        {
+          "hop": 1,
+          "candidates": [
+            195,
+            224,
+            228,
+            240,
+            248,
+            239,
+            230,
+            227
+          ],
+          "terms": [
+            {
+              "term": "value",
+              "score": 31.187618322384235,
+              "kind": "word"
+            },
+            {
+              "term": "item",
+              "score": 26.460414751184924,
+              "kind": "word"
+            },
+            {
+              "term": "knowledge",
+              "score": 24.390709472161372,
+              "kind": "word"
+            },
+            {
+              "term": "candidate",
+              "score": 22.75601595080344,
+              "kind": "word"
+            },
+            {
+              "term": "candidate.relative_to",
+              "score": 21.791837121177295,
+              "kind": "word"
+            },
+            {
+              "term": "use",
+              "score": 19.67661692833663,
+              "kind": "word"
+            },
+            {
+              "term": "octxsecurityerror",
+              "score": 18.638448657094095,
+              "kind": "word"
+            },
+            {
+              "term": "as_posix",
+              "score": 15.844336904219366,
+              "kind": "word"
+            },
+            {
+              "term": "posix",
+              "score": 15.844336904219366,
+              "kind": "word"
+            },
+            {
+              "term": "logical.startswith",
+              "score": 15.25311698414665,
+              "kind": "word"
+            },
+            {
+              "term": "separators",
+              "score": 14.290626800509376,
+              "kind": "word"
+            },
+            {
+              "term": "unicode nfc",
+              "score": 14.290626800509376,
+              "kind": "name_phrase"
+            },
+            {
+              "term": "unsafe",
+              "score": 14.290626800509376,
+              "kind": "word"
+            },
+            {
+              "term": "portable",
+              "score": 13.95856756817991,
+              "kind": "word"
+            },
+            {
+              "term": "payloads",
+              "score": 13.652330154958483,
+              "kind": "word"
+            },
+            {
+              "term": "source",
+              "score": 13.470393714522402,
+              "kind": "word"
+            },
+            {
+              "term": "relative",
+              "score": 13.078906788869803,
+              "kind": "word"
+            },
+            {
+              "term": "pureposixpath",
+              "score": 12.741137019411891,
+              "kind": "word"
+            },
+            {
+              "term": "hash_payload",
+              "score": 12.727875186455202,
+              "kind": "word"
+            },
+            {
+              "term": "payloadinfo",
+              "score": 12.685806987301095,
+              "kind": "word"
+            }
+          ],
+          "evidence": [
+            223,
+            253,
+            255,
+            177,
+            179,
+            190,
+            211,
+            175,
+            192,
+            209,
+            195,
+            224,
+            228,
+            240,
+            248,
+            239,
+            230,
+            227
+          ]
+        },
+        {
+          "hop": 2,
+          "candidates": [
+            233,
+            238,
+            231,
+            241,
+            237,
+            236,
+            234,
+            235
+          ],
+          "terms": [
+            {
+              "term": "node",
+              "score": 10.09222392196274,
+              "kind": "word"
+            },
+            {
+              "term": "align",
+              "score": 9.96782686697202,
+              "kind": "word"
+            },
+            {
+              "term": "sag_align",
+              "score": 9.535599859259175,
+              "kind": "word"
+            },
+            {
+              "term": "argument",
+              "score": 9.111597834909755,
+              "kind": "word"
+            },
+            {
+              "term": "create_octx",
+              "score": 8.446474784212763,
+              "kind": "word"
+            },
+            {
+              "term": "uuid_str",
+              "score": 7.6838232035044465,
+              "kind": "word"
+            },
+            {
+              "term": "export",
+              "score": 7.325542467871215,
+              "kind": "word"
+            },
+            {
+              "term": "action",
+              "score": 7.114994639552186,
+              "kind": "word"
+            },
+            {
+              "term": "deep",
+              "score": 7.102123837189667,
+              "kind": "word"
+            },
+            {
+              "term": "export.add_argument",
+              "score": 7.102123837189667,
+              "kind": "word"
+            },
+            {
+              "term": "mark",
+              "score": 7.102123837189667,
+              "kind": "word"
+            },
+            {
+              "term": "fname",
+              "score": 7.07847434692218,
+              "kind": "word"
+            },
+            {
+              "term": "octxopenerror",
+              "score": 6.815512865930428,
+              "kind": "word"
+            },
+            {
+              "term": "uuid",
+              "score": 6.76622774153138,
+              "kind": "word"
+            },
+            {
+              "term": "args",
+              "score": 6.594400432070868,
+              "kind": "word"
+            },
+            {
+              "term": "other",
+              "score": 6.531820964117422,
+              "kind": "word"
+            },
+            {
+              "term": "create",
+              "score": 6.521756137835983,
+              "kind": "word"
+            },
+            {
+              "term": "nibble",
+              "score": 6.4617428772602326,
+              "kind": "word"
+            },
+            {
+              "term": "json_errors",
+              "score": 6.35146832566557,
+              "kind": "word"
+            },
+            {
+              "term": "store",
+              "score": 6.302343187611004,
+              "kind": "word"
+            }
+          ],
+          "evidence": [
+            223,
+            253,
+            255,
+            177,
+            179,
+            190,
+            211,
+            175,
+            192,
+            209,
+            224,
+            195,
+            248,
+            228,
+            230,
+            227,
+            240,
+            239,
+            233,
+            238,
+            231,
+            241,
+            237,
+            236,
+            234,
+            235
+          ]
+        }
+      ]
+    }
+  ]
+}
