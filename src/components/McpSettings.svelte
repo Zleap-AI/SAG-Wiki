@@ -4,7 +4,6 @@
  import {icon} from '../lib/icons';
  import Input from './ui/Input.svelte';import Textarea from './ui/Textarea.svelte';import Select from './ui/Select.svelte';import Switch from './ui/Switch.svelte';
  import {parseMcpImport} from '../lib/mcp-config';import type {McpServer} from '../lib/types';
- import SagTools from './SagTools.svelte';
  export let servers:McpServer[];export let drafts:Record<string,string>;export let onRemove:(id:string)=>void;
  export let onTest:(server:McpServer)=>Promise<void>;export let testing='';export let errors:Record<string,string>={};
  let active='',importOpen=false,importText='',importError='',importStatus='';
@@ -23,8 +22,7 @@
  }
  function connectionChanged(id:string,fields:Partial<McpServer>={}){servers=servers.map(server=>server.id===id?{...server,...fields,tools:null}:server);}
 </script>
-<div class="settings-info-box">{$t("粘贴 JSON 配置或手动添加服务，测试连接后可在“模型设置”中逐项选择工具。")}</div>
-<SagTools/>
+<p class="settings-help">{$t("导入 JSON 或添加 MCP 服务，测试连接后在下方选择模型并启用工具。")}</p>
 <div class="mcp-toolbar"><Button.Root type="button" class="outline" onclick={()=>{importOpen=!importOpen;importError='';importStatus=''}}>{$t("导入 JSON")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>add()}>{$t("添加服务")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>add(true)}>{$t("添加 DeepWiki 示例")}</Button.Root></div>
 {#if importOpen}
  <section class="settings-group settings-fields mcp-import">
@@ -48,7 +46,7 @@
   <div class="settings-card-actions"><Button.Root type="button" class="outline" disabled={!!testing} onclick={()=>onTest(server)}>{testing===server.id?$t("正在连接…"):$t("测试连接")}</Button.Root><Button.Root type="button" class="settings-text-button" disabled={testing===server.id} onclick={()=>{onRemove(server.id);servers=servers.filter(s=>s.id!==server.id)}}>{$t("移除服务")}</Button.Root></div>
   {#if errors[server.id]}<p class="form-error" role="alert">{$t(errors[server.id])}</p>{/if}
   {#if server.tools}<Collapsible.Root class="mcp-tool-catalog">
-   <Collapsible.Trigger class="model-tool-toggle" aria-label={$t("{value0} 的工具列表",{value0:server.name})}><span class="model-tool-chevron" aria-hidden="true">{@html icon('chevron')}</span><span>{$t("工具列表")}</span><small>{$t("已获取 {value0} 个工具",{value0:server.tools.length})}</small></Collapsible.Trigger>
+   <Collapsible.Trigger class="model-tool-toggle" aria-label={$t("{value0} 的可用工具",{value0:server.name})}><span class="model-tool-chevron" aria-hidden="true">{@html icon('chevron')}</span><span>{$t("工具列表")}</span><small>{$t("已获取 {value0} 个工具",{value0:server.tools.length})}</small></Collapsible.Trigger>
    <Collapsible.Content class="model-tool-content"><ul class="mcp-tool-list">{#each server.tools as tool(tool.name)}<li><strong>{tool.name}</strong><p>{tool.description}</p></li>{/each}</ul></Collapsible.Content>
   </Collapsible.Root>{/if}
  </details>

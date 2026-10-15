@@ -117,3 +117,6 @@
 @media(prefers-reduced-motion:no-preference){.settings-window .reindex-running .icon{animation:search-progress-spin 1s linear infinite}}
 
 .model-settings-card .provider-field .ui-select{width:100%;margin-top:8px}
+
+.settings-window .model-mcp-settings{margin:24px 0}
+.settings-window .model-mcp-settings>.settings-group-heading{margin-bottom:8px}

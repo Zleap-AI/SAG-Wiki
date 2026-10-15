@@ -111,7 +111,6 @@
   "停止搜索": "Stop search",
   "停止生成": "Stop generating",
   "允许本次": "Allow once",
-  "先到“MCP 工具”导入或添加服务。": "Import or add a server in MCP tools first.",
   "先测试连接以获取工具列表。": "Test the connection to load available tools.",
   "全部文件": "All files",
   "共 {value0} 个工具": "Tools: {value0}",
@@ -339,7 +338,6 @@
   "移除服务": "Remove server",
   "简体中文": "简体中文",
   "算法固定规则": "Fixed algorithm rules",
-  "粘贴 JSON 配置或手动添加服务，测试连接后可在“模型设置”中逐项选择工具。": "Paste JSON or add a server manually. After testing the connection, choose individual tools in Model settings.",
   "系统提示词": "System prompt",
   "索引并行数": "Indexing concurrency",
   "绑定 {value0}": "Enable {value0}",
@@ -777,5 +775,10 @@
   "连接状态": "Connection status",
   "操作未完成": "Action could not be completed",
   "请先保存访问权限，再测试连接。": "Save access permissions before testing the connection.",
-  "其他设置已保存，但 CLI 权限未保存：{value0}": "Other settings were saved, but CLI access could not be saved: {value0}"
+  "其他设置已保存，但 CLI 权限未保存：{value0}": "Other settings were saved, but CLI access could not be saved: {value0}",
+  "MCP 服务": "MCP servers",
+  "配置模型连接、MCP 服务与工具权限。": "Configure model connections, MCP servers, and tool access.",
+  "在上方添加并测试 MCP 服务后，可在这里为当前模型启用。": "Add and test MCP servers above, then enable them here for this model.",
+  "导入 JSON 或添加 MCP 服务，测试连接后在下方选择模型并启用工具。": "Import JSON or add an MCP server, test the connection, then enable its tools for a model below.",
+  "{value0} 的可用工具": "Available tools for {value0}"
 }
