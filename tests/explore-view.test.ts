@@ -10,13 +10,13 @@ afterEach(async()=>{if(app)await unmount(app);document.body.innerHTML='';vi.clea
 const a={id:1,name:'监听.md',path:'/notes/监听.md',hash:'a',file_type:'md'};
 const b={id:2,name:'索引.md',path:'/notes/索引.md',hash:'b',file_type:'md'};
 const edge={source:1,target:2,source_hash:'a',target_hash:'b',score:0.8,terms:['增量索引'],snapshot:'snap'};
-function setup(){
+function setup(session=createLibrarySession()){
  invoke.mockImplementation(async(command,args)=>{
   if(command==='explore_overview')return{scope:'/notes',version:1,total:2,documents:[a,b],known_documents:args.visible.includes(1)?[a,b]:[],indexing:false,partial:false};
   if(command==='explore_neighbors')return{version:1,snapshot:'snap',center:a,documents:[b],edges:[edge],total:1,has_more:false,next_offset:1,candidate_limit_reached:false};
   return null;
  });
- const session=createLibrarySession();const open=vi.fn();
+ const open=vi.fn();
  app=mount(LibraryWorkspace,{target:document.body,props:{scope:'/notes',session,entries:[{name:a.name,path:a.path,directory:false,symlink:false}],isRoot:true,reading:false,revision:0,onbrowse:vi.fn(),onopen:open,oncreate:vi.fn(),onmenu:vi.fn()}});
  return{session,open};
 }
@@ -106,4 +106,25 @@ it('关联失败后重试同一个展开请求',async()=>{
  await vi.waitFor(()=>expect(document.querySelector('[role="alert"]')).not.toBeNull());
  [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='重试')!.click();
  await vi.waitFor(()=>expect(document.querySelectorAll('.explore-edge')).toHaveLength(1));expect(attempts).toBe(2);
+});
+it('按名称定位已显示的文档时保留新的选中状态',async()=>{
+ const {session}=setup();document.querySelector<HTMLButtonElement>('[data-explore-tab]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.explore-node')).toHaveLength(2));
+ const input=document.querySelector<HTMLInputElement>('[aria-label="按文件名查找入口"]')!;
+ input.value='索引';input.dispatchEvent(new Event('input',{bubbles:true}));
+ await vi.waitFor(()=>expect(document.querySelector('.explore-picker button')).not.toBeNull());
+ (document.querySelector('.explore-picker button') as HTMLButtonElement).click();await tick();
+ expect(session.graph.selected).toBe(1);
+ expect(document.querySelector('.explore-selection strong')?.textContent).toBe(a.name);
+});
+it('画布达到 80 个节点时拒绝再添加节点',async()=>{
+ const session=createLibrarySession();session.mode='explore';session.initialized=true;session.version=1;
+ session.graph.nodes=Array.from({length:80},(_,i)=>({...a,id:i+1,name:`${i}.md`,path:`/notes/${i}.md`,x:i*200,y:0}));
+ setup(session);
+ await vi.waitFor(()=>expect(document.querySelectorAll('.explore-node')).toHaveLength(80));
+ invoke.mockImplementation(async command=>command==='explore_neighbors'?{version:1,snapshot:'cap',center:session.graph.nodes[0],documents:[{...b,id:81}],edges:[{...edge,target:81}],total:1,has_more:false,next_offset:1,candidate_limit_reached:false}:null);
+ document.querySelector('[data-document-id="1"]')!.dispatchEvent(new MouseEvent('click',{bubbles:true}));await tick();
+ [...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='设为中心')!.click();
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('图已达到显示上限'));
+ expect(session.graph.nodes).toHaveLength(80);expect(session.graph.edges).toHaveLength(0);
 });

@@ -55,7 +55,7 @@
    if(result.total===0)notice='当前范围内没有找到有共同词语的文档。';
   }catch(e){if(active&&request===sequence)error=String(e)}finally{if(active&&request===sequence){loading=false;requestId=''}}
  }
- function centerView(id:number|null=graph.center){const node=graph.nodes.find(n=>n.id===id);if(node)session.graph={...graph,viewport:{...graph.viewport,x:width/2-(node.x+90)*graph.viewport.scale,y:height/2-(node.y+29)*graph.viewport.scale}}}
+ function centerView(id:number|null=session.graph.center){const current=session.graph;const node=current.nodes.find(n=>n.id===id);if(node)session.graph={...current,viewport:{...current.viewport,x:width/2-(node.x+90)*current.viewport.scale,y:height/2-(node.y+29)*current.viewport.scale}}}
  function fit(){const nodes=session.graph.nodes;if(!nodes.length)return;const minX=Math.min(...nodes.map(n=>n.x)),minY=Math.min(...nodes.map(n=>n.y)),maxX=Math.max(...nodes.map(n=>n.x))+180,maxY=Math.max(...nodes.map(n=>n.y))+58;const scale=Math.min(1,(width-70)/(maxX-minX),(height-70)/(maxY-minY));session.graph={...session.graph,viewport:{scale,x:(width-(maxX-minX)*scale)/2-minX*scale,y:(height-(maxY-minY)*scale)/2-minY*scale}}}
  function zoom(factor:number,x=width/2,y=height/2){const v=graph.viewport,scale=Math.max(.25,Math.min(2.5,v.scale*factor));session.graph={...graph,viewport:{scale,x:x-(x-v.x)*scale/v.scale,y:y-(y-v.y)*scale/v.scale}}}
  function startDrag(e:PointerEvent,id:number|null){if(e.button!==0)return;e.stopPropagation();const node=graph.nodes.find(n=>n.id===id);drag={id,startX:e.clientX,startY:e.clientY,x:node?.x??graph.viewport.x,y:node?.y??graph.viewport.y,moved:false}}
@@ -69,7 +69,7 @@
  function closeEvidence(){evidenceSequence++;evidenceOpen=false;evidence=null}
  async function reset(){sequence++;await cancel();session.initialized=false;session.graph=emptyGraph();session.history=[];notice='';closeEvidence();await refresh(revision)}
  async function back(){sequence++;await cancel();const previous=session.history.at(-1);if(previous){session.graph=previous;session.history=session.history.slice(0,-1)}loading=false;closeEvidence()}
- function collapse(){if(graph.selected===null)return;const id=graph.selected;session.history=[...session.history.slice(-19),copyGraph(graph)];session.graph={...graph,nodes:graph.nodes.filter(n=>n.id!==id),edges:graph.edges.filter(e=>e.source!==id&&e.target!==id),selected:null,center:graph.center===id?null:graph.center,neighbors:null}}
+ function collapse(){if(graph.selected===null)return;const id=graph.selected;session.history=[...session.history.slice(-19),copyGraph(graph)];session.graph={...graph,nodes:graph.nodes.filter(n=>n.id!==id),edges:graph.edges.filter(e=>e.source!==id&&e.target!==id),selected:null,center:graph.center===id?null:graph.center,neighbors:graph.center===id?null:graph.neighbors}}
  onMount(()=>{const observer=new ResizeObserver(entries=>{const box=entries[0].contentRect;width=box.width||1000;height=box.height||650});observer.observe(canvas);return()=>observer.disconnect()});
  onDestroy(()=>{active=false;sequence++;evidenceSequence++;clearTimeout(searchTimer);void cancel().catch(e=>console.error(e))});
 </script>

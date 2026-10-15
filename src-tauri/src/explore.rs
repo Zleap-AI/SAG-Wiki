@@ -1066,6 +1066,14 @@ mod tests {
                 }
                 tx.commit().unwrap();
             }
+            let summary_bytes: usize = store
+                .connection()
+                .query_row(
+                    "SELECT sum(length(CAST(terms AS BLOB))) FROM explore_summaries",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
             let explorer = Explorer::new(store);
             let setup_ms = start.elapsed().as_secs_f64() * 1000.;
             let start = Instant::now();
@@ -1091,7 +1099,7 @@ mod tests {
             }
             cold.sort_by(f64::total_cmp);
             cached.sort_by(f64::total_cmp);
-            println!("EXPLORE_BENCH docs={count} setup_ms={setup_ms:.1} overview_ms={overview_ms:.1} cold_p95_ms={:.1} cache_p95_ms={:.1}",cold[4],cached[18]);
+            println!("EXPLORE_BENCH docs={count} summary_bytes={summary_bytes} setup_ms={setup_ms:.1} overview_ms={overview_ms:.1} cold_p95_ms={:.1} cache_p95_ms={:.1}",cold[4],cached[18]);
         }
     }
 }
