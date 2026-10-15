@@ -57,8 +57,8 @@ it('模型和强度共用入口，展开后可以切换模型',async()=>{
  expect(trigger.textContent).toContain('高');
  expect(trigger.querySelectorAll('svg').length).toBe(1);
  trigger.click();
- await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择回答模型"]')).not.toBeNull());
- const modelTrigger=document.querySelector<HTMLButtonElement>('[aria-label="选择回答模型"]')!;
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择问答模型"]')).not.toBeNull());
+ const modelTrigger=document.querySelector<HTMLButtonElement>('[aria-label="选择问答模型"]')!;
  modelTrigger.focus();
  modelTrigger.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="qwen3.6-flash"]')).not.toBeNull());
@@ -69,7 +69,7 @@ it('模型和强度共用入口，展开后可以切换模型',async()=>{
  expect(document.querySelector('[aria-label="模型列表"]')).toBeNull();
  trigger.click();
  await vi.waitFor(()=>expect(document.querySelector('[role=slider]')).not.toBeNull());
- document.querySelector<HTMLButtonElement>('[aria-label="选择回答模型"]')!.click();
+ document.querySelector<HTMLButtonElement>('[aria-label="选择问答模型"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="模型列表"]')).not.toBeNull());
  document.querySelector('.reasoning-model-command')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="模型列表"]')).toBeNull());

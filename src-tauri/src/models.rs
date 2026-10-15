@@ -34,7 +34,7 @@ pub fn secret(dir: &std::path::Path, kind: &str) -> Result<String> {
     credentials(dir)?.remove(kind).context(if kind == "jev" {
         "请在设置中填写 Jev API 密钥"
     } else {
-        "请在设置中填写回答模型 API 密钥"
+        "请在设置中填写问答模型 API 密钥"
     })
 }
 pub fn has_secret(dir: &std::path::Path, kind: &str) -> Result<bool> {
@@ -482,7 +482,7 @@ pub async fn answer(
     )
     .await?;
     if !turn.tool_calls.is_empty() {
-        bail!("回答模型返回了未请求的工具调用")
+        bail!("问答模型返回了未请求的工具调用")
     }
     Ok(AnswerResult {
         text: turn.text,

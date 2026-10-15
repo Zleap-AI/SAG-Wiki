@@ -35,7 +35,7 @@
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id==='custom'||id===current)return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN')});
  $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("检索设置"),'search'],['cli','CLI','codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
- let descriptions:Record<string,string>; $:descriptions={general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置回答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让编程工具通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
+ let descriptions:Record<string,string>; $:descriptions={general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让编程工具通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 2 次；加上首次召回，共 3 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段最大字符数"),$t("默认 2200；超长段落和代码按句子或行继续拆分。修改后自动重建索引"),400,12000]];
  let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与 RTF"),'.txt · .rst · .rtf'],['code',$t("代码"),$t("Python、JavaScript、TypeScript、Rust、HTML、CSS 等")],['config',$t("配置文件"),'JSON · YAML · TOML · XML · INI']];
  $:indexSettingsChanged=fileTypeOptions.some(([kind])=>settings.file_types[kind]!==({markdown:true,text:true,code:true,config:true,...value.file_types})[kind])||JSON.stringify(settings.excluded)!==JSON.stringify(value.excluded)||settings.retrieval.chunk_chars!==value.retrieval.chunk_chars;
@@ -98,10 +98,10 @@
      <section class="settings-group settings-fields"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p></section>
     {:else if page==='models'}
      {#if value.credential_error}<p class="form-error">{$t(value.credential_error)}</p>{/if}
-     <div class="settings-info-box">{$t("回答模型按需调用 SAG2 检索工具，Jev 判断原文相关性。回答模型需支持工具调用，问题和相关原文会发送至所配置的服务。")}</div>
+     <div class="settings-info-box">{$t("问答模型按需调用 SAG2 检索工具，Jev 判断原文相关性。问答模型需支持工具调用，问题和相关原文会发送至所配置的服务。")}</div>
      {#each ['answer','jev'] as kind}
       <section class="settings-group settings-fields model-settings-card">
-       <div class="settings-group-heading"><h3>{kind==='answer'?$t("回答模型（LLM）"):$t("Jev 模型")}</h3><span>{kind==='answer'?$t("生成回答"):$t("判断相关性")}</span></div>
+       <div class="settings-group-heading"><h3>{kind==='answer'?$t("问答模型（LLM）"):$t("Jev 模型")}</h3><span>{kind==='answer'?$t("生成回答"):$t("判断相关性")}</span></div>
        <label class="field-label provider-field">{$t('供应商')}<Select label={kind==='answer'?$t('LLM 供应商'):$t('Jev 供应商')} value={providerChoice[kind as ModelKind]} placeholder={kind==='jev'?$t('已保存的接口'):''} items={providers[kind as ModelKind].map(provider=>({value:provider.value,label:$t(provider.label)}))} onValueChange={id=>changeProvider(kind as ModelKind,id)}/></label>
        <label class="field-label">{$t("接口地址")}<Input type="url" required value={settings[kind as ModelKind].url} oninput={event=>changeAddress(kind as ModelKind,event.currentTarget.value)} spellcheck="false"/></label>
        {#if kind==='answer'}
@@ -116,12 +116,12 @@
      {/each}
      <p class="settings-help settings-privacy-note">{$t("密钥保存在当前用户的应用数据目录。macOS 文件权限为仅当前用户读写；同一账户运行的其他程序仍可能读取。留空保持已保存的密钥。")}</p>
     {:else if page==='answer'}
-     <div class="answer-model-selection">
-      <label class="field-label">{$t("回答模型")}<Select label={$t("配置回答模型")} bind:value={profileModel} items={profileNames.map(model=>({value:model,label:model}))}/></label>
-      <p class="settings-help">{$t("提示词和工具绑定按模型分别保存；上下文与请求设置对所有模型生效。")}</p>
-     </div>
      <section class="settings-group settings-fields model-profile-settings">
       <div class="settings-group-heading"><h3>{$t("提示词")}</h3></div>
+     <div class="answer-model-selection">
+      <label class="field-label">{$t("问答模型")}<Select label={$t("配置问答模型")} bind:value={profileModel} items={profileNames.map(model=>({value:model,label:model}))}/></label>
+      <p class="settings-help">{$t("提示词和工具绑定按模型分别保存；上下文与请求设置对所有模型生效。")}</p>
+     </div>
       {#if settings.model_profiles[profileModel]}
        <div class="setting-row model-reasoning-row"><div><strong>{$t("思考强度")}</strong><p>{$t("按模型单独保存；强度越高，回答通常需要更长时间。")}</p></div><ReasoningControl model={profileModel} endpoint={settings.answer.url} value={settings.model_profiles[profileModel].reasoning_effort} onChange={value=>settings.model_profiles[profileModel].reasoning_effort=value}/></div>
        <label class="field-label">{$t("系统提示词")}<Textarea aria-label={$t("系统提示词")} bind:value={settings.model_profiles[profileModel].system_prompt} rows={6} placeholder={$t("留空使用内置提示词；可设置回答角色、语言和风格。")}/></label>

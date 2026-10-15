@@ -44,7 +44,7 @@
      {:else}<div {...props} class="reasoning-popover" in:surface|global={{keyboard:keyboard.current}}>
      <button class="reasoning-reset" type="button" aria-label={$t("恢复默认思考强度")} title={$t("恢复默认")} onclick={()=>{onChange(null);onCommit()}}>{@html icon('refresh')}</button>
      <p class="reasoning-current">{label}</p>
-     {#if models.length}<div class="reasoning-model-row"><Button.Root class="reasoning-model-button" type="button" aria-label={$t("选择回答模型")} onclick={showModels} onkeydown={(event:KeyboardEvent)=>{if(event.key==='ArrowDown'){event.preventDefault();showModels()}}}>{model}{@html icon('chevron')}</Button.Root></div>{:else}<p class="reasoning-model">{model}</p>{/if}
+     {#if models.length}<div class="reasoning-model-row"><Button.Root class="reasoning-model-button" type="button" aria-label={$t("选择问答模型")} onclick={showModels} onkeydown={(event:KeyboardEvent)=>{if(event.key==='ArrowDown'){event.preventDefault();showModels()}}}>{model}{@html icon('chevron')}</Button.Root></div>{:else}<p class="reasoning-model">{model}</p>{/if}
      {#if levels.length>1}
       <Slider.Root type="single" class="reasoning-slider" min={0} max={levels.length-1} step={1} value={index} onValueChange={i=>onChange(levels[i].value)} onValueCommit={()=>onCommit()}>
        <Slider.Range class="reasoning-slider-range">

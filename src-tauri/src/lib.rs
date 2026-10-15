@@ -466,7 +466,7 @@ async fn execute_query(
     }
     let mut settings = state.store.settings()?;
     if !settings.answer.models.contains(&q.model) && q.model != settings.answer.model {
-        bail!("请先在设置中添加这个回答模型")
+        bail!("请先在设置中添加这个问答模型")
     };
     settings.answer.model = q.model.clone();
     settings.answer.reasoning_effort = settings

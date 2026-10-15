@@ -26,6 +26,7 @@ it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
  button('问答设置').click();await tick();
  expect([...document.querySelectorAll('.settings-content h3')].map(item=>item.textContent)).toEqual(['提示词','工具绑定','上下文与请求']);
  await vi.waitFor(()=>expect(query('系统提示词')).not.toBeNull());
+ expect(document.querySelector('.model-profile-settings')?.contains(query('配置问答模型'))).toBe(true);
  expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('10');
  expect(query('启用 SAG 内置工具').getAttribute('aria-checked')).toBe('true');
  query('启用 SAG 内置工具').click();await tick();
@@ -33,7 +34,7 @@ it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
  button('模型设置').click();await tick();button('问答设置').click();await tick();
  expect(query<HTMLTextAreaElement>('系统提示词').value).toBe('第一个模型的提示词');
  query('绑定 DeepWiki').click();await tick();query('DeepWiki 的工具列表').click();await tick();query('启用 DeepWiki / ask_question').click();await tick();
- const select=query('配置回答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ const select=query('配置问答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector('[data-value="second"]')).not.toBeNull());
  document.querySelector('[role=option][data-value="second"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));
  await tick();expect(query<HTMLInputElement>('系统提示词').value).toBe('');expect(query('绑定 DeepWiki').getAttribute('aria-checked')).toBe('false');
@@ -57,7 +58,7 @@ it('模型工具列表默认折叠，切换模型后保持折叠，并保留独�
  query('启用 DeepWiki / ask_question').click();await tick();
  query('DeepWiki 的工具列表').click();await tick();
  expect(query('DeepWiki 的工具列表').getAttribute('aria-expanded')).toBe('false');
- const select=query('配置回答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ const select=query('配置问答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="second"]')).not.toBeNull());
  document.querySelector('[role=option][data-value="second"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
  expect(query('DeepWiki 的工具列表').getAttribute('aria-expanded')).toBe('false');
@@ -76,7 +77,7 @@ it('SAG 内置 MCP 默认有四个工具，可按模型单独选择并保存',as
  for(const name of ['search','list','read','grep'])expect(query(`启用 SAG / ${name}`).getAttribute('aria-checked')).toBe('true');
  query('启用 SAG / search').click();await tick();
  expect(query('启用 SAG / read').getAttribute('aria-checked')).toBe('true');
- const select=query('配置回答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ const select=query('配置问答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector('[data-value="second"]')).not.toBeNull());
  document.querySelector('[role=option][data-value="second"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
  expect(query('SAG 的工具列表').getAttribute('aria-expanded')).toBe('false');
