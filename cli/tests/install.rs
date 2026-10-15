@@ -328,3 +328,19 @@ fn failed_terminal_setup_preserves_legacy_install_for_retry() {
     assert!(run("uninstall").status.success());
     assert!(!stable.exists());
 }
+
+#[test]
+fn explicit_install_and_uninstall_record_the_initialization_choice() {
+    let home = tempfile::tempdir().unwrap();
+    let data = home.path().join("data");
+    let run = |action: &str| Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args([action,"cli"]).env_clear().env("HOME",home.path()).env("SHELL","/bin/zsh")
+        .env("PATH","/usr/bin:/bin").env("SAG_DESKTOP_DATA_DIR",&data).output().unwrap();
+    assert!(run("install").status.success());
+    let marker = data.join("cli-initialized");
+    assert!(marker.exists());
+    fs::remove_file(&marker).unwrap();
+    assert!(run("uninstall").status.success());
+    assert!(marker.exists());
+    assert!(!home.path().join(".local/bin/sag").exists());
+}

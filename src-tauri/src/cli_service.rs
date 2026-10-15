@@ -19,11 +19,13 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
-#[derive(Clone, Default, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct Access {
     pub enabled: bool,
-    pub roots: Vec<String>,
+}
+
+impl Default for Access {
+    fn default() -> Self { Self { enabled: true } }
 }
 
 pub struct CliService {
@@ -163,58 +165,35 @@ impl CliService {
         temp.persist(self.data.join("cli-access.json"))?;
         Ok(())
     }
-    pub fn configure(&self, mut access: Access) -> Result<()> {
+    pub fn configure(&self, access: Access) -> Result<()> {
         let mut current = self.access.write().unwrap();
-        let roots = self.store.roots()?;
-        for root in &mut access.roots {
-            if current.roots.contains(root) || roots.iter().any(|r| r.path == *root) {
-                continue;
-            }
-            let canonical = Path::new(root).canonicalize()?;
-            if !canonical.is_dir() || !roots.iter().any(|r| canonical.starts_with(&r.path)) {
-                bail!("请选择已添加的文件夹或其子目录")
-            }
-            *root = store::path_text(&canonical)?;
-        }
-        access.roots.sort();
-        access.roots.dedup();
         self.save_access(&access)?;
         *current = access;
         Ok(())
     }
-    pub fn revoke_root(&self, path: &str) -> Result<()> {
-        let mut current = self.access.write().unwrap();
-        let mut next = current.clone();
-        next.roots.retain(|root| !Path::new(root).starts_with(path));
-        self.save_access(&next)?;
-        *current = next;
-        Ok(())
+    fn indexed_scope(&self, requested: &Path) -> Result<(PathBuf, Vec<crate::types::Root>)> {
+        let path = requested.canonicalize()?;
+        if !path.is_dir() { bail!("CLI 搜索范围必须是目录") }
+        let roots = self.store.roots()?.into_iter()
+            .filter(|root| path.starts_with(&root.path) || Path::new(&root.path).starts_with(&path))
+            .collect();
+        Ok((path, roots))
     }
-    fn authorized(&self, requested: &Path) -> Result<PathBuf> {
-        let path = self.store.authorize(requested)?;
-        if !path.is_dir() {
-            bail!("CLI 搜索范围必须是目录")
-        }
-        let access = self.access();
-        if !access.enabled {
+    fn authorized(&self, requested: &Path) -> Result<(PathBuf, Vec<String>)> {
+        if !self.access().enabled {
             bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
         }
-        if !access.roots.iter().any(|root| path.starts_with(root)) {
-            bail!("目录未授权，请在 SAG-Desktop 的 CLI 设置中授权该目录")
-        }
-        Ok(path)
+        let (path, roots) = self.indexed_scope(requested)?;
+        if roots.is_empty() { bail!("该文件夹下没有已索引目录，请运行 sag add") }
+        let scopes = roots.into_iter().map(|root| {
+            if path.starts_with(&root.path) { store::path_text(&path) } else { Ok(root.path) }
+        }).collect::<Result<Vec<_>>>()?;
+        Ok((path, scopes))
     }
     pub fn status(&self, path: &Path) -> Result<Status> {
         let access = self.access();
-        let canonical = path.canonicalize()?;
-        let roots = self.store.roots()?;
-        let selected: Vec<_> = roots
-            .iter()
-            .filter(|r| canonical.starts_with(&r.path))
-            .collect();
-        let allowed = canonical.is_dir()
-            && !selected.is_empty()
-            && access.roots.iter().any(|r| canonical.starts_with(r));
+        let (canonical, selected) = self.indexed_scope(path)?;
+        let allowed = !selected.is_empty();
         let settings = self.store.settings()?;
         Ok(Status {
             protocol_version: VERSION,
@@ -240,19 +219,12 @@ impl CliService {
         match request.command {
             Command::Status => Ok(Response::Status(self.status(&request.path)?)),
             Command::Add => {
-                let mut current = self.access.write().unwrap();
-                if !current.enabled {
+                if !self.access().enabled {
                     bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
                 }
                 let path = request.path.canonicalize().context("无法打开这个文件夹")?;
                 if !path.is_dir() { bail!("请选择文件夹") }
                 (self.add_root)(&path)?;
-                let mut next = current.clone();
-                next.roots.push(store::path_text(&path)?);
-                next.roots.sort();
-                next.roots.dedup();
-                self.save_access(&next)?;
-                *current = next;
                 let index_status = self.store.roots()?.into_iter()
                     .find(|item| path.starts_with(&item.path))
                     .context("目录已从知识库移除，请重新添加")?.status;
@@ -267,7 +239,7 @@ impl CliService {
                 if !(1..=100).contains(&max_results) || !(1..=86400).contains(&timeout) {
                     bail!("搜索参数超出允许范围")
                 }
-                let path = self.authorized(&request.path)?;
+                let (path, _) = self.authorized(&request.path)?;
                 let status = self.status(&path)?;
                 if !status.index_ready {
                     bail!("目录索引未就绪，请等待 SAG-Desktop 完成索引")
@@ -277,14 +249,14 @@ impl CliService {
                 }
                 let operation = async {
                     let _guard = self.query_lock.lock().await;
-                    let path = self.authorized(&request.path)?;
+                    let (path, scopes) = self.authorized(&request.path)?;
                     let scope = store::path_text(&path)?;
                     let tools = SagTools {
                         store: self.store.clone(),
                         client: self.client.clone(),
                         data_dir: self.data.clone(),
                         settings: self.store.settings()?,
-                        scope: vec![scope.clone()],
+                        scope: scopes.clone(),
                         references: vec![],
                         enabled: vec!["search".into()],
                         cancel,
@@ -310,7 +282,7 @@ impl CliService {
                             bail!("文件已修改，请重新搜索：{}", candidate.path)
                         }
                         let canonical = Path::new(&candidate.path).canonicalize()?;
-                        if !canonical.starts_with(&path) {
+                        if !canonical.starts_with(&path) || !scopes.iter().any(|scope| canonical.starts_with(scope)) {
                             bail!("搜索结果超出授权目录")
                         }
                         // Each source span is contiguous. Do not label separated spans as one passage.

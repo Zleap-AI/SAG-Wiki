@@ -71,12 +71,13 @@ fn search(content: bool) -> Command {
 }
 
 #[tokio::test]
-async fn socket_status_reports_disabled_and_search_checks_authorization() {
+async fn socket_status_reports_disabled_and_search_uses_automatic_scope() {
     let (dir, service, root) = fixture();
+    service.configure(Access { enabled: false }).unwrap();
     match send(&service, &root, Command::Status, None).await {
         Response::Status(s) => {
             assert!(!s.enabled);
-            assert!(!s.allowed);
+            assert!(s.allowed);
             assert!(!s.jev_configured)
         }
         r => panic!("{r:?}"),
@@ -87,15 +88,16 @@ async fn socket_status_reports_disabled_and_search_checks_authorization() {
     }
     service
         .configure(Access {
-            enabled: true,
-            roots: vec![root.to_str().unwrap().into()],
+            enabled: true
         })
         .unwrap();
     match send(&service, &root, search(false), Some("incorrect")).await {
         Response::Error(e) => assert!(e.contains("令牌")),
         r => panic!("{r:?}"),
     }
-    match send(&service, dir.path(), search(false), None).await {
+    let unindexed = dir.path().join("unindexed");
+    fs::create_dir(&unindexed).unwrap();
+    match send(&service, &unindexed, search(false), None).await {
         Response::Error(e) => assert!(e.contains("文件夹")),
         r => panic!("{r:?}"),
     }
@@ -138,8 +140,12 @@ async fn model_request(stream: &mut TcpStream) -> Value {
     serde_json::from_slice(&body).unwrap()
 }
 #[tokio::test]
-async fn socket_search_reuses_retrieval_and_returns_exact_crlf_passage() {
+async fn parent_scope_search_reuses_retrieval_and_returns_exact_crlf_passage() {
     let (_dir, service, root) = fixture();
+    let outside = tempfile::tempdir().unwrap();
+    fs::write(outside.path().join("outside.rs"), "fn authenticate() { validate_permission(); }").unwrap();
+    let outside_root = service.store.add_root(outside.path()).unwrap();
+    service.store.scan(&outside_root, |_| {}).unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut settings = service.store.settings().unwrap();
     settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
@@ -148,8 +154,7 @@ async fn socket_search_reuses_retrieval_and_returns_exact_crlf_passage() {
     models::save_secret(&service.data, "jev", "test-only").unwrap();
     service
         .configure(Access {
-            enabled: true,
-            roots: vec![root.to_str().unwrap().into()],
+            enabled: true
         })
         .unwrap();
     let model = tokio::spawn(async move {
@@ -166,12 +171,13 @@ async fn socket_search_reuses_retrieval_and_returns_exact_crlf_passage() {
             stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
         }
     });
-    let plain = send(&service, &root, search(false), None).await;
-    let content = send(&service, &root, search(true), None).await;
+    let plain = send(&service, root.parent().unwrap(), search(false), None).await;
+    let content = send(&service, root.parent().unwrap(), search(true), None).await;
     let (Response::Search(a), Response::Search(b)) = (plain, content) else {
         panic!("search failed")
     };
     assert!(!a.results.is_empty());
+    assert!(a.results.iter().all(|item| Path::new(&item.absolute_path).starts_with(&root)));
     assert_eq!(a.results.len(), b.results.len());
     for (a, b) in a.results.iter().zip(&b.results) {
         assert_eq!(
@@ -203,8 +209,7 @@ async fn disconnect_and_timeout_release_the_query_without_cancelling_ui() {
     models::save_secret(&service.data, "jev", "test-only").unwrap();
     service
         .configure(Access {
-            enabled: true,
-            roots: vec![root.to_str().unwrap().into()],
+            enabled: true
         })
         .unwrap();
     let endpoint: Endpoint =
@@ -264,8 +269,7 @@ async fn symlink_escape_and_oversized_requests_are_rejected() {
     std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
     service
         .configure(Access {
-            enabled: true,
-            roots: vec![root.to_str().unwrap().into()],
+            enabled: true
         })
         .unwrap();
     match send(&service, &root.join("escape"), search(false), None).await {
@@ -290,22 +294,20 @@ async fn symlink_escape_and_oversized_requests_are_rejected() {
 }
 
 #[tokio::test]
-async fn removing_a_root_revokes_access_and_settings_remain_editable() {
+async fn removing_a_root_removes_it_from_automatic_scope() {
     let (_dir, service, root) = fixture();
     let path = root.to_str().unwrap();
     service
         .configure(Access {
-            enabled: true,
-            roots: vec![path.into()],
+            enabled: true
         })
         .unwrap();
     let child = root.join("nested");
     fs::create_dir(&child).unwrap();
-    service.configure(Access { enabled: true, roots: vec![path.into(), child.to_str().unwrap().into()] }).unwrap();
+    service.configure(Access { enabled: true }).unwrap();
     service.store.remove_root(path).unwrap();
-    service.revoke_root(path).unwrap();
-    assert!(service.access().roots.is_empty());
-    service.configure(Access::default()).unwrap();
+    assert!(!service.status(&root).unwrap().allowed);
+    service.configure(Access { enabled: false }).unwrap();
     assert!(!service.access().enabled);
 }
 
@@ -336,15 +338,16 @@ async fn saturated_connections_do_not_stop_the_listener() {
 }
 
 #[tokio::test]
-async fn add_registers_indexes_and_authorizes_only_the_requested_folder() {
+async fn add_registers_indexes_and_enables_discovery() {
     let (dir, service, root) = fixture();
     let new = dir.path().join("新项目");
     fs::create_dir(&new).unwrap();
     let new = new.canonicalize().unwrap();
     fs::write(new.join("notes.md"), "# 新项目\n索引内容").unwrap();
+    service.configure(Access { enabled:false }).unwrap();
     assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Error(_)));
     assert!(!service.store.roots().unwrap().iter().any(|r| Path::new(&r.path)==new));
-    service.configure(Access { enabled:true, roots:vec![] }).unwrap();
+    service.configure(Access { enabled:true }).unwrap();
     assert!(matches!(send(&service,&new,Command::Add,Some("bad-token")).await,Response::Error(_)));
     assert!(!service.store.roots().unwrap().iter().any(|r| Path::new(&r.path)==new));
     assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Added(_)));
@@ -361,16 +364,16 @@ async fn add_registers_indexes_and_authorizes_only_the_requested_folder() {
     fs::create_dir(&child).unwrap();
     assert!(matches!(send(&service,&child,Command::Add,None).await,Response::Added(_)));
     assert!(service.status(&child).unwrap().allowed);
-    assert!(!service.status(&root).unwrap().allowed,"adding a child must not grant its parent");
+    assert!(service.status(&root).unwrap().allowed);
     assert!(matches!(send(&service,&root.join("session.rs"),Command::Add,None).await,Response::Error(_)));
     assert!(matches!(send(&service,&dir.path().join("missing"),Command::Add,None).await,Response::Error(_)));
 }
 
 
 #[tokio::test]
-async fn offline_existing_authorization_does_not_block_add_or_disabling_cli() {
+async fn offline_roots_do_not_block_add_or_disabling_cli() {
     let (dir, service, root, _queue) = fixture_with_queue();
-    service.configure(Access { enabled: true, roots: vec![root.to_str().unwrap().into()] }).unwrap();
+    service.configure(Access { enabled: true }).unwrap();
     fs::rename(&root, root.with_file_name("moved")).unwrap();
     let new = dir.path().join("new");
     fs::create_dir(&new).unwrap();
@@ -383,9 +386,9 @@ async fn offline_existing_authorization_does_not_block_add_or_disabling_cli() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn parallel_adds_preserve_authorizations_and_queued_index_is_not_ready() {
+async fn parallel_adds_preserve_roots_and_queued_index_is_not_ready() {
     let (dir, service, existing, _queue) = fixture_with_queue();
-    service.configure(Access { enabled: true, roots: vec![] }).unwrap();
+    service.configure(Access { enabled: true }).unwrap();
     let Response::Added(existing_result) = send(&service,&existing,Command::Add,None).await else { panic!("add failed") };
     assert_eq!(existing_result.index_status,"pending");
     assert!(!service.status(&existing).unwrap().index_ready);
@@ -399,8 +402,21 @@ async fn parallel_adds_preserve_authorizations_and_queued_index_is_not_ready() {
         let Response::Added(output) = result else { panic!("add failed: {result:?}") };
         assert_eq!(output.index_status,"pending");
     }
-    let access = service.access();
-    assert!(access.roots.contains(&root.to_str().unwrap().into()));
-    assert!(access.roots.contains(&child.to_str().unwrap().into()));
+    assert!(service.status(&root).unwrap().allowed);
+    assert!(service.status(&child).unwrap().allowed);
     assert!(!service.status(&root).unwrap().index_ready);
+}
+
+#[tokio::test]
+async fn new_install_is_enabled_and_parent_scope_discovers_indexed_children() {
+    let (dir, service, root) = fixture();
+    let status = service.status(dir.path()).unwrap();
+    assert!(status.enabled, "new users should not need to enable CLI");
+    assert!(status.allowed && status.index_ready, "a parent directory should discover indexed children");
+    let unindexed = dir.path().join("unindexed");
+    fs::create_dir(&unindexed).unwrap();
+    assert!(!service.status(&unindexed).unwrap().allowed);
+    assert!(service.status(&root).unwrap().allowed);
+    service.configure(Access { enabled: false }).unwrap();
+    assert!(matches!(send(&service,&root,search(false),None).await,Response::Error(_)));
 }

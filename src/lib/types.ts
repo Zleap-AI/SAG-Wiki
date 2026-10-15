@@ -24,4 +24,4 @@ export type Progress={reasoning_delta?:string|null;replace?:boolean;id:string;st
 export type SearchPagination={total:number;page:number;page_size:number};
 export type QueryOutput={terms:string[];elapsed_ms?:number;results:Candidate[];pagination?:SearchPagination|null;trace:{hop:number;candidates:number[];terms:{term:string;score:number}[];evidence:number[]}[];conversation:Conversation|null};
 
-export type CliAccess={enabled:boolean;roots:string[]};
+export type CliAccess={enabled:boolean};

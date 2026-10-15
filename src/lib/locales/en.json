@@ -806,5 +806,12 @@
   "安装完成后，请在对应工具中新开会话以加载 Skill。": "After installation, start a new session in your coding tool to load the skill.",
   "复制 {value0} 安装命令": "Copy the install command for {value0}",
   "复制安装命令": "Copy install command",
-  "已复制 {value0} 的安装命令": "Copied the install command for {value0}"
+  "已复制 {value0} 的安装命令": "Copied the install command for {value0}",
+  "CLI 服务": "CLI service",
+  "首次启动自动安装并启用。搜索当前目录下已加入知识库的内容。": "Installed and enabled automatically on first launch. Searches knowledge-base content within the current directory.",
+  "无需选择授权范围。编程工具可运行 sag add，将当前项目加入知识库后搜索。": "No folder permissions to select. Coding tools can run sag add to index the current project before searching.",
+  "检查应用连接。": "Check the application connection.",
+  "请先保存 CLI 开关，再测试连接。": "Save the CLI toggle before testing the connection.",
+  "安装 SAG Skill，让编程工具知道如何通过 CLI 搜索已加入知识库的本地文件。": "Install the SAG skill so your coding tool can search local knowledge-base files through the CLI.",
+  "也可在终端运行对应命令，或让编程工具执行安装。SAG CLI 随应用自动安装。": "Run the command in a terminal or ask your coding tool to install it. SAG CLI is installed automatically with the app."
 }

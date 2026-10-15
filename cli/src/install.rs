@@ -147,6 +147,8 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
+        fs::create_dir_all(&data)?;
+        fs::write(data.join("cli-initialized"), b"1")?;
         return Ok(target);
     }
     if previous != target && previous.try_exists()? {
@@ -176,5 +178,15 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         remove_owned(&previous)?;
     }
     fs::write(record, serde_json::to_vec(&target)?)?;
+    fs::write(data.join("cli-initialized"), b"1")?;
     Ok(target)
+}
+
+// Initialize once so an explicit uninstall is respected on later launches.
+pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
+    let record = crate::cli_protocol::data_dir()?.join("cli-initialized");
+    if !record.try_exists()? {
+        binary(home, source, false)?;
+    }
+    Ok(())
 }

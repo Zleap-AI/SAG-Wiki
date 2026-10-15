@@ -24,8 +24,9 @@ pub fn add_root(
     path: &std::path::Path,
 ) -> Result<String> {
     use notify::Watcher;
+    let mut watcher = watcher.lock().unwrap();
     let root = store.add_root(path)?;
-    watcher.lock().unwrap().watch(std::path::Path::new(&root), notify::RecursiveMode::Recursive)?;
+    watcher.watch(std::path::Path::new(&root), notify::RecursiveMode::Recursive)?;
     store.mark_root_pending(&root)?;
     scan.send(IndexRequest::Scan { root: root.clone(), verify: false })?;
     Ok(root)

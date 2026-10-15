@@ -7,6 +7,7 @@ use tauri::{Manager, State};
 pub struct IntegrationSettings {
     access: Access,
     installations: Vec<install::Installation>,
+    install_error: Option<String>,
 }
 #[tauri::command]
 pub fn get_cli_settings(state: State<Arc<AppState>>) -> CommandResult<IntegrationSettings> {
@@ -21,6 +22,7 @@ pub fn get_cli_settings(state: State<Arc<AppState>>) -> CommandResult<Integratio
     }
     Ok(IntegrationSettings {
         access: state.cli.access(),
+        install_error: state.cli_install_error.lock().unwrap().clone(),
         installations,
     })
 }
@@ -28,13 +30,7 @@ pub fn get_cli_settings(state: State<Arc<AppState>>) -> CommandResult<Integratio
 pub fn save_cli_settings(access: Access, state: State<Arc<AppState>>) -> CommandResult<()> {
     state.cli.configure(access).map_err(error)
 }
-#[tauri::command]
-pub async fn install_cli_integration(
-    target: String,
-    uninstall: bool,
-    app: tauri::AppHandle,
-) -> CommandResult<String> {
-    let home = dirs::home_dir().ok_or("无法获取用户目录")?;
+fn cli_source(app: &tauri::AppHandle) -> CommandResult<PathBuf> {
     let source = if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../cli/target/debug")
@@ -46,9 +42,26 @@ pub async fn install_cli_integration(
             .join("bin")
             .join(if cfg!(windows) { "sag.exe" } else { "sag" })
     };
+    Ok(source)
+}
+pub fn initialize_cli(app: &tauri::AppHandle) -> CommandResult<()> {
+    let home = dirs::home_dir().ok_or("无法获取用户目录")?;
+    install::bootstrap(&home, &cli_source(app)?).map_err(error)
+}
+#[tauri::command]
+pub async fn install_cli_integration(
+    target: String,
+    uninstall: bool,
+    app: tauri::AppHandle,
+    state: State<'_, Arc<AppState>>,
+) -> CommandResult<String> {
+    let home = dirs::home_dir().ok_or("无法获取用户目录")?;
+    let source = cli_source(&app)?;
+    let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         if target == "cli" {
             let path = install::binary(&home, &source, uninstall).map_err(error)?;
+            *state.cli_install_error.lock().unwrap() = None;
             Ok(format!(
                 "{}：{}{}",
                 if uninstall { "已卸载" } else { "已安装" },
@@ -68,7 +81,7 @@ pub async fn install_cli_integration(
     .map_err(error)?
 }
 #[tauri::command]
-pub async fn test_cli_connection(path: String) -> CommandResult<String> {
+pub async fn test_cli_connection() -> CommandResult<String> {
     let home = dirs::home_dir().ok_or("无法获取用户目录")?;
     let binary = install::binary_path(&home).map_err(error)?;
     if !install::inspect("cli", &binary).map_err(error)?.installed {
@@ -77,7 +90,6 @@ pub async fn test_cli_connection(path: String) -> CommandResult<String> {
     tauri::async_runtime::spawn_blocking(move || {
         let output = std::process::Command::new(binary)
             .arg("status")
-            .current_dir(path)
             .output()
             .map_err(error)?;
         if !output.status.success() {

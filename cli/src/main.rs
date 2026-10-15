@@ -168,12 +168,12 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
     }
     match serde_json::from_slice(&line)? {
         Response::Error(error) => bail!("{error}"),
-        Response::Status(status) => println!("已连接 SAG-Desktop\nCLI 接入：{}\n目录已授权：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
+        Response::Status(status) => println!("已连接 SAG-Desktop\nCLI 接入：{}\n当前范围有索引：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
         Response::Added(output) => {
             if json { println!("{}", serde_json::to_string(&output)?); }
             else {
                 println!("已加入知识库：{}", output.path);
-                if output.cli_authorized { println!("CLI 已授权搜索此目录。"); }
+                if output.cli_authorized { println!("CLI 可搜索此目录。"); }
                 else { println!("CLI 接入已关闭，请在 SAG-Desktop 设置中启用。"); }
                 match output.index_status.as_str() {
                     "ready" => println!("索引已就绪，可以运行 sag search。"),

@@ -39,6 +39,7 @@ struct AppState {
     tasks: Mutex<HashMap<String, CancellationToken>>,
     query_lock: Arc<tokio::sync::Mutex<()>>,
     cli: Arc<cli_service::CliService>,
+    cli_install_error: Mutex<Option<String>>,
     approvals: Mutex<HashMap<String, tokio::sync::oneshot::Sender<bool>>>,
     scan: mpsc::Sender<IndexRequest>,
     watcher: Arc<Mutex<notify::RecommendedWatcher>>,
@@ -126,7 +127,7 @@ fn add_root(path: String, state: State<Arc<AppState>>) -> CommandResult<String> 
 #[tauri::command]
 fn remove_root(path: String, state: State<Arc<AppState>>) -> CommandResult<()> {
     state.store.remove_root(&path).map_err(error)?;
-    state.cli.revoke_root(&path).map_err(error)
+    Ok(())
 }
 #[tauri::command]
 fn refresh_root(path: String, state: State<Arc<AppState>>) -> CommandResult<()> {
@@ -887,6 +888,7 @@ pub fn run() {
                 Ok(root)
             });
             let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance, add_root)?;
+            let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             app.manage(Arc::new(AppState {
                 explorer: Arc::new(explore::Explorer::new(store.clone())),
                 store,
@@ -894,6 +896,7 @@ pub fn run() {
                 tasks: Mutex::new(HashMap::new()),
                 query_lock,
                 cli,
+                cli_install_error: Mutex::new(cli_install_error),
                 approvals: Mutex::new(HashMap::new()),
                 scan: tx,
                 watcher,
