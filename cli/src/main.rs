@@ -75,9 +75,7 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
         let uninstall = matches!(args.command, CliCommand::Uninstall { .. });
         let home = dirs::home_dir().context("无法获取用户目录")?;
         let path = if target == "cli" {
-            let path = install::binary_path(&home)?;
-            install::binary(&std::env::current_exe()?, &path, uninstall)?;
-            path
+            install::binary(&home, &std::env::current_exe()?, uninstall)?
         } else {
             install::harness(&home, target, uninstall)?
         };
@@ -87,10 +85,7 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
             path.display()
         );
         if target == "cli" && !uninstall {
-            eprintln!(
-                "请确保此目录在 PATH 中：{}",
-                path.parent().unwrap().display()
-            );
+            eprintln!("终端路径已自动配置，请新开终端运行 sag。");
         }
         return Ok(());
     }

@@ -762,7 +762,6 @@
   "安装 CLI 后可测试连接。": "Install the CLI to test the connection.",
   "选择文件夹并保存后可测试连接。": "Select a folder and save settings to test the connection.",
   "安装位置": "Installation path",
-  "若终端找不到 sag，请将此文件所在目录加入 PATH。": "If your terminal cannot find sag, add its directory to PATH.",
   "编程工具": "Coding tools",
   "安装 Skill 后，重新启动对应工具即可使用。": "Install the skill, then restart the coding tool.",
   "Skill 安装位置": "Skill installation paths",
@@ -800,5 +799,6 @@
   "依据": "Evidence",
   "点击文档继续探索，点击依据核对原文。": "Select a document to continue. Open evidence to compare passages.",
   "文件已更新，关联已刷新。": "Files changed. Connections refreshed.",
-  "已达到显示上限，请选择其他文档继续探索。": "View limit reached. Select another document to continue."
+  "已达到显示上限，请选择其他文档继续探索。": "View limit reached. Select another document to continue.",
+  "终端路径在安装时自动配置。安装后请新开终端运行 sag。": "The terminal path is configured automatically during installation. Open a new terminal to run sag."
 }

@@ -4,7 +4,7 @@
 
 1. 在 SAG-Desktop 中添加项目文件夹并完成索引，配置 JEV。
 2. 打开设置 → CLI，启用 CLI，勾选允许搜索的文件夹，点击底部“保存设置”。点击“取消”将放弃尚未保存的权限修改。
-3. 安装 SAG CLI。界面显示实际安装路径；如果所在目录尚未加入 PATH，请手动加入。程序不会修改 Shell 配置，也不会覆盖缺少 SAG 安装记录的同名文件。
+3. 安装 SAG CLI。界面显示实际安装路径，安装器自动配置终端路径；完成后新开终端即可运行 `sag`。macOS/Linux 在当前 Shell 配置中添加独立的 SAG 区段，Windows 配置当前用户 PATH。卸载时只移除 SAG 添加的内容，保留用户原有配置；不会覆盖缺少 SAG 安装记录的同名文件。
 4. 安装对应 Harness 的 Skill，并重新启动 Harness。测试按钮执行已安装 CLI 的 `status`；真实模型是否使用 Skill，仍需通过任务记录确认。
 
 关闭窗口后应用继续后台运行。退出 SAG-Desktop 后 CLI 不可用；CLI 不会启动应用。默认关闭搜索授权。本机监听仅提供 status/search，认证信息保存在当前用户的数据目录，不进入命令参数。
@@ -39,7 +39,7 @@ sag uninstall cli
 | Codex | `~/.agents/skills/sag/SKILL.md` |
 | OpenCode | `~/.config/opencode/skills/sag/SKILL.md` |
 
-重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；即使后续 PATH 顺序变化，更新和卸载仍使用原安装位置。检测到外部文件或用户修改时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。不会更改 AGENTS.md、MCP 配置或增加文件监听进程。
+重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；后续 PATH 顺序变化不会影响安装位置；重复安装会将旧临时目录中的 CLI 迁移到固定目录，卸载按记录清理。检测到外部文件、用户修改或被改写的 SAG 终端配置区段时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。不会更改 AGENTS.md、MCP 配置或增加文件监听进程。
 
 Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默认不需要管理员权限安装 CLI。Windows 打包入口为 `npm run package:windows`。本轮在 macOS 验证；Windows 安装、签名和升级行为未验证。
 
@@ -54,6 +54,12 @@ Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默�
 - 安装冲突：保留现有文件，人工确认来源后再处理。
 
 开发和测试可以用 `SAG_DESKTOP_DATA_DIR` 指向独立数据目录，CLI 与桌面端必须使用同一个值。
+
+## 终端自动配置
+
+- macOS/Linux 支持 zsh、bash、fish 和 POSIX sh；尊重 `ZDOTDIR` 与 `XDG_CONFIG_HOME`。重复安装不会叠加配置，卸载保留已有环境设置。
+- Windows 更新当前用户 PATH 并广播环境变化，不需要管理员权限。已打开的终端保留旧环境，请在安装后新开终端。
+- 实现依据：[zsh 启动文件](https://zsh.sourceforge.io/Doc/Release/Files.html)、[Windows 环境变化通知](https://learn.microsoft.com/en-us/windows/win32/winmsg/wm-settingchange)。
 
 ## 参考与来源
 

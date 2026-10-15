@@ -86,7 +86,7 @@
      {#if !cli.installed||!selected||unsaved}<p class="cli-prerequisite">{!cli.installed?$t('安装 CLI 后可测试连接。'):unsaved?$t('请先保存访问权限，再测试连接。'):$t('选择文件夹并保存后可测试连接。')}</p>{/if}
      <Collapsible.Root class="cli-location">
       <Collapsible.Trigger class="cli-disclosure"><span aria-hidden="true">{@html icon('chevron')}</span>{$t('安装位置')}</Collapsible.Trigger>
-      <Collapsible.Content class="cli-location-content"><code>{cli.path}</code><p>{$t('若终端找不到 sag，请将此文件所在目录加入 PATH。')}</p></Collapsible.Content>
+      <Collapsible.Content class="cli-location-content"><code>{cli.path}</code><p>{$t('终端路径在安装时自动配置。安装后请新开终端运行 sag。')}</p></Collapsible.Content>
      </Collapsible.Root>
     </div>
    </section>

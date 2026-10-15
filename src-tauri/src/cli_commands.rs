@@ -48,13 +48,12 @@ pub async fn install_cli_integration(
     };
     tauri::async_runtime::spawn_blocking(move || {
         if target == "cli" {
-            let path = install::binary_path(&home).map_err(error)?;
-            install::binary(&source, &path, uninstall).map_err(error)?;
+            let path = install::binary(&home, &source, uninstall).map_err(error)?;
             Ok(format!(
-                "{}：{}。请确保此目录在 PATH 中：{}",
+                "{}：{}{}",
                 if uninstall { "已卸载" } else { "已安装" },
                 path.display(),
-                path.parent().unwrap().display()
+                if uninstall { "" } else { "。终端路径已自动配置，请新开终端运行 sag。" }
             ))
         } else {
             let path = install::harness(&home, &target, uninstall).map_err(error)?;

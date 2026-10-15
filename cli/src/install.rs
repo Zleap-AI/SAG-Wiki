@@ -8,6 +8,9 @@ use std::{
 
 pub const HARNESS_NAMES: [&str; 3] = ["claude-code", "codex", "opencode"];
 pub const SKILL: &str = include_str!("../skills/sag/SKILL.md");
+#[path = "terminal_path.rs"]
+mod terminal_path;
+
 const OWNER: &str = "com.sag.desktop.cli";
 #[derive(Serialize, Deserialize)]
 struct Receipt {
@@ -123,32 +126,55 @@ pub fn binary_path(home: &Path) -> Result<PathBuf> {
     let name = if cfg!(windows) { "sag.exe" } else { "sag" };
     Ok(home.join(".local/bin").join(name))
 }
-pub fn binary(source: &Path, target: &Path, uninstall: bool) -> Result<()> {
+pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     let data = crate::cli_protocol::data_dir()?;
     let record = data.join("cli-install-path.json");
+    let previous = binary_path(home)?;
+    let target = if uninstall {
+        previous.clone()
+    } else {
+        home.join(".local/bin")
+            .join(if cfg!(windows) { "sag.exe" } else { "sag" })
+    };
     if uninstall {
-        remove_owned(target)?;
+        if target.try_exists()? {
+            check_owned(&target)?;
+        }
+        terminal_path::configure(home, &data, target.parent().unwrap(), true)?;
+        remove_owned(&target)?;
         match fs::remove_file(record) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
         }
-        return Ok(());
+        return Ok(target);
     }
-    if source == target {
-        check_owned(target)?;
-        return Ok(());
+    if previous != target && previous.try_exists()? {
+        check_owned(&previous)?;
     }
-    write_owned(
-        target,
-        &fs::read(source).context("未找到随应用分发的 SAG CLI，请重新安装应用")?,
-    )?;
+    let bytes = if source == target {
+        check_owned(&target)?;
+        None
+    } else {
+        if target.try_exists()? {
+            check_owned(&target)?;
+        }
+        Some(fs::read(source).context("未找到随应用分发的 SAG CLI，请重新安装应用")?)
+    };
+    // Finish terminal setup before changing the binary or its recorded location.
+    terminal_path::configure(home, &data, target.parent().unwrap(), false)?;
+    if let Some(bytes) = bytes {
+        write_owned(&target, &bytes)?;
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(target, fs::Permissions::from_mode(0o755))?;
+        fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
     }
-    fs::create_dir_all(data)?;
-    fs::write(record, serde_json::to_vec(target)?)?;
-    Ok(())
+    fs::create_dir_all(&data)?;
+    if previous != target {
+        remove_owned(&previous)?;
+    }
+    fs::write(record, serde_json::to_vec(&target)?)?;
+    Ok(target)
 }

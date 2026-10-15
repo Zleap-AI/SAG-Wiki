@@ -8,6 +8,8 @@ fn install_is_repeatable_and_preserves_foreign_and_edited_files() {
         Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([verb, "claude-code"])
             .env("HOME", home.path())
+            .env_remove("ZDOTDIR")
+            .env_remove("XDG_CONFIG_HOME")
             .output()
             .unwrap()
     };
@@ -41,6 +43,8 @@ fn cli_uninstall_uses_recorded_location_when_path_changes() {
         Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([action, "cli"])
             .env("HOME", home.path())
+            .env_remove("ZDOTDIR")
+            .env_remove("XDG_CONFIG_HOME")
             .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
             .env("PATH", path)
             .output()
@@ -73,6 +77,8 @@ fn cli_installs_in_stable_user_bin_instead_of_a_temporary_path_entry() {
     let output = Command::new(env!("CARGO_BIN_EXE_sag"))
         .args(["install", "cli"])
         .env("HOME", home.path())
+        .env_remove("ZDOTDIR")
+        .env_remove("XDG_CONFIG_HOME")
         .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
         .env("PATH", &transient)
         .output()
@@ -100,10 +106,225 @@ fn missing_recorded_binary_does_not_recreate_the_old_temporary_directory() {
     let output = Command::new(env!("CARGO_BIN_EXE_sag"))
         .args(["install", "cli"])
         .env("HOME", home.path())
+        .env_remove("ZDOTDIR")
+        .env_remove("XDG_CONFIG_HOME")
         .env("SAG_DESKTOP_DATA_DIR", &data)
         .output()
         .unwrap();
     assert!(output.status.success());
     assert!(home.path().join(".local/bin/sag").exists());
     assert!(!old.exists());
+}
+
+#[test]
+fn fresh_terminals_find_cli_and_uninstall_preserves_shell_settings() {
+    for (shell, files) in [
+        ("/bin/zsh", vec![".zprofile", ".zshrc"]),
+        ("/bin/bash", vec![".profile", ".bashrc"]),
+    ] {
+        if !std::path::Path::new(shell).exists() {
+            continue;
+        }
+        let temporary = tempfile::tempdir().unwrap();
+        let home = temporary.path().join("user space 'quoted");
+        fs::create_dir(&home).unwrap();
+        let original = "# user settings\nexport USER_MARKER=kept";
+        for file in &files {
+            fs::write(home.join(file), original).unwrap();
+        }
+        let run = |action: &str| {
+            Command::new(env!("CARGO_BIN_EXE_sag"))
+                .args([action, "cli"])
+                .env_clear()
+                .env("HOME", &home)
+                .env("SHELL", shell)
+                .env("PATH", "/usr/bin:/bin")
+                .env("SAG_DESKTOP_DATA_DIR", home.join("data"))
+                .output()
+                .unwrap()
+        };
+        for _ in 0..2 {
+            let output = run("install");
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        for mode in ["-ic", "-lc"] {
+            let output = Command::new(shell)
+                .args([mode, "sag --version && test \"$USER_MARKER\" = kept"])
+                .env_clear()
+                .env("HOME", &home)
+                .env("SHELL", shell)
+                .env("PATH", "/usr/bin:/bin")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{shell} {mode}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8_lossy(&output.stdout).contains("sag 0.1.0"));
+        }
+        assert!(run("uninstall").status.success());
+        for file in &files {
+            assert_eq!(fs::read_to_string(home.join(file)).unwrap(), original);
+        }
+    }
+}
+
+#[test]
+fn custom_zdotdir_is_registered_and_cleanup_does_not_depend_on_the_current_shell() {
+    let home = tempfile::tempdir().unwrap();
+    let config = home.path().join("custom zsh");
+    fs::create_dir(&config).unwrap();
+    fs::write(config.join(".zshrc"), "# keep custom config").unwrap();
+    let run = |action: &str, shell: &str| {
+        Command::new(env!("CARGO_BIN_EXE_sag"))
+            .args([action, "cli"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env("SHELL", shell)
+            .env("ZDOTDIR", &config)
+            .env("PATH", "/usr/bin:/bin")
+            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .output()
+            .unwrap()
+    };
+    assert!(run("install", "/bin/zsh").status.success());
+    assert!(fs::read_to_string(config.join(".zshrc"))
+        .unwrap()
+        .contains("SAG CLI PATH"));
+    assert!(!home.path().join(".zshrc").exists());
+    assert!(run("uninstall", "/bin/bash").status.success());
+    assert_eq!(
+        fs::read_to_string(config.join(".zshrc")).unwrap(),
+        "# keep custom config"
+    );
+}
+
+#[test]
+fn user_edits_to_managed_shell_blocks_are_not_overwritten_or_removed() {
+    let home = tempfile::tempdir().unwrap();
+    let run = |action: &str| {
+        Command::new(env!("CARGO_BIN_EXE_sag"))
+            .args([action, "cli"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env("SHELL", "/bin/zsh")
+            .env("PATH", "/usr/bin:/bin")
+            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .output()
+            .unwrap()
+    };
+    assert!(run("install").status.success());
+    let login_before = fs::read_to_string(home.path().join(".zprofile")).unwrap();
+    let profile = home.path().join(".zshrc");
+    let edited = fs::read_to_string(&profile)
+        .unwrap()
+        .replace("export PATH=", "export USER_CHANGED_PATH=");
+    fs::write(&profile, &edited).unwrap();
+    assert!(!run("uninstall").status.success());
+    assert_eq!(fs::read_to_string(&profile).unwrap(), edited);
+    assert_eq!(
+        fs::read_to_string(home.path().join(".zprofile")).unwrap(),
+        login_before
+    );
+    assert!(home.path().join(".local/bin/sag").exists());
+}
+
+#[test]
+fn reinstall_moves_a_legacy_binary_without_registering_the_temporary_path() {
+    let home = tempfile::tempdir().unwrap();
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_sag"))
+            .args(["install", "cli"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env("SHELL", "/bin/zsh")
+            .env("PATH", "/usr/bin:/bin")
+            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .output()
+            .unwrap()
+    };
+    assert!(run().status.success());
+    let stable = home.path().join(".local/bin/sag");
+    let old = home.path().join(".codex/tmp/session/sag");
+    fs::create_dir_all(old.parent().unwrap()).unwrap();
+    fs::rename(&stable, &old).unwrap();
+    fs::rename(
+        stable.with_extension("sag-install.json"),
+        old.with_extension("sag-install.json"),
+    )
+    .unwrap();
+    fs::write(
+        home.path().join("data/cli-install-path.json"),
+        serde_json::to_vec(&old).unwrap(),
+    )
+    .unwrap();
+    assert!(run().status.success());
+    assert!(stable.exists());
+    assert!(!old.exists());
+    assert!(!fs::read_to_string(home.path().join(".zshrc"))
+        .unwrap()
+        .contains(".codex/tmp"));
+}
+
+#[test]
+fn failed_terminal_setup_preserves_legacy_install_for_retry() {
+    let home = tempfile::tempdir().unwrap();
+    let run = |action: &str| {
+        Command::new(env!("CARGO_BIN_EXE_sag"))
+            .args([action, "cli"])
+            .env_clear()
+            .env("HOME", home.path())
+            .env("SHELL", "/bin/zsh")
+            .env("PATH", "/usr/bin:/bin")
+            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .output()
+            .unwrap()
+    };
+    assert!(run("install").status.success());
+    assert!(run("uninstall").status.success());
+    fs::write(
+        home.path().join(".zshrc"),
+        "# >>> SAG CLI PATH >>>\nuser config\n",
+    )
+    .unwrap();
+    assert!(!run("install").status.success());
+    let stable = home.path().join(".local/bin/sag");
+    assert!(!stable.exists(), "failed setup must not appear installed");
+    fs::write(home.path().join(".zshrc"), "# user config\n").unwrap();
+    assert!(run("install").status.success());
+    let old = home.path().join(".codex/tmp/session/sag");
+    fs::create_dir_all(old.parent().unwrap()).unwrap();
+    fs::rename(&stable, &old).unwrap();
+    fs::rename(
+        stable.with_extension("sag-install.json"),
+        old.with_extension("sag-install.json"),
+    )
+    .unwrap();
+    let record = home.path().join("data/cli-install-path.json");
+    fs::write(&record, serde_json::to_vec(&old).unwrap()).unwrap();
+    let profile = home.path().join(".zshrc");
+    let good = fs::read_to_string(&profile).unwrap();
+    fs::write(
+        &profile,
+        good.replace("export PATH=", "export USER_CHANGED_PATH="),
+    )
+    .unwrap();
+    assert!(!run("install").status.success());
+    assert!(old.exists());
+    assert!(!stable.exists());
+    assert_eq!(
+        serde_json::from_slice::<std::path::PathBuf>(&fs::read(&record).unwrap()).unwrap(),
+        old
+    );
+    fs::write(&profile, good).unwrap();
+    assert!(run("install").status.success());
+    assert!(stable.exists());
+    assert!(!old.exists());
+    assert!(run("uninstall").status.success());
+    assert!(!stable.exists());
 }
