@@ -20,6 +20,8 @@ sgrep "权限在哪里检查？"
 
 独立 CLI 不依赖桌面框架；预编译包不要求安装编译工具。桌面端运行时复用其本机服务，未运行时直接使用本地核心。公共安装地址暂未设置。[安装、配置与命令说明](docs/CLI与Harness使用说明.md)。
 
+npm 发布包已按 `@zleap-ai/sgrep` 准备，尚未上传。运行 `node scripts/package-npm-cli.mjs` 生成 npm 安装包；账号登录、发布命令和支持平台见 [npm 发布说明](docs/npm发布说明.md)。
+
 ## 在这台 Mac 上打开
 
 双击本目录的 **打开客户端.command**。它使用应用的完整路径，打开本项目生成的 **SAG Desktop.app**，不会按名称寻找电脑里已有的 SAG 个人版。
