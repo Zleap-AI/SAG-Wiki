@@ -194,7 +194,7 @@ impl Default for Retrieval {
             expansion_term_limit: 20,
             max_hops: 2,
             top_k: 10,
-            chunk_chars: 2200,
+            chunk_chars: 512,
         }
     }
 }
@@ -392,8 +392,8 @@ mod default_tests {
     }
     #[test]
     fn retrieval_defaults_to_v10() {
-        assert_eq!(Settings::default().retrieval.chunk_chars, 2200);
-        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().retrieval.chunk_chars, 2200);
+        assert_eq!(Settings::default().retrieval.chunk_chars, 512);
+        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().retrieval.chunk_chars, 512);
         assert_eq!(Settings::default().retrieval.candidate_k, 100);
         assert_eq!(
             serde_json::from_str::<Settings>("{}")

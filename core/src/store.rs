@@ -1484,7 +1484,7 @@ mod tests {
         store.connection().execute("INSERT INTO preferences VALUES(1,?)", [old.to_string()]).unwrap();
         drop(store);
         let reopened = Store::open(&database).unwrap();
-        assert_eq!(reopened.settings().unwrap().retrieval.chunk_chars,2200);
+        assert_eq!(reopened.settings().unwrap().retrieval.chunk_chars,512);
         assert_eq!(reopened.chunk_count().unwrap(),0);
         assert!(source.is_file());
         reopened.scan(&root, |_| {}).unwrap();
