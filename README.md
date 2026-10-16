@@ -14,6 +14,8 @@ sh scripts/install.sh  # 从源码安装，需要 Rust；预编译包内使用 s
 sag                 # 未配置时自动引导，密钥输入隐藏
 sag add             # 索引当前目录
 sag "权限在哪里检查？"
+sag -E -c '^(ERROR|WARN) [0-9]+' ./logs  # 本地正则匹配
+sag -F -c 'validatePermission(' ./src  # 本地固定字符串匹配
 ```
 
 安装时可直接传入密钥：`sh install.sh --key '你的密钥'`；也可按默认方式安装，通过隐藏输入完成配置。已配置时保留现有设置。

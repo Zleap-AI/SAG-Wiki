@@ -182,7 +182,7 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     Ok(target)
 }
 
-// Respect an explicit uninstall, and migrate an installed command after a rename.
+// Keep managed installations current while respecting explicit uninstall and user edits.
 pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
     let record = crate::cli_protocol::data_dir()?.join("cli-initialized");
     let previous = binary_path(home)?;
@@ -198,7 +198,8 @@ pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
             skill_updates.push(name);
         }
     }
-    if !record.try_exists()? || (previous.try_exists()? && previous.file_name() != Some(std::ffi::OsStr::new(BINARY_NAME))) {
+    let update_binary = inspect("cli", &previous)?.installed && fs::read(source)? != fs::read(&previous)?;
+    if !record.try_exists()? || update_binary || (previous.try_exists()? && previous.file_name() != Some(std::ffi::OsStr::new(BINARY_NAME))) {
         binary(home, source, false)?;
     }
     for name in skill_updates { harness(home, name, false)?; }

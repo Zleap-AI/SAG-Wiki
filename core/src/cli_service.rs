@@ -85,7 +85,7 @@ impl CliService {
         }
     }
     pub async fn run_local(&self, path: PathBuf, command: Command, cancel: CancellationToken) -> Result<Response> {
-        if matches!(command, Command::Search { .. }) {
+        if matches!(command, Command::Search { .. } | Command::Match { .. }) {
             let (scope, _) = self.authorized(&path)?;
             for root in self.store.roots()? {
                 if scope.starts_with(&root.path) || Path::new(&root.path).starts_with(&scope) {
@@ -309,6 +309,58 @@ impl CliService {
                     if let Some(error) = root.error { bail!("目录已添加，但索引未完成：{error}") }
                 }
                 Ok(Response::Added(AddOutput { path: store::path_text(&path)?, index_status: root.status, cli_authorized: true }))
+            }
+            Command::Match { pattern, mode, max_results, content, timeout } => {
+                if pattern.is_empty() || pattern.chars().count() > 2000 {
+                    bail!("匹配内容不能为空或超过 2000 字符")
+                }
+                if !(1..=100).contains(&max_results) || !(1..=86400).contains(&timeout) {
+                    bail!("搜索参数超出允许范围")
+                }
+                let regex = regex::Regex::new(&match mode {
+                    MatchMode::Regex => pattern,
+                    MatchMode::Fixed => regex::escape(&pattern),
+                }).context("正则表达式无效")?;
+                let (path, scopes) = self.authorized(&request.path)?;
+                if !self.status(&path)?.index_ready {
+                    bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
+                }
+                let tools = SagTools {
+                    store: self.store.clone(), client: self.client.clone(), data_dir: self.data.clone(),
+                    settings: self.store.settings()?, scope: scopes.clone(), references: vec![],
+                    enabled: vec![], cancel: cancel.clone(), progress: Arc::new(|_, _| {}),
+                };
+                let task = tokio::task::spawn_blocking(move || -> Result<SearchOutput> {
+                    let mut output = SearchOutput { protocol_version: VERSION, scope: store::path_text(&path)?, results: vec![], truncated: false };
+                    tools.visit(scopes.into_iter().map(PathBuf::from).collect(), true, |file, _, metadata| {
+                        if !metadata.is_file() || !crate::text::is_indexable(file, &tools.settings.file_types) { return Ok(true) }
+                        let document = tools.store.document(file)?;
+                        for (index, (start, end)) in crate::text::Lines::new(&document.body).spans.into_iter().enumerate() {
+                            if tools.cancel.is_cancelled() { bail!("已停止") }
+                            // The final terminator does not create an extra line to match.
+                            if start == document.body.len() { break; }
+                            let line = &document.body[start..end];
+                            if !regex.is_match(line) { continue; }
+                            output.results.push(SearchResult {
+                                path: format!("./{}", file.strip_prefix(&path)?.display()),
+                                absolute_path: document.path.clone(), start_line: index + 1, end_line: index + 1,
+                                content: content.then(|| line.to_owned()),
+                            });
+                            if serde_json::to_vec(&output)?.len() as u64 > MAX_RESPONSE - 1024 {
+                                output.results.pop(); output.truncated = true; return Ok(false);
+                            }
+                            if output.results.len() == max_results { return Ok(false) }
+                        }
+                        Ok(true)
+                    })?;
+                    Ok(output)
+                });
+                let output = match tokio::time::timeout(Duration::from_secs(timeout), task).await {
+                    Ok(result) => result.context("本地匹配任务失败")??,
+                    Err(error) => { cancel.cancel(); return Err(error).context("搜索超时，请增加 --timeout 或缩小范围"); }
+                };
+                self.authorized(&request.path)?;
+                Ok(Response::Search(output))
             }
             Command::Search {
                 query,

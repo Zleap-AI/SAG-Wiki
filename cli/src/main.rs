@@ -28,6 +28,12 @@ struct Args {
     command: Option<CliCommand>,
     /// 要搜索的内容。
     query: Option<String>,
+    /// 按行匹配正则表达式，不调用模型。
+    #[arg(short = 'E', long, conflicts_with = "fixed_strings")]
+    extended_regexp: bool,
+    /// 按行匹配固定字符串，不调用模型。
+    #[arg(short = 'F', long)]
+    fixed_strings: bool,
     #[arg(conflicts_with = "path")]
     directory: Option<PathBuf>,
     #[arg(long)]
@@ -154,8 +160,9 @@ fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt
 fn main() {
     let args = Args::parse();
     if let Some(query) = &args.query {
-        if query.trim().is_empty() || query.chars().count() > 2000 {
-            eprintln!("问题不能为空或超过 2000 字符");
+        let empty = if args.extended_regexp || args.fixed_strings { query.is_empty() } else { query.trim().is_empty() };
+        if empty || query.chars().count() > 2000 {
+            eprintln!("搜索内容不能为空或超过 2000 字符");
             std::process::exit(2);
         }
     }
@@ -207,7 +214,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
     }
     let cwd = std::env::current_dir()?;
     if args.command.is_none() {
-        if interactive() && !args.json && !sag_core::models::has_secret(&data_dir()?, "jev")? {
+        if !args.extended_regexp && !args.fixed_strings && interactive() && !args.json && !sag_core::models::has_secret(&data_dir()?, "jev")? {
             configure(ConfigOptions::default(), cwd.clone(), interrupted.clone())?;
             if args.query.is_none() {
                 eprintln!("接下来运行 sag add 添加当前目录，再运行 sag \"搜索内容\"。");
@@ -241,12 +248,18 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
             10,
         ),
         None => (
-            Command::Search {
+            if args.extended_regexp || args.fixed_strings { Command::Match {
+                pattern: args.query.expect("a bare invocation returns before search"),
+                mode: if args.fixed_strings { MatchMode::Fixed } else { MatchMode::Regex },
+                max_results: args.max_results.into(),
+                content: args.content,
+                timeout: args.timeout,
+            } } else { Command::Search {
                 query: args.query.expect("a bare invocation returns before search"),
                 max_results: args.max_results.into(),
                 content: args.content,
                 timeout: args.timeout,
-            },
+            } },
             cwd.join(args.path.or(args.directory).unwrap_or_default()),
             args.json,
             args.timeout,
@@ -316,7 +329,7 @@ fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Inter
         // Cover synchronous index refresh as well as the async request. Dropping
         // the sender stops the timer after success; process exit releases SQLite locks.
         let (deadline, timer) = std::sync::mpsc::channel::<()>();
-        if matches!(command, Command::Search { .. }) {
+        if matches!(command, Command::Search { .. } | Command::Match { .. }) {
             std::thread::spawn(move || {
                 if matches!(timer.recv_timeout(Duration::from_secs(timeout)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
                     eprintln!("请求超时（包括索引检查），请缩小搜索目录或增加 --timeout");

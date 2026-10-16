@@ -50,6 +50,19 @@ pub enum Command {
         content: bool,
         timeout: u64,
     },
+    Match {
+        pattern: String,
+        mode: MatchMode,
+        max_results: usize,
+        content: bool,
+        timeout: u64,
+    },
+}
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchMode {
+    Regex,
+    Fixed,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {

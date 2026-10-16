@@ -155,7 +155,7 @@ impl SagTools {
             Ok(roots)
         }
     }
-    fn visit(
+    pub(crate) fn visit(
         &self,
         paths: Vec<PathBuf>,
         recursive: bool,

@@ -74,6 +74,32 @@ fn search(content: bool) -> Command {
 }
 
 #[tokio::test]
+async fn local_matching_socket_needs_no_model_and_keeps_access_checks() {
+    let (_dir, service, root) = fixture();
+    let command = || Command::Match {
+        pattern: r"^fn auth.*\(\) \{$".into(), mode: MatchMode::Regex,
+        max_results: 10, content: true, timeout: 3,
+    };
+    match send(&service, &root, command(), None).await {
+        Response::Search(output) => {
+            assert_eq!(output.results.len(), 1);
+            assert_eq!(output.results[0].start_line, 2);
+            assert_eq!(output.results[0].content.as_deref(), Some("fn authenticate() {"));
+        }
+        r => panic!("{r:?}"),
+    }
+    match send(&service, &root, command(), Some("wrong-token")).await {
+        Response::Error(error) => assert!(error.contains("令牌")),
+        r => panic!("{r:?}"),
+    }
+    service.configure(Access { enabled: false }).unwrap();
+    match send(&service, &root, command(), None).await {
+        Response::Error(error) => assert!(error.contains("未启用")),
+        r => panic!("{r:?}"),
+    }
+}
+
+#[tokio::test]
 async fn socket_status_reports_disabled_and_search_uses_automatic_scope() {
     let (dir, service, root) = fixture();
     service.configure(Access { enabled: false }).unwrap();

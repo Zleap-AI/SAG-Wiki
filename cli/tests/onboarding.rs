@@ -100,6 +100,26 @@ fn first_run_guides_configuration_and_does_not_echo_the_key() {
 }
 
 #[test]
+fn interactive_local_matching_skips_first_use_model_setup() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("note.txt"), "needle\n").unwrap();
+    let added = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", dir.path().join("data")).current_dir(&root).arg("add").output().unwrap();
+    assert!(added.status.success());
+    for flag in ["-E", "-F"] {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+        command.args([flag, "needle", "-c"]).current_dir(&root).env("SAG_DATA_DIR", dir.path().join("data"));
+        let mut terminal = Terminal::start(command);
+        terminal.wait_for("needle");
+        terminal.finish();
+        assert!(terminal.output.contains("./note.txt:1-1"));
+        assert!(!terminal.output.contains("API 密钥"));
+    }
+}
+
+#[test]
 fn piped_installer_guides_setup_through_the_terminal() {
     let home = tempfile::tempdir().unwrap();
     let mut command = Command::new("/bin/sh");

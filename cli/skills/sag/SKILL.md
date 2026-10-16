@@ -1,17 +1,25 @@
 ---
 name: sag
-description: Search local project code with SAG when locating behavior, tracing cross-file relationships, or connecting configuration to implementation. Also use when registering the current project or configuring its SAG indexing exclusions.
+description: Search local project files with SAG using semantic, regular-expression or fixed-string matching. Use when locating behavior, tracing code relationships, finding exact text, registering the current project or configuring its SAG indexing exclusions.
 ---
 
 Use `sag -c "complete natural-language question"` to find local implementation evidence. Run it in the current project directory. To narrow the scope, pass a directory: `sag -c "How is a session validated?" ./src -m 5`.
+
+Choose the search mode explicitly when the task needs exact matches:
+
+- Default: `sag -c "How is a session validated?" src` uses semantic search for behavior and intent.
+- Fixed string: `sag -F -c 'validatePermission(' src` finds that literal substring, including punctuation.
+- Regular expression: `sag -E -c '^(ERROR|WARN) [0-9]+' logs` matches a pattern. Use Rust regex syntax; lookaround and backreferences are unsupported. `(?i)` enables case-insensitive regex matching.
+
+`-E` and `-F` are mutually exclusive, case-sensitive by default, and run locally without a model or API key. They return one result per matching line, in file traversal order, within the same registered knowledge-base scope and ignore rules. They read current content of supported, enabled file types; they do not require semantic relevance. Use `-m` to limit matching lines, `-c` for line text, and `--json` for structured results. Quote patterns for the shell; use `sag -F -c -- '-literal' src` for a pattern starting with `-`. No matches is a successful command with an empty result list.
 
 Search is the default command: `sag "question" [directory]`. Management commands such as `add`, `remove`, `status`, `config`, `install` and `uninstall` remain subcommands. To search a literal command name or a query starting with `-`, put search options first and use `--`, for example `sag -c -- "status"`.
 
 The command returns file paths, line ranges and original passages. Omit `-c` when only locations are needed. Read the referenced files with the harness's normal file reader if the passages need more context. Continue the task once there is enough evidence; avoid repeating the same query.
 
-Use existing exact-search tools for known symbols, strings, filenames or regular expressions. Use existing web tools for web research.
+Use `-F` for known symbols and strings, and `-E` for regular expressions. Use the harness's file discovery tools for filenames and web tools for web research.
 
-sag runs independently; SAG-Desktop is optional. Both use the same core, knowledge base, settings and credentials. If the desktop service is running, sag reuses it; otherwise it runs the core in the CLI process. Search automatically uses indexed knowledge-base folders within the requested directory, or the requested subtree of an indexed project; there is no per-folder CLI authorization setting. If JEV is not configured, ask the user to open a terminal and run `sag`; first-use setup guides them through the endpoint, model and hidden API-key input. Noninteractive calls do not prompt. Never invent credentials or change their provider automatically.
+sag runs independently; SAG-Desktop is optional. Both use the same core, knowledge base, settings and credentials. If the desktop service is running, sag reuses it; otherwise it runs the core in the CLI process. Search automatically uses indexed knowledge-base folders within the requested directory, or the requested subtree of an indexed project; there is no per-folder CLI authorization setting. If semantic search needs JEV configuration, ask the user to open a terminal and run `sag`; first-use setup guides them through the endpoint, model and hidden API-key input. `-E` and `-F` skip that setup. Noninteractive calls do not prompt. Never invent credentials or change their provider automatically.
 
 When the current project has not been indexed, run `sag add` in its directory yourself. This adds it to the knowledge base and starts indexing. Check `sag status`; if indexing is still in progress, wait for it to finish before searching. No sync flag is needed. Do not add unrelated projects or broaden the search to a parent directory merely to find more results. If the user has turned CLI off, report that setting instead of enabling it yourself. When they explicitly request re-enabling it, use `sag config --enable`.
 
