@@ -1,6 +1,6 @@
 ---
 name: sag
-description: Search local project files by meaning, exact text or regular expression. Use to locate behavior, trace code, or manage SAG knowledge-base folders and ignore rules.
+description: Search local project files by meaning. Use to understand unfamiliar behavior, discover implementations, or manage SAG knowledge-base folders and ignore rules.
 ---
 
 Run the installed `sag` command from the project directory, not this Skill directory.
@@ -9,19 +9,18 @@ Run the installed `sag` command from the project directory, not this Skill direc
 
 ```bash
 sag -c "How is a session validated?" src -m 5
-sag -F -c 'validateSession(' src -m 5
-sag -E -c '^(ERROR|WARN) [0-9]+' logs -m 5
+sag -c "Where is the retry policy configured?" . -m 3
 ```
 
-Default search is semantic: ask a specific, complete question. Use `-F` for a known literal and `-E` for a pattern. `-c` includes original passages; results provide paths and line ranges.
+Use SAG for semantic search: ask a specific, complete question. `-c` includes original passages; results provide paths and line ranges. For a known symbol, exact text or regular-expression match, use `grep` directly.
 
-Start with 3–5 results. Read the evidence, then inspect a missing part of an already located function directly. Search again only for an unresolved location; combine related identifiers in one scoped query. Stop when the requested behavior and call relationships have source evidence.
+Start with 3–5 results. Read the evidence, then inspect a missing part of an already located function directly. Use a focused grep lookup for unresolved identifiers; ask SAG again only when the missing information still needs semantic discovery. Stop when the requested behavior and call relationships have source evidence.
 
 Each command accepts **one directory**, never a file path or several directories. `-m` accepts **1–100** (default 10); narrow the scope before increasing it. Avoid vague keyword-only semantic queries, broad symbol lists and rereading overlapping code.
 
 ## Read only when needed
 
-- Before using additional matching flags, output modes or file filters, read [parameters](references/parameters.md).
+- For semantic-search options, output format and limits, read [parameters](references/parameters.md).
 - To create or change `.sagignore`, handle `.gitignore` precedence or restore ignored files, read [ignore rules](references/ignores.md).
 - If the folder is unindexed, configuration is missing, CLI access is off, or a folder needs adding/removing, read [setup](references/setup.md). Respect existing access and exclusion choices.
 
