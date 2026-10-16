@@ -240,10 +240,10 @@ impl Store {
                 VACUUM;")?;
         }
         let schema_version: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if schema_version > 0 && schema_version < 5 {
+        if schema_version > 0 && schema_version < 6 {
             db.execute_batch("BEGIN; DELETE FROM chunk_fts; DELETE FROM chunks; UPDATE documents SET hash=''; UPDATE roots SET status='pending',error=NULL; UPDATE metadata SET version=version+1; COMMIT;")?;
         }
-        db.pragma_update(None, "user_version", 5)?;
+        db.pragma_update(None, "user_version", 6)?;
         let query_readers = (0..QUERY_WORKERS)
             .map(|_| {
                 let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -1508,7 +1508,7 @@ mod tests {
         let mut settings = store.settings().unwrap();
         settings.retrieval.chunk_chars = 900;
         store.save_settings(&settings).unwrap();
-        store.connection().pragma_update(None, "user_version", 4).unwrap();
+        store.connection().pragma_update(None, "user_version", 5).unwrap();
         drop(store);
         let upgraded = Store::open(&path).unwrap();
         assert_eq!(upgraded.chunk_count().unwrap(), 0);
