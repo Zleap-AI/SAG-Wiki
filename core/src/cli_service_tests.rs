@@ -76,12 +76,12 @@ fn search(content: bool) -> Command {
 #[tokio::test]
 async fn local_matching_socket_needs_no_model_and_keeps_access_checks() {
     let (_dir, service, root) = fixture();
-    let command = || Command::Match {
-        pattern: r"^fn auth.*\(\) \{$".into(), mode: MatchMode::Regex,
-        max_results: 10, content: true, timeout: 3,
-    };
+    let command = || Command::Match(MatchRequest {
+        patterns: vec![ r"^fn auth.*\(\) \{$".into()], mode: MatchMode::Regex,
+        max_results: Some(10), content: true, timeout: 3, options: MatchOptions::default(),
+    });
     match send(&service, &root, command(), None).await {
-        Response::Search(output) => {
+        Response::Matches(output) => {
             assert_eq!(output.results.len(), 1);
             assert_eq!(output.results[0].start_line, 2);
             assert_eq!(output.results[0].content.as_deref(), Some("fn authenticate() {"));

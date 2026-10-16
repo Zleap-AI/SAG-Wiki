@@ -19,6 +19,7 @@ sha2 = "0.10"
 unicode-normalization = "0.1"
 jieba-rs = "0.11"
 regex = "1"
+regex-syntax = "0.8"
 fancy-regex = "0.16"
 indexmap = "2"
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "rustls", "gzip"] }

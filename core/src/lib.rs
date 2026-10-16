@@ -1,5 +1,6 @@
 pub mod agent;
 pub mod cli_service;
+mod cli_match;
 pub mod document_text;
 pub mod indexer;
 pub mod ignore_rules;

@@ -1,7 +1,7 @@
 use sag_core::protocol as cli_protocol;
 mod install;
 use anyhow::{bail, Context, Result};
-use clap::{CommandFactory, Parser, Subcommand};
+use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use sag_core::types::ModelConfig;
 use cli_protocol::*;
 use std::{
@@ -21,7 +21,8 @@ use std::{
     version,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true,
-    about = "独立搜索本地项目，也可与 SAG-Desktop 共用知识库"
+    about = "独立搜索本地项目，也可与 SAG-Desktop 共用知识库",
+    group(clap::ArgGroup::new("match_mode").args(["extended_regexp", "fixed_strings"]))
 )]
 struct Args {
     #[command(subcommand)]
@@ -34,18 +35,72 @@ struct Args {
     /// 按行匹配固定字符串，不调用模型。
     #[arg(short = 'F', long)]
     fixed_strings: bool,
+    #[command(flatten)]
+    matching: MatchingArgs,
     #[arg(conflicts_with = "path")]
     directory: Option<PathBuf>,
     #[arg(long)]
     path: Option<PathBuf>,
-    #[arg(short = 'm', long, default_value_t = 10, value_parser = clap::value_parser!(u16).range(1..=100))]
-    max_results: u16,
+    /// 最多返回的匹配行；默认 10，--count 默认统计全部。
+    #[arg(short = 'm', long, value_parser = clap::value_parser!(u16).range(1..=100))]
+    max_results: Option<u16>,
     #[arg(short = 'c', long)]
     content: bool,
     #[arg(long)]
     json: bool,
     #[arg(long, default_value_t = DEFAULT_TIMEOUT, value_parser = clap::value_parser!(u64).range(1..=86400))]
     timeout: u64,
+}
+#[derive(clap::Args, Default)]
+#[group(id = "match_controls", multiple = true, requires = "match_mode")]
+struct MatchingArgs {
+    /// 忽略大小写（仅 -E / -F）。
+    #[arg(short = 'i', long)]
+    ignore_case: bool,
+    /// 仅匹配完整单词（仅 -E / -F）。
+    #[arg(short = 'w', long)]
+    word_regexp: bool,
+    /// 仅匹配完整行（仅 -E / -F）。
+    #[arg(short = 'x', long)]
+    line_regexp: bool,
+    /// 选择不匹配的行（仅 -E / -F）。
+    #[arg(short = 'v', long)]
+    invert_match: bool,
+    /// 显示匹配行之前的行数（仅 -E / -F）。
+    #[arg(short = 'B', long, value_parser = clap::value_parser!(u16).range(0..=1000))]
+    before_context: Option<u16>,
+    /// 显示匹配行之后的行数（仅 -E / -F）。
+    #[arg(short = 'A', long, value_parser = clap::value_parser!(u16).range(0..=1000))]
+    after_context: Option<u16>,
+    /// 前后各显示指定行数（仅 -E / -F）。
+    #[arg(short = 'C', long, value_parser = clap::value_parser!(u16).range(0..=1000))]
+    context: Option<u16>,
+    /// 每个匹配文件只输出一次文件名。
+    #[arg(short = 'l', long, group = "match_output", conflicts_with_all = ["before_context", "after_context", "context"])]
+    files_with_matches: bool,
+    /// 按文件统计匹配行数。
+    #[arg(long, group = "match_output", conflicts_with_all = ["before_context", "after_context", "context"])]
+    count: bool,
+    /// 只输出非空匹配片段。
+    #[arg(short = 'o', long, group = "match_output", conflicts_with_all = ["invert_match", "before_context", "after_context", "context"])]
+    only_matching: bool,
+    /// 静默判断：匹配退出 0，无匹配退出 1，错误退出 2。
+    #[arg(short = 'q', long, group = "match_output", conflicts_with_all = ["json", "before_context", "after_context", "context"])]
+    quiet: bool,
+    /// 增加一个匹配条件，可重复使用。
+    #[arg(short = 'e', long = "regexp", allow_hyphen_values = true)]
+    patterns: Vec<String>,
+    /// 从 UTF-8 文件逐行读取条件；- 表示标准输入。
+    #[arg(short = 'f', long = "file", allow_hyphen_values = true)]
+    pattern_files: Vec<PathBuf>,
+    /// 只匹配符合通配符的文件名，可重复使用。
+    #[arg(long)]
+    include: Vec<String>,
+    /// 排除符合通配符的文件名，可重复使用。
+    #[arg(long)]
+    exclude: Vec<String>,
+    #[arg(skip)]
+    filters: Vec<MatchFilter>,
 }
 #[derive(Subcommand)]
 enum CliCommand {
@@ -158,7 +213,23 @@ fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt
     Ok(result)
 }
 fn main() {
-    let args = Args::parse();
+    let matches = Args::command().get_matches();
+    let mut args = Args::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    let mut filters = vec![];
+    for (name, include) in [("include", true), ("exclude", false)] {
+        if let (Some(indices), Some(values)) = (matches.indices_of(name), matches.get_many::<String>(name)) {
+            filters.extend(indices.zip(values).map(|(index, pattern)| (index, MatchFilter { include, pattern: pattern.clone() })));
+        }
+    }
+    filters.sort_by_key(|(index, _)| *index);
+    args.matching.filters = filters.into_iter().map(|(_, filter)| filter).collect();
+    let explicit_patterns = !args.matching.patterns.is_empty() || !args.matching.pattern_files.is_empty();
+    if explicit_patterns {
+        if args.directory.is_some() || args.query.is_some() && args.path.is_some() {
+            Args::command().error(clap::error::ErrorKind::ArgumentConflict, "使用 -e/-f 时只可指定一个搜索目录").exit();
+        }
+        args.directory = args.query.take().map(PathBuf::from);
+    }
     if let Some(query) = &args.query {
         let empty = if args.extended_regexp || args.fixed_strings { query.is_empty() } else { query.trim().is_empty() };
         if empty || query.chars().count() > 2000 {
@@ -166,7 +237,7 @@ fn main() {
             std::process::exit(2);
         }
     }
-    if args.command.is_none() && args.query.is_none() && !interactive() {
+    if args.command.is_none() && args.query.is_none() && !explicit_patterns && !interactive() {
         Args::command().error(clap::error::ErrorKind::MissingRequiredArgument,
             "请提供搜索内容；首次配置请在终端运行 sag").exit();
     }
@@ -184,16 +255,19 @@ fn main() {
         eprintln!("无法设置取消处理程序：{error}");
         std::process::exit(1);
     });
-    if let Err(e) = run(args, interrupted.clone()) {
+    let quiet = args.matching.quiet;
+    let result = run(args, interrupted.clone());
+    if let Ok(code) = result { if code != 0 { std::process::exit(code); } }
+    else if let Err(e) = result {
         eprintln!("{e:#}");
         std::process::exit(if interrupted.cancelled.load(Ordering::SeqCst) {
             130
-        } else {
+        } else if quiet { 2 } else {
             1
         });
     }
 }
-fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
+fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
     if let Some(CliCommand::Install { target } | CliCommand::Uninstall { target }) = &args.command {
         let uninstall = matches!(args.command, Some(CliCommand::Uninstall { .. }));
         let home = dirs::home_dir().context("无法获取用户目录")?;
@@ -210,30 +284,55 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
         if target == "cli" && !uninstall {
             eprintln!("终端路径已自动配置，请新开终端运行 sag。");
         }
-        return Ok(());
+        return Ok(0);
     }
     let cwd = std::env::current_dir()?;
+    let explicit_patterns = !args.matching.patterns.is_empty() || !args.matching.pattern_files.is_empty();
     if args.command.is_none() {
         if !args.extended_regexp && !args.fixed_strings && interactive() && !args.json && !sag_core::models::has_secret(&data_dir()?, "jev")? {
             configure(ConfigOptions::default(), cwd.clone(), interrupted.clone())?;
             if args.query.is_none() {
                 eprintln!("接下来运行 sag add 添加当前目录，再运行 sag \"搜索内容\"。");
-                return Ok(());
+                return Ok(0);
             }
         }
-        if args.query.is_none() {
+        if args.query.is_none() && !explicit_patterns {
             Args::command().print_help()?;
             println!();
-            return Ok(());
+            return Ok(0);
         }
     }
+    let patterns = if args.extended_regexp || args.fixed_strings {
+        let mut patterns = vec![];
+        if explicit_patterns {
+            for pattern in &args.matching.patterns {
+                if pattern.is_empty() { patterns.push(String::new()); }
+                else { patterns.extend(pattern.lines().map(str::to_owned)); }
+            }
+            let mut pattern_bytes: usize = patterns.iter().map(String::len).sum();
+            for file in &args.matching.pattern_files {
+                let mut source = String::new();
+                if file == std::path::Path::new("-") {
+                    std::io::stdin().lock().take(16 * 1024 + 1).read_to_string(&mut source)?;
+                } else {
+                    std::fs::File::open(file).with_context(|| format!("无法读取模式文件：{}", file.display()))?
+                        .take(16 * 1024 + 1).read_to_string(&mut source).with_context(|| format!("模式文件必须为 UTF-8：{}", file.display()))?;
+                }
+                if source.len() > 16 * 1024 { bail!("模式文件超过 16 KiB") }
+                pattern_bytes += source.len();
+                if pattern_bytes > 16 * 1024 { bail!("匹配条件总大小超过 16 KiB") }
+                patterns.extend(source.lines().map(str::to_owned));
+            }
+        } else { patterns.push(args.query.clone().expect("a bare invocation returns before matching")); }
+        Some(patterns)
+    } else { None };
     let (command, path, json, timeout) = match args.command {
         Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. }) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
         Some(CliCommand::Config(options)) => {
             let config = configure(options, cwd, interrupted)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
-            return Ok(());
+            return Ok(0);
         }
         Some(CliCommand::Add { directory, json }) => (
             Command::Add,
@@ -248,15 +347,22 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
             10,
         ),
         None => (
-            if args.extended_regexp || args.fixed_strings { Command::Match {
-                pattern: args.query.expect("a bare invocation returns before search"),
+            if args.extended_regexp || args.fixed_strings { Command::Match(MatchRequest {
+                patterns: patterns.unwrap(),
                 mode: if args.fixed_strings { MatchMode::Fixed } else { MatchMode::Regex },
-                max_results: args.max_results.into(),
-                content: args.content,
+                max_results: if args.matching.count { args.max_results.map(usize::from) } else { Some(args.max_results.unwrap_or(10).into()) },
+                content: args.content || args.matching.before_context.is_some() || args.matching.after_context.is_some() || args.matching.context.is_some(),
                 timeout: args.timeout,
-            } } else { Command::Search {
+                options: MatchOptions { ignore_case: args.matching.ignore_case, word_regexp: args.matching.word_regexp,
+                    line_regexp: args.matching.line_regexp, invert_match: args.matching.invert_match,
+                    before_context: args.matching.before_context.or(args.matching.context).unwrap_or(0).into(),
+                    after_context: args.matching.after_context.or(args.matching.context).unwrap_or(0).into(),
+                    output: if args.matching.quiet { MatchOutputMode::Quiet } else if args.matching.count { MatchOutputMode::Count }
+                        else if args.matching.files_with_matches { MatchOutputMode::Files } else if args.matching.only_matching { MatchOutputMode::OnlyMatching } else { MatchOutputMode::Lines },
+                    filters: args.matching.filters },
+            }) } else { Command::Search {
                 query: args.query.expect("a bare invocation returns before search"),
-                max_results: args.max_results.into(),
+                max_results: args.max_results.unwrap_or(10).into(),
                 content: args.content,
                 timeout: args.timeout,
             } },
@@ -287,23 +393,48 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
             if json { println!("{}", serde_json::json!({"path":path})); }
             else { println!("已从知识库移除：{path}\n本地文件已保留。"); }
         }
-        Response::Search(mut output) => {
-            for item in &mut output.results {
-                if let Some(relative) = pathdiff::diff_paths(&item.absolute_path, &cwd) {
-                    item.path = if relative.starts_with("..") { relative.display().to_string() } else { format!("./{}", relative.display()) };
+        Response::Matches(mut output) => {
+            if args.matching.quiet { return Ok(if output.matched { 0 } else { 1 }); }
+            relative_results(&mut output.results, &cwd);
+            for file in &mut output.files {
+                if let Some(relative) = pathdiff::diff_paths(&file.absolute_path, &cwd) {
+                    file.path = if relative.starts_with("..") { relative.display().to_string() } else { format!("./{}", relative.display()) };
                 }
             }
             if json { println!("{}", serde_json::to_string(&output)?); }
             else {
-                for item in &output.results {
-                    println!("{}:{}-{}", item.path, item.start_line, item.end_line);
-                    if let Some(content) = &item.content { println!("{content}\n"); }
+                print_results(&output.results);
+                for file in &output.files {
+                    if let Some(count) = file.count { println!("{}:{count}", file.path); }
+                    else { println!("{}", file.path); }
                 }
+            }
+            if output.truncated { eprintln!("输出已触及长度上限，部分内容未显示。请缩小搜索目录。"); }
+        }
+        Response::Search(mut output) => {
+            relative_results(&mut output.results, &cwd);
+            if json { println!("{}", serde_json::to_string(&output)?); }
+            else {
+                print_results(&output.results);
             }
             if output.truncated { eprintln!("输出已触及长度上限，部分片段未显示。请缩小搜索目录。"); }
         }
     }
-    Ok(())
+    Ok(0)
+}
+
+fn relative_results(results: &mut [SearchResult], cwd: &std::path::Path) {
+    for item in results {
+        if let Some(relative) = pathdiff::diff_paths(&item.absolute_path, cwd) {
+            item.path = if relative.starts_with("..") { relative.display().to_string() } else { format!("./{}", relative.display()) };
+        }
+    }
+}
+fn print_results(results: &[SearchResult]) {
+    for item in results {
+        println!("{}:{}-{}", item.path, item.start_line, item.end_line);
+        if let Some(content) = &item.content { println!("{content}\n"); }
+    }
 }
 
 fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Interrupt>) -> Result<Response> {
@@ -329,11 +460,12 @@ fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Inter
         // Cover synchronous index refresh as well as the async request. Dropping
         // the sender stops the timer after success; process exit releases SQLite locks.
         let (deadline, timer) = std::sync::mpsc::channel::<()>();
-        if matches!(command, Command::Search { .. } | Command::Match { .. }) {
+        let timeout_exit = if matches!(&command, Command::Match(request) if request.options.output == MatchOutputMode::Quiet) { 2 } else { 1 };
+        if matches!(command, Command::Search { .. } | Command::Match(_)) {
             std::thread::spawn(move || {
                 if matches!(timer.recv_timeout(Duration::from_secs(timeout)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
                     eprintln!("请求超时（包括索引检查），请缩小搜索目录或增加 --timeout");
-                    std::process::exit(1);
+                    std::process::exit(timeout_exit);
                 }
             });
         }

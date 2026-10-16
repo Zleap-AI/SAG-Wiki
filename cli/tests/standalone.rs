@@ -89,7 +89,7 @@ fn standalone_timeout_includes_blocked_index_refresh_and_releases_the_core() {
     // A FIFO makes reading the ignore rules block until the process deadline.
     let rule = root.join(".sagignore");
     assert!(Command::new("mkfifo").arg(&rule).status().unwrap().success());
-    for args in [vec!["test", "--timeout", "1"], vec!["-F", "test", "--timeout", "1"]] {
+    for (args, code) in [(vec!["test", "--timeout", "1"], 1), (vec!["-F", "test", "--timeout", "1"], 1), (vec!["-F", "test", "-q", "--timeout", "1"], 2)] {
     let mut child = Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", &data).current_dir(&root)
         .args(args).stdout(Stdio::piped()).stderr(Stdio::piped())
@@ -100,7 +100,7 @@ fn standalone_timeout_includes_blocked_index_refresh_and_releases_the_core() {
     }
     if child.try_wait().unwrap().is_none() { child.kill().unwrap(); }
     let output = child.wait_with_output().unwrap();
-    assert_eq!(output.status.code(), Some(1));
+    assert_eq!(output.status.code(), Some(code));
     assert!(String::from_utf8_lossy(&output.stderr).contains("请求超时"));
     }
     fs::remove_file(rule).unwrap();

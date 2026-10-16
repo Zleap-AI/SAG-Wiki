@@ -50,19 +50,54 @@ pub enum Command {
         content: bool,
         timeout: u64,
     },
-    Match {
-        pattern: String,
-        mode: MatchMode,
-        max_results: usize,
-        content: bool,
-        timeout: u64,
-    },
+    Match(MatchRequest),
 }
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MatchMode {
     Regex,
     Fixed,
+}
+#[derive(Serialize, Deserialize)]
+pub struct MatchRequest {
+    pub patterns: Vec<String>,
+    pub mode: MatchMode,
+    pub max_results: Option<usize>,
+    pub content: bool,
+    pub timeout: u64,
+    pub options: MatchOptions,
+}
+#[derive(Default, Serialize, Deserialize)]
+pub struct MatchOptions {
+    pub ignore_case: bool,
+    pub word_regexp: bool,
+    pub line_regexp: bool,
+    pub invert_match: bool,
+    pub before_context: usize,
+    pub after_context: usize,
+    pub output: MatchOutputMode,
+    pub filters: Vec<MatchFilter>,
+}
+#[derive(Serialize, Deserialize)]
+pub struct MatchFilter { pub include: bool, pub pattern: String }
+#[derive(Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MatchOutputMode { #[default] Lines, OnlyMatching, Files, Count, Quiet }
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MatchFile {
+    pub path: String,
+    pub absolute_path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub count: Option<usize>,
+}
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MatchOutput {
+    pub protocol_version: u32,
+    pub scope: String,
+    pub results: Vec<SearchResult>,
+    pub files: Vec<MatchFile>,
+    pub matched: bool,
+    pub truncated: bool,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -72,6 +107,8 @@ pub struct SearchResult {
     pub end_line: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub matched_lines: Vec<usize>,
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchOutput {
@@ -104,5 +141,6 @@ pub enum Response {
     Added(AddOutput),
     Removed { path: String },
     Search(SearchOutput),
+    Matches(MatchOutput),
     Error(String),
 }

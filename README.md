@@ -16,6 +16,8 @@ sag add             # 索引当前目录
 sag "权限在哪里检查？"
 sag -E -c '^(ERROR|WARN) [0-9]+' ./logs  # 本地正则匹配
 sag -F -c 'validatePermission(' ./src  # 本地固定字符串匹配
+sag -F -i -w 'token' ./src -C 3       # 忽略大小写、完整单词及上下文
+sag -E -e 'ERROR' -e 'WARN' ./logs -l # 多条件与匹配文件列表
 ```
 
 安装时可直接传入密钥：`sh install.sh --key '你的密钥'`；也可按默认方式安装，通过隐藏输入完成配置。已配置时保留现有设置。

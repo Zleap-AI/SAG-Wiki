@@ -1993,6 +1993,7 @@ dependencies = [
  "objc2-app-kit",
  "objc2-foundation",
  "regex",
+ "regex-syntax",
  "reqwest",
  "rmcp",
  "rusqlite",
