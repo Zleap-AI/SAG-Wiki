@@ -3,7 +3,7 @@
 ## 启用与安装
 
 1. 首次启动 SAG-Desktop 会自动安装 CLI 并开启 CLI 功能，无需单独安装或勾选目录授权。终端路径自动配置，新开终端即可运行 `sgrep`。
-2. 安装对应编程工具的 SAG Skill，并新开会话。Agent 可以自行运行 `sgrep add` 添加当前项目，再用 `sgrep search` 搜索。
+2. 安装对应编程工具的 SAG Skill，并新开会话。Agent 可以自行运行 `sgrep add` 添加当前项目，再用 `sgrep "搜索内容"` 搜索。
 3. 搜索默认使用当前目录内已加入知识库的内容；若当前目录是已索引项目的子目录，则只搜索该子目录。可以指定其他目录，但不会读取范围外的文件。
 4. 设置 → CLI 保留总开关、上方的连接检测与编程工具 Skill 安装区，不展示命令行工具板块。用户主动关闭 CLI 或卸载后，后续启动会保留该选择。自动安装出错会在此页面显示原因；修复后可重新启动应用重试。
 
@@ -17,10 +17,10 @@ sgrep add
 sgrep add /path/to/project --json
 sgrep remove
 sgrep remove /path/to/project --json
-sgrep search "登录之后在哪里验证权限？"
-sgrep search -c "配置如何影响请求重试？" ./src -m 5
-sgrep search "连接池在哪里初始化？" --path ./server --json
-sgrep search -c "任务如何取消？" --timeout 900 --json
+sgrep "登录之后在哪里验证权限？"
+sgrep -c "配置如何影响请求重试？" ./src -m 5
+sgrep "连接池在哪里初始化？" --path ./server --json
+sgrep -c "任务如何取消？" --timeout 900 --json
 sgrep install claude-code
 sgrep install codex
 sgrep install opencode
@@ -30,6 +30,8 @@ sgrep uninstall cli
 
 `sgrep add` 默认添加当前目录，也可指定目录。命令复用桌面端的添加与索引流程，已添加目录不会重复创建。索引在后台进行，命令返回当前状态；用 `sgrep status` 检查就绪情况，无需 sync 参数。`--json` 返回路径、索引状态和当前 CLI 可用状态。添加的目录会直接显示在桌面知识库。
 `sgrep remove` 从知识库移除当前目录，也可指定已添加的根目录或其中的子目录。根目录会取消接入；子目录会清理索引并持久排除，后续扫描和文件监听不会重新加入。全部本地文件保持不变，执行 `sgrep add 同一子目录` 可恢复并重新索引。目录已移动或磁盘离线时，仍可按原来登记的完整路径移除记录。`--json` 返回移除的目录路径。移除后目录立即从桌面知识库中消失。UI 的文件夹菜单同样提供移除操作；文件设置 → 已移除的子目录中可以恢复。
+
+搜索不需要 `search` 子命令，直接运行 `sgrep "搜索内容"`。`add`、`remove`、`status`、`install`、`uninstall` 保留为管理命令。搜索这些字面内容或以 `-` 开头的内容时，用 `--` 分隔，例如 `sgrep -c -- "status"`。
 
 默认搜索当前执行目录；位置参数和 `--path` 不能同时使用。默认最多 10 个片段，允许 1–100。`-c` 仅改变输出，不改变召回与排序。路径相对于命令执行目录；JSON 同时返回完整路径、行号、实际范围和截断标记。仅 `-c` 返回 `content`。分离的原文范围分别输出，避免把不连续片段标成连续行。
 

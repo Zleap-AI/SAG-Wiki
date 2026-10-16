@@ -19,11 +19,28 @@ use std::{
 #[command(
     name = "sgrep",
     version,
+    args_conflicts_with_subcommands = true,
+    subcommand_negates_reqs = true,
     about = "使用后台运行的 SAG-Desktop 搜索本地项目"
 )]
 struct Args {
     #[command(subcommand)]
-    command: CliCommand,
+    command: Option<CliCommand>,
+    /// 要搜索的内容。
+    #[arg(required = true)]
+    query: Option<String>,
+    #[arg(conflicts_with = "path")]
+    directory: Option<PathBuf>,
+    #[arg(long)]
+    path: Option<PathBuf>,
+    #[arg(short = 'm', long, default_value_t = 10, value_parser = clap::value_parser!(u16).range(1..=100))]
+    max_results: u16,
+    #[arg(short = 'c', long)]
+    content: bool,
+    #[arg(long)]
+    json: bool,
+    #[arg(long, default_value_t = DEFAULT_TIMEOUT, value_parser = clap::value_parser!(u64).range(1..=86400))]
+    timeout: u64,
 }
 #[derive(Subcommand)]
 enum CliCommand {
@@ -48,25 +65,10 @@ enum CliCommand {
         #[arg(long)]
         json: bool,
     },
-    Search {
-        query: String,
-        #[arg(conflicts_with = "path")]
-        directory: Option<PathBuf>,
-        #[arg(long)]
-        path: Option<PathBuf>,
-        #[arg(short = 'm', long, default_value_t = 10, value_parser = clap::value_parser!(u16).range(1..=100))]
-        max_results: u16,
-        #[arg(short = 'c', long)]
-        content: bool,
-        #[arg(long)]
-        json: bool,
-        #[arg(long, default_value_t = DEFAULT_TIMEOUT, value_parser = clap::value_parser!(u64).range(1..=86400))]
-        timeout: u64,
-    },
 }
 fn main() {
     let args = Args::parse();
-    if let CliCommand::Search { query, .. } = &args.command {
+    if let Some(query) = &args.query {
         if query.trim().is_empty() || query.chars().count() > 2000 {
             eprintln!("问题不能为空或超过 2000 字符");
             std::process::exit(2);
@@ -83,8 +85,8 @@ fn main() {
     }
 }
 fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
-    if let CliCommand::Install { target } | CliCommand::Uninstall { target } = &args.command {
-        let uninstall = matches!(args.command, CliCommand::Uninstall { .. });
+    if let Some(CliCommand::Install { target } | CliCommand::Uninstall { target }) = &args.command {
+        let uninstall = matches!(args.command, Some(CliCommand::Uninstall { .. }));
         let home = dirs::home_dir().context("无法获取用户目录")?;
         let path = if target == "cli" {
             install::binary(&home, &std::env::current_exe()?, uninstall)?
@@ -103,38 +105,30 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
     }
     let cwd = std::env::current_dir()?;
     let (command, path, json, timeout) = match args.command {
-        CliCommand::Install { .. } | CliCommand::Uninstall { .. } => unreachable!(),
-        CliCommand::Status => (Command::Status, cwd.clone(), false, 10),
-        CliCommand::Add { directory, json } => (
+        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. }) => unreachable!(),
+        Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
+        Some(CliCommand::Add { directory, json }) => (
             Command::Add,
             cwd.join(directory.unwrap_or_default()),
             json,
             10,
         ),
-        CliCommand::Remove { directory, json } => (
+        Some(CliCommand::Remove { directory, json }) => (
             Command::Remove,
             cwd.join(directory.unwrap_or_default()),
             json,
             10,
         ),
-        CliCommand::Search {
-            query,
-            directory,
-            path,
-            max_results,
-            content,
-            json,
-            timeout,
-        } => (
+        None => (
             Command::Search {
-                query,
-                max_results: max_results.into(),
-                content,
-                timeout,
+                query: args.query.expect("clap requires a query when no subcommand is given"),
+                max_results: args.max_results.into(),
+                content: args.content,
+                timeout: args.timeout,
             },
-            cwd.join(path.or(directory).unwrap_or_default()),
-            json,
-            timeout,
+            cwd.join(args.path.or(args.directory).unwrap_or_default()),
+            args.json,
+            args.timeout,
         ),
     };
     let endpoint: Endpoint = serde_json::from_slice(
@@ -188,9 +182,9 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
                 if output.cli_authorized { println!("CLI 可搜索此目录。"); }
                 else { println!("CLI 接入已关闭，请在 SAG-Desktop 设置中启用。"); }
                 match output.index_status.as_str() {
-                    "ready" => println!("索引已就绪，可以运行 sgrep search。"),
+                    "ready" => println!("索引已就绪，可以运行 sgrep \"搜索内容\"。"),
                     "error" => println!("索引失败，请在 SAG-Desktop 查看详情。"),
-                    _ => println!("正在建立索引，请用 sgrep status 查看进度；就绪后可运行 sgrep search。"),
+                    _ => println!("正在建立索引，请用 sgrep status 查看进度；就绪后可运行 sgrep \"搜索内容\"。"),
                 }
             }
         }

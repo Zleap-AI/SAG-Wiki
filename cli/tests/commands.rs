@@ -10,15 +10,18 @@ fn invalid_arguments_are_distinct_from_unavailable_desktop() {
             .unwrap()
     };
     assert_eq!(
-        run(&["search", "question", "src", "--path", "other"])
+        run(&["question", "src", "--path", "other"])
             .status
             .code(),
         Some(2)
     );
     assert_eq!(
-        run(&["search", "question", "-m", "0"]).status.code(),
+        run(&["question", "-m", "0"]).status.code(),
         Some(2)
     );
+    for args in [&[][..], &["-c"][..], &[""][..]] {
+        assert_eq!(run(args).status.code(), Some(2));
+    }
     let missing = run(&["status"]);
     assert_eq!(missing.status.code(), Some(1));
     assert!(missing.stdout.is_empty());
@@ -51,14 +54,14 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     let server_path = path.clone();
     let query = "Where is 'quoted' permission\nvalidated?";
     let server = std::thread::spawn(move || {
-        for content in [false, true, true] {
+        for (expected_query, content) in [(query, false), (query, true), (query, true), ("status", false)] {
             let (mut stream, _) = listener.accept().unwrap();
             let mut line = String::new();
             BufReader::new(stream.try_clone().unwrap())
                 .read_line(&mut line)
                 .unwrap();
             let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["command"]["query"], query);
+            assert_eq!(request["command"]["query"], expected_query);
             assert_eq!(request["command"]["content"], content);
             assert!(request["path"]
                 .as_str()
@@ -76,7 +79,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
         Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .env("SAG_DESKTOP_DATA_DIR", home.path())
             .current_dir(&cwd)
-            .args(["search", query, "src"])
+            .args([query, "src"])
             .args(extra)
             .output()
             .unwrap()
@@ -87,7 +90,11 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
         String::from_utf8(plain.stdout).unwrap(),
         "./src/main.rs:2-4\n"
     );
-    let content = run(&["-c"]);
+    let content = Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        .env("SAG_DESKTOP_DATA_DIR", home.path())
+        .current_dir(&cwd)
+        .args(["-c", query, "src"])
+        .output().unwrap();
     assert!(content.status.success());
     assert!(String::from_utf8(content.stdout)
         .unwrap()
@@ -97,6 +104,12 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(value["results"][0]["path"], "./src/main.rs");
     assert_eq!(value["results"][0]["absolute_path"], path.to_str().unwrap());
+    let reserved = Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        .env("SAG_DESKTOP_DATA_DIR", home.path())
+        .current_dir(&cwd)
+        .args(["--", "status", "src"])
+        .output().unwrap();
+    assert!(reserved.status.success(), "{}", String::from_utf8_lossy(&reserved.stderr));
     server.join().unwrap();
 }
 

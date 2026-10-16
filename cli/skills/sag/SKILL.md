@@ -3,7 +3,9 @@ name: sag
 description: Search local project code with SAG when locating behavior, tracing cross-file relationships, or connecting configuration to implementation. Also use when registering the current project or configuring its SAG indexing exclusions.
 ---
 
-Use `sgrep search -c "complete natural-language question"` to find local implementation evidence. Run it in the current project directory. To narrow the scope, pass a directory: `sgrep search -c "How is a session validated?" ./src -m 5`.
+Use `sgrep -c "complete natural-language question"` to find local implementation evidence. Run it in the current project directory. To narrow the scope, pass a directory: `sgrep -c "How is a session validated?" ./src -m 5`.
+
+Search is the default command: `sgrep "question" [directory]`. Management commands such as `add`, `remove`, `status`, `install` and `uninstall` remain subcommands. To search a literal command name or a query starting with `-`, put search options first and use `--`, for example `sgrep -c -- "status"`.
 
 The command returns file paths, line ranges and original passages. Omit `-c` when only locations are needed. Read the referenced files with the harness's normal file reader if the passages need more context. Continue the task once there is enough evidence; avoid repeating the same query.
 
