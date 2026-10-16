@@ -1,10 +1,31 @@
 use std::process::Command;
 #[test]
-fn invalid_arguments_are_distinct_from_unavailable_desktop() {
+fn config_saves_jev_without_desktop_and_never_prints_the_key() {
+    use std::{io::Write, process::Stdio};
+    let data = tempfile::tempdir().unwrap();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        .env("SGREP_DATA_DIR", data.path())
+        .args(["config", "--url", "https://example.com/decisions", "--model", "test-model", "--key-stdin"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+    child.stdin.take().unwrap().write_all(b"test-private-key\n").unwrap();
+    let result = child.wait_with_output().unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("test-private-key"));
+    let shown = Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        .env("SGREP_DATA_DIR", data.path()).arg("config").output().unwrap();
+    assert!(shown.status.success());
+    let settings: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(settings["model"], "test-model");
+    assert_eq!(settings["has_key"], true);
+    assert!(!String::from_utf8_lossy(&shown.stdout).contains("test-private-key"));
+}
+
+#[test]
+fn invalid_arguments_fail_but_status_works_without_desktop() {
     let home = tempfile::tempdir().unwrap();
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_sgrep"))
-            .env("SAG_DESKTOP_DATA_DIR", home.path())
+            .env("SGREP_DATA_DIR", home.path())
             .args(args)
             .output()
             .unwrap()
@@ -23,11 +44,8 @@ fn invalid_arguments_are_distinct_from_unavailable_desktop() {
         assert_eq!(run(args).status.code(), Some(2));
     }
     let missing = run(&["status"]);
-    assert_eq!(missing.status.code(), Some(1));
-    assert!(missing.stdout.is_empty());
-    assert!(String::from_utf8(missing.stderr)
-        .unwrap()
-        .contains("SAG-Desktop"));
+    assert!(missing.status.success(), "{}", String::from_utf8_lossy(&missing.stderr));
+    assert!(String::from_utf8(missing.stdout).unwrap().contains("独立模式"));
 }
 
 #[test]
@@ -77,7 +95,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     });
     let run = |extra: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_sgrep"))
-            .env("SAG_DESKTOP_DATA_DIR", home.path())
+            .env("SGREP_DATA_DIR", home.path())
             .current_dir(&cwd)
             .args([query, "src"])
             .args(extra)
@@ -91,7 +109,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
         "./src/main.rs:2-4\n"
     );
     let content = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SAG_DESKTOP_DATA_DIR", home.path())
+        .env("SGREP_DATA_DIR", home.path())
         .current_dir(&cwd)
         .args(["-c", query, "src"])
         .output().unwrap();
@@ -105,7 +123,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     assert_eq!(value["results"][0]["path"], "./src/main.rs");
     assert_eq!(value["results"][0]["absolute_path"], path.to_str().unwrap());
     let reserved = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SAG_DESKTOP_DATA_DIR", home.path())
+        .env("SGREP_DATA_DIR", home.path())
         .current_dir(&cwd)
         .args(["--", "status", "src"])
         .output().unwrap();
@@ -180,7 +198,7 @@ fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .current_dir(&cwd)
-            .env("SAG_DESKTOP_DATA_DIR", data.path())
+            .env("SGREP_DATA_DIR", data.path())
             .args(args)
             .output()
             .unwrap()
@@ -198,4 +216,16 @@ fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
     assert_eq!(response["path"], cwd.join("child").to_str().unwrap());
     server.join().unwrap();
     }
+}
+
+#[test]
+fn standalone_can_explicitly_enable_previously_disabled_access() {
+    let data = tempfile::tempdir().unwrap();
+    std::fs::write(data.path().join("cli-access.json"), r#"{"enabled":false}"#).unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        .env("SGREP_DATA_DIR", data.path()).args(args).output().unwrap();
+    assert!(String::from_utf8(run(&["status"]).stdout).unwrap().contains("CLI 接入：false"));
+    let enabled = run(&["config", "--enable"]);
+    assert!(enabled.status.success(), "{}", String::from_utf8_lossy(&enabled.stderr));
+    assert!(String::from_utf8(run(&["status"]).stdout).unwrap().contains("CLI 接入：true"));
 }

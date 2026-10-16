@@ -161,7 +161,7 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         if target.try_exists()? {
             check_owned(&target)?;
         }
-        Some(fs::read(source).context("未找到随应用分发的 sgrep，请重新安装应用")?)
+        Some(fs::read(source).context("未找到 sgrep 二进制文件，请重新下载安装包")?)
     };
     // Finish terminal setup before changing the binary or its recorded location.
     terminal_path::configure(home, &data, target.parent().unwrap(), false)?;

@@ -764,7 +764,7 @@
   "安装位置": "Installation path",
   "编程工具": "Coding tools",
   "Skill 安装位置": "Skill installation paths",
-  "关闭窗口后仍可使用 CLI；退出应用后停止服务。": "CLI stays available when the window closes. Quitting the app stops the service.",
+  "CLI 可独立运行；桌面端开启时共用知识库。": "CLI works independently and shares the knowledge base when the desktop app is open.",
   "检索问题和候选片段会发送到已配置的 JEV 服务。": "Search queries and candidate passages are sent to your configured JEV service.",
   "{value0} 已卸载。": "{value0} uninstalled.",
   "{value0} 已安装。": "{value0} installed.",

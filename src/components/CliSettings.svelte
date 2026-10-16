@@ -86,7 +86,7 @@
     </Collapsible.Root>
    </div>
   </section>
-  <aside class="cli-note"><span aria-hidden="true">{@html icon('info')}</span><div><p>{$t('关闭窗口后仍可使用 CLI；退出应用后停止服务。')}</p><p>{$t('检索问题和候选片段会发送到已配置的 JEV 服务。')}</p></div></aside>
+  <aside class="cli-note"><span aria-hidden="true">{@html icon('info')}</span><div><p>{$t('CLI 可独立运行；桌面端开启时共用知识库。')}</p><p>{$t('检索问题和候选片段会发送到已配置的 JEV 服务。')}</p></div></aside>
  {/if}
  {#if error}<div class="cli-feedback cli-error" role="alert"><span aria-hidden="true">{@html icon('info')}</span><div><strong>{$t('操作未完成')}</strong><p>{error}</p></div>{#if !loaded}<Button.Root type="button" class="outline" disabled={pending} onclick={refresh}>{$t('重试')}</Button.Root>{/if}</div>{/if}
  {#if notice}<div class="cli-feedback" role="status"><span aria-hidden="true">{@html icon('check')}</span><p>{notice}</p></div>{/if}

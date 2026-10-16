@@ -3581,7 +3581,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
 
 [[package]]
-name = "sag-desktop"
+name = "sag-core"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -3607,6 +3607,46 @@ dependencies = [
  "reqwest",
  "rmcp",
  "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tiktoken-rs",
+ "tokio",
+ "tokio-util",
+ "unicode-casefold",
+ "unicode-normalization",
+ "uuid",
+ "walkdir",
+]
+
+[[package]]
+name = "sag-desktop"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "chardetng",
+ "dirs 6.0.0",
+ "encoding_rs",
+ "fancy-regex 0.16.2",
+ "flate2",
+ "futures-util",
+ "glob",
+ "icu_collator",
+ "icu_locid",
+ "ignore",
+ "indexmap 2.14.2",
+ "jieba-rs",
+ "notify",
+ "objc2",
+ "objc2-app-kit",
+ "objc2-foundation",
+ "regex",
+ "reqwest",
+ "rmcp",
+ "rusqlite",
+ "sag-core",
  "serde",
  "serde_json",
  "sha2",

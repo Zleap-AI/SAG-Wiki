@@ -567,3 +567,23 @@ async fn malformed_ignore_rules_preserve_existing_index_and_report_the_error() {
     crate::indexer::apply_request(&service.store, queue.recv().unwrap(), |_| {}).unwrap();
     assert!(service.status(&root).unwrap().index_ready);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn failed_key_update_does_not_pair_new_provider_with_old_key() {
+    use std::os::unix::fs::PermissionsExt;
+    let (dir, service, root, _queue) = fixture_with_queue();
+    models::save_secret(dir.path(), "jev", "old-provider-key").unwrap();
+    let previous = service.store.settings().unwrap().jev.url;
+    // SQLite has an open WAL, but creating the credential replacement is denied.
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o500)).unwrap();
+    let result = service.run_local(root, Command::Configure {
+        enable: false,
+        url: Some("https://different-provider.example/decisions".into()),
+        model: None, key: Some("new-provider-key".into()),
+    }, CancellationToken::new()).await;
+    fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
+    assert!(result.is_err());
+    let current = service.store.settings().unwrap().jev.url;
+    assert!(current == previous || !models::has_secret(dir.path(), "jev").unwrap());
+}

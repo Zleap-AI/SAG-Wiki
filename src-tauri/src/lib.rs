@@ -1,22 +1,9 @@
-mod agent;
-mod cli_service;
 mod cli_commands;
 #[path = "../../cli/src/install.rs"]
 mod cli_install;
-#[path = "../../cli/src/protocol.rs"]
-mod cli_protocol;
-mod document_text;
 mod explore;
-mod indexer;
-mod ignore_rules;
-mod mcp;
-mod models;
-mod retrieval;
-mod sag2_v10;
-mod sag_mcp;
-mod store;
-mod text;
-mod types;
+use sag_core::{agent, cli_service, indexer, mcp, models, retrieval, sag_mcp, store, text, types};
+use sag_core::protocol as cli_protocol;
 use notify::{RecursiveMode, Watcher};
 use std::{
     collections::HashMap,
@@ -782,7 +769,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data = std::env::var_os("SAG_DESKTOP_DATA_DIR")
+            let data = std::env::var_os("SGREP_DATA_DIR").or_else(|| std::env::var_os("SAG_DESKTOP_DATA_DIR"))
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&data)?;
@@ -899,7 +886,7 @@ pub fn run() {
                 emit(&remove_app, "data-changed", ());
                 Ok(())
             });
-            let cli = cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance, add_root, remove_root)?;
+            let cli = tauri::async_runtime::block_on(async { cli_service::CliService::start(store.clone(), client.clone(), data.clone(), query_lock.clone(), instance, add_root, remove_root) })?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             app.manage(Arc::new(AppState {
                 explorer: Arc::new(explore::Explorer::new(store.clone())),

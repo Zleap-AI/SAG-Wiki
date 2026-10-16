@@ -8,7 +8,7 @@ pub const MAX_RESPONSE: u64 = 512 * 1024;
 pub const DEFAULT_TIMEOUT: u64 = 600;
 
 pub fn data_dir() -> Result<PathBuf> {
-    if let Some(path) = std::env::var_os("SAG_DESKTOP_DATA_DIR") {
+    if let Some(path) = std::env::var_os("SGREP_DATA_DIR").or_else(|| std::env::var_os("SAG_DESKTOP_DATA_DIR")) {
         return Ok(path.into());
     }
     Ok(dirs::data_dir()
@@ -35,6 +35,13 @@ pub struct Request {
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
     Status,
+    Configure {
+        #[serde(default)]
+        enable: bool,
+        url: Option<String>,
+        model: Option<String>,
+        key: Option<String>,
+    },
     Add,
     Remove,
     Search {
@@ -80,6 +87,7 @@ pub struct Status {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Response {
     Status(Status),
+    Configured(crate::types::ModelConfig),
     Added(AddOutput),
     Removed { path: String },
     Search(SearchOutput),

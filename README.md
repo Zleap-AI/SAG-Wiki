@@ -5,6 +5,19 @@
 
 界面控件使用 Bits UI（按钮、菜单、弹窗、选择器、开关和复选框），输入框与多行输入采用 shadcn-svelte 的本地组件，并沿用现有样式。动效使用 Svelte 内置过渡，不增加动画依赖；支持系统减少动态效果设置。
 
+## 独立 CLI（桌面端可选）
+
+`sgrep` 与桌面端共用 `core/` 内核和同一份知识库，可独立运行：
+
+```sh
+sh scripts/install.sh  # 从源码安装，需要 Rust；预编译包内使用 sh install.sh
+sgrep config          # 配置检索服务，密钥输入隐藏
+sgrep add             # 索引当前目录
+sgrep "权限在哪里检查？"
+```
+
+独立 CLI 不依赖桌面框架；预编译包不要求安装编译工具。桌面端运行时复用其本机服务，未运行时直接使用本地核心。公共安装地址暂未设置。[安装、配置与命令说明](docs/CLI与Harness使用说明.md)。
+
 ## 在这台 Mac 上打开
 
 双击本目录的 **打开客户端.command**。它使用应用的完整路径，打开本项目生成的 **SAG Desktop.app**，不会按名称寻找电脑里已有的 SAG 个人版。
@@ -46,6 +59,8 @@
 npm ci
 npm run tauri dev
 npm test
+cargo test --manifest-path core/Cargo.toml
+cargo test --manifest-path cli/Cargo.toml
 cargo test --manifest-path src-tauri/Cargo.toml --lib
 npm run tauri build -- --bundles app
 ```

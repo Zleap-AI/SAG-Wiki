@@ -1,4 +1,4 @@
-use crate::cli_protocol::*;
+use crate::protocol::*;
 use crate::{
     models,
     sag_mcp::SagTools,
@@ -39,6 +39,7 @@ pub struct CliService {
     _instance: File,
     add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
     remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
+    standalone: bool,
 }
 // Held for the full application lifetime, including when access is disabled.
 pub fn lock_instance(data: &Path) -> Result<File> {
@@ -48,10 +49,52 @@ pub fn lock_instance(data: &Path) -> Result<File> {
         .write(true)
         .open(data.join("cli-instance.lock"))?;
     file.try_lock()
-        .context("SAG-Desktop 已在运行，请使用已有窗口")?;
+        .context("SAG 核心正在使用，请稍后重试")?;
     Ok(file)
 }
 impl CliService {
+    pub fn local(data: PathBuf) -> Result<Arc<Self>> {
+        fs::create_dir_all(&data)?;
+        let instance = lock_instance(&data)?;
+        let store = Arc::new(Store::open(&data.join("sag.sqlite"))?);
+        let add_store = store.clone();
+        let remove_store = store.clone();
+        Ok(Arc::new(Self {
+            store,
+            client: reqwest::Client::new(),
+            access: RwLock::new(Self::load_access(&data)?),
+            data,
+            token: String::new(),
+            stop: CancellationToken::new(),
+            query_lock: Arc::new(tokio::sync::Mutex::new(())),
+            _instance: instance,
+            add_root: Arc::new(move |path| {
+                let root = add_store.add_root(path)?;
+                add_store.scan(&root, |_| {})?;
+                Ok(root)
+            }),
+            remove_root: Arc::new(move |path| remove_store.remove_path(path)),
+            standalone: true,
+        }))
+    }
+    fn load_access(data: &Path) -> Result<Access> {
+        match fs::read(data.join("cli-access.json")) {
+            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Access::default()),
+            Err(e) => Err(e.into()),
+        }
+    }
+    pub async fn run_local(&self, path: PathBuf, command: Command, cancel: CancellationToken) -> Result<Response> {
+        if matches!(command, Command::Search { .. }) {
+            let (scope, _) = self.authorized(&path)?;
+            for root in self.store.roots()? {
+                if scope.starts_with(&root.path) || Path::new(&root.path).starts_with(&scope) {
+                    self.store.scan(&root.path, |_| {})?;
+                }
+            }
+        }
+        self.execute(Request { protocol_version: VERSION, token: self.token.clone(), path, command }, cancel).await
+    }
     pub fn start(
         store: Arc<Store>,
         client: reqwest::Client,
@@ -61,12 +104,7 @@ impl CliService {
         add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
         remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
     ) -> Result<Arc<Self>> {
-        let access_file = data.join("cli-access.json");
-        let access = match fs::read(access_file) {
-            Ok(bytes) => serde_json::from_slice(&bytes)?,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Access::default(),
-            Err(e) => return Err(e.into()),
-        };
+        let access = Self::load_access(&data)?;
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0))?;
         listener.set_nonblocking(true)?;
         let token = format!(
@@ -91,6 +129,7 @@ impl CliService {
             _instance: instance,
             add_root,
             remove_root,
+            standalone: false,
         });
         let path = service.data.join("cli-endpoint.json");
         // The private file is replaced atomically; stale records never claim a live port.
@@ -116,7 +155,7 @@ impl CliService {
         temp.persist(path)?;
         let weak = Arc::downgrade(&service);
         let stop = service.stop.clone();
-        tauri::async_runtime::spawn(async move {
+        tokio::spawn(async move {
             let result = Self::listen(listener, weak, stop).await;
             if let Err(e) = result {
                 eprintln!("CLI 服务失败：{e:#}");
@@ -185,7 +224,7 @@ impl CliService {
     }
     fn authorized(&self, requested: &Path) -> Result<(PathBuf, Vec<String>)> {
         if !self.access().enabled {
-            bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
+            bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
         }
         let (path, roots) = self.indexed_scope(requested)?;
         if roots.is_empty() { bail!("该文件夹下没有已索引目录，请运行 sgrep add") }
@@ -201,7 +240,7 @@ impl CliService {
         let settings = self.store.settings()?;
         Ok(Status {
             protocol_version: VERSION,
-            connected: true,
+            connected: !self.standalone,
             enabled: access.enabled,
             allowed,
             index_ready: allowed && selected.iter().all(|r| r.status == "ready"),
@@ -222,9 +261,32 @@ impl CliService {
         }
         match request.command {
             Command::Status => Ok(Response::Status(self.status(&request.path)?)),
+            Command::Configure { enable, url, model, key } => {
+                if enable { self.configure(Access { enabled: true })?; }
+                let mut settings = self.store.settings()?;
+                let previous = settings.jev.clone();
+                let changed = url.is_some() || model.is_some() || key.is_some();
+                if changed && !self.access().enabled {
+                    bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
+                }
+                if let Some(url) = url { settings.jev.url = url; }
+                if let Some(model) = model { settings.jev.model = model; }
+                if changed {
+                    models::check_key_provider(&previous, &settings.jev, key.as_deref().unwrap_or(""), models::has_secret(&self.data, "jev")?)?;
+                    // Clear the previous provider's credential before changing its
+                    // address. A failed write must never leave a new URL with an old key.
+                    if reqwest::Url::parse(&previous.url)?.origin() != reqwest::Url::parse(&settings.jev.url)?.origin() {
+                        models::clear_secret(&self.data, "jev")?;
+                    }
+                    self.store.save_settings(&settings)?;
+                    if let Some(key) = key { models::save_secret(&self.data, "jev", &key)?; }
+                }
+                settings.jev.has_key = models::has_secret(&self.data, "jev")?;
+                Ok(Response::Configured(settings.jev))
+            }
             Command::Remove => {
                 if !self.access().enabled {
-                    bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
+                    bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
                 }
                 let path = match self.store.roots()?.into_iter().find(|root| Path::new(&root.path) == request.path) {
                     Some(root) => PathBuf::from(root.path),
@@ -235,15 +297,18 @@ impl CliService {
             }
             Command::Add => {
                 if !self.access().enabled {
-                    bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
+                    bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
                 }
                 let path = request.path.canonicalize().context("无法打开这个文件夹")?;
                 if !path.is_dir() { bail!("请选择文件夹") }
                 (self.add_root)(&path)?;
-                let index_status = self.store.roots()?.into_iter()
+                let root = self.store.roots()?.into_iter()
                     .find(|item| path.starts_with(&item.path))
-                    .context("目录已从知识库移除，请重新添加")?.status;
-                Ok(Response::Added(AddOutput { path: store::path_text(&path)?, index_status, cli_authorized: true }))
+                    .context("目录已从知识库移除，请重新添加")?;
+                if self.standalone {
+                    if let Some(error) = root.error { bail!("目录已添加，但索引未完成：{error}") }
+                }
+                Ok(Response::Added(AddOutput { path: store::path_text(&path)?, index_status: root.status, cli_authorized: true }))
             }
             Command::Search {
                 query,
@@ -257,10 +322,10 @@ impl CliService {
                 let (path, _) = self.authorized(&request.path)?;
                 let status = self.status(&path)?;
                 if !status.index_ready {
-                    bail!("目录索引未就绪，请等待 SAG-Desktop 完成索引")
+                    bail!("目录索引未就绪，请运行 sgrep add 重试或检查桌面端索引错误")
                 }
                 if !status.jev_configured {
-                    bail!("JEV 未配置，请在 SAG-Desktop 模型设置中配置")
+                    bail!("JEV 未配置，请运行 sgrep config，或在 SAG-Desktop 模型设置中配置")
                 }
                 let operation = async {
                     let _guard = self.query_lock.lock().await;

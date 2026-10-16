@@ -45,7 +45,7 @@ fn cli_uninstall_uses_recorded_location_when_path_changes() {
             .env("HOME", home.path())
             .env_remove("ZDOTDIR")
             .env_remove("XDG_CONFIG_HOME")
-            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .env("SGREP_DATA_DIR", home.path().join("data"))
             .env("PATH", path)
             .output()
             .unwrap()
@@ -79,7 +79,7 @@ fn cli_installs_in_stable_user_bin_instead_of_a_temporary_path_entry() {
         .env("HOME", home.path())
         .env_remove("ZDOTDIR")
         .env_remove("XDG_CONFIG_HOME")
-        .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+        .env("SGREP_DATA_DIR", home.path().join("data"))
         .env("PATH", &transient)
         .output()
         .unwrap();
@@ -108,7 +108,7 @@ fn missing_recorded_binary_does_not_recreate_the_old_temporary_directory() {
         .env("HOME", home.path())
         .env_remove("ZDOTDIR")
         .env_remove("XDG_CONFIG_HOME")
-        .env("SAG_DESKTOP_DATA_DIR", &data)
+        .env("SGREP_DATA_DIR", &data)
         .output()
         .unwrap();
     assert!(output.status.success());
@@ -139,7 +139,7 @@ fn fresh_terminals_find_cli_and_uninstall_preserves_shell_settings() {
                 .env("HOME", &home)
                 .env("SHELL", shell)
                 .env("PATH", "/usr/bin:/bin")
-                .env("SAG_DESKTOP_DATA_DIR", home.join("data"))
+                .env("SGREP_DATA_DIR", home.join("data"))
                 .output()
                 .unwrap()
         };
@@ -188,7 +188,7 @@ fn custom_zdotdir_is_registered_and_cleanup_does_not_depend_on_the_current_shell
             .env("SHELL", shell)
             .env("ZDOTDIR", &config)
             .env("PATH", "/usr/bin:/bin")
-            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .env("SGREP_DATA_DIR", home.path().join("data"))
             .output()
             .unwrap()
     };
@@ -214,7 +214,7 @@ fn user_edits_to_managed_shell_blocks_are_not_overwritten_or_removed() {
             .env("HOME", home.path())
             .env("SHELL", "/bin/zsh")
             .env("PATH", "/usr/bin:/bin")
-            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .env("SGREP_DATA_DIR", home.path().join("data"))
             .output()
             .unwrap()
     };
@@ -244,7 +244,7 @@ fn reinstall_moves_a_legacy_binary_without_registering_the_temporary_path() {
             .env("HOME", home.path())
             .env("SHELL", "/bin/zsh")
             .env("PATH", "/usr/bin:/bin")
-            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .env("SGREP_DATA_DIR", home.path().join("data"))
             .output()
             .unwrap()
     };
@@ -281,7 +281,7 @@ fn failed_terminal_setup_preserves_legacy_install_for_retry() {
             .env("HOME", home.path())
             .env("SHELL", "/bin/zsh")
             .env("PATH", "/usr/bin:/bin")
-            .env("SAG_DESKTOP_DATA_DIR", home.path().join("data"))
+            .env("SGREP_DATA_DIR", home.path().join("data"))
             .output()
             .unwrap()
     };
@@ -335,7 +335,7 @@ fn explicit_install_and_uninstall_record_the_initialization_choice() {
     let data = home.path().join("data");
     let run = |action: &str| Command::new(env!("CARGO_BIN_EXE_sgrep"))
         .args([action,"cli"]).env_clear().env("HOME",home.path()).env("SHELL","/bin/zsh")
-        .env("PATH","/usr/bin:/bin").env("SAG_DESKTOP_DATA_DIR",&data).output().unwrap();
+        .env("PATH","/usr/bin:/bin").env("SGREP_DATA_DIR",&data).output().unwrap();
     assert!(run("install").status.success());
     let marker = data.join("cli-initialized");
     assert!(marker.exists());
@@ -343,4 +343,24 @@ fn explicit_install_and_uninstall_record_the_initialization_choice() {
     assert!(run("uninstall").status.success());
     assert!(marker.exists());
     assert!(!home.path().join(".local/bin/sgrep").exists());
+}
+
+#[test]
+fn release_installs_with_one_command_without_rust_or_desktop() {
+    let home = tempfile::tempdir().unwrap();
+    let release = home.path().join("download");
+    fs::create_dir(&release).unwrap();
+    fs::copy(env!("CARGO_BIN_EXE_sgrep"), release.join("sgrep")).unwrap();
+    fs::copy(concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/install.sh"), release.join("install.sh")).unwrap();
+    let result = Command::new("/bin/sh").arg(release.join("install.sh"))
+        .env_clear().env("HOME", home.path()).env("SHELL", "/bin/zsh")
+        .env("PATH", "/usr/bin:/bin").env("SGREP_DATA_DIR", home.path().join("data"))
+        .output().unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    let installed = home.path().join(".local/bin/sgrep");
+    let status = Command::new(&installed).arg("status").current_dir(home.path())
+        .env_clear().env("HOME", home.path()).env("SGREP_DATA_DIR", home.path().join("data"))
+        .output().unwrap();
+    assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
+    assert!(String::from_utf8_lossy(&status.stdout).contains("独立模式"));
 }

@@ -1,11 +1,10 @@
-#[path = "protocol.rs"]
-mod cli_protocol;
+use sag_core::protocol as cli_protocol;
 mod install;
 use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use cli_protocol::*;
 use std::{
-    io::{BufRead, BufReader, Read, Write},
+    io::{BufRead, BufReader, IsTerminal, Read, Write},
     net::{Shutdown, TcpStream},
     path::PathBuf,
     sync::{
@@ -21,7 +20,7 @@ use std::{
     version,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true,
-    about = "使用后台运行的 SAG-Desktop 搜索本地项目"
+    about = "独立搜索本地项目，也可与 SAG-Desktop 共用知识库"
 )]
 struct Args {
     #[command(subcommand)]
@@ -53,6 +52,18 @@ enum CliCommand {
         target: String,
     },
     Status,
+    /// 配置检索服务。交互模式下隐藏密钥输入。
+    Config {
+        /// 重新启用曾关闭的 CLI 接入。
+        #[arg(long)]
+        enable: bool,
+        #[arg(long)]
+        url: Option<String>,
+        #[arg(long)]
+        model: Option<String>,
+        #[arg(long)]
+        key_stdin: bool,
+    },
     /// 将当前目录或指定目录加入知识库。
     Add {
         directory: Option<PathBuf>,
@@ -107,6 +118,28 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
     let (command, path, json, timeout) = match args.command {
         Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. }) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
+        Some(CliCommand::Config { enable, mut url, mut model, key_stdin }) => {
+            let mut key = None;
+            if key_stdin {
+                let mut input = String::new();
+                std::io::stdin().read_to_string(&mut input)?;
+                if input.trim().is_empty() { bail!("API 密钥不能为空") }
+                key = Some(input.trim().to_owned());
+            } else if !enable && url.is_none() && model.is_none() && std::io::stdin().is_terminal() {
+                fn prompt(label: &str) -> Result<Option<String>> {
+                    eprint!("{label}（留空保留当前设置）：");
+                    std::io::stderr().flush()?;
+                    let mut input = String::new();
+                    std::io::stdin().read_line(&mut input)?;
+                    Ok((!input.trim().is_empty()).then(|| input.trim().to_owned()))
+                }
+                url = prompt("JEV 接口地址")?;
+                model = prompt("模型名称")?;
+                let input = rpassword::prompt_password("API 密钥（输入隐藏，留空保留）：")?;
+                key = (!input.trim().is_empty()).then(|| input.trim().to_owned());
+            }
+            (Command::Configure { enable, url, model, key }, cwd.clone(), false, 10)
+        }
         Some(CliCommand::Add { directory, json }) => (
             Command::Add,
             cwd.join(directory.unwrap_or_default()),
@@ -131,50 +164,11 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
             args.timeout,
         ),
     };
-    let endpoint: Endpoint = serde_json::from_slice(
-        &std::fs::read(data_dir()?.join("cli-endpoint.json"))
-            .context("无法连接 SAG-Desktop，请启动应用并在设置中检查 CLI 接入")?,
-    )?;
-    if endpoint.protocol_version != VERSION {
-        bail!("CLI 与 SAG-Desktop 版本不兼容，请重新安装 CLI")
-    }
-    let mut stream = TcpStream::connect_timeout(
-        &([127, 0, 0, 1], endpoint.port).into(),
-        Duration::from_secs(3),
-    )
-    .context("无法连接 SAG-Desktop，请启动应用")?;
-    stream.set_read_timeout(Some(Duration::from_secs(timeout + 5)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    let cancel = stream.try_clone()?;
-    ctrlc::set_handler(move || {
-        interrupted.store(true, Ordering::SeqCst);
-        if let Err(e) = cancel.shutdown(Shutdown::Both) {
-            eprintln!("停止连接失败：{e}");
-        }
-    })?;
-    let request = Request {
-        protocol_version: VERSION,
-        token: endpoint.token,
-        path,
-        command,
-    };
-    let bytes = serde_json::to_vec(&request)?;
-    if bytes.len() as u64 >= MAX_REQUEST {
-        bail!("请求超过长度上限")
-    }
-    stream.write_all(&bytes)?;
-    stream.write_all(b"\n")?;
-    let mut line = Vec::new();
-    BufReader::new(stream)
-        .take(MAX_RESPONSE + 1)
-        .read_until(b'\n', &mut line)
-        .context("请求失败或超时")?;
-    if line.len() as u64 > MAX_RESPONSE || !line.ends_with(b"\n") {
-        bail!("SAG-Desktop 未返回完整结果")
-    }
-    match serde_json::from_slice(&line)? {
+    let response = request(command, path, timeout, interrupted)?;
+    match response {
+        Response::Configured(config) => println!("{}", serde_json::to_string_pretty(&config)?),
         Response::Error(error) => bail!("{error}"),
-        Response::Status(status) => println!("已连接 SAG-Desktop\nCLI 接入：{}\n当前范围有索引：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
+        Response::Status(status) => println!("{}\nCLI 接入：{}\n当前范围有索引：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", if status.connected { "已连接 SAG-Desktop" } else { "SAG 核心（独立模式）" }, status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
         Response::Added(output) => {
             if json { println!("{}", serde_json::to_string(&output)?); }
             else {
@@ -209,4 +203,74 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<AtomicBool>) -> Result<Response> {
+    let data = data_dir()?;
+    let endpoint: Option<Endpoint> = match std::fs::read(data.join("cli-endpoint.json")) {
+        Ok(bytes) => Some(serde_json::from_slice(&bytes).context("CLI 连接记录格式无效")?),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(error.into()),
+    };
+    let connection = if let Some(endpoint) = endpoint {
+        if endpoint.protocol_version != VERSION {
+            bail!("CLI 与 SAG 核心版本不兼容")
+        }
+        match TcpStream::connect_timeout(&([127, 0, 0, 1], endpoint.port).into(), Duration::from_secs(3)) {
+            Ok(stream) => Some((endpoint, stream)),
+            Err(error) if matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::TimedOut) => None,
+            Err(error) => return Err(error.into()),
+        }
+    } else { None };
+    let Some((endpoint, mut stream)) = connection else {
+        // A standalone invocation owns the shared index only for its lifetime.
+        ctrlc::set_handler(|| std::process::exit(130))?;
+        // Cover synchronous index refresh as well as the async request. Dropping
+        // the sender stops the timer after success; process exit releases SQLite locks.
+        let (deadline, timer) = std::sync::mpsc::channel::<()>();
+        if matches!(command, Command::Search { .. }) {
+            std::thread::spawn(move || {
+                if matches!(timer.recv_timeout(Duration::from_secs(timeout)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
+                    eprintln!("请求超时（包括索引检查），请缩小搜索目录或增加 --timeout");
+                    std::process::exit(1);
+                }
+            });
+        }
+        let _deadline = deadline;
+        let runtime = tokio::runtime::Runtime::new()?;
+        return runtime.block_on(async {
+            let core = sag_core::cli_service::CliService::local(data)?;
+            core.run_local(path, command, tokio_util::sync::CancellationToken::new()).await
+        });
+    };
+    stream.set_read_timeout(Some(Duration::from_secs(timeout + 5)))?;
+    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
+    let cancel = stream.try_clone()?;
+    ctrlc::set_handler(move || {
+        interrupted.store(true, Ordering::SeqCst);
+        if let Err(e) = cancel.shutdown(Shutdown::Both) {
+            eprintln!("停止连接失败：{e}");
+        }
+    })?;
+    let request = Request {
+        protocol_version: VERSION,
+        token: endpoint.token,
+        path,
+        command,
+    };
+    let bytes = serde_json::to_vec(&request)?;
+    if bytes.len() as u64 >= MAX_REQUEST {
+        bail!("请求超过长度上限")
+    }
+    stream.write_all(&bytes)?;
+    stream.write_all(b"\n")?;
+    let mut line = Vec::new();
+    BufReader::new(stream)
+        .take(MAX_RESPONSE + 1)
+        .read_until(b'\n', &mut line)
+        .context("请求失败或超时")?;
+    if line.len() as u64 > MAX_RESPONSE || !line.ends_with(b"\n") {
+        bail!("SAG-Desktop 未返回完整结果")
+    }
+    Ok(serde_json::from_slice(&line)?)
 }
