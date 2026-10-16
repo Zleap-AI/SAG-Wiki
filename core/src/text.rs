@@ -287,6 +287,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
     let lines = Lines::new(content);
     let heading_re = Regex::new(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$").unwrap();
     let fence_re = Regex::new(r"^\s{0,3}(`{3,}|~{3,})").unwrap();
+    let table_interrupt = Regex::new(r"^\s{0,3}(?:>|[-+*][ \t]|[0-9]+[.)][ \t])").unwrap();
     let mut headings = vec![];
     let mut start = None;
     let mut fence: Option<String> = None;
@@ -295,12 +296,13 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
             .spans
             .first()
             .is_some_and(|(s, e)| content[*s..*e].trim() == "---");
-    let mut blocks: Vec<(String, usize, usize, bool)> = vec![];
+    let mut blocks: Vec<(String, usize, usize, bool, bool)> = vec![];
+    let mut table_end = None;
     let flush = |last: usize,
                  start: &mut Option<usize>,
                  headings: &Vec<String>,
                  code: bool,
-                 blocks: &mut Vec<(String, usize, usize, bool)>| {
+                 blocks: &mut Vec<(String, usize, usize, bool, bool)>| {
         if let Some(first) = start.take() {
             let s = lines.spans[first].0;
             let e = lines.spans[last].1;
@@ -315,16 +317,18 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
                     s,
                     e,
                     code,
+                    false,
                 ));
             }
         }
     };
     if !markdown {
         if !content.trim().is_empty() {
-            blocks.push((String::new(), 0, content.len(), true));
+            blocks.push((String::new(), 0, content.len(), true, false));
         }
     } else {
         for (i, (s, e)) in lines.spans.iter().enumerate() {
+            if table_end.is_some_and(|end| i <= end) { continue; }
             let line = &content[*s..*e];
             if front {
                 if i > 0 && matches!(line.trim(), "---" | "...") {
@@ -350,6 +354,19 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
                 continue;
             }
             if fence.is_some() {
+                continue;
+            }
+            if line.contains('|') && lines.spans.get(i + 1).is_some_and(|&(a, b)| table_separator(&content[a..b])) {
+                if i > 0 { flush(i - 1, &mut start, &headings, false, &mut blocks); }
+                let mut last = i + 1;
+                while last + 1 < lines.spans.len() {
+                    let (a, b) = lines.spans[last + 1];
+                    let row = &content[a..b];
+                    if !row.contains('|') || heading_re.is_match(row) || fence_re.is_match(row) || table_interrupt.is_match(row) { break; }
+                    last += 1;
+                }
+                blocks.push((headings.iter().filter(|h| !h.is_empty()).cloned().collect::<Vec<_>>().join(" / "), *s, lines.spans[last].1, false, true));
+                table_end = Some(last);
                 continue;
             }
             if let Some(h) = heading_re.captures(line) {
@@ -378,10 +395,38 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
             &mut blocks,
         );
     }
+    let overlap = if max_chars >= 160 { 80 } else { 0 };
+    let body_limit = max_chars - if overlap > 0 { overlap + 2 } else { 0 };
     let mut result: Vec<Chunk> = vec![];
     let mut length = 0;
-    for (heading, start, end, code) in blocks {
-        for (s, e) in split_block(content, start, end, max_chars, code) {
+    let mut table_chunks = HashSet::new();
+    for (heading, start, end, code, table) in blocks {
+        if table {
+            let first = lines.spans.partition_point(|&(a, _)| a < start);
+            let last = lines.spans.partition_point(|&(a, _)| a <= end) - 1;
+            let header_end = if first + 2 <= last { lines.spans[first + 2].0 } else { lines.spans[first + 1].1 };
+            let header_size = content[start..header_end].encode_utf16().count();
+            let mut row_start = first + 2;
+            let mut size = header_size;
+            for row in first + 2..=last {
+                let (a, b) = lines.spans[row];
+                let n = content[a..b].encode_utf16().count() + 2;
+                if row > row_start && size + n > max_chars {
+                    table_chunks.insert(result.len());
+                    result.push(chunk_from_ranges(content, &lines, heading.clone(), &[(start, header_end), (lines.spans[row_start].0, lines.spans[row - 1].1)]));
+                    row_start = row;
+                    size = header_size;
+                }
+                size += n;
+            }
+            let mut parts = vec![(start, header_end)];
+            if row_start <= last { parts.push((lines.spans[row_start].0, end)); }
+            table_chunks.insert(result.len());
+            result.push(chunk_from_ranges(content, &lines, heading, &parts));
+            length = 0;
+            continue;
+        }
+        for (s, e) in split_block(content, start, end, body_limit, code) {
             let part = &content[s..e];
             let n = part.encode_utf16().count();
             let span = lines.span(content, s, e);
@@ -390,7 +435,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
             } else {
                 span.end_line
             };
-            if result.last().is_none_or(|c| c.heading != heading) || length + 2 + n > max_chars {
+            if result.last().is_none_or(|c| c.heading != heading) || table_chunks.contains(&result.len().saturating_sub(1)) || length + 2 + n > body_limit {
                 result.push(Chunk {
                     heading: heading.clone(),
                     content: part.into(),
@@ -407,6 +452,70 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
                 length += 2 + n;
             }
         }
+    }
+    // Work backwards so every prefix comes from the original, non-overlapping chunk.
+    for i in (1..result.len()).rev() {
+        if overlap == 0 || result[i - 1].heading != result[i].heading || table_chunks.contains(&i) || table_chunks.contains(&(i - 1)) { continue; }
+        let mut remaining = overlap;
+        let mut prefix = vec![];
+        for span in result[i - 1].spans.iter().rev() {
+            let mut start = span.end_byte;
+            let mut used = 0;
+            for (offset, ch) in content[span.start_byte..span.end_byte].char_indices().rev() {
+                if used + ch.len_utf16() > remaining { break; }
+                start = span.start_byte + offset;
+                used += ch.len_utf16();
+            }
+            if start > span.start_byte {
+                // Prefer a complete trailing sentence, then a word/line boundary.
+                let tail = &content[start..span.end_byte];
+                let boundary = tail.char_indices().find(|(offset, ch)|
+                    "。！？；.!?;\n".contains(*ch) && offset + ch.len_utf8() < tail.len())
+                    .or_else(|| tail.char_indices().find(|(offset, ch)| ch.is_whitespace() && offset + ch.len_utf8() < tail.len()));
+                if let Some((offset, ch)) = boundary { start += offset + ch.len_utf8(); }
+            }
+            if start > 0 && content.as_bytes().get(start) == Some(&b'\n') && content.as_bytes()[start - 1] == b'\r' { start += 1; }
+            if start < span.end_byte { prefix.push((start, span.end_byte)); }
+            if start > span.start_byte || used + 2 >= remaining { break; }
+            remaining -= used + 2;
+        }
+        prefix.reverse();
+        prefix.extend(result[i].spans.iter().map(|span| (span.start_byte, span.end_byte)));
+        result[i] = chunk_from_ranges(content, &lines, result[i].heading.clone(), &prefix);
+    }
+    result
+}
+fn table_separator(line: &str) -> bool {
+    let line = line.trim();
+    line.contains('|') && line.trim_matches('|').split('|').all(|cell| {
+        let cell = cell.trim().trim_matches(':');
+        !cell.is_empty() && cell.chars().all(|c| c == '-')
+    })
+}
+fn chunk_from_ranges(source: &str, lines: &Lines, heading: String, parts: &[(usize, usize)]) -> Chunk {
+    let mut merged: Vec<(usize, usize)> = vec![];
+    for &(start, end) in parts {
+        if let Some(previous) = merged.last_mut().filter(|previous| start <= previous.1) {
+            previous.1 = previous.1.max(end);
+        } else { merged.push((start, end)); }
+    }
+    let parts = &merged;
+    let spans: Vec<_> = parts.iter().map(|&(start, end)| lines.span(source, start, end)).collect();
+    let ranges = spans.iter().map(|span| {
+        let last = if source.as_bytes()[span.end_byte - 1] == b'\n' {
+            span.end_line.saturating_sub(1).max(span.start_line)
+        } else { span.end_line };
+        (span.start_line, last)
+    }).collect();
+    let content = source_content(source, &spans);
+    Chunk { heading, content, ranges, spans }
+}
+pub(crate) fn source_content(source: &str, spans: &[crate::types::SourceSpan]) -> String {
+    let mut result = String::new();
+    for span in spans {
+        let part = &source[span.start_byte..span.end_byte];
+        if !result.is_empty() && !result.ends_with('\n') && !part.starts_with('\n') { result.push_str("\n\n"); }
+        result.push_str(part);
     }
     result
 }
@@ -426,6 +535,71 @@ mod tests {
             );
         }
     }
+    fn unique_content(source: &str, chunks: &[Chunk]) -> String {
+        let mut end = 0;
+        let mut result = String::new();
+        for span in chunks.iter().flat_map(|chunk| &chunk.spans) {
+            if span.end_byte > end {
+                result.push_str(&source[span.start_byte.max(end)..span.end_byte]);
+                end = span.end_byte;
+            }
+        }
+        result
+    }
+    #[test]
+    fn adjacent_chunks_repeat_source_context_within_the_budget() {
+        let source = format!("# Rules\n\n{}", "Each request uses the active production policy. ".repeat(60));
+        let chunks = chunks_for_file(&source, 512, true);
+        assert!(chunks.len() > 2);
+        verify(&source, &chunks, 512);
+        for pair in chunks.windows(2) {
+            let previous = pair[0].spans.last().unwrap();
+            let next = &pair[1].spans[0];
+            assert!(next.start_byte < previous.end_byte, "adjacent chunks lost context");
+            assert!(source[next.start_byte..previous.end_byte].encode_utf16().count() <= 80);
+        }
+        let separate = chunks_for_file("# Test\nfirst policy\n# Production\nsecond policy", 512, true);
+        assert!(!separate[1].content.contains("first policy"));
+    }
+
+    #[test]
+    fn tables_repeat_headers_keep_rows_and_do_not_absorb_neighboring_prose() {
+        let header = "| Model | Score | Notes |\r\n| --- | ---: | --- |";
+        let rows: Vec<_> = (0..20).map(|i| format!("| model-{i:02} | {i} | {} |", "detail ".repeat(9))).collect();
+        let source = format!("# Benchmark\r\nIntroductory text.\r\n{header}\r\n{}\r\nFollowing paragraph.", rows.join("\r\n"));
+        let chunks = chunks_for_file(&source, 512, true);
+        let tables: Vec<_> = chunks.iter().filter(|chunk| chunk.content.starts_with(header)).collect();
+        assert!(tables.len() > 1);
+        assert!(chunks.iter().any(|chunk| chunk.content.contains("Following paragraph.")));
+        for row in &rows {
+            assert_eq!(tables.iter().filter(|chunk| chunk.content.contains(row)).count(), 1);
+        }
+        for chunk in tables {
+            assert_eq!(chunk.heading, "Benchmark");
+            assert!(chunk.content.encode_utf16().count() <= 512);
+            assert!(!chunk.content.contains("| --- | ---: | --- |\r\n\n"));
+            assert!(!chunk.content.contains("| --- | ---: | --- |\n\n"));
+            for span in &chunk.spans { assert!(!source[span.start_byte..span.end_byte].contains("Introductory text.")); }
+        }
+        let row = format!("| long-row | 1 | {} |", "x".repeat(700));
+        let oversized = chunks_for_file(&format!("{header}\r\n{row}"), 512, true);
+        assert_eq!(oversized.len(), 1);
+        assert!(oversized[0].content.contains(&row));
+    }
+
+    #[test]
+    fn tables_stop_at_markdown_blocks_even_when_they_contain_pipes() {
+        let source = "# Before\n| A | B |\n| --- | --- |\n| one | two |\n# After | Details\nFollowing paragraph.";
+        let chunks = chunks_for_file(source, 512, true);
+        assert!(chunks.iter().any(|c| c.heading == "After | Details" && c.content == "Following paragraph."));
+        assert!(chunks.iter().any(|c| c.content == "| A | B |\n| --- | --- |\n| one | two |"));
+        for block in ["```text\ncode | value\n```", "> quoted | value", "- list | value"] {
+            let source = format!("| A | B |\n| --- | --- |\n| one | two |\n{block}");
+            let chunks = chunks_for_file(&source, 512, true);
+            assert!(!chunks[0].content.contains(block));
+        }
+    }
+
     #[test]
     fn very_long_single_line_keeps_unicode_columns_exact() {
         let source = "一😀a".repeat(350_000);
@@ -434,9 +608,10 @@ mod tests {
         for chunk in &chunks {
             let span = &chunk.spans[0];
             assert_eq!((span.start_line, span.end_line), (1, 1));
-            assert_eq!(span.start_column, column);
-            column += chunk.content.chars().count();
-            assert_eq!(span.end_column, column);
+            assert!(span.start_column <= column);
+            assert!(span.end_column > column);
+            assert_eq!(span.end_column - span.start_column, chunk.content.chars().count());
+            column = span.end_column;
             assert_eq!(&source[span.start_byte..span.end_byte], chunk.content);
         }
         assert_eq!(column, source.chars().count() + 1);
@@ -458,7 +633,7 @@ mod tests {
         assert!(c.len() > 3);
         verify(&source, &c, 2200);
         assert_eq!(
-            c.iter().map(|c| c.content.as_str()).collect::<String>(),
+            unique_content(&source, &c),
             source
         );
         assert!(c[1].spans[0].start_column > 1);
@@ -472,7 +647,7 @@ mod tests {
         let c = chunks(&source, 400);
         verify(&source, &c, 400);
         assert_eq!(
-            c.iter().map(|c| c.content.as_str()).collect::<String>(),
+            unique_content(&source, &c),
             &source[10..]
         );
     }
@@ -482,7 +657,7 @@ mod tests {
         let c = chunks_for_file(&source, 400, false);
         verify(&source, &c, 400);
         assert_eq!(
-            c.iter().map(|c| c.content.as_str()).collect::<String>(),
+            unique_content(&source, &c),
             source
         );
     }
@@ -511,10 +686,13 @@ mod tests {
         assert_eq!(c[1].spans[0].start_column, 4);
         let source = format!("{}\r\nnext", "a".repeat(399));
         let c = chunks_for_file(&source, 400, false);
-        assert_eq!(c[0].content, "a".repeat(399));
-        assert!(c[1].content.starts_with("\r\n"));
+        verify(&source, &c, 400);
+        for span in c.iter().flat_map(|chunk| &chunk.spans) {
+            assert!(!(span.start_byte > 0 && source.as_bytes()[span.start_byte] == b'\n' && source.as_bytes()[span.start_byte - 1] == b'\r'));
+            assert!(!(span.end_byte < source.len() && source.as_bytes()[span.end_byte] == b'\n' && source.as_bytes()[span.end_byte - 1] == b'\r'));
+        }
         assert_eq!(
-            c.iter().map(|p| p.content.as_str()).collect::<String>(),
+            unique_content(&source, &c),
             source
         );
     }

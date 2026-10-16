@@ -186,6 +186,7 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
                     }
                     if !found.is_empty() {
                         let result = SearchResult {
+                            heading: String::new(),
                             path: relative.clone(),
                             absolute_path: document.path.clone(),
                             start_line: index + 1,
@@ -225,6 +226,7 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
             }
             for (start, end, matched_lines) in groups {
                 let result = SearchResult {
+                            heading: String::new(),
                     path: relative.clone(),
                     absolute_path: document.path.clone(),
                     start_line: start + 1,

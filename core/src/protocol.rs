@@ -101,6 +101,8 @@ pub struct MatchOutput {
 }
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SearchResult {
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub heading: String,
     pub path: String,
     pub absolute_path: String,
     pub start_line: usize,

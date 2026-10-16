@@ -379,22 +379,34 @@ impl CliService {
                         results: vec![],
                         truncated: false,
                     };
-                    'candidates: for candidate in output.sources {
-                        let document = self.store.document(Path::new(&candidate.path))?;
-                        if document.hash != candidate.hash {
-                            bail!("文件已修改，请重新搜索：{}", candidate.path)
+                    let mut groups = indexmap::IndexMap::<(String, String), (String, Vec<(usize, usize)>)>::new();
+                    for candidate in output.sources {
+                        let (_, ranges) = groups.entry((candidate.path, candidate.heading)).or_insert_with(|| (candidate.hash, vec![]));
+                        ranges.extend(candidate.source_spans.iter().map(|span| (span.start_byte, span.end_byte)));
+                    }
+                    for ((candidate_path, heading), (hash, mut ranges)) in groups {
+                        let document = self.store.document(Path::new(&candidate_path))?;
+                        if document.hash != hash {
+                            bail!("文件已修改，请重新搜索：{}", candidate_path)
                         }
-                        let canonical = Path::new(&candidate.path).canonicalize()?;
+                        let canonical = Path::new(&candidate_path).canonicalize()?;
                         if !canonical.starts_with(&path) || !scopes.iter().any(|scope| canonical.starts_with(scope)) {
                             bail!("搜索结果超出授权目录")
                         }
-                        // Each source span is contiguous. Do not label separated spans as one passage.
-                        for span in candidate.source_spans {
-                            if result.results.len() == max_results {
-                                break 'candidates;
-                            }
+                        // Merge selected source ranges before rendering overlap or repeated table headers.
+                        ranges.sort_unstable();
+                        let mut merged: Vec<(usize, usize)> = vec![];
+                        for (start, end) in ranges {
+                            if let Some(previous) = merged.last_mut().filter(|previous| start <= previous.1) {
+                                previous.1 = previous.1.max(end);
+                            } else { merged.push((start, end)); }
+                        }
+                        let lines = crate::text::Lines::new(&document.body);
+                        for (start, end) in merged {
+                            let span = lines.span(&document.body, start, end);
                             let relative = canonical.strip_prefix(&path)?;
                             result.results.push(SearchResult {
+                                heading: heading.clone(),
                                 path: format!("./{}", relative.display()),
                                 absolute_path: store::path_text(&canonical)?,
                                 start_line: span.start_line,

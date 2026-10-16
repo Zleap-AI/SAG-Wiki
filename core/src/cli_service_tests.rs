@@ -169,6 +169,35 @@ async fn model_request(stream: &mut TcpStream) -> Value {
     serde_json::from_slice(&body).unwrap()
 }
 #[tokio::test]
+async fn semantic_results_keep_headings_without_repeating_overlap() {
+    let (dir, service, root) = fixture();
+    fs::remove_file(root.join("session.rs")).unwrap();
+    let body = (0..12).map(|i| format!("Session marker-{i:02} requires permission. {} End-{i:02}.", "Production policy applies. ".repeat(5))).collect::<Vec<_>>().join("\n\n");
+    fs::write(root.join("session.md"), format!("# Deploy\n## Production\n{body}")).unwrap();
+    service.store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut settings = service.store.settings().unwrap();
+    settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
+    settings.retrieval.max_hops = 0;
+    service.store.save_settings(&settings).unwrap();
+    models::save_secret(dir.path(), "jev", "test-only").unwrap();
+    let model = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let payload = model_request(&mut stream).await;
+        assert!(payload["questions"].as_object().unwrap().values().all(|q| q["instructions"]["candidate_heading"] == "Deploy / Production"));
+        let answers: serde_json::Map<String, Value> = payload["questions"].as_object().unwrap().keys().map(|key| (key.clone(), json!({"type":"noul","noul":0.9}))).collect();
+        let body = json!({"answers":answers}).to_string();
+        stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    });
+    let Response::Search(output) = send(&service, &root, Command::Search {query:"Session production permission".into(),max_results:100,content:true,timeout:3}, None).await else { panic!("search failed") };
+    model.await.unwrap();
+    assert!(output.results.iter().all(|r| r.heading == "Deploy / Production" && r.path == "./session.md"));
+    let shown = output.results.iter().map(|r| r.content.as_deref().unwrap()).collect::<Vec<_>>().join("\n");
+    for i in 0..12 { assert_eq!(shown.matches(&format!("End-{i:02}.")).count(), 1, "overlapping source was repeated"); }
+    service.shutdown();
+}
+
+#[tokio::test]
 async fn parent_scope_search_reuses_retrieval_and_returns_exact_crlf_passage() {
     let (_dir, service, root) = fixture();
     let outside = tempfile::tempdir().unwrap();

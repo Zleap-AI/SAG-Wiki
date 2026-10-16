@@ -431,8 +431,14 @@ fn relative_results(results: &mut [SearchResult], cwd: &std::path::Path) {
     }
 }
 fn print_results(results: &[SearchResult]) {
+    let mut previous_heading = None;
     for item in results {
         println!("{}:{}-{}", item.path, item.start_line, item.end_line);
+        let heading = (&item.path, &item.heading);
+        if !item.heading.is_empty() && previous_heading != Some(heading) {
+            println!("标题：{}", item.heading);
+        }
+        previous_heading = Some(heading);
         if let Some(content) = &item.content { println!("{content}\n"); }
     }
 }

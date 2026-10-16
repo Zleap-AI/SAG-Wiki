@@ -154,11 +154,7 @@ fn hydrate_candidate(
         .map(|l| l.trim_end_matches('\r'))
         .collect();
     candidate.content = if !candidate.source_spans.is_empty() {
-        candidate.source_spans
-            .iter()
-            .map(|s| &source[s.start_byte..s.end_byte])
-            .collect::<Vec<_>>()
-            .join("\n\n")
+        text::source_content(source, &candidate.source_spans)
     } else {
         candidate.source_ranges
             .iter()
@@ -243,7 +239,11 @@ impl Store {
                 COMMIT;
                 VACUUM;")?;
         }
-        db.pragma_update(None, "user_version", 4)?;
+        let schema_version: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if schema_version > 0 && schema_version < 5 {
+            db.execute_batch("BEGIN; DELETE FROM chunk_fts; DELETE FROM chunks; UPDATE documents SET hash=''; UPDATE roots SET status='pending',error=NULL; UPDATE metadata SET version=version+1; COMMIT;")?;
+        }
+        db.pragma_update(None, "user_version", 5)?;
         let query_readers = (0..QUERY_WORKERS)
             .map(|_| {
                 let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -1493,6 +1493,31 @@ mod tests {
         drop(reopened);
         let stable = Store::open(&database).unwrap();
         assert_eq!(stable.chunk_count().unwrap(),count);
+    }
+
+    #[test]
+    fn chunk_layout_upgrade_rebuilds_old_indexes_without_changing_settings() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("index.sqlite");
+        let root = dir.path().join("files");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join("note.md"), "# Keep\nOriginal source remains.").unwrap();
+        let store = Store::open(&path).unwrap();
+        let root_key = store.add_root(&root).unwrap();
+        store.scan(&root_key, |_| {}).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.retrieval.chunk_chars = 900;
+        store.save_settings(&settings).unwrap();
+        store.connection().pragma_update(None, "user_version", 4).unwrap();
+        drop(store);
+        let upgraded = Store::open(&path).unwrap();
+        assert_eq!(upgraded.chunk_count().unwrap(), 0);
+        assert_eq!(upgraded.roots().unwrap()[0].status, "pending");
+        assert_eq!(upgraded.settings().unwrap().retrieval.chunk_chars, 900);
+        upgraded.scan(&root_key, |_| {}).unwrap();
+        assert_eq!(upgraded.search_files("Original", &[], 5).unwrap().len(), 1);
+        drop(upgraded);
+        assert_eq!(Store::open(&path).unwrap().chunk_count().unwrap(), 1);
     }
 
     #[test]

@@ -85,7 +85,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
                 .as_str()
                 .unwrap()
                 .ends_with("项目 space/src"));
-            let mut item = serde_json::json!({"path":"./main.rs","absolute_path":server_path,"start_line":2,"end_line":4});
+            let mut item = serde_json::json!({"path":"./main.rs","absolute_path":server_path,"start_line":2,"end_line":4,"heading":"部署指南 / 生产环境"});
             if content {
                 item["content"] = serde_json::json!("原文 'quoted'\nsecond line");
             }
@@ -106,7 +106,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     assert!(plain.status.success());
     assert_eq!(
         String::from_utf8(plain.stdout).unwrap(),
-        "./src/main.rs:2-4\n"
+        "./src/main.rs:2-4\n标题：部署指南 / 生产环境\n"
     );
     let content = Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", home.path())
@@ -122,6 +122,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(value["results"][0]["path"], "./src/main.rs");
     assert_eq!(value["results"][0]["absolute_path"], path.to_str().unwrap());
+    assert_eq!(value["results"][0]["heading"], "部署指南 / 生产环境");
     let reserved = Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", home.path())
         .current_dir(&cwd)

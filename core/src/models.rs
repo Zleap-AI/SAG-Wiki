@@ -191,6 +191,7 @@ pub fn jev_batches(
     let encode_state = |items: &[Candidate]| {
         let passages: Vec<_> = items.iter().map(|c| {
             let mut passage=json!({"title":c.title,"passage":c.content});
+            if !c.heading.is_empty() { passage["heading"]=json!(c.heading); }
             if let Some(score)=c.previous_score {passage["previous_jev_score"]=json!(score);}
             passage
         }).collect();
@@ -199,7 +200,8 @@ pub fn jev_batches(
         state.to_string()
     };
     let prepared=candidates.into_iter().map(|c|{
-        let question=json!({"type":"noul","instructions":{"question":crate::sag2_v10::CRITERION,"candidate_title":c.title,"candidate_passage":c.content},"criteria":{"true":"This candidate itself supplies a necessary fact in a supported answer chain, with the required entity identities and relationships.","false":"The candidate is merely related background, refers to the wrong entity or relationship, or the useful fact occurs only in other context passages."}});
+        let mut question=json!({"type":"noul","instructions":{"question":crate::sag2_v10::CRITERION,"candidate_title":c.title,"candidate_passage":c.content},"criteria":{"true":"This candidate itself supplies a necessary fact in a supported answer chain, with the required entity identities and relationships.","false":"The candidate is merely related background, refers to the wrong entity or relationship, or the useful fact occurs only in other context passages."}});
+        if !c.heading.is_empty() { question["instructions"]["candidate_heading"]=json!(c.heading); }
         let n=estimate(&question)+64;(c,question,n)
     }).collect::<Vec<_>>();
     let state = encode_state(evidence);
@@ -829,6 +831,17 @@ mod tests {
         let state: Value = serde_json::from_str(shared_state.as_str().unwrap()).unwrap();
         assert_eq!(state["previously_retrieved_evidence"][0]["passage"], evidence[0].content);
         assert_eq!(state["previously_retrieved_evidence"][0]["previous_jev_score"], 0.75);
+    }
+
+    #[test]
+    fn scoring_keeps_section_paths_for_candidates_and_prior_evidence() {
+        let mut item = candidate(1, "Use the production database.".into());
+        item.heading = "Deployment / Production".into();
+        let batches = jev_batches("Which database?", vec![item.clone()], &[item], "jev-latest").unwrap();
+        let payload = &batches[0].0;
+        assert_eq!(payload["questions"]["candidate_1"]["instructions"]["candidate_heading"], "Deployment / Production");
+        let state: Value = serde_json::from_str(payload["state"].as_str().unwrap()).unwrap();
+        assert_eq!(state["previously_retrieved_evidence"][0]["heading"], "Deployment / Production");
     }
 
     #[test]
