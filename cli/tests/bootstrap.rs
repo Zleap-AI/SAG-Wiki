@@ -85,3 +85,36 @@ fn desktop_bootstrap_updates_an_owned_binary_when_commands_are_added() {
     bootstrap();
     assert_eq!(fs::read_to_string(target).unwrap(), "user edited command");
 }
+
+#[test]
+fn desktop_bootstrap_repairs_missing_and_outdated_references() {
+    let home = tempfile::tempdir().unwrap();
+    let source = home.path().join("bundled-cli");
+    fs::write(&source, "bundled command").unwrap();
+    let bootstrap = || Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "desktop_bootstrap_updates_a_renamed_command_and_respects_uninstall"])
+        .env_clear().env("HOME", home.path()).env("SHELL", "/bin/zsh")
+        .env("PATH", "/usr/bin:/bin").env("SAG_DATA_DIR", home.path().join("data"))
+        .env("SAG_BOOTSTRAP_CHILD", "1").env("SAG_BOOTSTRAP_SOURCE", &source)
+        .output().unwrap();
+    assert!(bootstrap().status.success());
+    let installed = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["install", "codex"]).env_clear().env("HOME", home.path())
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(installed.status.success());
+    let directory = home.path().join(".agents/skills/sag");
+    let main_before = fs::read(directory.join("SKILL.md")).unwrap();
+    let reference = directory.join("references/parameters.md");
+    let current = fs::read(&reference).unwrap();
+    fs::write(&reference, "previous managed parameters").unwrap();
+    let receipt = reference.with_extension("sag-install.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&receipt).unwrap()).unwrap();
+    value["hash"] = format!("{:x}", Sha256::digest(fs::read(&reference).unwrap())).into();
+    fs::write(receipt, serde_json::to_vec(&value).unwrap()).unwrap();
+    fs::remove_file(directory.join("references/ignores.md")).unwrap();
+    let result = bootstrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(fs::read(&reference).unwrap(), current);
+    assert!(directory.join("references/ignores.md").exists());
+    assert_eq!(fs::read(directory.join("SKILL.md")).unwrap(), main_before);
+}

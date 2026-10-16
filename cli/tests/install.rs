@@ -2,6 +2,97 @@
 // These process tests isolate user directories through HOME, which is Unix-specific.
 use std::{fs, process::Command};
 #[test]
+fn harness_installs_readable_references_and_removes_only_managed_files() {
+    for (harness, directory) in [
+        ("codex", ".agents/skills/sag"),
+        ("claude-code", ".claude/skills/sag"),
+        ("opencode", ".config/opencode/skills/sag"),
+    ] {
+        let home = tempfile::tempdir().unwrap();
+        let run = |verb| Command::new(env!("CARGO_BIN_EXE_sag"))
+            .args([verb, harness]).env_clear().env("HOME", home.path())
+            .env("PATH", "/usr/bin:/bin").output().unwrap();
+        assert!(run("install").status.success());
+        let installed = home.path().join(directory);
+        let main = fs::read_to_string(installed.join("SKILL.md")).unwrap();
+        for name in ["parameters.md", "ignores.md", "setup.md"] {
+            let relative = format!("references/{name}");
+            assert!(main.contains(&relative), "missing reference: {relative}");
+            let text = fs::read_to_string(installed.join(&relative)).unwrap();
+            assert!(!text.trim().is_empty());
+        }
+        assert!(run("install").status.success());
+        fs::write(installed.join("references/notes.md"), "user notes").unwrap();
+        assert!(run("uninstall").status.success());
+        assert!(!installed.join("SKILL.md").exists());
+        for name in ["parameters.md", "ignores.md", "setup.md"] {
+            assert!(!installed.join("references").join(name).exists());
+        }
+        assert_eq!(fs::read_to_string(installed.join("references/notes.md")).unwrap(), "user notes");
+    }
+}
+
+#[test]
+fn reference_edits_and_symlink_directories_prevent_partial_install_changes() {
+    use sha2::{Digest, Sha256};
+    let home = tempfile::tempdir().unwrap();
+    let run = |verb| Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args([verb, "codex"]).env_clear().env("HOME", home.path())
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(run("install").status.success());
+    let directory = home.path().join(".agents/skills/sag");
+    let main = directory.join("SKILL.md");
+    fs::write(&main, "previous managed entry").unwrap();
+    let receipt_path = main.with_extension("sag-install.json");
+    let mut receipt: serde_json::Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    receipt["hash"] = format!("{:x}", Sha256::digest(fs::read(&main).unwrap())).into();
+    fs::write(receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+    let reference = directory.join("references/ignores.md");
+    fs::write(&reference, "my custom ignore instructions").unwrap();
+    for verb in ["install", "uninstall"] {
+        assert!(!run(verb).status.success());
+        assert_eq!(fs::read_to_string(&main).unwrap(), "previous managed entry");
+        assert_eq!(fs::read_to_string(&reference).unwrap(), "my custom ignore instructions");
+        assert!(directory.join("references/parameters.md").exists());
+    }
+    let other_home = tempfile::tempdir().unwrap();
+    let external = tempfile::tempdir().unwrap();
+    let target = other_home.path().join(".agents/skills/sag");
+    fs::create_dir_all(&target).unwrap();
+    std::os::unix::fs::symlink(external.path(), target.join("references")).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["install", "codex"]).env_clear().env("HOME", other_home.path())
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(!result.status.success());
+    assert!(!target.join("SKILL.md").exists());
+    assert_eq!(fs::read_dir(external.path()).unwrap().count(), 0);
+}
+
+#[test]
+fn blocked_reference_creation_preserves_the_previous_skill_entry() {
+    use sha2::{Digest, Sha256};
+    let home = tempfile::tempdir().unwrap();
+    let install = || Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["install", "codex"]).env_clear().env("HOME", home.path())
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(install().status.success());
+    let directory = home.path().join(".agents/skills/sag");
+    let main = directory.join("SKILL.md");
+    fs::write(&main, "previous managed entry").unwrap();
+    let receipt_path = main.with_extension("sag-install.json");
+    let mut receipt: serde_json::Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    receipt["hash"] = format!("{:x}", Sha256::digest(fs::read(&main).unwrap())).into();
+    fs::write(receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+    let reference = directory.join("references/parameters.md");
+    fs::remove_file(&reference).unwrap();
+    fs::remove_file(reference.with_extension("sag-install.json")).unwrap();
+    fs::create_dir(reference.with_extension("sag-install.json")).unwrap();
+    assert!(!install().status.success());
+    assert_eq!(fs::read_to_string(&main).unwrap(), "previous managed entry");
+    assert!(!reference.exists());
+}
+
+#[test]
 fn install_is_repeatable_and_preserves_foreign_and_edited_files() {
     let home = tempfile::tempdir().unwrap();
     let run = |verb: &str| {

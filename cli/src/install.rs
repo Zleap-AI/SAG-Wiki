@@ -9,6 +9,12 @@ use std::{
 pub const BINARY_NAME: &str = if cfg!(windows) { "sag.exe" } else { "sag" };
 pub const HARNESS_NAMES: [&str; 3] = ["claude-code", "codex", "opencode"];
 pub const SKILL: &str = include_str!("../skills/sag/SKILL.md");
+const SKILL_FILES: &[(&str, &str)] = &[
+    ("SKILL.md", SKILL),
+    ("references/parameters.md", include_str!("../skills/sag/references/parameters.md")),
+    ("references/ignores.md", include_str!("../skills/sag/references/ignores.md")),
+    ("references/setup.md", include_str!("../skills/sag/references/setup.md")),
+];
 #[path = "terminal_path.rs"]
 mod terminal_path;
 
@@ -85,12 +91,57 @@ fn remove_owned(path: &Path) -> Result<()> {
     fs::remove_file(receipt_path(path))?;
     Ok(())
 }
+fn validate_harness(directory: &Path, writing: bool) -> Result<()> {
+    let references = directory.join("references");
+    match references.symlink_metadata() {
+        Ok(metadata) if metadata.file_type().is_symlink() => {
+            bail!("参考文档目录是符号链接，未修改：{}", references.display())
+        }
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
+    for (name, _) in SKILL_FILES {
+        let file = directory.join(name);
+        let record = receipt_path(&file);
+        match record.symlink_metadata() {
+            Ok(metadata) => {
+                if !metadata.file_type().is_file() {
+                    bail!("安装记录不是普通文件，未修改：{}", record.display())
+                }
+                if writing { fs::OpenOptions::new().write(true).open(&record)?; }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+        match file.symlink_metadata() {
+            Ok(_) => {
+                check_owned(&file)?;
+                if writing {
+                    fs::OpenOptions::new().write(true).open(&file)
+                        .with_context(|| format!("无法更新 Skill：{}", file.display()))?;
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    if writing {
+        // Check new reference destinations before replacing the installed entry.
+        fs::create_dir_all(&references)?;
+        tempfile::NamedTempFile::new_in(directory)?;
+        tempfile::NamedTempFile::new_in(&references)?;
+    }
+    Ok(())
+}
 pub fn harness(home: &Path, name: &str, uninstall: bool) -> Result<PathBuf> {
     let path = skill_path(home, name)?;
-    if uninstall {
-        remove_owned(&path)?;
-    } else {
-        write_owned(&path, SKILL.as_bytes())?;
+    let directory = path.parent().unwrap();
+    validate_harness(directory, !uninstall)?;
+    for (name, contents) in SKILL_FILES {
+        let file = directory.join(name);
+        if uninstall { remove_owned(&file)?; }
+        else { write_owned(&file, contents.as_bytes())?; }
     }
     Ok(path)
 }
@@ -189,13 +240,21 @@ pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
     let mut skill_updates = Vec::new();
     for name in HARNESS_NAMES {
         let path = skill_path(home, name)?;
-        if inspect(name, &path)?.installed && fs::read(&path)? != SKILL.as_bytes() {
-            // Validate every replacement before changing the installed command.
-            check_owned(&path)?;
-            fs::OpenOptions::new().write(true).open(&path)
-                .with_context(|| format!("无法更新 Skill：{}", path.display()))?;
-            fs::OpenOptions::new().write(true).open(receipt_path(&path))?;
-            skill_updates.push(name);
+        if inspect(name, &path)?.installed {
+            let directory = path.parent().unwrap();
+            let mut changed = false;
+            for (file, contents) in SKILL_FILES {
+                match fs::read(directory.join(file)) {
+                    Ok(bytes) => changed |= bytes != contents.as_bytes(),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => changed = true,
+                    Err(error) => return Err(error.into()),
+                }
+            }
+            if changed {
+                // Validate every replacement before changing the installed command.
+                validate_harness(directory, true)?;
+                skill_updates.push(name);
+            }
         }
     }
     let update_binary = inspect("cli", &previous)?.installed && fs::read(source)? != fs::read(&previous)?;
