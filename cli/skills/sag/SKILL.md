@@ -3,7 +3,7 @@ name: sag
 description: Search local project files with SAG using semantic, regular-expression or fixed-string matching. Use when locating behavior, tracing code relationships, finding exact text, registering the current project or configuring its SAG indexing exclusions.
 ---
 
-Use `sag -c "complete natural-language question"` to find local implementation evidence. Run it in the current project directory. To narrow the scope, pass a directory: `sag -c "How is a session validated?" ./src -m 5`.
+Use `sag -c "complete natural-language question" -m 5` to locate unfamiliar behavior. Run it in the current project directory, or pass a relevant directory: `sag -c "How is a session validated?" ./src -m 5`.
 
 Choose the search mode explicitly when the task needs exact matches:
 
@@ -13,13 +13,23 @@ Choose the search mode explicitly when the task needs exact matches:
 
 `-E` and `-F` are mutually exclusive, case-sensitive by default, and run locally without a model or API key. They search current content of supported, enabled file types within the registered knowledge-base scope and ignore rules. All matching controls below require `-E` or `-F`; semantic search stays the default.
 
+For code investigation, start with 3–5 results. Read the returned passages before issuing another query. Once they identify a relevant file or function, inspect its cited lines and immediate function context with the harness's file reader. Reuse those passages as evidence instead of reading overlapping ranges again.
+
+Query again for a specific missing fact, such as a caller or a condition, using the discovered identifier and the narrowest relevant directory. Use `-F` for a known symbol; use `-E` when the missing fact needs a pattern. To restrict a search to a known file, pass its parent directory and a filename filter, for example `sag -F -c 'validateSession(' src --include='session.ts' -m 5`. Use `-l` when only file paths are needed. Avoid project-wide expressions that collect many unrelated function names or generic terms.
+
+Before searching again, check whether the missing fact belongs to an already located file or function; if it does, read that section directly. Combine related unresolved identifiers in one scoped query rather than searching separately for each link in a call chain. Once the implementation establishes a requested fact, additional schema, test or UI-label references are only needed to resolve a remaining uncertainty.
+
+Narrow the scope or refine the question before increasing `-m`. Increase the limit only when the current results leave a concrete evidence gap, such as additional callers in a known module; the maximum is not a target. Widen file-reading ranges only when the current excerpt omits necessary control flow. Stop when the requested behavior and relevant call relationships have source evidence; a code-location task does not require enumerating every related reference.
+
+Each search accepts one directory, through the positional argument or `--path`, not both. File paths and multiple directory arguments are unsupported. For several directories, use their common parent within the current project and suitable filename filters, or search them separately. Filename filters match basenames, not full paths.
+
 Use `-i` to ignore case, `-w` for complete words, `-x` for complete lines, and `-v` to select non-matching lines. `-x` takes precedence over `-w`. For example, `sag -F -i -w -c 'token' src` finds the identifier without matching `tokenizer`.
 
-Use `-C 3` for three context lines on both sides, or `-B 2 -A 5` for separate before/after counts. Context implies content output; overlapping groups merge without duplicate lines. JSON includes `matched_lines` within each returned range. `-A` and `-B` override the corresponding side of `-C`.
+Use `-C 3` for three context lines on both sides, or `-B 2 -A 5` for separate before/after counts. Each context count accepts 0–1000; start with a small function-relevant window. Context implies content output; overlapping groups merge without duplicate lines. JSON includes `matched_lines` within each returned range. `-A` and `-B` override the corresponding side of `-C`.
 
 Use one output mode: `-l` for file names, `--count` for per-file matching-line counts, `-o` for nonempty matching fragments, or `-q` for a script predicate. `-q` produces no stdout and exits 0 for a match, 1 for none, 2 for an error; Ctrl+C remains 130. It cannot combine with `--json`. `-o` cannot combine with `-v`. Context requires normal line output. `-c` continues to mean content, not count.
 
-`-m` limits selected lines across the whole search (default 10); `-l` limits matching files. `--count` scans all files by default, while an explicit `-m` stops counting at that global line limit. `-o` emits all nonempty fragments of the selected lines. Ordinary empty results still exit 0. `--json` returns `results` for lines/fragments and `files` for names/counts, plus `matched` and `truncated`.
+`-m` accepts 1–100: it limits semantic results, or selected lines across a local matching search (default 10); with `-l` it limits matching files. `--count` scans all files by default, while an explicit `-m` stops counting at that global line limit. `-o` emits all nonempty fragments of the selected lines. Ordinary empty results still exit 0. `--json` returns `results` for lines/fragments and `files` for names/counts, plus `matched` and `truncated`. Semantic queries accept up to 2000 characters. `--timeout` accepts 1–86400 seconds (default 600).
 
 Use repeated `-e` patterns, or `-f patterns.txt` (UTF-8, one pattern per line; `-f -` reads stdin): `sag -E -e 'ERROR' -e 'WARN' logs`. Patterns are alternatives. When using `-e` or `-f`, the positional argument is the search directory; supply the patterns only through those flags. An empty pattern file matches nothing; an explicit empty `-e ''` matches any line, except with `-w` (and `-x` restricts it to empty lines). Each pattern is limited to 2000 characters and the total to 16 KiB.
 
