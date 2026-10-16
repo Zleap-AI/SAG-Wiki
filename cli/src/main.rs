@@ -1,7 +1,8 @@
 use sag_core::protocol as cli_protocol;
 mod install;
 use anyhow::{bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use sag_core::types::ModelConfig;
 use cli_protocol::*;
 use std::{
     io::{BufRead, BufReader, IsTerminal, Read, Write},
@@ -9,7 +10,7 @@ use std::{
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -26,7 +27,6 @@ struct Args {
     #[command(subcommand)]
     command: Option<CliCommand>,
     /// 要搜索的内容。
-    #[arg(required = true)]
     query: Option<String>,
     #[arg(conflicts_with = "path")]
     directory: Option<PathBuf>,
@@ -53,17 +53,7 @@ enum CliCommand {
     },
     Status,
     /// 配置检索服务。交互模式下隐藏密钥输入。
-    Config {
-        /// 重新启用曾关闭的 CLI 接入。
-        #[arg(long)]
-        enable: bool,
-        #[arg(long)]
-        url: Option<String>,
-        #[arg(long)]
-        model: Option<String>,
-        #[arg(long)]
-        key_stdin: bool,
-    },
+    Config(ConfigOptions),
     /// 将当前目录或指定目录加入知识库。
     Add {
         directory: Option<PathBuf>,
@@ -77,6 +67,90 @@ enum CliCommand {
         json: bool,
     },
 }
+#[derive(clap::Args, Default)]
+struct ConfigOptions {
+    /// 重新启用曾关闭的 CLI 接入。
+    #[arg(long)]
+    enable: bool,
+    /// 已配置时直接使用现有设置，未配置时引导填写。
+    #[arg(long)]
+    if_needed: bool,
+    #[arg(long)]
+    url: Option<String>,
+    #[arg(long)]
+    model: Option<String>,
+    /// 直接传入密钥；命令可能保存在终端历史中。
+    #[arg(long, conflicts_with = "key_stdin")]
+    key: Option<String>,
+    #[arg(long)]
+    key_stdin: bool,
+}
+struct Interrupt {
+    cancelled: AtomicBool,
+    password_prompt: AtomicBool,
+    connection: Mutex<Option<TcpStream>>,
+}
+fn interactive() -> bool {
+    std::io::stdin().is_terminal() && std::io::stderr().is_terminal() && std::io::stdout().is_terminal()
+}
+fn configured(response: Response) -> Result<ModelConfig> {
+    match response {
+        Response::Configured(value) => Ok(value),
+        Response::Error(error) => bail!("{error}"),
+        _ => bail!("SAG 核心返回了无效的配置响应"),
+    }
+}
+fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt>) -> Result<ModelConfig> {
+    let current = configured(request(Command::Configure { enable: false, url: None, model: None, key: None }, path.clone(), 10, interrupt.clone())?)?;
+    if options.if_needed && current.has_key && options.url.is_none() && options.model.is_none() && options.key.is_none() && !options.key_stdin && !options.enable {
+        eprintln!("已使用现有 JEV 配置。");
+        return Ok(current);
+    }
+    if let Some(value) = &mut options.key {
+        *value = value.trim().to_owned();
+        if value.is_empty() { bail!("API 密钥不能为空") }
+    }
+    if options.key_stdin {
+        let mut input = String::new();
+        std::io::stdin().read_to_string(&mut input)?;
+        if input.trim().is_empty() { bail!("API 密钥不能为空") }
+        options.key = Some(input.trim().to_owned());
+    } else if options.key.is_none() && !options.enable && interactive() && (options.if_needed || (options.url.is_none() && options.model.is_none())) {
+        eprintln!("配置 JEV 检索服务。接口和模型按回车使用当前值，密钥输入不会显示。");
+        fn prompt(label: &str, current: &str) -> Result<Option<String>> {
+            eprint!("{label} [{current}]：");
+            std::io::stderr().flush()?;
+            let mut input = String::new();
+            if std::io::stdin().read_line(&mut input)? == 0 { bail!("配置已取消") }
+            Ok((!input.trim().is_empty()).then(|| input.trim().to_owned()))
+        }
+        if options.url.is_none() { options.url = prompt("JEV 接口地址", &current.url)?; }
+        if options.model.is_none() { options.model = prompt("模型名称", &current.model)?; }
+        loop {
+            // Let rpassword restore terminal mode before exiting on Ctrl+C.
+            interrupt.password_prompt.store(true, Ordering::SeqCst);
+            let result = rpassword::prompt_password(if current.has_key { "API 密钥（输入隐藏，留空保留）：" } else { "API 密钥（输入隐藏）：" });
+            interrupt.password_prompt.store(false, Ordering::SeqCst);
+            let input = result.map_err(|error| {
+                if error.kind() == std::io::ErrorKind::Interrupted {
+                    interrupt.cancelled.store(true, Ordering::SeqCst);
+                }
+                error
+            })?;
+            if !input.trim().is_empty() { options.key = Some(input.trim().to_owned()); break; }
+            if current.has_key { break; }
+            eprintln!("首次使用需要 API 密钥，请填写后继续。");
+        }
+    } else if options.if_needed && !current.has_key && options.key.is_none() {
+        bail!("尚未配置 JEV。请在终端运行 sgrep，或使用安装参数 --key / --key-stdin。")
+    }
+    if !options.enable && options.url.is_none() && options.model.is_none() && options.key.is_none() {
+        return Ok(current);
+    }
+    let result = configured(request(Command::Configure { enable: options.enable, url: options.url, model: options.model, key: options.key }, path, 10, interrupt)?)?;
+    eprintln!("配置已保存。");
+    Ok(result)
+}
 fn main() {
     let args = Args::parse();
     if let Some(query) = &args.query {
@@ -85,17 +159,34 @@ fn main() {
             std::process::exit(2);
         }
     }
-    let interrupted = Arc::new(AtomicBool::new(false));
+    if args.command.is_none() && args.query.is_none() && !interactive() {
+        Args::command().error(clap::error::ErrorKind::MissingRequiredArgument,
+            "请提供搜索内容；首次配置请在终端运行 sgrep").exit();
+    }
+    let interrupted = Arc::new(Interrupt { cancelled: AtomicBool::new(false), password_prompt: AtomicBool::new(false), connection: Mutex::new(None) });
+    let handler = interrupted.clone();
+    ctrlc::set_handler(move || {
+        handler.cancelled.store(true, Ordering::SeqCst);
+        if handler.password_prompt.load(Ordering::SeqCst) { return; }
+        if let Some(connection) = handler.connection.lock().unwrap().as_ref() {
+            if let Err(error) = connection.shutdown(Shutdown::Both) { eprintln!("停止连接失败：{error}"); }
+        } else {
+            std::process::exit(130);
+        }
+    }).unwrap_or_else(|error| {
+        eprintln!("无法设置取消处理程序：{error}");
+        std::process::exit(1);
+    });
     if let Err(e) = run(args, interrupted.clone()) {
         eprintln!("{e:#}");
-        std::process::exit(if interrupted.load(Ordering::SeqCst) {
+        std::process::exit(if interrupted.cancelled.load(Ordering::SeqCst) {
             130
         } else {
             1
         });
     }
 }
-fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
+fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
     if let Some(CliCommand::Install { target } | CliCommand::Uninstall { target }) = &args.command {
         let uninstall = matches!(args.command, Some(CliCommand::Uninstall { .. }));
         let home = dirs::home_dir().context("无法获取用户目录")?;
@@ -115,30 +206,27 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
         return Ok(());
     }
     let cwd = std::env::current_dir()?;
+    if args.command.is_none() {
+        if interactive() && !args.json && !sag_core::models::has_secret(&data_dir()?, "jev")? {
+            configure(ConfigOptions::default(), cwd.clone(), interrupted.clone())?;
+            if args.query.is_none() {
+                eprintln!("接下来运行 sgrep add 添加当前目录，再运行 sgrep \"搜索内容\"。");
+                return Ok(());
+            }
+        }
+        if args.query.is_none() {
+            Args::command().print_help()?;
+            println!();
+            return Ok(());
+        }
+    }
     let (command, path, json, timeout) = match args.command {
         Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. }) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
-        Some(CliCommand::Config { enable, mut url, mut model, key_stdin }) => {
-            let mut key = None;
-            if key_stdin {
-                let mut input = String::new();
-                std::io::stdin().read_to_string(&mut input)?;
-                if input.trim().is_empty() { bail!("API 密钥不能为空") }
-                key = Some(input.trim().to_owned());
-            } else if !enable && url.is_none() && model.is_none() && std::io::stdin().is_terminal() {
-                fn prompt(label: &str) -> Result<Option<String>> {
-                    eprint!("{label}（留空保留当前设置）：");
-                    std::io::stderr().flush()?;
-                    let mut input = String::new();
-                    std::io::stdin().read_line(&mut input)?;
-                    Ok((!input.trim().is_empty()).then(|| input.trim().to_owned()))
-                }
-                url = prompt("JEV 接口地址")?;
-                model = prompt("模型名称")?;
-                let input = rpassword::prompt_password("API 密钥（输入隐藏，留空保留）：")?;
-                key = (!input.trim().is_empty()).then(|| input.trim().to_owned());
-            }
-            (Command::Configure { enable, url, model, key }, cwd.clone(), false, 10)
+        Some(CliCommand::Config(options)) => {
+            let config = configure(options, cwd, interrupted)?;
+            println!("{}", serde_json::to_string_pretty(&config)?);
+            return Ok(());
         }
         Some(CliCommand::Add { directory, json }) => (
             Command::Add,
@@ -154,7 +242,7 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
         ),
         None => (
             Command::Search {
-                query: args.query.expect("clap requires a query when no subcommand is given"),
+                query: args.query.expect("a bare invocation returns before search"),
                 max_results: args.max_results.into(),
                 content: args.content,
                 timeout: args.timeout,
@@ -205,7 +293,8 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
     Ok(())
 }
 
-fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<AtomicBool>) -> Result<Response> {
+fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Interrupt>) -> Result<Response> {
+    if interrupted.cancelled.load(Ordering::SeqCst) { bail!("操作已取消") }
     let data = data_dir()?;
     let endpoint: Option<Endpoint> = match std::fs::read(data.join("cli-endpoint.json")) {
         Ok(bytes) => Some(serde_json::from_slice(&bytes).context("CLI 连接记录格式无效")?),
@@ -224,7 +313,6 @@ fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Atomi
     } else { None };
     let Some((endpoint, mut stream)) = connection else {
         // A standalone invocation owns the shared index only for its lifetime.
-        ctrlc::set_handler(|| std::process::exit(130))?;
         // Cover synchronous index refresh as well as the async request. Dropping
         // the sender stops the timer after success; process exit releases SQLite locks.
         let (deadline, timer) = std::sync::mpsc::channel::<()>();
@@ -245,32 +333,30 @@ fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Atomi
     };
     stream.set_read_timeout(Some(Duration::from_secs(timeout + 5)))?;
     stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    let cancel = stream.try_clone()?;
-    ctrlc::set_handler(move || {
-        interrupted.store(true, Ordering::SeqCst);
-        if let Err(e) = cancel.shutdown(Shutdown::Both) {
-            eprintln!("停止连接失败：{e}");
+    *interrupted.connection.lock().unwrap() = Some(stream.try_clone()?);
+    let response = (|| -> Result<Response> {
+        let request = Request {
+            protocol_version: VERSION,
+            token: endpoint.token,
+            path,
+            command,
+        };
+        let bytes = serde_json::to_vec(&request)?;
+        if bytes.len() as u64 >= MAX_REQUEST {
+            bail!("请求超过长度上限")
         }
-    })?;
-    let request = Request {
-        protocol_version: VERSION,
-        token: endpoint.token,
-        path,
-        command,
-    };
-    let bytes = serde_json::to_vec(&request)?;
-    if bytes.len() as u64 >= MAX_REQUEST {
-        bail!("请求超过长度上限")
-    }
-    stream.write_all(&bytes)?;
-    stream.write_all(b"\n")?;
-    let mut line = Vec::new();
-    BufReader::new(stream)
-        .take(MAX_RESPONSE + 1)
-        .read_until(b'\n', &mut line)
-        .context("请求失败或超时")?;
-    if line.len() as u64 > MAX_RESPONSE || !line.ends_with(b"\n") {
-        bail!("SAG-Desktop 未返回完整结果")
-    }
-    Ok(serde_json::from_slice(&line)?)
+        stream.write_all(&bytes)?;
+        stream.write_all(b"\n")?;
+        let mut line = Vec::new();
+        BufReader::new(stream)
+            .take(MAX_RESPONSE + 1)
+            .read_until(b'\n', &mut line)
+            .context("请求失败或超时")?;
+        if line.len() as u64 > MAX_RESPONSE || !line.ends_with(b"\n") {
+            bail!("SAG-Desktop 未返回完整结果")
+        }
+        Ok(serde_json::from_slice(&line)?)
+    })();
+    *interrupted.connection.lock().unwrap() = None;
+    response
 }

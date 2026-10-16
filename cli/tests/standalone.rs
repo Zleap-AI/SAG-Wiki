@@ -23,6 +23,7 @@ fn standalone_cli_indexes_refreshes_and_removes_without_a_desktop() {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => { std::thread::sleep(Duration::from_millis(5)); continue; },
                 Err(e) => panic!("{e}"),
             };
+            stream.set_nonblocking(false).unwrap();
             stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut length = 0;

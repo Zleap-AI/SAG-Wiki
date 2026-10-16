@@ -32,4 +32,11 @@ else
     exit 1
 fi
 "$binary" install cli
-printf '%s\n' 'Installed sgrep. Open a new terminal, then run: sgrep config'
+if [ "$#" -gt 0 ]; then
+    "$binary" config --if-needed "$@"
+elif [ -t 1 ] && [ -t 2 ] && [ -r /dev/tty ]; then
+    "$binary" config --if-needed </dev/tty
+else
+    printf '%s\n' 'Open a terminal and run sgrep to complete first-use setup.'
+fi
+printf '%s\n' 'Installed sgrep. Open a new terminal to use it.'

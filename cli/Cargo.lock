@@ -2150,6 +2150,7 @@ dependencies = [
  "clap",
  "ctrlc",
  "dirs",
+ "libc",
  "pathdiff",
  "rpassword",
  "sag-core",

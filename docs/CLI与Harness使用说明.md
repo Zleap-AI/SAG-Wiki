@@ -18,9 +18,22 @@ Windows 解压对应 ZIP 后执行 `powershell -File .\install.ps1`。安装器�
 sh scripts/install.sh
 ```
 
-首次使用在新终端运行 `sgrep config`，按提示填写 JEV 地址、模型和密钥；密钥输入隐藏。默认地址为 `https://api.302ai.cn/typesafeai/v1`，模型为 `jev-latest`。留空保留已有设置。密钥存入当前用户私有配置，不显示在结果中。
+交互安装会立即引导配置 JEV 检索服务。接口地址和模型名显示当前值，直接回车即可保留；首次使用必须填写密钥，输入隐藏。默认地址为 `https://api.302ai.cn/typesafeai/v1`，模型为 `jev-latest`。纯 CLI 搜索只需要这一项检索配置，问答模型在桌面端另行设置。
 
-非交互环境可使用 `--url`、`--model`、`--key-stdin`，通过标准输入传入密钥，避免将密钥写进命令参数。管道环境直接运行 `sgrep config` 只输出脱敏后的配置和是否已有密钥。
+如果安装时没有终端，首次在终端运行 `sgrep` 或 `sgrep "搜索内容"` 会自动进入同一引导；从搜索进入时，保存后继续原来的查询。已有密钥时自动使用现有配置。Ctrl+C 可取消，填写完成前不会保存。`sgrep config` 可以随时重新配置。
+
+安装时也可直接传入密钥，并按需指定接口和模型：
+
+```sh
+sh install.sh --key '你的密钥'
+sh install.sh --key '你的密钥' --url 'https://example.com/decisions' --model '模型名'
+# 通过标准输入传递密钥
+printf '%s' "$JEV_API_KEY" | sh install.sh --key-stdin
+```
+
+Windows 对应命令为 `powershell -File .\install.ps1 -Key '你的密钥'`，也支持 `-Url`、`-Model`。命令参数可能保存在终端历史中；希望避免记录密钥时，使用默认的隐藏输入或 `--key-stdin`。
+
+密钥存入当前用户私有配置，不显示在配置结果或安装日志中。非交互环境不会等待输入；Agent 可读取明确错误并提示用户在终端运行 `sgrep`。`sgrep config --if-needed` 仅在缺少配置时引导，已有配置则保留；普通管道环境运行 `sgrep config` 只输出脱敏配置和是否已有密钥。
 
 公共下载地址暂未设置。`scripts/install.sh` 支持 `SGREP_RELEASE_BASE_URL` 接入之后的发布地址并校验下载包 SHA-256；`node scripts/package-cli.mjs` 生成当前平台的压缩包和校验文件，`SGREP_TARGET` 可指定已配置的 Rust 目标平台。发布地址确定后才能提供公网一键安装命令。
 

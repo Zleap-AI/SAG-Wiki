@@ -364,3 +364,23 @@ fn release_installs_with_one_command_without_rust_or_desktop() {
     assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
     assert!(String::from_utf8_lossy(&status.stdout).contains("独立模式"));
 }
+
+#[test]
+fn installer_accepts_key_and_model_without_echoing_the_key() {
+    let home = tempfile::tempdir().unwrap();
+    let result = Command::new("/bin/sh")
+        .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/install.sh"))
+        .args(["--key", "test-install-private-key", "--url", "https://example.com/decisions", "--model", "install-model"])
+        .env_clear().env("HOME", home.path()).env("SHELL", "/bin/zsh")
+        .env("PATH", "/usr/bin:/bin").env("SGREP_DATA_DIR", home.path().join("data"))
+        .env("SGREP_BINARY", env!("CARGO_BIN_EXE_sgrep"))
+        .output().unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert!(!String::from_utf8_lossy(&result.stdout).contains("test-install-private-key"));
+    assert!(!String::from_utf8_lossy(&result.stderr).contains("test-install-private-key"));
+    let shown = Command::new(home.path().join(".local/bin/sgrep"))
+        .arg("config").env("SGREP_DATA_DIR", home.path().join("data")).output().unwrap();
+    let config: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
+    assert_eq!(config["has_key"], true);
+    assert_eq!(config["model"], "install-model");
+}
