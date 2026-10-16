@@ -769,7 +769,7 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            let data = std::env::var_os("SGREP_DATA_DIR").or_else(|| std::env::var_os("SAG_DESKTOP_DATA_DIR"))
+            let data = std::env::var_os("SAG_DATA_DIR").or_else(|| std::env::var_os("SAG_DESKTOP_DATA_DIR"))
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_data_dir()?);
             std::fs::create_dir_all(&data)?;

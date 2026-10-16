@@ -66,7 +66,7 @@ pub async fn install_cli_integration(
                 "{}：{}{}",
                 if uninstall { "已卸载" } else { "已安装" },
                 path.display(),
-                if uninstall { "" } else { "。终端路径已自动配置，请新开终端运行 sgrep。" }
+                if uninstall { "" } else { "。终端路径已自动配置，请新开终端运行 sag。" }
             ))
         } else {
             let path = install::harness(&home, &target, uninstall).map_err(error)?;
@@ -85,7 +85,7 @@ pub async fn test_cli_connection() -> CommandResult<String> {
     let home = dirs::home_dir().ok_or("无法获取用户目录")?;
     let binary = install::binary_path(&home).map_err(error)?;
     if !install::inspect("cli", &binary).map_err(error)?.installed {
-        return Err("请先安装 sgrep".into());
+        return Err("请先安装 sag".into());
     }
     tauri::async_runtime::spawn_blocking(move || {
         let output = std::process::Command::new(binary)

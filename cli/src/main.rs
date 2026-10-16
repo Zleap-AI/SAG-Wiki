@@ -17,7 +17,7 @@ use std::{
 
 #[derive(Parser)]
 #[command(
-    name = "sgrep",
+    name = "sag",
     version,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true,
@@ -142,7 +142,7 @@ fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt
             eprintln!("首次使用需要 API 密钥，请填写后继续。");
         }
     } else if options.if_needed && !current.has_key && options.key.is_none() {
-        bail!("尚未配置 JEV。请在终端运行 sgrep，或使用安装参数 --key / --key-stdin。")
+        bail!("尚未配置 JEV。请在终端运行 sag，或使用安装参数 --key / --key-stdin。")
     }
     if !options.enable && options.url.is_none() && options.model.is_none() && options.key.is_none() {
         return Ok(current);
@@ -161,7 +161,7 @@ fn main() {
     }
     if args.command.is_none() && args.query.is_none() && !interactive() {
         Args::command().error(clap::error::ErrorKind::MissingRequiredArgument,
-            "请提供搜索内容；首次配置请在终端运行 sgrep").exit();
+            "请提供搜索内容；首次配置请在终端运行 sag").exit();
     }
     let interrupted = Arc::new(Interrupt { cancelled: AtomicBool::new(false), password_prompt: AtomicBool::new(false), connection: Mutex::new(None) });
     let handler = interrupted.clone();
@@ -201,7 +201,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
             path.display()
         );
         if target == "cli" && !uninstall {
-            eprintln!("终端路径已自动配置，请新开终端运行 sgrep。");
+            eprintln!("终端路径已自动配置，请新开终端运行 sag。");
         }
         return Ok(());
     }
@@ -210,7 +210,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
         if interactive() && !args.json && !sag_core::models::has_secret(&data_dir()?, "jev")? {
             configure(ConfigOptions::default(), cwd.clone(), interrupted.clone())?;
             if args.query.is_none() {
-                eprintln!("接下来运行 sgrep add 添加当前目录，再运行 sgrep \"搜索内容\"。");
+                eprintln!("接下来运行 sag add 添加当前目录，再运行 sag \"搜索内容\"。");
                 return Ok(());
             }
         }
@@ -264,9 +264,9 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<()> {
                 if output.cli_authorized { println!("CLI 可搜索此目录。"); }
                 else { println!("CLI 接入已关闭，请在 SAG-Desktop 设置中启用。"); }
                 match output.index_status.as_str() {
-                    "ready" => println!("索引已就绪，可以运行 sgrep \"搜索内容\"。"),
+                    "ready" => println!("索引已就绪，可以运行 sag \"搜索内容\"。"),
                     "error" => println!("索引失败，请在 SAG-Desktop 查看详情。"),
-                    _ => println!("正在建立索引，请用 sgrep status 查看进度；就绪后可运行 sgrep \"搜索内容\"。"),
+                    _ => println!("正在建立索引，请用 sag status 查看进度；就绪后可运行 sag \"搜索内容\"。"),
                 }
             }
         }

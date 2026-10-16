@@ -224,10 +224,10 @@ impl CliService {
     }
     fn authorized(&self, requested: &Path) -> Result<(PathBuf, Vec<String>)> {
         if !self.access().enabled {
-            bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
+            bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
         }
         let (path, roots) = self.indexed_scope(requested)?;
-        if roots.is_empty() { bail!("该文件夹下没有已索引目录，请运行 sgrep add") }
+        if roots.is_empty() { bail!("该文件夹下没有已索引目录，请运行 sag add") }
         let scopes = roots.into_iter().map(|root| {
             if path.starts_with(&root.path) { store::path_text(&path) } else { Ok(root.path) }
         }).collect::<Result<Vec<_>>>()?;
@@ -267,7 +267,7 @@ impl CliService {
                 let previous = settings.jev.clone();
                 let changed = url.is_some() || model.is_some() || key.is_some();
                 if changed && !self.access().enabled {
-                    bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
+                    bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
                 }
                 if let Some(url) = url { settings.jev.url = url; }
                 if let Some(model) = model { settings.jev.model = model; }
@@ -286,7 +286,7 @@ impl CliService {
             }
             Command::Remove => {
                 if !self.access().enabled {
-                    bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
+                    bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
                 }
                 let path = match self.store.roots()?.into_iter().find(|root| Path::new(&root.path) == request.path) {
                     Some(root) => PathBuf::from(root.path),
@@ -297,7 +297,7 @@ impl CliService {
             }
             Command::Add => {
                 if !self.access().enabled {
-                    bail!("CLI 接入未启用，请运行 sgrep config --enable，或在桌面设置中启用")
+                    bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
                 }
                 let path = request.path.canonicalize().context("无法打开这个文件夹")?;
                 if !path.is_dir() { bail!("请选择文件夹") }
@@ -322,10 +322,10 @@ impl CliService {
                 let (path, _) = self.authorized(&request.path)?;
                 let status = self.status(&path)?;
                 if !status.index_ready {
-                    bail!("目录索引未就绪，请运行 sgrep add 重试或检查桌面端索引错误")
+                    bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
                 }
                 if !status.jev_configured {
-                    bail!("JEV 未配置，请运行 sgrep config，或在 SAG-Desktop 模型设置中配置")
+                    bail!("JEV 未配置，请运行 sag config，或在 SAG-Desktop 模型设置中配置")
                 }
                 let operation = async {
                     let _guard = self.query_lock.lock().await;

@@ -3,16 +3,16 @@ use std::process::Command;
 fn config_saves_jev_without_desktop_and_never_prints_the_key() {
     use std::{io::Write, process::Stdio};
     let data = tempfile::tempdir().unwrap();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", data.path())
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", data.path())
         .args(["config", "--url", "https://example.com/decisions", "--model", "test-model", "--key-stdin"])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     child.stdin.take().unwrap().write_all(b"test-private-key\n").unwrap();
     let result = child.wait_with_output().unwrap();
     assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
     assert!(!String::from_utf8_lossy(&result.stdout).contains("test-private-key"));
-    let shown = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", data.path()).arg("config").output().unwrap();
+    let shown = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", data.path()).arg("config").output().unwrap();
     assert!(shown.status.success());
     let settings: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(settings["model"], "test-model");
@@ -24,8 +24,8 @@ fn config_saves_jev_without_desktop_and_never_prints_the_key() {
 fn invalid_arguments_fail_but_status_works_without_desktop() {
     let home = tempfile::tempdir().unwrap();
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_sgrep"))
-            .env("SGREP_DATA_DIR", home.path())
+        Command::new(env!("CARGO_BIN_EXE_sag"))
+            .env("SAG_DATA_DIR", home.path())
             .args(args)
             .output()
             .unwrap()
@@ -94,8 +94,8 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
         }
     });
     let run = |extra: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_sgrep"))
-            .env("SGREP_DATA_DIR", home.path())
+        Command::new(env!("CARGO_BIN_EXE_sag"))
+            .env("SAG_DATA_DIR", home.path())
             .current_dir(&cwd)
             .args([query, "src"])
             .args(extra)
@@ -108,8 +108,8 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
         String::from_utf8(plain.stdout).unwrap(),
         "./src/main.rs:2-4\n"
     );
-    let content = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", home.path())
+    let content = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", home.path())
         .current_dir(&cwd)
         .args(["-c", query, "src"])
         .output().unwrap();
@@ -122,8 +122,8 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(value["results"][0]["path"], "./src/main.rs");
     assert_eq!(value["results"][0]["absolute_path"], path.to_str().unwrap());
-    let reserved = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", home.path())
+    let reserved = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", home.path())
         .current_dir(&cwd)
         .args(["--", "status", "src"])
         .output().unwrap();
@@ -134,12 +134,12 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
 #[test]
 fn factory_droid_is_not_a_supported_installation_target() {
     for command in ["install", "uninstall"] {
-        let result = Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        let result = Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([command, "factory-droid"])
             .output()
             .unwrap();
         assert_eq!(result.status.code(), Some(2));
-        let help = Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        let help = Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([command, "--help"])
             .output()
             .unwrap();
@@ -196,9 +196,9 @@ fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
         }
     });
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_sgrep"))
+        Command::new(env!("CARGO_BIN_EXE_sag"))
             .current_dir(&cwd)
-            .env("SGREP_DATA_DIR", data.path())
+            .env("SAG_DATA_DIR", data.path())
             .args(args)
             .output()
             .unwrap()
@@ -222,8 +222,8 @@ fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
 fn standalone_can_explicitly_enable_previously_disabled_access() {
     let data = tempfile::tempdir().unwrap();
     std::fs::write(data.path().join("cli-access.json"), r#"{"enabled":false}"#).unwrap();
-    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", data.path()).args(args).output().unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", data.path()).args(args).output().unwrap();
     assert!(String::from_utf8(run(&["status"]).stdout).unwrap().contains("CLI 接入：false"));
     let enabled = run(&["config", "--enable"]);
     assert!(enabled.status.success(), "{}", String::from_utf8_lossy(&enabled.stderr));

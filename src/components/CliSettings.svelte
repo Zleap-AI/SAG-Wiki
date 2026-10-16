@@ -40,7 +40,7 @@
  async function copyCommand(name:string){
   error='';notice='';copiedCommand=null;
   try{
-   await navigator.clipboard.writeText(`sgrep install ${name}`);
+   await navigator.clipboard.writeText(`sag install ${name}`);
    copiedCommand=name;notice=$t('已复制 {value0} 的安装命令',{value0:names[name]});
   }catch(e){error=$t('复制失败：{value0}',{value0:String(e)});}
  }
@@ -63,7 +63,7 @@
      <div><strong>{$t('启用 CLI')}</strong><p>{$t('首次启动自动安装并启用。搜索当前目录下已加入知识库的内容。')}</p></div>
      <Switch checked={access.enabled} onCheckedChange={enabled=>access={enabled}} disabled={disabled} label={$t('启用 CLI')}/>
     </div>
-    <p class="cli-auto-scope">{$t('无需选择授权范围。编程工具可运行 sgrep add，将当前项目加入知识库后搜索。')}</p>
+    <p class="cli-auto-scope">{$t('无需选择授权范围。编程工具可运行 sag add，将当前项目加入知识库后搜索。')}</p>
     {#if unsaved}<p class="cli-auto-scope">{$t('请先保存 CLI 开关，再测试连接。')}</p>{/if}
     {#if connection}<div class="cli-connection-result" role="status"><strong>{$t('连接状态')}</strong><pre>{connection}</pre></div>{/if}
    </div>
@@ -75,11 +75,11 @@
    <div class="cli-panel cli-integrations">
     {#each integrations as item(item.name)}
      <div class="cli-install-row">
-      <div class="cli-install-info"><strong>{names[item.name]}</strong><div class="cli-command-copy"><code class="cli-install-command" aria-label={$t('{value0} 的安装命令',{value0:names[item.name]})}>sgrep install {item.name}</code><Button.Root type="button" class="icon-button cli-copy" disabled={disabled} aria-label={$t('复制 {value0} 安装命令',{value0:names[item.name]})} title={copiedCommand===item.name?$t('已复制'):$t('复制安装命令')} onclick={()=>copyCommand(item.name)}>{@html icon(copiedCommand===item.name?'check':'copy')}</Button.Root></div></div>
+      <div class="cli-install-info"><strong>{names[item.name]}</strong><div class="cli-command-copy"><code class="cli-install-command" aria-label={$t('{value0} 的安装命令',{value0:names[item.name]})}>sag install {item.name}</code><Button.Root type="button" class="icon-button cli-copy" disabled={disabled} aria-label={$t('复制 {value0} 安装命令',{value0:names[item.name]})} title={copiedCommand===item.name?$t('已复制'):$t('复制安装命令')} onclick={()=>copyCommand(item.name)}>{@html icon(copiedCommand===item.name?'check':'copy')}</Button.Root></div></div>
       <Button.Root type="button" class={item.installed?'outline cli-action cli-uninstall':'outline cli-action'} disabled={disabled} aria-label={$t(item.installed?'卸载 {value0}':'安装 {value0}',{value0:names[item.name]})} onclick={()=>manage(item)}>{operation?.target===item.name?$t(operation.kind==='uninstall'?'卸载中…':'安装中…'):$t(item.installed?'卸载':'安装')}</Button.Root>
      </div>
     {/each}
-    <div class="cli-skill-help"><p>{$t('也可在终端运行对应命令，或让编程工具执行安装。sgrep 随应用自动安装。')}</p><p>{$t('安装完成后，请在对应工具中新开会话以加载 Skill。')}</p></div>
+    <div class="cli-skill-help"><p>{$t('也可在终端运行对应命令，或让编程工具执行安装。sag 随应用自动安装。')}</p><p>{$t('安装完成后，请在对应工具中新开会话以加载 Skill。')}</p></div>
     <Collapsible.Root class="cli-location">
      <Collapsible.Trigger class="cli-disclosure"><span aria-hidden="true">{@html icon('chevron')}</span>{$t('Skill 安装位置')}</Collapsible.Trigger>
      <Collapsible.Content class="cli-location-content">{#each integrations as item(item.name)}<div class="cli-skill-path"><strong>{names[item.name]}</strong><code>{item.path}</code></div>{/each}</Collapsible.Content>

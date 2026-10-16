@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-pub const BINARY_NAME: &str = if cfg!(windows) { "sgrep.exe" } else { "sgrep" };
+pub const BINARY_NAME: &str = if cfg!(windows) { "sag.exe" } else { "sag" };
 pub const HARNESS_NAMES: [&str; 3] = ["claude-code", "codex", "opencode"];
 pub const SKILL: &str = include_str!("../skills/sag/SKILL.md");
 #[path = "terminal_path.rs"]
@@ -161,7 +161,7 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         if target.try_exists()? {
             check_owned(&target)?;
         }
-        Some(fs::read(source).context("未找到 sgrep 二进制文件，请重新下载安装包")?)
+        Some(fs::read(source).context("未找到 sag 二进制文件，请重新下载安装包")?)
     };
     // Finish terminal setup before changing the binary or its recorded location.
     terminal_path::configure(home, &data, target.parent().unwrap(), false)?;
@@ -182,11 +182,25 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     Ok(target)
 }
 
-// Initialize once so an explicit uninstall is respected on later launches.
+// Respect an explicit uninstall, and migrate an installed command after a rename.
 pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
     let record = crate::cli_protocol::data_dir()?.join("cli-initialized");
-    if !record.try_exists()? {
+    let previous = binary_path(home)?;
+    let mut skill_updates = Vec::new();
+    for name in HARNESS_NAMES {
+        let path = skill_path(home, name)?;
+        if inspect(name, &path)?.installed && fs::read(&path)? != SKILL.as_bytes() {
+            // Validate every replacement before changing the installed command.
+            check_owned(&path)?;
+            fs::OpenOptions::new().write(true).open(&path)
+                .with_context(|| format!("无法更新 Skill：{}", path.display()))?;
+            fs::OpenOptions::new().write(true).open(receipt_path(&path))?;
+            skill_updates.push(name);
+        }
+    }
+    if !record.try_exists()? || (previous.try_exists()? && previous.file_name() != Some(std::ffi::OsStr::new(BINARY_NAME))) {
         binary(home, source, false)?;
     }
+    for name in skill_updates { harness(home, name, false)?; }
     Ok(())
 }

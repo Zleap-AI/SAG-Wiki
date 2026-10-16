@@ -4,9 +4,9 @@ const {spawn} = require('node:child_process');
 const {existsSync} = require('node:fs');
 const {join} = require('node:path');
 const {constants} = require('node:os');
-const binary = join(__dirname, '..', 'native', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'sgrep.exe' : 'sgrep');
+const binary = join(__dirname, '..', 'native', `${process.platform}-${process.arch}`, process.platform === 'win32' ? 'sag.exe' : 'sag');
 if (!existsSync(binary)) {
-  console.error(`This sgrep release does not include ${process.platform}-${process.arch}. Check the package's supported platforms.`);
+  console.error(`This sag release does not include ${process.platform}-${process.arch}. Check the package's supported platforms.`);
   process.exit(1);
 }
 const child = spawn(binary, process.argv.slice(2), {stdio: 'inherit'});
@@ -20,7 +20,7 @@ function stopForwarding() {
 }
 child.once('error', error => {
   stopForwarding();
-  console.error(`Cannot start sgrep: ${error.message}`);
+  console.error(`Cannot start sag: ${error.message}`);
   process.exitCode = 1;
 });
 child.once('exit', (code, signal) => {

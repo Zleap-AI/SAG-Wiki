@@ -11,31 +11,31 @@ const run = (command, args, cwd = root) => {
   return result.stdout.trim();
 };
 const targets = {
-  'aarch64-apple-darwin': {platform: 'darwin', arch: 'arm64', file: 'sgrep'},
-  'x86_64-apple-darwin': {platform: 'darwin', arch: 'x64', file: 'sgrep'},
-  'aarch64-unknown-linux-gnu': {platform: 'linux', arch: 'arm64', file: 'sgrep'},
-  'x86_64-unknown-linux-gnu': {platform: 'linux', arch: 'x64', file: 'sgrep'},
-  'aarch64-pc-windows-msvc': {platform: 'win32', arch: 'arm64', file: 'sgrep.exe'},
-  'x86_64-pc-windows-msvc': {platform: 'win32', arch: 'x64', file: 'sgrep.exe'},
+  'aarch64-apple-darwin': {platform: 'darwin', arch: 'arm64', file: 'sag'},
+  'x86_64-apple-darwin': {platform: 'darwin', arch: 'x64', file: 'sag'},
+  'aarch64-unknown-linux-gnu': {platform: 'linux', arch: 'arm64', file: 'sag'},
+  'x86_64-unknown-linux-gnu': {platform: 'linux', arch: 'x64', file: 'sag'},
+  'aarch64-pc-windows-msvc': {platform: 'win32', arch: 'arm64', file: 'sag.exe'},
+  'x86_64-pc-windows-msvc': {platform: 'win32', arch: 'x64', file: 'sag.exe'},
 };
-const target = process.env.SGREP_TARGET || run('rustc', ['-vV']).match(/^host: (.+)$/m)?.[1];
+const target = process.env.SAG_TARGET || run('rustc', ['-vV']).match(/^host: (.+)$/m)?.[1];
 if (!targets[target]) throw new Error(`Unsupported Rust target: ${target}`);
 const version = readFileSync(join(root, 'cli/Cargo.toml'), 'utf8').match(/^version = "(.+)"/m)[1];
-run('cargo', ['build', '--release', '--locked', '--manifest-path', 'cli/Cargo.toml', ...(process.env.SGREP_TARGET ? ['--target', target] : [])]);
+run('cargo', ['build', '--release', '--locked', '--manifest-path', 'cli/Cargo.toml', ...(process.env.SAG_TARGET ? ['--target', target] : [])]);
 const current = targets[target];
 const nativeCache = join(root, 'releases/cli-native', version);
 const currentDir = join(nativeCache, `${current.platform}-${current.arch}`);
 mkdirSync(currentDir, {recursive: true});
-copyFileSync(join(root, 'cli/target', ...(process.env.SGREP_TARGET ? [target] : []), 'release', current.file), join(currentDir, current.file));
+copyFileSync(join(root, 'cli/target', ...(process.env.SAG_TARGET ? [target] : []), 'release', current.file), join(currentDir, current.file));
 
 // Only this generated package directory is replaced. The versioned binary cache
 // can be combined from separate platform builds before producing the final tarball.
 const output = join(root, 'releases/npm');
-const packageDir = join(output, 'sgrep');
+const packageDir = join(output, 'sag');
 rmSync(packageDir, {recursive: true, force: true});
 mkdirSync(join(packageDir, 'bin'), {recursive: true});
-copyFileSync(join(root, 'npm/sgrep/bin/sgrep.cjs'), join(packageDir, 'bin/sgrep.cjs'));
-chmodSync(join(packageDir, 'bin/sgrep.cjs'), 0o755);
+copyFileSync(join(root, 'npm/sag/bin/sag.cjs'), join(packageDir, 'bin/sag.cjs'));
+chmodSync(join(packageDir, 'bin/sag.cjs'), 0o755);
 const supported = Object.values(targets).filter(item => existsSync(join(nativeCache, `${item.platform}-${item.arch}`, item.file)));
 for (const item of supported) {
   const destination = join(packageDir, 'native', `${item.platform}-${item.arch}`);
@@ -43,13 +43,13 @@ for (const item of supported) {
   copyFileSync(join(nativeCache, `${item.platform}-${item.arch}`, item.file), join(destination, item.file));
   if (item.platform !== 'win32') chmodSync(join(destination, item.file), 0o755);
 }
-const manifest = JSON.parse(readFileSync(join(root, 'npm/sgrep/package.json'), 'utf8'));
+const manifest = JSON.parse(readFileSync(join(root, 'npm/sag/package.json'), 'utf8'));
 manifest.version = version;
 delete manifest.private;
 manifest.os = [...new Set(supported.map(item => item.platform))];
 manifest.cpu = [...new Set(supported.map(item => item.arch))];
 writeFileSync(join(packageDir, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
-writeFileSync(join(packageDir, 'README.md'), readFileSync(join(root, 'npm/sgrep/README.md'), 'utf8').replace('{{SUPPORTED_PLATFORMS}}', supported.map(item => `${item.platform}-${item.arch}`).join(', ')));
+writeFileSync(join(packageDir, 'README.md'), readFileSync(join(root, 'npm/sag/README.md'), 'utf8').replace('{{SUPPORTED_PLATFORMS}}', supported.map(item => `${item.platform}-${item.arch}`).join(', ')));
 
 // Invoke npm's JavaScript entry point so Windows does not need a shell for npm.cmd.
 const npmEntry = process.env.npm_execpath || (process.platform === 'win32'

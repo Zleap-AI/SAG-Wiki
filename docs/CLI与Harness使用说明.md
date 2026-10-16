@@ -1,8 +1,8 @@
-# sgrep CLI
+# sag CLI
 
 ## 独立安装与配置
 
-sgrep 可以独立运行，不需要安装或启动 SAG-Desktop，也不需要后台常驻进程。
+sag 可以独立运行，不需要安装或启动 SAG-Desktop，也不需要后台常驻进程。
 
 从对应平台的预编译安装包解压后，在该目录执行一条命令：
 
@@ -20,7 +20,7 @@ sh scripts/install.sh
 
 交互安装会立即引导配置 JEV 检索服务。接口地址和模型名显示当前值，直接回车即可保留；首次使用必须填写密钥，输入隐藏。默认地址为 `https://api.302ai.cn/typesafeai/v1`，模型为 `jev-latest`。纯 CLI 搜索只需要这一项检索配置，问答模型在桌面端另行设置。
 
-如果安装时没有终端，首次在终端运行 `sgrep` 或 `sgrep "搜索内容"` 会自动进入同一引导；从搜索进入时，保存后继续原来的查询。已有密钥时自动使用现有配置。Ctrl+C 可取消，填写完成前不会保存。`sgrep config` 可以随时重新配置。
+如果安装时没有终端，首次在终端运行 `sag` 或 `sag "搜索内容"` 会自动进入同一引导；从搜索进入时，保存后继续原来的查询。已有密钥时自动使用现有配置。Ctrl+C 可取消，填写完成前不会保存。`sag config` 可以随时重新配置。
 
 安装时也可直接传入密钥，并按需指定接口和模型：
 
@@ -33,43 +33,43 @@ printf '%s' "$JEV_API_KEY" | sh install.sh --key-stdin
 
 Windows 对应命令为 `powershell -File .\install.ps1 -Key '你的密钥'`，也支持 `-Url`、`-Model`。命令参数可能保存在终端历史中；希望避免记录密钥时，使用默认的隐藏输入或 `--key-stdin`。
 
-密钥存入当前用户私有配置，不显示在配置结果或安装日志中。非交互环境不会等待输入；Agent 可读取明确错误并提示用户在终端运行 `sgrep`。`sgrep config --if-needed` 仅在缺少配置时引导，已有配置则保留；普通管道环境运行 `sgrep config` 只输出脱敏配置和是否已有密钥。
+密钥存入当前用户私有配置，不显示在配置结果或安装日志中。非交互环境不会等待输入；Agent 可读取明确错误并提示用户在终端运行 `sag`。`sag config --if-needed` 仅在缺少配置时引导，已有配置则保留；普通管道环境运行 `sag config` 只输出脱敏配置和是否已有密钥。
 
-公共下载地址暂未设置。`scripts/install.sh` 支持 `SGREP_RELEASE_BASE_URL` 接入之后的发布地址并校验下载包 SHA-256；`node scripts/package-cli.mjs` 生成当前平台的压缩包和校验文件，`SGREP_TARGET` 可指定已配置的 Rust 目标平台。发布地址确定后才能提供公网一键安装命令。
+公共下载地址暂未设置。`scripts/install.sh` 支持 `SAG_RELEASE_BASE_URL` 接入之后的发布地址并校验下载包 SHA-256；`node scripts/package-cli.mjs` 生成当前平台的压缩包和校验文件，`SAG_TARGET` 可指定已配置的 Rust 目标平台。发布地址确定后才能提供公网一键安装命令。
 
 ## 与桌面端共用
 
 CLI 和可选的 SAG-Desktop 都引用 `core/` 中同一份索引、检索和配置实现，使用同一用户数据目录及 `sag.sqlite`、密钥和忽略规则。
 
 - 桌面端正在运行时，CLI 复用其本机服务，目录变更会同步显示。
-- 桌面端未运行时，CLI 直接运行核心；`sgrep add` 索引完成后返回，搜索前检查文件和忽略规则变更。
-- 两种模式都保留访问开关及目录范围约束，失败不会切换为其他搜索算法。曾关闭 CLI 接入时，可显式运行 `sgrep config --enable` 恢复。
-- 安装对应编程工具的 SAG Skill 后，新开会话即可使用；Agent 可运行 `sgrep add` 添加当前项目，再使用 `sgrep "搜索内容"`。
+- 桌面端未运行时，CLI 直接运行核心；`sag add` 索引完成后返回，搜索前检查文件和忽略规则变更。
+- 两种模式都保留访问开关及目录范围约束，失败不会切换为其他搜索算法。曾关闭 CLI 接入时，可显式运行 `sag config --enable` 恢复。
+- 安装对应编程工具的 SAG Skill 后，新开会话即可使用；Agent 可运行 `sag add` 添加当前项目，再使用 `sag "搜索内容"`。
 
 ## 命令
 
 ```sh
-sgrep status
-sgrep config
-sgrep add
-sgrep add /path/to/project --json
-sgrep remove
-sgrep remove /path/to/project --json
-sgrep "登录之后在哪里验证权限？"
-sgrep -c "配置如何影响请求重试？" ./src -m 5
-sgrep "连接池在哪里初始化？" --path ./server --json
-sgrep -c "任务如何取消？" --timeout 900 --json
-sgrep install claude-code
-sgrep install codex
-sgrep install opencode
-sgrep uninstall codex
-sgrep uninstall cli
+sag status
+sag config
+sag add
+sag add /path/to/project --json
+sag remove
+sag remove /path/to/project --json
+sag "登录之后在哪里验证权限？"
+sag -c "配置如何影响请求重试？" ./src -m 5
+sag "连接池在哪里初始化？" --path ./server --json
+sag -c "任务如何取消？" --timeout 900 --json
+sag install claude-code
+sag install codex
+sag install opencode
+sag uninstall codex
+sag uninstall cli
 ```
 
-`sgrep add` 默认添加当前目录，也可指定目录。命令复用同一套添加与索引流程，已添加目录不会重复创建。桌面服务模式索引在后台进行，命令返回当前状态；独立模式完成索引后返回。用 `sgrep status` 检查就绪情况，无需 sync 参数。`--json` 返回路径、索引状态和当前 CLI 可用状态。添加的目录也会显示在桌面知识库。
-`sgrep remove` 从知识库移除当前目录，也可指定已添加的根目录或其中的子目录。根目录会取消接入；子目录会清理索引并持久排除，后续扫描和文件监听不会重新加入。全部本地文件保持不变，执行 `sgrep add 同一子目录` 可恢复并重新索引。目录已移动或磁盘离线时，仍可按原来登记的完整路径移除记录。`--json` 返回移除的目录路径。移除后目录立即从桌面知识库中消失。UI 的文件夹菜单同样提供移除操作；文件设置 → 已移除的子目录中可以恢复。
+`sag add` 默认添加当前目录，也可指定目录。命令复用同一套添加与索引流程，已添加目录不会重复创建。桌面服务模式索引在后台进行，命令返回当前状态；独立模式完成索引后返回。用 `sag status` 检查就绪情况，无需 sync 参数。`--json` 返回路径、索引状态和当前 CLI 可用状态。添加的目录也会显示在桌面知识库。
+`sag remove` 从知识库移除当前目录，也可指定已添加的根目录或其中的子目录。根目录会取消接入；子目录会清理索引并持久排除，后续扫描和文件监听不会重新加入。全部本地文件保持不变，执行 `sag add 同一子目录` 可恢复并重新索引。目录已移动或磁盘离线时，仍可按原来登记的完整路径移除记录。`--json` 返回移除的目录路径。移除后目录立即从桌面知识库中消失。UI 的文件夹菜单同样提供移除操作；文件设置 → 已移除的子目录中可以恢复。
 
-搜索不需要 `search` 子命令，直接运行 `sgrep "搜索内容"`。`add`、`remove`、`status`、`config`、`install`、`uninstall` 保留为管理命令。搜索这些字面内容或以 `-` 开头的内容时，用 `--` 分隔，例如 `sgrep -c -- "status"`。
+搜索不需要 `search` 子命令，直接运行 `sag "搜索内容"`。`add`、`remove`、`status`、`config`、`install`、`uninstall` 保留为管理命令。搜索这些字面内容或以 `-` 开头的内容时，用 `--` 分隔，例如 `sag -c -- "status"`。
 
 默认搜索当前执行目录；位置参数和 `--path` 不能同时使用。默认最多 10 个片段，允许 1–100。`-c` 仅改变输出，不改变召回与排序。路径相对于命令执行目录；JSON 同时返回完整路径、行号、实际范围和截断标记。仅 `-c` 返回 `content`。分离的原文范围分别输出，避免把不连续片段标成连续行。
 
@@ -100,29 +100,29 @@ notes/draft-*.md
 
 | 对象 | 用户级位置 |
 | --- | --- |
-| CLI | 固定使用 `~/.local/bin`（Windows 文件名为 `sgrep.exe`） |
+| CLI | 固定使用 `~/.local/bin`（Windows 文件名为 `sag.exe`） |
 | Claude Code | `~/.claude/skills/sag/SKILL.md` |
 | Codex | `~/.agents/skills/sag/SKILL.md` |
 | OpenCode | `~/.config/opencode/skills/sag/SKILL.md` |
 
 重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；后续 PATH 顺序变化不会影响安装位置；重复安装会将旧临时目录中的 CLI 迁移到固定目录，卸载按记录清理。检测到外部文件、用户修改或被改写的 SAG 终端配置区段时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。不会更改 AGENTS.md、MCP 配置或增加文件监听进程。
 
-CLI 命令为 `sgrep`。`.sagignore` 文件名和已有知识库保持不变。
+CLI 命令为 `sag`。客户端启动时会迁移受管理的旧命令，并更新未被用户修改过的 SAG Skill；明确卸载的 CLI 不会自动恢复。`.sagignore` 文件名和已有知识库保持不变。
 
-Windows 使用独立控制台 `sgrep.exe`。应用安装包附带该文件，默认不需要管理员权限安装 CLI。Windows 打包入口为 `npm run package:windows`。本轮在 macOS 验证；Windows 安装、签名和升级行为未验证。
+Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默认不需要管理员权限安装 CLI。Windows 打包入口为 `npm run package:windows`。本轮在 macOS 验证；Windows 安装、签名和升级行为未验证。
 
 ## 错误处理
 
 - 独立模式：没有桌面服务时自动使用本地核心，无需启动应用。
 - 核心忙碌：另一个进程正在使用索引，请稍后重试。
 - 接入关闭：在 CLI 设置页启用并保存。
-- 没有已索引内容：运行 `sgrep add` 添加当前项目。程序不会改搜指定目录之外的知识库。
+- 没有已索引内容：运行 `sag add` 添加当前项目。程序不会改搜指定目录之外的知识库。
 - 索引未就绪：等待索引完成；查看文件索引错误。
-- JEV 未配置或请求失败：运行 `sgrep config` 检查配置，或在可选桌面端检查模型设置。
+- JEV 未配置或请求失败：运行 `sag config` 检查配置，或在可选桌面端检查模型设置。
 - 文件已修改：等待监听更新后重新查询。
 - 安装冲突：保留现有文件，人工确认来源后再处理。
 
-开发和测试可以用 `SGREP_DATA_DIR` 指向独立数据目录，CLI 与桌面端必须使用同一个值。
+开发和测试可以用 `SAG_DATA_DIR` 指向独立数据目录，CLI 与桌面端必须使用同一个值。
 
 ## 终端自动配置
 

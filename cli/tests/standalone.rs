@@ -42,8 +42,8 @@ fn standalone_cli_indexes_refreshes_and_removes_without_a_desktop() {
         }
     });
     let command = || {
-        let mut c = Command::new(env!("CARGO_BIN_EXE_sgrep"));
-        c.env("SGREP_DATA_DIR", &data).current_dir(&root);
+        let mut c = Command::new(env!("CARGO_BIN_EXE_sag"));
+        c.env("SAG_DATA_DIR", &data).current_dir(&root);
         c
     };
     let run = |args: &[&str]| {
@@ -89,8 +89,8 @@ fn standalone_timeout_includes_blocked_index_refresh_and_releases_the_core() {
     // A FIFO makes reading the ignore rules block until the process deadline.
     let rule = root.join(".sagignore");
     assert!(Command::new("mkfifo").arg(&rule).status().unwrap().success());
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", &data).current_dir(&root)
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", &data).current_dir(&root)
         .args(["test", "--timeout", "1"]).stdout(Stdio::piped()).stderr(Stdio::piped())
         .spawn().unwrap();
     let deadline = std::time::Instant::now() + Duration::from_secs(4);
@@ -102,8 +102,8 @@ fn standalone_timeout_includes_blocked_index_refresh_and_releases_the_core() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("请求超时"));
     fs::remove_file(rule).unwrap();
-    assert!(Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", &data).arg("status").output().unwrap().status.success());
+    assert!(Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", &data).arg("status").output().unwrap().status.success());
 }
 
 #[test]
@@ -112,8 +112,8 @@ fn standalone_add_reports_unreadable_documents_without_requiring_desktop() {
     let root = temp.path().join("project");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("broken.xml"), b"<?xml version=\"1.0\" encoding=\"UNKNOWN-ENCODING\"?><root>broken</root>").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_sgrep"))
-        .env("SGREP_DATA_DIR", temp.path().join("data")).current_dir(&root)
+    let output = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", temp.path().join("data")).current_dir(&root)
         .arg("add").output().unwrap();
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8_lossy(&output.stderr).contains("broken.xml"));

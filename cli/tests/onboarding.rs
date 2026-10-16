@@ -73,8 +73,8 @@ impl Drop for Terminal {
 #[test]
 fn first_run_guides_configuration_and_does_not_echo_the_key() {
     let data = tempfile::tempdir().unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_sgrep"));
-    command.env("SGREP_DATA_DIR", data.path());
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+    command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
     terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]：");
     assert!(terminal.output.contains("https://api.302ai.cn/typesafeai/v1"));
@@ -87,12 +87,12 @@ fn first_run_guides_configuration_and_does_not_echo_the_key() {
     terminal.wait_for("配置已保存");
     terminal.finish();
     assert!(!terminal.output.contains("first-run-private-key"));
-    let shown = Command::new(env!("CARGO_BIN_EXE_sgrep")).arg("config")
-        .env("SGREP_DATA_DIR", data.path()).output().unwrap();
+    let shown = Command::new(env!("CARGO_BIN_EXE_sag")).arg("config")
+        .env("SAG_DATA_DIR", data.path()).output().unwrap();
     let config: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(config["has_key"], true);
-    let mut again = Command::new(env!("CARGO_BIN_EXE_sgrep"));
-    again.env("SGREP_DATA_DIR", data.path());
+    let mut again = Command::new(env!("CARGO_BIN_EXE_sag"));
+    again.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(again);
     terminal.wait_for("Usage:");
     terminal.finish();
@@ -105,15 +105,15 @@ fn piped_installer_guides_setup_through_the_terminal() {
     let mut command = Command::new("/bin/sh");
     command.args(["-c", "cat \"$1\" | sh", "installer", concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/install.sh")])
         .env_clear().env("HOME", home.path()).env("SHELL", "/bin/zsh")
-        .env("PATH", "/usr/bin:/bin").env("SGREP_DATA_DIR", home.path().join("data"))
-        .env("SGREP_BINARY", env!("CARGO_BIN_EXE_sgrep"));
+        .env("PATH", "/usr/bin:/bin").env("SAG_DATA_DIR", home.path().join("data"))
+        .env("SAG_BINARY", env!("CARGO_BIN_EXE_sag"));
     let mut terminal = Terminal::start(command);
     terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]："); terminal.send("\n");
     terminal.wait_for("模型名称 [jev-latest]："); terminal.send("\n");
     terminal.wait_for("API 密钥（输入隐藏）："); terminal.send_secret("installer-hidden-key\n");
     terminal.wait_for("配置已保存"); terminal.finish();
     assert!(!terminal.output.contains("installer-hidden-key"));
-    assert!(home.path().join(".local/bin/sgrep").exists());
+    assert!(home.path().join(".local/bin/sag").exists());
 }
 
 #[test]
@@ -141,8 +141,8 @@ fn setup_continues_the_original_search_after_saving() {
             writeln!(socket, "{reply}").unwrap();
         }
     });
-    let mut command = Command::new(env!("CARGO_BIN_EXE_sgrep"));
-    command.args(["where is session validation?", "-c"]).current_dir(root).env("SGREP_DATA_DIR", data.path());
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+    command.args(["where is session validation?", "-c"]).current_dir(root).env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
     terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]："); terminal.send("\n");
     terminal.wait_for("模型名称 [jev-latest]："); terminal.send("\n");
@@ -155,14 +155,14 @@ fn setup_continues_the_original_search_after_saving() {
 #[test]
 fn cancelling_setup_does_not_save_a_key() {
     let data = tempfile::tempdir().unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_sgrep"));
-    command.env("SGREP_DATA_DIR", data.path());
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+    command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
     terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]：");
     terminal.send("\u{3}");
     terminal.expect_exit(130);
-    let shown = Command::new(env!("CARGO_BIN_EXE_sgrep")).arg("config")
-        .env("SGREP_DATA_DIR", data.path()).output().unwrap();
+    let shown = Command::new(env!("CARGO_BIN_EXE_sag")).arg("config")
+        .env("SAG_DATA_DIR", data.path()).output().unwrap();
     let config: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
     assert_eq!(config["has_key"], false);
 }
@@ -170,8 +170,8 @@ fn cancelling_setup_does_not_save_a_key() {
 #[test]
 fn cancelling_password_input_restores_terminal_echo() {
     let data = tempfile::tempdir().unwrap();
-    let mut command = Command::new(env!("CARGO_BIN_EXE_sgrep"));
-    command.env("SGREP_DATA_DIR", data.path());
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+    command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
     terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]："); terminal.send("\n");
     terminal.wait_for("模型名称 [jev-latest]："); terminal.send("\n");

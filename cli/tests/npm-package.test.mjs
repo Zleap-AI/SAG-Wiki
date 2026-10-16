@@ -10,21 +10,21 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
 test('npm package installs globally and forwards CLI arguments, stdin and exit codes', {timeout: 240000}, () => {
   execFileSync(process.execPath, ['scripts/package-npm-cli.mjs'], {cwd: root, stdio: 'pipe'});
   const version = readFileSync(join(root, 'cli/Cargo.toml'), 'utf8').match(/^version = "(.+)"/m)[1];
-  const archive = join(root, 'releases/npm', `zleap-ai-sgrep-${version}.tgz`);
+  const archive = join(root, 'releases/npm', `zleap-ai-sag-${version}.tgz`);
   const files = execFileSync('tar', ['-tzf', archive], {encoding: 'utf8'}).trim().split('\n');
-  assert(files.includes('package/bin/sgrep.cjs'));
-  assert(files.includes(`package/native/${process.platform}-${process.arch}/sgrep`));
-  assert(files.every(file => ['package/README.md', 'package/package.json', 'package/bin/sgrep.cjs'].includes(file) || /^package\/native\/(darwin|linux|win32)-(arm64|x64)\/sgrep(\.exe)?$/.test(file)));
-  const temp = mkdtempSync(join(tmpdir(), 'sgrep-npm-test-'));
+  assert(files.includes('package/bin/sag.cjs'));
+  assert(files.includes(`package/native/${process.platform}-${process.arch}/sag`));
+  assert(files.every(file => ['package/README.md', 'package/package.json', 'package/bin/sag.cjs'].includes(file) || /^package\/native\/(darwin|linux|win32)-(arm64|x64)\/sag(\.exe)?$/.test(file)));
+  const temp = mkdtempSync(join(tmpdir(), 'sag-npm-test-'));
   try {
     const project = join(temp, 'project'); mkdirSync(project);
     writeFileSync(join(project, 'note.md'), 'npm installation test content\n');
     execFileSync('npm', ['install', '--global', '--prefix', join(temp, 'prefix'), '--offline', '--ignore-scripts', '--no-audit', '--no-fund', archive], {cwd: temp, stdio: 'pipe'});
-    const env = {...process.env, SGREP_DATA_DIR: join(temp, 'data'), PATH: `${join(temp, 'prefix/bin')}:${dirname(process.execPath)}:${process.env.PATH}`};
-    const run = (args, input) => spawnSync('sgrep', args, {cwd: project, env, input, encoding: 'utf8'});
+    const env = {...process.env, SAG_DATA_DIR: join(temp, 'data'), PATH: `${join(temp, 'prefix/bin')}:${dirname(process.execPath)}:${process.env.PATH}`};
+    const run = (args, input) => spawnSync('sag', args, {cwd: project, env, input, encoding: 'utf8'});
     const versionOutput = run(['--version']);
     assert.equal(versionOutput.status, 0, versionOutput.stderr);
-    assert.equal(versionOutput.stdout.trim(), `sgrep ${version}`);
+    assert.equal(versionOutput.stdout.trim(), `sag ${version}`);
     const added = run(['add', '--json']);
     assert.equal(added.status, 0, added.stderr);
     assert.equal(JSON.parse(added.stdout).index_status, 'ready');
@@ -41,7 +41,7 @@ test('npm package installs globally and forwards CLI arguments, stdin and exit c
 
 
 test('npm launcher forwards cancellation and reaps its native process', {timeout: 10000}, async () => {
-  const temp = mkdtempSync(join(tmpdir(), 'sgrep-npm-cancel-'));
+  const temp = mkdtempSync(join(tmpdir(), 'sag-npm-cancel-'));
   let parent, nativePid;
   const stop = pid => {
     try { process.kill(pid, 'SIGKILL'); }
@@ -51,12 +51,12 @@ test('npm launcher forwards cancellation and reaps its native process', {timeout
     mkdirSync(join(temp, 'bin'));
     const nativeDir = join(temp, 'native', `${process.platform}-${process.arch}`);
     mkdirSync(nativeDir, {recursive: true});
-    copyFileSync(join(root, 'npm/sgrep/bin/sgrep.cjs'), join(temp, 'bin/sgrep.cjs'));
-    writeFileSync(join(nativeDir, 'sgrep'), `#!/bin/sh
-exec "$SGREP_TEST_NODE" -e 'require("node:fs").writeFileSync(process.env.SGREP_TEST_PID,String(process.pid));setInterval(()=>{},1000)'
+    copyFileSync(join(root, 'npm/sag/bin/sag.cjs'), join(temp, 'bin/sag.cjs'));
+    writeFileSync(join(nativeDir, 'sag'), `#!/bin/sh
+exec "$SAG_TEST_NODE" -e 'require("node:fs").writeFileSync(process.env.SAG_TEST_PID,String(process.pid));setInterval(()=>{},1000)'
 `, {mode: 0o755});
     const pidFile = join(temp, 'pid');
-    parent = spawn(process.execPath, [join(temp, 'bin/sgrep.cjs')], {env: {...process.env, SGREP_TEST_NODE: process.execPath, SGREP_TEST_PID: pidFile}, stdio: 'ignore'});
+    parent = spawn(process.execPath, [join(temp, 'bin/sag.cjs')], {env: {...process.env, SAG_TEST_NODE: process.execPath, SAG_TEST_PID: pidFile}, stdio: 'ignore'});
     const exited = new Promise(resolve => parent.once('exit', (code, signal) => resolve({code, signal})));
     const deadline = Date.now() + 3000;
     while (!existsSync(pidFile) && Date.now() < deadline) await new Promise(resolve => setTimeout(resolve, 10));
