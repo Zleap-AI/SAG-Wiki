@@ -6,7 +6,7 @@ const args=['build',...(debug?[]:['--release']),'--manifest-path','cli/Cargo.tom
 const build=spawnSync('cargo',args,{stdio:'inherit'});
 if(build.status!==0)process.exit(build.status??1);
 const windows=target?target.includes('windows'):process.platform==='win32';
-const name=windows?'sag.exe':'sag';
+const name=windows?'sgrep.exe':'sgrep';
 mkdirSync('src-tauri/bin',{recursive:true});
 copyFileSync(`cli/target/${target?target+'/':''}${debug?'debug':'release'}/${name}`,`src-tauri/bin/${name}`);
 if(process.platform==='darwin'&&!windows){

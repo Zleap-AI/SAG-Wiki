@@ -5,7 +5,7 @@ use std::{fs, process::Command};
 fn install_is_repeatable_and_preserves_foreign_and_edited_files() {
     let home = tempfile::tempdir().unwrap();
     let run = |verb: &str| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args([verb, "claude-code"])
             .env("HOME", home.path())
             .env_remove("ZDOTDIR")
@@ -40,7 +40,7 @@ fn cli_uninstall_uses_recorded_location_when_path_changes() {
     fs::create_dir(&first).unwrap();
     fs::create_dir(&second).unwrap();
     let run = |action: &str, path: &std::path::Path| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args([action, "cli"])
             .env("HOME", home.path())
             .env_remove("ZDOTDIR")
@@ -52,7 +52,7 @@ fn cli_uninstall_uses_recorded_location_when_path_changes() {
     };
     assert!(run("install", &first).status.success());
     // Preserve installations made by the old PATH-based installer.
-    let installed = home.path().join(".local/bin/sag");
+    let installed = home.path().join(".local/bin/sgrep");
     let binary = first.join("sag");
     fs::rename(&installed, &binary).unwrap();
     fs::rename(
@@ -74,7 +74,7 @@ fn cli_installs_in_stable_user_bin_instead_of_a_temporary_path_entry() {
     let home = tempfile::tempdir().unwrap();
     let transient = home.path().join(".codex/tmp/arg0/session");
     fs::create_dir_all(&transient).unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_sag"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sgrep"))
         .args(["install", "cli"])
         .env("HOME", home.path())
         .env_remove("ZDOTDIR")
@@ -88,7 +88,7 @@ fn cli_installs_in_stable_user_bin_instead_of_a_temporary_path_entry() {
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(home.path().join(".local/bin/sag").exists());
+    assert!(home.path().join(".local/bin/sgrep").exists());
     assert!(!transient.join("sag").exists());
 }
 
@@ -103,7 +103,7 @@ fn missing_recorded_binary_does_not_recreate_the_old_temporary_directory() {
         serde_json::to_vec(&old).unwrap(),
     )
     .unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_sag"))
+    let output = Command::new(env!("CARGO_BIN_EXE_sgrep"))
         .args(["install", "cli"])
         .env("HOME", home.path())
         .env_remove("ZDOTDIR")
@@ -112,7 +112,7 @@ fn missing_recorded_binary_does_not_recreate_the_old_temporary_directory() {
         .output()
         .unwrap();
     assert!(output.status.success());
-    assert!(home.path().join(".local/bin/sag").exists());
+    assert!(home.path().join(".local/bin/sgrep").exists());
     assert!(!old.exists());
 }
 
@@ -133,7 +133,7 @@ fn fresh_terminals_find_cli_and_uninstall_preserves_shell_settings() {
             fs::write(home.join(file), original).unwrap();
         }
         let run = |action: &str| {
-            Command::new(env!("CARGO_BIN_EXE_sag"))
+            Command::new(env!("CARGO_BIN_EXE_sgrep"))
                 .args([action, "cli"])
                 .env_clear()
                 .env("HOME", &home)
@@ -153,7 +153,7 @@ fn fresh_terminals_find_cli_and_uninstall_preserves_shell_settings() {
         }
         for mode in ["-ic", "-lc"] {
             let output = Command::new(shell)
-                .args([mode, "sag --version && test \"$USER_MARKER\" = kept"])
+                .args([mode, "sgrep --version && test \"$USER_MARKER\" = kept"])
                 .env_clear()
                 .env("HOME", &home)
                 .env("SHELL", shell)
@@ -165,7 +165,7 @@ fn fresh_terminals_find_cli_and_uninstall_preserves_shell_settings() {
                 "{shell} {mode}: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            assert!(String::from_utf8_lossy(&output.stdout).contains("sag 0.1.0"));
+            assert!(String::from_utf8_lossy(&output.stdout).contains("sgrep 0.1.0"));
         }
         assert!(run("uninstall").status.success());
         for file in &files {
@@ -181,7 +181,7 @@ fn custom_zdotdir_is_registered_and_cleanup_does_not_depend_on_the_current_shell
     fs::create_dir(&config).unwrap();
     fs::write(config.join(".zshrc"), "# keep custom config").unwrap();
     let run = |action: &str, shell: &str| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args([action, "cli"])
             .env_clear()
             .env("HOME", home.path())
@@ -208,7 +208,7 @@ fn custom_zdotdir_is_registered_and_cleanup_does_not_depend_on_the_current_shell
 fn user_edits_to_managed_shell_blocks_are_not_overwritten_or_removed() {
     let home = tempfile::tempdir().unwrap();
     let run = |action: &str| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args([action, "cli"])
             .env_clear()
             .env("HOME", home.path())
@@ -231,14 +231,14 @@ fn user_edits_to_managed_shell_blocks_are_not_overwritten_or_removed() {
         fs::read_to_string(home.path().join(".zprofile")).unwrap(),
         login_before
     );
-    assert!(home.path().join(".local/bin/sag").exists());
+    assert!(home.path().join(".local/bin/sgrep").exists());
 }
 
 #[test]
 fn reinstall_moves_a_legacy_binary_without_registering_the_temporary_path() {
     let home = tempfile::tempdir().unwrap();
     let run = || {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args(["install", "cli"])
             .env_clear()
             .env("HOME", home.path())
@@ -249,7 +249,7 @@ fn reinstall_moves_a_legacy_binary_without_registering_the_temporary_path() {
             .unwrap()
     };
     assert!(run().status.success());
-    let stable = home.path().join(".local/bin/sag");
+    let stable = home.path().join(".local/bin/sgrep");
     let old = home.path().join(".codex/tmp/session/sag");
     fs::create_dir_all(old.parent().unwrap()).unwrap();
     fs::rename(&stable, &old).unwrap();
@@ -275,7 +275,7 @@ fn reinstall_moves_a_legacy_binary_without_registering_the_temporary_path() {
 fn failed_terminal_setup_preserves_legacy_install_for_retry() {
     let home = tempfile::tempdir().unwrap();
     let run = |action: &str| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args([action, "cli"])
             .env_clear()
             .env("HOME", home.path())
@@ -293,7 +293,7 @@ fn failed_terminal_setup_preserves_legacy_install_for_retry() {
     )
     .unwrap();
     assert!(!run("install").status.success());
-    let stable = home.path().join(".local/bin/sag");
+    let stable = home.path().join(".local/bin/sgrep");
     assert!(!stable.exists(), "failed setup must not appear installed");
     fs::write(home.path().join(".zshrc"), "# user config\n").unwrap();
     assert!(run("install").status.success());
@@ -333,7 +333,7 @@ fn failed_terminal_setup_preserves_legacy_install_for_retry() {
 fn explicit_install_and_uninstall_record_the_initialization_choice() {
     let home = tempfile::tempdir().unwrap();
     let data = home.path().join("data");
-    let run = |action: &str| Command::new(env!("CARGO_BIN_EXE_sag"))
+    let run = |action: &str| Command::new(env!("CARGO_BIN_EXE_sgrep"))
         .args([action,"cli"]).env_clear().env("HOME",home.path()).env("SHELL","/bin/zsh")
         .env("PATH","/usr/bin:/bin").env("SAG_DESKTOP_DATA_DIR",&data).output().unwrap();
     assert!(run("install").status.success());
@@ -342,5 +342,5 @@ fn explicit_install_and_uninstall_record_the_initialization_choice() {
     fs::remove_file(&marker).unwrap();
     assert!(run("uninstall").status.success());
     assert!(marker.exists());
-    assert!(!home.path().join(".local/bin/sag").exists());
+    assert!(!home.path().join(".local/bin/sgrep").exists());
 }

@@ -17,7 +17,7 @@ use std::{
 
 #[derive(Parser)]
 #[command(
-    name = "sag",
+    name = "sgrep",
     version,
     about = "使用后台运行的 SAG-Desktop 搜索本地项目"
 )]
@@ -97,7 +97,7 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
             path.display()
         );
         if target == "cli" && !uninstall {
-            eprintln!("终端路径已自动配置，请新开终端运行 sag。");
+            eprintln!("终端路径已自动配置，请新开终端运行 sgrep。");
         }
         return Ok(());
     }
@@ -188,9 +188,9 @@ fn run(args: Args, interrupted: Arc<AtomicBool>) -> Result<()> {
                 if output.cli_authorized { println!("CLI 可搜索此目录。"); }
                 else { println!("CLI 接入已关闭，请在 SAG-Desktop 设置中启用。"); }
                 match output.index_status.as_str() {
-                    "ready" => println!("索引已就绪，可以运行 sag search。"),
+                    "ready" => println!("索引已就绪，可以运行 sgrep search。"),
                     "error" => println!("索引失败，请在 SAG-Desktop 查看详情。"),
-                    _ => println!("正在建立索引，请用 sag status 查看进度；就绪后可运行 sag search。"),
+                    _ => println!("正在建立索引，请用 sgrep status 查看进度；就绪后可运行 sgrep search。"),
                 }
             }
         }

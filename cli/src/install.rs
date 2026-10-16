@@ -6,6 +6,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub const BINARY_NAME: &str = if cfg!(windows) { "sgrep.exe" } else { "sgrep" };
 pub const HARNESS_NAMES: [&str; 3] = ["claude-code", "codex", "opencode"];
 pub const SKILL: &str = include_str!("../skills/sag/SKILL.md");
 #[path = "terminal_path.rs"]
@@ -123,8 +124,7 @@ pub fn binary_path(home: &Path) -> Result<PathBuf> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    let name = if cfg!(windows) { "sag.exe" } else { "sag" };
-    Ok(home.join(".local/bin").join(name))
+    Ok(home.join(".local/bin").join(BINARY_NAME))
 }
 pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     let data = crate::cli_protocol::data_dir()?;
@@ -134,7 +134,7 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         previous.clone()
     } else {
         home.join(".local/bin")
-            .join(if cfg!(windows) { "sag.exe" } else { "sag" })
+            .join(BINARY_NAME)
     };
     if uninstall {
         if target.try_exists()? {
@@ -161,7 +161,7 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         if target.try_exists()? {
             check_owned(&target)?;
         }
-        Some(fs::read(source).context("未找到随应用分发的 SAG CLI，请重新安装应用")?)
+        Some(fs::read(source).context("未找到随应用分发的 sgrep，请重新安装应用")?)
     };
     // Finish terminal setup before changing the binary or its recorded location.
     terminal_path::configure(home, &data, target.parent().unwrap(), false)?;

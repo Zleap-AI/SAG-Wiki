@@ -3,7 +3,7 @@ use std::process::Command;
 fn invalid_arguments_are_distinct_from_unavailable_desktop() {
     let home = tempfile::tempdir().unwrap();
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .env("SAG_DESKTOP_DATA_DIR", home.path())
             .args(args)
             .output()
@@ -73,7 +73,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
         }
     });
     let run = |extra: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .env("SAG_DESKTOP_DATA_DIR", home.path())
             .current_dir(&cwd)
             .args(["search", query, "src"])
@@ -103,12 +103,12 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
 #[test]
 fn factory_droid_is_not_a_supported_installation_target() {
     for command in ["install", "uninstall"] {
-        let result = Command::new(env!("CARGO_BIN_EXE_sag"))
+        let result = Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args([command, "factory-droid"])
             .output()
             .unwrap();
         assert_eq!(result.status.code(), Some(2));
-        let help = Command::new(env!("CARGO_BIN_EXE_sag"))
+        let help = Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .args([command, "--help"])
             .output()
             .unwrap();
@@ -165,7 +165,7 @@ fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
         }
     });
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_sag"))
+        Command::new(env!("CARGO_BIN_EXE_sgrep"))
             .current_dir(&cwd)
             .env("SAG_DESKTOP_DATA_DIR", data.path())
             .args(args)

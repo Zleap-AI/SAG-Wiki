@@ -188,7 +188,7 @@ impl CliService {
             bail!("CLI 接入未启用，请在 SAG-Desktop 设置中启用")
         }
         let (path, roots) = self.indexed_scope(requested)?;
-        if roots.is_empty() { bail!("该文件夹下没有已索引目录，请运行 sag add") }
+        if roots.is_empty() { bail!("该文件夹下没有已索引目录，请运行 sgrep add") }
         let scopes = roots.into_iter().map(|root| {
             if path.starts_with(&root.path) { store::path_text(&path) } else { Ok(root.path) }
         }).collect::<Result<Vec<_>>>()?;

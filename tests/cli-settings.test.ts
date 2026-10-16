@@ -90,7 +90,7 @@ it('copies each tool installation command without installing it',async()=>{
   const copy=document.querySelector<HTMLButtonElement>(`[aria-label="复制 ${name} 安装命令"]`);
   expect(copy).not.toBeNull();copy!.click();
   await vi.waitFor(()=>expect(document.querySelector('[role=status]')?.textContent).toContain(`已复制 ${name} 的安装命令`));
-  expect(writeText).toHaveBeenLastCalledWith(`sag install ${target}`);
+  expect(writeText).toHaveBeenLastCalledWith(`sgrep install ${target}`);
  }
  expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration')).toBe(false);
 });

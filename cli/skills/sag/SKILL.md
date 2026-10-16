@@ -3,7 +3,7 @@ name: sag
 description: Search local project code with SAG when locating behavior, tracing cross-file relationships, or connecting configuration to implementation. Also use when registering the current project or configuring its SAG indexing exclusions.
 ---
 
-Use `sag search -c "complete natural-language question"` to find local implementation evidence. Run it in the current project directory. To narrow the scope, pass a directory: `sag search -c "How is a session validated?" ./src -m 5`.
+Use `sgrep search -c "complete natural-language question"` to find local implementation evidence. Run it in the current project directory. To narrow the scope, pass a directory: `sgrep search -c "How is a session validated?" ./src -m 5`.
 
 The command returns file paths, line ranges and original passages. Omit `-c` when only locations are needed. Read the referenced files with the harness's normal file reader if the passages need more context. Continue the task once there is enough evidence; avoid repeating the same query.
 
@@ -11,7 +11,7 @@ Use existing exact-search tools for known symbols, strings, filenames or regular
 
 SAG-Desktop installs the CLI and enables it on first launch. It must remain running in the background. Search automatically uses indexed knowledge-base folders within the requested directory, or the requested subtree of an indexed project; there is no per-folder CLI authorization setting.
 
-When the current project has not been indexed, run `sag add` in its directory yourself. This adds it to the knowledge base and starts indexing. Check `sag status`; if indexing is still in progress, wait for it to finish before searching. No sync flag is needed. Do not add unrelated projects or broaden the search to a parent directory merely to find more results. If the user has turned CLI off, report that setting instead of enabling it yourself.
+When the current project has not been indexed, run `sgrep add` in its directory yourself. This adds it to the knowledge base and starts indexing. Check `sgrep status`; if indexing is still in progress, wait for it to finish before searching. No sync flag is needed. Do not add unrelated projects or broaden the search to a parent directory merely to find more results. If the user has turned CLI off, report that setting instead of enabling it yourself.
 
 For task-relevant indexing exclusions, you may create or update `.sagignore` in the current project, for example to exclude generated output or caches. Read existing `.gitignore` and `.sagignore` rules first, preserve them, and add only the patterns needed for the task. Use `.sagignore` for SAG-specific exclusions; changing version-control rules in `.gitignore` requires a version-control reason. Report the paths or patterns you changed. Keep source files included unless the user requests their exclusion, and do not override existing exclusions merely to obtain search results.
 
@@ -47,9 +47,9 @@ output/level1/level2/level3/*
 
 Each `!path/` restores the next directory; the following `path/*` keeps its contents ignored until the next explicit exception. Keep this order and every directory/exclusion pair: omitting a required ancestor inclusion blocks the target file, while omitting a child exclusion can include unwanted siblings. The final file exception restores only `keep.md`; other files in the same directory, higher levels and sibling directories stay ignored.
 
-Rules affect indexing and search without deleting local files. Changes apply automatically when file watching is enabled; otherwise reindex from File settings. Negation does not override manually removed subdirectories or the directory-name exclusion settings; use `sag add` to restore a manually removed subdirectory when requested.
+Rules affect indexing and search without deleting local files. Changes apply automatically when file watching is enabled; otherwise reindex from File settings. Negation does not override manually removed subdirectories or the directory-name exclusion settings; use `sgrep add` to restore a manually removed subdirectory when requested.
 
-When the user asks to remove a project from the knowledge base, run `sag remove` in that project or pass a registered root directory or a subdirectory. This removes only knowledge-base records and indexes; local files remain unchanged. A removed subdirectory stays excluded from automatic indexing. When the user asks to restore it, run `sag add` for that same subdirectory.
+When the user asks to remove a project from the knowledge base, run `sgrep remove` in that project or pass a registered root directory or a subdirectory. This removes only knowledge-base records and indexes; local files remain unchanged. A removed subdirectory stays excluded from automatic indexing. When the user asks to restore it, run `sgrep add` for that same subdirectory.
 
 If a command fails for another reason, report its reason and continue with the harness's normal tools; do not repeat it without a relevant change.
 

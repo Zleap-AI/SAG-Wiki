@@ -22,7 +22,7 @@
       "licenses/SHADCN-SVELTE.txt": "licenses/SHADCN-SVELTE.txt",
       "licenses/MORPHDOM.txt": "licenses/MORPHDOM.txt",
       "icons/windows/icon.ico": "icons/sag-rounded-v2.ico",
-      "bin/sag.exe": "bin/sag.exe"
+      "bin/sgrep.exe": "bin/sgrep.exe"
     },
     "windows": {
       "nsis": {
