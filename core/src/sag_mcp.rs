@@ -363,6 +363,8 @@ impl SagTools {
                 return Ok(Output::new(json!({"query":args.query}), vec![]));
             }
             let key = models::secret(&self.data_dir, "jev")?;
+            // Prepare the scoring tokenizer while local retrieval initializes its tokenizer.
+            let scoring_preparation = tokio::task::spawn_blocking(|| { tiktoken_rs::o200k_base_singleton(); });
             let output = retrieval::retrieve(
                 &self.store,
                 &args.query,
@@ -390,6 +392,7 @@ impl SagTools {
                 |stage, count| (self.progress)(stage, count),
             )
             .await?;
+            scoring_preparation.await.context("评分初始化任务失败")?;
             let mut locations = vec![];
             for (index, candidate) in output.results.iter().enumerate() {
                 let document = self.store.document(Path::new(&candidate.path))?;
