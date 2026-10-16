@@ -31,7 +31,23 @@ output/*
 !output/keep.md
 ```
 
-For a file nested further down, restore each ignored ancestor in order before including the file. Rules affect indexing and search without deleting local files. Changes apply automatically when file watching is enabled; otherwise reindex from File settings. Negation does not override manually removed subdirectories or the directory-name exclusion settings; use `sag add` to restore a manually removed subdirectory when requested.
+For deeper paths, repeat the directory inclusion and child exclusion at every level. With the same root `.gitignore` containing `output/`, use this complete root `.sagignore` to restore only `output/level1/level2/level3/keep.md` from that directory tree:
+
+```gitignore
+!output/
+output/*
+!output/level1/
+output/level1/*
+!output/level1/level2/
+output/level1/level2/*
+!output/level1/level2/level3/
+output/level1/level2/level3/*
+!output/level1/level2/level3/keep.md
+```
+
+Each `!path/` restores the next directory; the following `path/*` keeps its contents ignored until the next explicit exception. Keep this order and every directory/exclusion pair: omitting a required ancestor inclusion blocks the target file, while omitting a child exclusion can include unwanted siblings. The final file exception restores only `keep.md`; other files in the same directory, higher levels and sibling directories stay ignored.
+
+Rules affect indexing and search without deleting local files. Changes apply automatically when file watching is enabled; otherwise reindex from File settings. Negation does not override manually removed subdirectories or the directory-name exclusion settings; use `sag add` to restore a manually removed subdirectory when requested.
 
 When the user asks to remove a project from the knowledge base, run `sag remove` in that project or pass a registered root directory or a subdirectory. This removes only knowledge-base records and indexes; local files remain unchanged. A removed subdirectory stays excluded from automatic indexing. When the user asks to restore it, run `sag add` for that same subdirectory.
 
