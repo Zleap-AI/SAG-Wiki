@@ -101,10 +101,22 @@ describe('SAG2 工具调用卡片',()=>{
  it('接收真实工具参数与完成事件，显示独立卡片和返回数量',async()=>{
   const call={id:'call-1',query:'实际检索问题',source_count:0};await tool(call,false);await progress('正在扩展相关文件');
   const card=document.querySelector<HTMLDetailsElement>('.tool-call')!;
-  expect(card.open).toBe(false);expect(card.textContent).toContain('实际检索问题');expect(card.textContent).toContain('正在调用');expect(card.textContent).toContain('正在扩展相关文件');
+  expect(card.open).toBe(false);expect(card.textContent).toContain('实际检索问题');expect(card.querySelector('.tool-state')!.textContent).toBe('正在扩展相关文件');
   expect(card.closest('.chat-messages')).not.toBeNull();expect(document.querySelector('.composer-wrap')!.contains(card)).toBe(false);
   card.querySelector('summary')!.click();await tick();
   await tool({...call,source_count:4},true);expect(card.open).toBe(true);expect(card.textContent).toContain('已完成');expect(card.textContent).toContain('返回 4 个原文片段');
+ });
+ it('折叠卡片显示当前检索和排序阶段，完成后不再随阶段更新',async()=>{
+  const call={id:'search-stages',query:'实际检索问题',source_count:0};await tool(call,false);
+  const card=document.querySelector<HTMLDetailsElement>('.tool-call')!;
+  expect(card.open).toBe(false);
+  await progress('正在检索原文');
+  expect(card.querySelector('summary .tool-state')!.textContent).toBe('正在查找相关文件');
+  await progress('Jev 正在判断相关原文');
+  expect(card.querySelector('summary .tool-state')!.textContent).toBe('正在按相关性排序');
+  expect(card.open).toBe(false);
+  await tool({...call,source_count:4},true);await progress('正在生成回答');
+  expect(card.querySelector('summary .tool-state')!.textContent).toBe('已完成');
  });
  it('多次调用分别保留状态，停止时只标记当前调用',async()=>{
   await tool({id:'first',query:'第一次查询',source_count:2},true);await tool({id:'second',query:'第二次查询',source_count:0},false);

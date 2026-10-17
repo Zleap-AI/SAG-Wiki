@@ -16,7 +16,7 @@
  onDestroy(()=>clearInterval(timer));
  $:sagData=call.server_name==='SAG'&&call.result&&typeof call.result==='object'?(call.result as {structuredContent?:{sources?:unknown[];omitted_sources?:number}}).structuredContent:undefined;
  $:emptySearch=call.tool_name==='search'&&Array.isArray(sagData?.sources)&&sagData.sources.length===0&&sagData.omitted_sources===0;
- $:label=phase==='denied'?$t("已拒绝"):phase==='running'?$t("正在调用"):phase==='stopped'?$t("已停止"):phase==='failed'?$t("调用失败"):emptySearch?$t("未找到相关内容"):$t("已完成");
+ $:label=phase==='denied'?$t("已拒绝"):phase==='running'?$t(stage||"正在调用"):phase==='stopped'?$t("已停止"):phase==='failed'?$t("调用失败"):emptySearch?$t("未找到相关内容"):$t("已完成");
  $:resultText=call.result==null?'':toolResultText(call.result,$t,call.server_name==='SAG'?call.tool_name??undefined:undefined);
  $:durationMs=call.elapsed_ms??elapsed;
  $:duration=durationMs==null?'':durationMs<1000?durationMs+' ms':durationLabel(durationMs);
