@@ -24,7 +24,7 @@ beforeEach(async()=>{
  const input=document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;input.value='这次问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await vi.waitFor(()=>expect(invoke.mock.calls.some(([name])=>name==='run_query')).toBe(true));
 });
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.useRealTimers();vi.clearAllMocks()});
 const progress=async(stage:string,delta:string|null=null,id?:string,replace=false)=>{
  const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
  listeners.get('query-progress')!({payload:{id:id??query.id,stage,delta,count:0,replace}});await tick();
@@ -81,7 +81,7 @@ describe('回答中的处理进度',()=>{
 });
 
 describe('SAG2 工具调用卡片',()=>{
- async function tool(call:{id:string;query:string;source_count:number},finished:boolean){
+ async function tool(call:{id:string;query:string;source_count:number;elapsed_ms?:number},finished:boolean){
   const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
   listeners.get('query-progress')!({payload:{id:query.id,stage:finished?'SAG2 检索完成':'正在调用 SAG2 检索文件',delta:null,count:0,tool:{call,finished}}});await tick();
  }
@@ -97,6 +97,35 @@ describe('SAG2 工具调用卡片',()=>{
   await tool({id:'first',query:'第一次查询',source_count:2},true);await tool({id:'second',query:'第二次查询',source_count:0},false);
   document.querySelector<HTMLButtonElement>('[aria-label="停止生成"]')!.click();await tick();await tick();
   const cards=document.querySelectorAll('.tool-call');expect(cards).toHaveLength(2);expect(cards[0].textContent).toContain('已完成');expect(cards[1].textContent).toContain('已停止');
+ });
+ it('调用中持续计时，进度更新不重置，完成后显示实际耗时',async()=>{
+  vi.useFakeTimers({toFake:['setInterval','clearInterval','performance']});
+  const call={id:'timed-call',query:'实际检索问题',source_count:0};
+  await tool(call,false);
+  const duration=()=>document.querySelector('.tool-duration')?.textContent;
+  expect(duration()).toBe('0 ms');
+  await vi.advanceTimersByTimeAsync(1200);await tick();
+  expect(duration()).toBe('1.2s');
+  await progress('正在扩展相关文件');await tool({...call},false);
+  await vi.advanceTimersByTimeAsync(800);await tick();
+  expect(duration()).toBe('2s');
+  await tool({...call,source_count:4,elapsed_ms:1875},true);
+  expect(duration()).toBe('1.9s');
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(1000);await tick();
+  expect(duration()).toBe('1.9s');
+ });
+ it('停止调用后计时停止，新调用单独计时',async()=>{
+  vi.useFakeTimers({toFake:['setInterval','clearInterval','performance']});
+  await tool({id:'finished',query:'第一次查询',source_count:2,elapsed_ms:1250},true);
+  await tool({id:'running',query:'第二次查询',source_count:0},false);
+  expect([...document.querySelectorAll('.tool-duration')].map(node=>node.textContent)).toEqual(['1.3s','0 ms']);
+  await vi.advanceTimersByTimeAsync(500);await tick();
+  document.querySelector<HTMLButtonElement>('[aria-label="停止生成"]')!.click();await tick();await tick();
+  expect([...document.querySelectorAll('.tool-duration')].map(node=>node.textContent)).toEqual(['1.3s','500 ms']);
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(1000);await tick();
+  expect(document.querySelectorAll('.tool-duration')[1].textContent).toBe('500 ms');
  });
 });
 
