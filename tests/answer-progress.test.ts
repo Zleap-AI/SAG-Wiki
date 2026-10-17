@@ -94,10 +94,28 @@ describe('回答中的处理进度',()=>{
 });
 
 describe('SAG2 工具调用卡片',()=>{
- async function tool(call:{id:string;query:string;source_count:number;elapsed_ms?:number},finished:boolean){
+ async function tool(call:{id:string;query:string;source_count:number;elapsed_ms?:number;answer_offset?:number},finished:boolean){
   const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
   listeners.get('query-progress')!({payload:{id:query.id,stage:finished?'SAG2 检索完成':'正在调用 SAG2 检索文件',delta:null,count:0,tool:{call,finished}}});await tick();
  }
+ it('按文字、工具、后续文字的顺序显示，完成并重开会话后保持顺序',async()=>{
+  const intro='我先查一下🙂。';
+  await progress('正在生成回答',intro);
+  const call={id:'ordered',query:'实际检索问题',source_count:0,answer_offset:intro.length};
+  await tool(call,false);
+  const current=()=>document.querySelectorAll('.answer')[1];
+  const content=()=>[...current().querySelectorAll('.answer-text,.tool-call')].map(node=>node.matches('.tool-call')?'工具':node.textContent);
+  await vi.waitFor(()=>expect(content()).toEqual([intro,'工具','']));
+  await tool({...call,source_count:2},true);
+  await progress('正在生成回答','这是检索后的回答。');
+  await vi.waitFor(()=>expect(content()).toEqual([intro,'工具','这是检索后的回答。']));
+  const answer=intro+'这是检索后的回答。';
+  savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer,tool_calls:[{...call,source_count:2}],status:'complete'}]};
+  resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});await tick();await tick();
+  document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();await tick();
+  document.querySelector<HTMLButtonElement>('[title="已有对话"]')!.click();await tick();
+  await vi.waitFor(()=>expect(content()).toEqual([intro,'工具','这是检索后的回答。']));
+ });
  it('接收真实工具参数与完成事件，显示独立卡片和返回数量',async()=>{
   const call={id:'call-1',query:'实际检索问题',source_count:0};await tool(call,false);await progress('正在扩展相关文件');
   const card=document.querySelector<HTMLDetailsElement>('.tool-call')!;

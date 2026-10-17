@@ -1,6 +1,6 @@
 import {get} from 'svelte/store';
 import {t} from './i18n';
-import type {Candidate} from './types';
+import type {Candidate,ToolCallRecord} from './types';
 import{TaskList,TaskItem}from '@tiptap/extension-list';
 import {generateHTML} from '@tiptap/core';import StarterKit from '@tiptap/starter-kit';import {MarkdownManager}from '@tiptap/markdown';import{TableKit}from '@tiptap/extension-table';import Image from '@tiptap/extension-image';import DOMPurify from 'dompurify';import{api}from './api';import{dirname}from './domain';
 export const LocalImage=Image.extend({renderHTML({node,HTMLAttributes}){return['img',{...HTMLAttributes,src:'',alt:node.attrs.alt||get(t)('图片'),'data-source':node.attrs.src}]}});
@@ -8,7 +8,7 @@ const extensions=[StarterKit,TableKit,LocalImage,TaskList,TaskItem.configure({ne
 import {splitFrontmatter,protectHtml} from './markdown-source';
 export {splitFrontmatter,protectHtml,restoreHtml} from './markdown-source';
 export function renderMarkdown(text:string,referenceBody?:string):string{
- if(referenceBody)text+='\n\n'+parser.instance.lexer(splitFrontmatter(referenceBody).body).filter(token=>token.type==='def').map(token=>token.raw).join('\n\n');
+ if(referenceBody){const definitions=parser.instance.lexer(splitFrontmatter(referenceBody).body).filter(token=>token.type==='def').map(token=>token.raw).join('\n\n');if(definitions)text+='\n\n'+definitions;}
  return DOMPurify.sanitize(generateHTML(parser.parse(protectHtml(splitFrontmatter(text).body)),extensions),{ADD_ATTR:['data-source']});
 }
 export function markdownCitation(body:string,ranges:{from:number;to:number}[]):string{
@@ -21,10 +21,11 @@ export function markdownCitation(body:string,ranges:{from:number;to:number}[]):s
  }).map(token=>token.raw).join('\n\n');
 }
 export async function hydrateImages(host:HTMLElement,path:string):Promise<void>{for(const image of host.querySelectorAll<HTMLImageElement>('img[data-source]')){const src=image.dataset.source!;if(/^(?:https?:|data:|javascript:)/i.test(src)){image.alt=get(t)('外部图片（未自动加载）');continue;}const base=dirname(path).replace(/\\/g,'/');const url=new URL(src,'file://'+(base.startsWith('/')?'':'/')+base+'/');let absolute=decodeURIComponent(url.pathname);if(/^[A-Za-z]:/.test(base))absolute=absolute.replace(/^\//,'');try{image.src=await api<string>('load_image',{path:absolute});}catch(error){image.alt=get(t)('图片不可用：{value0}',{value0:get(t)(String(error))});}}}
-export function renderAnswer(text:string,evidence:Candidate[]){
- const html=renderMarkdown(text);const doc=new DOMParser().parseFromString(html,'text/html');const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);const nodes:Text[]=[];while(walker.nextNode())nodes.push(walker.currentNode as Text);
+export function renderAnswer(text:string,evidence:Candidate[],tools:ToolCallRecord[]=[]){
  const sources:{first:Candidate;number:number}[]=[];
  const numbers=new Map<string,number>();
+ function renderPart(content:string){
+ const html=renderMarkdown(content,text);const doc=new DOMParser().parseFromString(html,'text/html');const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);const nodes:Text[]=[];while(walker.nextNode())nodes.push(walker.currentNode as Text);
  for(const node of nodes){
   if(node.parentElement?.closest('code,pre,a'))continue;
   const value=node.textContent||'';
@@ -43,5 +44,9 @@ export function renderAnswer(text:string,evidence:Candidate[]){
   }
   fragment.append(value.slice(end));node.replaceWith(fragment);
  }
- return {html:doc.body.innerHTML,sources};
+ return doc.body.innerHTML;
+ }
+ let offset=0;
+ const beforeTools=tools.map(call=>{const end=call.answer_offset??0;const html=renderPart(text.slice(offset,end));offset=end;return html});
+ return {html:renderPart(text.slice(offset)),beforeTools,sources};
 }

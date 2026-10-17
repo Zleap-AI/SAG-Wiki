@@ -301,6 +301,9 @@ pub struct AnswerContext {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolCallRecord {
     pub id: String,
+    /// UTF-16 position in the answer where this tool was called.
+    #[serde(default)]
+    pub answer_offset: Option<usize>,
     pub query: String,
     pub source_count: usize,
     #[serde(default)]

@@ -328,8 +328,7 @@ where
         progress("思考中", None, message.tool_calls.len(), None);
         let generation_started = std::time::Instant::now();
         let mut reasoning_started = false;
-        let defer_answer = !definitions.is_empty() && message.tool_calls.is_empty();
-        let mut deferred_chunks = vec![];
+        let answer_start = message.answer.len();
         let turn =
             models::chat_turn(
                 client,
@@ -340,15 +339,8 @@ where
                 cancel,
                 |delta| match delta {
                     models::ChatDelta::Content(text) => {
-                        // Text accompanying a required tool call is not a final answer.
-                        if !require_tool {
-                            if defer_answer {
-                                deferred_chunks.push(text.to_owned());
-                            } else {
-                                message.answer.push_str(text);
-                                progress("正在生成回答", Some(AnswerDelta::Append(text)), 0, None);
-                            }
-                        }
+                        message.answer.push_str(text);
+                        progress("正在生成回答", Some(AnswerDelta::Append(text)), 0, None);
                     }
                     models::ChatDelta::Reasoning(text) => {
                         let addition = format!(
@@ -389,8 +381,8 @@ where
             {
                 require_tool = true;
                 final_only = false;
-                message.answer.clear();
-                progress("思考中", Some(AnswerDelta::Replace("")), 0, None);
+                message.answer.truncate(answer_start);
+                progress("思考中", Some(AnswerDelta::Replace(&message.answer)), 0, None);
                 messages.push(json!({"role":"system","content":"你引用了尚未取得的来源。本轮没有工具证据。先调用合适的已启用工具，取得真实来源后再回答，不能自行编造编号。"}));
                 continue;
             }
@@ -404,8 +396,8 @@ where
                 citations_repaired = true;
                 final_only = true;
                 synthesis_prepared = true;
-                message.answer.clear();
-                progress("正在修正引用", Some(AnswerDelta::Replace("")), 0, None);
+                message.answer.truncate(answer_start);
+                progress("正在修正引用", Some(AnswerDelta::Replace(&message.answer)), 0, None);
                 messages.push(json!({"role":"system","content":format!(
                     "候选回答包含无效引用 {}。本轮合法 source_id 仅为 {}。逐项核对工具原文，将引用改为真正支持对应事实的 source_id；找不到支持时明确说明证据不足，禁止猜测或仅替换成任意合法编号。保留用户要求的输出格式，只返回修正后的最终回答。候选回答：\n{}",
                     json!(invalid), json!((1..=message.evidence.len()).collect::<Vec<_>>()), turn.text
@@ -415,10 +407,10 @@ where
             if uncited && !reviewed {
                 reviewed = true;
                 final_only = !allow_tools;
-                message.answer.clear();
+                message.answer.truncate(answer_start);
                 progress(
                     "正在复核证据与引用",
-                    Some(AnswerDelta::Replace("")),
+                    Some(AnswerDelta::Replace(&message.answer)),
                     0,
                     None,
                 );
@@ -435,18 +427,12 @@ where
                 continue;
             }
             if !invalid.is_empty() {
-                message.answer.clear();
-                progress("引用校验未通过", Some(AnswerDelta::Replace("")), 0, None);
+                message.answer.truncate(answer_start);
+                progress("引用校验未通过", Some(AnswerDelta::Replace(&message.answer)), 0, None);
                 bail!("模型引用了本轮不存在的原文编号：{}", invalid.join(", "))
             }
             message.context.as_mut().unwrap().elapsed_ms =
                 Some(started.elapsed().as_millis() as u64);
-            if defer_answer {
-                message.answer = turn.text;
-            }
-            for text in &deferred_chunks {
-                progress("正在生成回答", Some(AnswerDelta::Append(text)), 0, None);
-            }
             return Ok(traces);
         }
         require_tool = false;
@@ -455,10 +441,6 @@ where
             bail!("模型超过本次工具调用次数上限")
         }
         messages.push(json!({"role":"assistant","content":if turn.text.is_empty(){Value::Null}else{json!(turn.text)},"tool_calls":turn.tool_calls}));
-        if !message.answer.is_empty() {
-            message.answer.clear();
-            progress("正在调用工具", Some(AnswerDelta::Replace("")), 0, None);
-        }
         for call in turn.tool_calls {
             if call["function"]["name"] != "sag2_search" || options.mcp.is_some_and(|mcp| mcp.tool("sag2_search").is_some()) {
                 let name = call["function"]["name"]
@@ -478,6 +460,7 @@ where
                     .context("工具调用缺少参数")?;
                 message.tool_calls.push(ToolCallRecord {
                     id: id.into(),
+                    answer_offset: Some(message.answer.encode_utf16().count()),
                     query: raw_arguments.into(),
                     source_count: 0,
                     elapsed_ms: None,
@@ -650,6 +633,7 @@ where
             message.retrieval_question = query.clone();
             message.tool_calls.push(ToolCallRecord {
                 id: id.into(),
+                answer_offset: Some(message.answer.encode_utf16().count()),
                 query: query.clone(),
                 source_count: 0,
                 elapsed_ms: None,
@@ -1097,9 +1081,9 @@ mod tests {
         assert_eq!(state["tool_history"][0]["query"], "Who did it?");
     }
     #[tokio::test]
-    async fn follow_up_does_not_publish_an_answer_before_required_retrieval() {
+    async fn follow_up_preserves_text_around_required_retrieval() {
         let mut lookup = call("follow-up", "发布验证码");
-        lookup.insert(0, json!({"content":"未经检索的临时回答。"}));
+        lookup.insert(0, json!({"content":"先查一下🙂。"}));
         let (config, requests) = tool_server(vec![
             lookup,
             vec![json!({"content":"验证码是 "}), json!({"content":"LYRA-73492 [1]。"})],
@@ -1111,16 +1095,14 @@ mod tests {
         let mut current = message();
         current.question = "它的发布验证码是什么？".into();
         let mut visible = vec![];
-        let mut tool_finished = false;
         answer(
             &reqwest::Client::new(), &config, "test", &mut current, &[previous],
             16384, 0, 5, &CancellationToken::new(),
             |_| async { Ok(SearchOutput { results: vec![candidate(1, "发布验证码：LYRA-73492。")], trace: vec![] }) },
             |_, delta, _, tool| {
-                if let Some((_, finished)) = tool { tool_finished |= finished; }
+                if let Some((_, finished)) = tool { visible.push(if finished { "工具完成" } else { "工具开始" }.into()); }
                 match delta {
                     Some(AnswerDelta::Append(text)) => {
-                        assert!(tool_finished, "不能在资料返回前显示回答");
                         visible.push(text.to_owned());
                     }
                     Some(AnswerDelta::Replace(text)) => visible.push(format!("REPLACE:{text}")),
@@ -1128,16 +1110,21 @@ mod tests {
                 }
             },
         ).await.unwrap();
-        assert_eq!(visible, vec!["验证码是 ", "LYRA-73492 [1]。"]);
+        assert_eq!(visible, vec!["先查一下🙂。", "工具开始", "工具完成", "验证码是 ", "LYRA-73492 [1]。"]);
+        assert_eq!(current.answer, "先查一下🙂。验证码是 LYRA-73492 [1]。");
         assert_eq!(current.tool_calls.len(), 1);
+        assert_eq!(current.tool_calls[0].answer_offset, Some(7));
+        let saved: Message = serde_json::from_str(&serde_json::to_string(&current).unwrap()).unwrap();
+        assert_eq!(saved.tool_calls[0].answer_offset, current.tool_calls[0].answer_offset);
+        assert_eq!(saved.answer, current.answer);
         let requests = requests.lock().unwrap();
         assert!(requests[0]["messages"].to_string().contains("介绍一下这个项目"));
         assert_eq!(requests[1]["tool_choice"], "required");
         assert_eq!(requests.len(), 3);
     }
     #[tokio::test]
-    async fn failed_tool_decision_does_not_save_tentative_answer() {
-        let (config, _) = server(vec![vec![
+    async fn failed_tool_decision_preserves_streamed_text() {
+        let (config, _) = server(vec![vec![json!({"content":r#"{"requires_tool":false}"#})], vec![
             json!({"content":"未经检索的临时回答。"}),
             json!({"error":{"message":"mock stream failure"}}),
         ]]);
@@ -1150,8 +1137,8 @@ mod tests {
             |_,delta,_,_| { if let Some(AnswerDelta::Append(text)) = delta { visible.push_str(text); } },
         ).await.err().expect("必须返回模型错误");
         assert!(error.to_string().contains("模型生成失败"));
-        assert!(visible.is_empty());
-        assert!(current.answer.is_empty(), "不能把尚未确认的文字保存为回答");
+        assert_eq!(visible, "未经检索的临时回答。");
+        assert_eq!(current.answer, visible);
     }
     #[tokio::test]
     async fn grounding_recovers_skipped_retrieval() {
@@ -1253,8 +1240,10 @@ mod tests {
     }
     #[tokio::test]
     async fn grounding_repairs_invalid_citations() {
+        let mut lookup = call("search", "birthplace");
+        lookup.insert(0, json!({"content":"I will check the records. "}));
         let (config, _) = tool_server(vec![
-            call("search", "birthplace"),
+            lookup,
             vec![json!({"content":"Mercia was abolished in 918 [9]."})],
             vec![json!({"content":"Mercia was abolished in 918 [1]."})],
         ]);
@@ -1279,7 +1268,7 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(m.answer, "Mercia was abolished in 918 [1].");
+        assert_eq!(m.answer, "I will check the records. Mercia was abolished in 918 [1].");
     }
     #[test]
     fn grounding_citation_parser_rejects_unknown_ids_without_confusing_code_or_links() {
