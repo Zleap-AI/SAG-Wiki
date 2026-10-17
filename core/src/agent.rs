@@ -844,6 +844,27 @@ mod tests {
         server(turns)
     }
     #[tokio::test]
+    async fn qwen_requires_tool_call_when_retrieval_is_needed() {
+        let (mut config, requests) = tool_server(vec![
+            call("search", "Agent 下半场是指什么"),
+            vec![json!({"content":"主动 Agent、Agent 信息流和 Agent 互联网 [1]。"})],
+        ]);
+        config.model = "qwen3.6-flash".into();
+        let mut current = message();
+        current.question = "Agent 下半场是指什么".into();
+        answer(&reqwest::Client::new(), &config, "test", &mut current, &[],
+            16384, 512, 5, &CancellationToken::new(),
+            |_| async { Ok(SearchOutput { results: vec![candidate(1,"Agent 下半场包括主动 Agent、Agent 信息流和 Agent 互联网。")], trace: vec![] }) },
+            |_,_,_,_|{}).await.unwrap();
+        let requests = requests.lock().unwrap();
+        assert_eq!(requests[1]["tool_choice"], "required");
+        assert_eq!(requests[2]["tool_choice"], "auto");
+        assert_eq!(current.tool_calls.len(), 1);
+        assert_eq!(current.evidence.len(), 1);
+        assert!(current.answer.contains("[1]"));
+    }
+
+    #[tokio::test]
     async fn builtin_mcp_combines_grep_and_read_with_stable_citations() {
         let (_dir,tools,root)=crate::sag_mcp::tests::fixture();
         let path=root.join("README.md");

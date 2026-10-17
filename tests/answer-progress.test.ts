@@ -2,12 +2,13 @@
 import{afterEach,beforeEach,describe,it,expect,vi}from 'vitest';
 import{mount,unmount,tick}from 'svelte';import App from '../src/App.svelte';
 import type{Conversation,Candidate}from '../src/lib/types';
+import{setLanguage,translate}from '../src/lib/i18n';
 const {invoke,listeners}=vi.hoisted(()=>({invoke:vi.fn(),listeners:new Map<string,(event:{payload:unknown})=>void>()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async(name,callback)=>{listeners.set(name,callback);return()=>listeners.delete(name)})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
-let app:ReturnType<typeof mount>,resolveQuery:(value:unknown)=>void;
+let app:ReturnType<typeof mount>,resolveQuery:(value:unknown)=>void,rejectQuery:(reason:unknown)=>void;
 const previous={question:'上次问题',answer:'上次回答',evidence:[],model:'test',scope:[],references:[],status:'done',error:null,retrieval_question:'上次问题'};
 const conversation:Conversation={id:'existing',title:'已有对话',messages:[previous],updated:0,deleted:false};
 let savedConversation=conversation;
@@ -16,7 +17,7 @@ beforeEach(async()=>{
  invoke.mockImplementation(async(command)=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
   if(command==='list_conversations')return [savedConversation];
-  if(command==='run_query')return new Promise(resolve=>resolveQuery=resolve);
+  if(command==='run_query')return new Promise((resolve,reject)=>{resolveQuery=resolve;rejectQuery=reject});
   return [];
  });
  app=mount(App,{target:document.body});await vi.waitFor(()=>expect(listeners.has('query-progress')).toBe(true));
@@ -30,6 +31,18 @@ const progress=async(stage:string,delta:string|null=null,id?:string,replace=fals
  listeners.get('query-progress')!({payload:{id:id??query.id,stage,delta,count:0,replace}});await tick();
 };
 describe('回答中的处理进度',()=>{
+ it('问答失败时只在回答内显示一次错误',async()=>{
+  const error='模型未执行本题所需的工具调用，请重试或更换支持工具调用的模型';
+  savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',status:'failed',answer:'',error}]};
+  rejectQuery(error);
+  await vi.waitFor(()=>expect(document.querySelector('.answer .form-error')?.textContent).toBe(error));
+  expect([...document.querySelectorAll('.form-error')].filter(node=>node.textContent===error)).toHaveLength(1);
+  expect(document.querySelector('.content > .form-error')).toBeNull();
+  expect(document.querySelector('[aria-label="重新生成回答"]')).not.toBeNull();
+  setLanguage('en');await tick();
+  expect([...document.querySelectorAll('.form-error')].filter(node=>node.textContent===translate(error,'en'))).toHaveLength(1);
+  expect(document.querySelector('.content > .form-error')).toBeNull();
+ });
  it('思考时默认展开，生成回答时折叠，完成后仍可手动展开',async()=>{
   const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
   const emitThought=async(text:string)=>{listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:text,count:0}});await tick()};
