@@ -468,6 +468,7 @@ where
                     id: id.into(),
                     query: raw_arguments.into(),
                     source_count: 0,
+                    elapsed_ms: None,
                     tool_name: Some(tool.name.clone()),
                     server_name: Some(tool.server_name.clone()),
                     is_error: false,
@@ -481,6 +482,7 @@ where
                     0,
                     Some((message.tool_calls.last().unwrap(), false)),
                 );
+                let mut tool_started = None;
                 let outcome = async {
                     let arguments: Value = serde_json::from_str(raw_arguments)
                         .context("MCP 工具参数无效")?;
@@ -488,11 +490,13 @@ where
                     let allowed = !tool.require_confirmation || approve(tool.clone(), arguments.clone()).await?;
                     message.tool_calls.last_mut().unwrap().denied = !allowed;
                     if allowed {
+                        tool_started = Some(std::time::Instant::now());
                         mcp.call(name, arguments, cancel).await
                     } else {
                         Ok(json!({"isError":true,"content":[{"type":"text","text":"用户拒绝了本次工具调用。不要重复此操作。"}]}))
                     }
                 }.await;
+                message.tool_calls.last_mut().unwrap().elapsed_ms = tool_started.map(|started| started.elapsed().as_millis() as u64);
                 let mut result = match outcome {
                     Ok(result) => result,
                     Err(error) => {
@@ -636,6 +640,7 @@ where
                 id: id.into(),
                 query: query.clone(),
                 source_count: 0,
+                elapsed_ms: None,
                 tool_name: None,
                 server_name: None,
                 is_error: false,
@@ -649,7 +654,10 @@ where
                 message.tool_calls.len(),
                 Some((message.tool_calls.last().unwrap(), false)),
             );
-            let found = search(query.clone()).await?;
+            let tool_started = std::time::Instant::now();
+            let found = search(query.clone()).await;
+            message.tool_calls.last_mut().unwrap().elapsed_ms = Some(tool_started.elapsed().as_millis() as u64);
+            let found = found?;
             traces.extend(found.trace);
             let mut sources = vec![];
             messages.push(json!({"role":"tool","tool_call_id":id,"content":""}));
@@ -854,6 +862,7 @@ mod tests {
         assert_eq!(message.tool_calls[0].result.as_ref().unwrap()["structuredContent"]["matches"][0]["source_id"],1);
         assert_eq!(message.tool_calls[1].result.as_ref().unwrap()["structuredContent"]["sources"][0]["source_id"],1);
         assert_eq!(message.evidence[0].content,"needle a.b\r\n");
+        assert!(message.tool_calls.iter().all(|call| call.elapsed_ms.is_some()));
         let requests=requests.lock().unwrap();
         assert_eq!(requests[1]["tools"].as_array().unwrap().len(),4);
         assert!(requests[2]["messages"].to_string().contains("needle a.b"));
@@ -1737,6 +1746,7 @@ mod tests {
         assert!(!last_finished);
         assert_eq!(message.tool_calls[0].error.as_deref(), Some("已停止"));
         assert!(!message.tool_calls[0].is_error);
+        assert!(message.tool_calls[0].elapsed_ms.is_some());
     }
     #[tokio::test]
     async fn excessive_mcp_arguments_cannot_overflow_next_model_request() {
@@ -1776,6 +1786,37 @@ mod tests {
         .await;
         assert!(result.err().unwrap().to_string().contains("上下文预算"));
         assert_eq!(requests.lock().unwrap().len(), 2);
+    }
+    #[tokio::test]
+    async fn tool_duration_is_reported_and_preserved_in_history() {
+        let (config, _) = tool_server(vec![
+            call("timed", "查询本地文件"),
+            vec![json!({"content":"已找到原文 [1]。"})],
+        ]);
+        let mut current = message();
+        let mut events = vec![];
+        answer(
+            &reqwest::Client::new(), &config, "test", &mut current, &[],
+            16384, 512, 5, &CancellationToken::new(),
+            |_| async {
+                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                Ok(SearchOutput { results: vec![candidate(1, "原文")], trace: vec![] })
+            },
+            |_, _, _, event| {
+                if let Some((record, finished)) = event {
+                    events.push((finished, record.elapsed_ms));
+                }
+            },
+        ).await.unwrap();
+        let elapsed = current.tool_calls[0].elapsed_ms.unwrap();
+        assert!(elapsed >= 20);
+        assert_eq!(events, vec![(false, None), (true, Some(elapsed))]);
+        let restored: Message = serde_json::from_value(serde_json::to_value(&current).unwrap()).unwrap();
+        assert_eq!(restored.tool_calls[0].elapsed_ms, Some(elapsed));
+        let mut old = serde_json::to_value(&current).unwrap();
+        old["tool_calls"][0].as_object_mut().unwrap().remove("elapsed_ms");
+        let restored: Message = serde_json::from_value(old).unwrap();
+        assert_eq!(restored.tool_calls[0].elapsed_ms, None);
     }
     #[tokio::test]
     async fn knowledge_question_exposes_all_enabled_tools_on_first_turn() {

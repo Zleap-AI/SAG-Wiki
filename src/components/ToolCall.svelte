@@ -1,5 +1,6 @@
 <script lang="ts">
  import {t} from '../lib/i18n';
+ import {durationLabel} from '../lib/domain';
  import{icon}from '../lib/icons';import type{ToolCallRecord}from '../lib/types';import{toolResultText}from '../lib/tool-result';
  export let call:ToolCallRecord;export let state:'running'|'complete'|'stopped'|'failed'='complete';export let stage='';export let scope=$t("全部文件");
  let expanded=false,rawOpen=false;
@@ -8,9 +9,10 @@
  $:emptySearch=call.tool_name==='search'&&Array.isArray(sagData?.sources)&&sagData.sources.length===0&&sagData.omitted_sources===0;
  $:label=phase==='denied'?$t("已拒绝"):phase==='running'?$t("正在调用"):phase==='stopped'?$t("已停止"):phase==='failed'?$t("调用失败"):emptySearch?$t("未找到相关内容"):$t("已完成");
  $:resultText=call.result==null?'':toolResultText(call.result,$t,call.server_name==='SAG'?call.tool_name??undefined:undefined);
+ $:duration=call.elapsed_ms==null?'':call.elapsed_ms<1000?call.elapsed_ms+' ms':durationLabel(call.elapsed_ms);
 </script>
 <details class="tool-call" class:mcp-call={!!call.server_name} class:running={phase==='running'} bind:open={expanded}>
- <summary><span class="tool-icon">{@html icon(call.server_name?'plug':'search')}</span><strong>{call.server_name?`${call.server_name} · ${call.tool_name}`:$t("SAG2 文件检索")}</strong><span class="tool-state">{label}</span><span class="tool-chevron">{@html icon('chevron')}</span></summary>
+ <summary><span class="tool-icon">{@html icon(call.server_name?'plug':'search')}</span><strong>{call.server_name?`${call.server_name} · ${call.tool_name}`:$t("SAG2 文件检索")}</strong>{#if duration}<span class="tool-duration">{duration}</span>{/if}<span class="tool-state">{label}</span><span class="tool-chevron">{@html icon('chevron')}</span></summary>
  <div class="tool-call-body">
   {#if call.server_name}
    <section class="tool-detail"><h4>{$t("调用参数")}</h4><pre class="tool-data">{call.query}</pre></section>

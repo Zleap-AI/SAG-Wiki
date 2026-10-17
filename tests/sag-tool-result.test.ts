@@ -48,6 +48,22 @@ it('keeps the exact source text and source numbers without the internal note',as
  expect(text).not.toContain(note);expect(result.structuredContent.note).toBe(note);
 });
 
+it('shows the saved duration beside the tool name',async()=>{
+ app=mount(ToolCall,{target:document.body,props:{call:{...call,elapsed_ms:1250}}});await tick();
+ const duration=document.querySelector('.tool-duration');
+ expect(duration?.textContent).toBe('1.3s');
+ expect(duration?.previousElementSibling?.textContent).toBe('SAG · search');
+ expect(duration?.nextElementSibling?.textContent).toBe('已完成');
+});
+
+it('shows milliseconds for short calls and leaves old untimed records blank',async()=>{
+ app=mount(ToolCall,{target:document.body,props:{call:{...call,elapsed_ms:52}}});await tick();
+ expect(document.querySelector('.tool-duration')?.textContent).toBe('52 ms');
+ await unmount(app);
+ app=mount(ToolCall,{target:document.body,props:{call}});await tick();
+ expect(document.querySelector('.tool-duration')).toBeNull();
+});
+
 it('translates the empty search explanation',async()=>{
  setLanguage('en');
  app=mount(ToolCall,{target:document.body,props:{call:{...call,result:{isError:false,structuredContent:data}}}});await tick();

@@ -299,6 +299,8 @@ pub struct ToolCallRecord {
     pub query: String,
     pub source_count: usize,
     #[serde(default)]
+    pub elapsed_ms: Option<u64>,
+    #[serde(default)]
     pub tool_name: Option<String>,
     #[serde(default)]
     pub server_name: Option<String>,
