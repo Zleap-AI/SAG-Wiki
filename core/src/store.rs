@@ -240,10 +240,10 @@ impl Store {
                 VACUUM;")?;
         }
         let schema_version: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        if schema_version > 0 && schema_version < 6 {
+        if schema_version > 0 && schema_version < 7 {
             db.execute_batch("BEGIN; DELETE FROM chunk_fts; DELETE FROM chunks; UPDATE documents SET hash=''; UPDATE roots SET status='pending',error=NULL; UPDATE metadata SET version=version+1; COMMIT;")?;
         }
-        db.pragma_update(None, "user_version", 6)?;
+        db.pragma_update(None, "user_version", 7)?;
         let query_readers = (0..QUERY_WORKERS)
             .map(|_| {
                 let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -898,7 +898,7 @@ impl Store {
         let body = body(path, &bytes)?;
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let title = text::index_text(&name);
-        let chunks: Vec<PreparedChunk> = text::chunks_for_file(&body, max_chars, text::is_markdown(path))
+        let chunks: Vec<PreparedChunk> = text::chunks_for_file(&body, max_chars, path)
             .into_iter()
             .map(|chunk| PreparedChunk {
                 heading: text::index_text(&chunk.heading),
@@ -1274,16 +1274,25 @@ impl Store {
         Ok(result)
     }
     pub fn retrieval_corpus(&self, scope: &[String], references: &[String]) -> Result<Vec<(String, String)>> {
-        let rows: Vec<(String, String, String)> = {
+        let rows: Vec<(String, String, String, String)> = {
             let db = self.connection();
-            let mut query = db.prepare("SELECT d.name,d.path,d.hash FROM documents d WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (json_array_length(?1)=0 OR d.path IN (SELECT value FROM json_each(?2)) OR EXISTS(SELECT 1 FROM json_each(?1) s WHERE instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1)) ORDER BY d.id")?;
-            let values = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?.collect::<rusqlite::Result<_>>()?;
+            let mut query = db.prepare("SELECT d.name,d.path,d.hash,(SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) FROM documents d WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (json_array_length(?1)=0 OR d.path IN (SELECT value FROM json_each(?2)) OR EXISTS(SELECT 1 FROM json_each(?1) s WHERE instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1)) ORDER BY d.id")?;
+            let values = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
             values
         };
-        rows.into_iter().map(|(title,path,expected)| {
+        rows.into_iter().map(|(title,path,expected,spans)| {
             let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
             if hash(&raw) != expected { bail!("文件已修改，请刷新索引：{path}") }
-            Ok((title, body(Path::new(&path), &raw)?))
+            let source = body(Path::new(&path), &raw)?;
+            let passages: Vec<Vec<SourceSpan>> = serde_json::from_str(&spans)?;
+            let mut vocabulary = source.clone();
+            // Count each document once, including the exact words in its indexed passages.
+            // Partial source words can differ from whole-document words in saved indexes.
+            for spans in passages {
+                vocabulary.push('\n');
+                vocabulary.push_str(&text::source_content(&source, &spans));
+            }
+            Ok((title, vocabulary))
         }).collect()
     }
 
@@ -1508,7 +1517,7 @@ mod tests {
         let mut settings = store.settings().unwrap();
         settings.retrieval.chunk_chars = 900;
         store.save_settings(&settings).unwrap();
-        store.connection().pragma_update(None, "user_version", 5).unwrap();
+        store.connection().pragma_update(None, "user_version", 6).unwrap();
         drop(store);
         let upgraded = Store::open(&path).unwrap();
         assert_eq!(upgraded.chunk_count().unwrap(), 0);
@@ -1888,6 +1897,36 @@ mod tests {
     }
 
     #[test]
+    fn saved_partial_passages_have_ranking_statistics() {
+        let (_dir, store, root) = setup();
+        let path = root.join("partial.md");
+        let source = "嵌套文件夹内容列表的第一行提供完整信息。";
+        fs::write(&path, source).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        // A saved pre-fix index can start inside a continuous word.
+        let span = text::Lines::new(source).span(source, "嵌套".len(), source.len());
+        store.connection().execute("UPDATE chunks SET spans=?", [serde_json::to_string(&vec![span]).unwrap()]).unwrap();
+        let mut candidates = store.reference_candidates(&[path_text(&path).unwrap()], 10).unwrap();
+        assert_eq!(candidates[0].content, "文件夹内容列表的第一行提供完整信息。");
+        candidates[0].score = 0.9;
+        let corpus = crate::sag2_v10::Corpus::new(&store.retrieval_corpus(&[], &[]).unwrap()).unwrap();
+        corpus.diversify(&mut candidates);
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].score, 0.9);
+    }
+
+    #[test]
+    fn plain_text_sentences_use_the_chunk_target() {
+        let (_dir, store, root) = setup();
+        let path = root.join("sentences.txt");
+        fs::write(&path, "每个完整句子都需要保留。".repeat(100)).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let candidates = store.reference_candidates(&[path_text(&path).unwrap()], 100).unwrap();
+        assert!(candidates.len() > 2);
+        assert!(candidates.iter().all(|candidate| candidate.content.ends_with('。') && candidate.content.encode_utf16().count() <= 512));
+    }
+
+    #[test]
     fn source_code_and_partial_lines_round_trip_without_writes() {
         let (_d, s, n) = setup();
         let source = format!(
@@ -1907,7 +1946,6 @@ mod tests {
             .unwrap();
         assert!(items.len() > 2);
         for c in items {
-            assert!(c.content.encode_utf16().count() <= s.settings().unwrap().retrieval.chunk_chars);
             assert!(!c.source_spans.is_empty());
             assert_eq!(
                 c.content,
@@ -2221,7 +2259,6 @@ mod tests {
         assert_eq!(results.len(), 1);
         let hit = &results[0];
         assert!(hit.content.contains("RELEASE-73492"));
-        assert!(hit.content.encode_utf16().count() <= store.settings().unwrap().retrieval.chunk_chars);
         for span in &hit.source_spans {
             assert_eq!(&doc.body[span.start_byte..span.end_byte], hit.content);
             assert_eq!(span.start_line, 2);

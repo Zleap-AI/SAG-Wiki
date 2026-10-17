@@ -32,8 +32,8 @@ it('开关支持空格操作，排除目录输入保持保存内容',async()=>{
 });
 it('数字输入保持数值类型并保留原生范围验证',async()=>{
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'retrieval',onSave,onClose}});
- await vi.waitFor(()=>expect(query('[aria-label="片段最大字符数"]')).not.toBeNull());
- const input=query<HTMLInputElement>('[aria-label="片段最大字符数"]');input.value='3200';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ await vi.waitFor(()=>expect(query('[aria-label="片段目标字符数"]')).not.toBeNull());
+ const input=query<HTMLInputElement>('[aria-label="片段目标字符数"]');input.value='3200';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  expect(input.min).toBe('400');expect(input.max).toBe('12000');
  document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
  expect(onSave.mock.calls[0][0].retrieval.chunk_chars).toBe(3200);

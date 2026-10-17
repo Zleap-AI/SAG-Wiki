@@ -232,7 +232,35 @@ impl Lines {
         }
     }
 }
-// Keep exact source byte offsets; line/column endpoints are 1-based and end-exclusive.
+// Sentence/line boundaries retain exact source offsets, including closing quotes.
+fn sentence_ranges(source: &str, start: usize, end: usize, code: bool) -> Vec<(usize, usize)> {
+    let mut parts = vec![];
+    let mut cursor = start;
+    let mut chars = source[start..end].char_indices().peekable();
+    while let Some((offset, ch)) = chars.next() {
+        let boundary = if code {
+            ch == '\n'
+        } else {
+            "。！？!?".contains(ch)
+                || ch == '.' && chars.peek().is_none_or(|(_, next)| next.is_whitespace() || "\"'”’）)]}".contains(*next))
+        };
+        if !boundary { continue; }
+        let mut cut = start + offset + ch.len_utf8();
+        if !code {
+            while let Some(&(offset, ch)) = chars.peek() {
+                if !(ch.is_whitespace() || "。！？!?\"'”’）)]}".contains(ch)) { break; }
+                cut = start + offset + ch.len_utf8();
+                chars.next();
+            }
+        }
+        parts.push((cursor, cut));
+        cursor = cut;
+    }
+    if cursor < end { parts.push((cursor, end)); }
+    parts
+}
+
+// 512 is a target: never split a sentence (or a source-code line) to meet it.
 fn split_block(
     source: &str,
     start: usize,
@@ -242,47 +270,26 @@ fn split_block(
 ) -> Vec<(usize, usize)> {
     let mut parts = vec![];
     let mut cursor = start;
-    while cursor < end {
-        let mut used = 0;
-        let mut cut = cursor;
-        let mut line_break = None;
-        let mut sentence = None;
-        let mut space = None;
-        for (offset, ch) in source[cursor..end].char_indices() {
-            if used + ch.len_utf16() > limit {
-                break;
-            }
-            used += ch.len_utf16();
-            cut = cursor + offset + ch.len_utf8();
-            if used >= limit / 2 {
-                if ch == '\n' {
-                    line_break = Some(cut)
-                } else if "。！？；.!?;".contains(ch) {
-                    sentence = Some(cut)
-                } else if ch.is_whitespace() {
-                    space = Some(cut)
-                }
-            }
+    let mut length = 0;
+    for (s, e) in sentence_ranges(source, start, end, code) {
+        let size = source[s..e].encode_utf16().count();
+        if length > 0 && length + size > limit {
+            parts.push((cursor, s));
+            cursor = s;
+            length = 0;
         }
-        if cut < end {
-            cut = line_break
-                .or(if code { None } else { sentence })
-                .or(space)
-                .unwrap_or(cut);
-        }
-        if cut < end && source.as_bytes()[cut - 1] == b'\r' && source.as_bytes()[cut] == b'\n' {
-            cut -= 1;
-        }
-        parts.push((cursor, cut));
-        cursor = cut;
+        length += size;
     }
+    if cursor < end { parts.push((cursor, end)); }
     parts
 }
 #[cfg(test)]
 pub fn chunks(content: &str, max_chars: usize) -> Vec<Chunk> {
-    chunks_for_file(content, max_chars, true)
+    chunks_for_file(content, max_chars, std::path::Path::new("document.md"))
 }
-pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<Chunk> {
+pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) -> Vec<Chunk> {
+    let markdown = is_markdown(path);
+    let code = matches!(file_kind(path), Some(FileKind::Code | FileKind::Config));
     assert!(max_chars >= 2);
     let lines = Lines::new(content);
     let heading_re = Regex::new(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$").unwrap();
@@ -321,7 +328,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
     };
     if !markdown {
         if !content.trim().is_empty() {
-            blocks.push((String::new(), 0, content.len(), true));
+            blocks.push((String::new(), 0, content.len(), code));
         }
     } else {
         for (i, (s, e)) in lines.spans.iter().enumerate() {
@@ -381,6 +388,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
     let overlap = if max_chars >= 160 { 80 } else { 0 };
     let body_limit = max_chars - if overlap > 0 { overlap + 2 } else { 0 };
     let mut result: Vec<Chunk> = vec![];
+    let mut sentences: Vec<Vec<(usize, usize)>> = vec![];
     let mut length = 0;
     for (heading, start, end, code) in blocks {
         for (s, e) in split_block(content, start, end, body_limit, code) {
@@ -399,6 +407,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
                     ranges: vec![(span.start_line, last_line)],
                     spans: vec![span],
                 });
+                sentences.push(sentence_ranges(content, s, e, code));
                 length = n;
             } else {
                 let c = result.last_mut().unwrap();
@@ -406,6 +415,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
                 c.content.push_str(part);
                 c.ranges.push((span.start_line, last_line));
                 c.spans.push(span);
+                sentences.last_mut().unwrap().extend(sentence_ranges(content, s, e, code));
                 length += 2 + n;
             }
         }
@@ -413,28 +423,15 @@ pub fn chunks_for_file(content: &str, max_chars: usize, markdown: bool) -> Vec<C
     // Work backwards so every prefix comes from the original, non-overlapping chunk.
     for i in (1..result.len()).rev() {
         if overlap == 0 || result[i - 1].heading != result[i].heading { continue; }
-        let mut remaining = overlap;
+        let mut used = 0;
         let mut prefix = vec![];
-        for span in result[i - 1].spans.iter().rev() {
-            let mut start = span.end_byte;
-            let mut used = 0;
-            for (offset, ch) in content[span.start_byte..span.end_byte].char_indices().rev() {
-                if used + ch.len_utf16() > remaining { break; }
-                start = span.start_byte + offset;
-                used += ch.len_utf16();
-            }
-            if start > span.start_byte {
-                // Prefer a complete trailing sentence, then a word/line boundary.
-                let tail = &content[start..span.end_byte];
-                let boundary = tail.char_indices().find(|(offset, ch)|
-                    "。！？；.!?;\n".contains(*ch) && offset + ch.len_utf8() < tail.len())
-                    .or_else(|| tail.char_indices().find(|(offset, ch)| ch.is_whitespace() && offset + ch.len_utf8() < tail.len()));
-                if let Some((offset, ch)) = boundary { start += offset + ch.len_utf8(); }
-            }
-            if start > 0 && content.as_bytes().get(start) == Some(&b'\n') && content.as_bytes()[start - 1] == b'\r' { start += 1; }
-            if start < span.end_byte { prefix.push((start, span.end_byte)); }
-            if start > span.start_byte || used + 2 >= remaining { break; }
-            remaining -= used + 2;
+        for &(start, end) in sentences[i - 1].iter().rev() {
+            let size = content[start..end].encode_utf16().count();
+            // Keep at least the last complete sentence, even when it exceeds 80.
+            if !prefix.is_empty() && used + size > overlap { break; }
+            prefix.push((start, end));
+            used += size;
+            if used >= overlap { break; }
         }
         prefix.reverse();
         prefix.extend(result[i].spans.iter().map(|span| (span.start_byte, span.end_byte)));
@@ -472,6 +469,26 @@ pub(crate) fn source_content(source: &str, spans: &[crate::types::SourceSpan]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn sentence_boundaries_survive_chunking_and_overlap() {
+        let first = format!("{}。", "完整条件".repeat(100));
+        let long = format!("{}。", "超长句子".repeat(150));
+        let last = "只有满足上述条件才能发布。";
+        let source = format!("# 发布指南\n## 生产环境\n{first}{long}{last}");
+        let chunks = chunks_for_file(&source, 512, std::path::Path::new("document.md"));
+        assert!(chunks.len() > 1);
+        assert!(chunks.iter().all(|chunk| chunk.heading == "发布指南 / 生产环境"));
+        assert!(chunks.iter().any(|chunk| chunk.content.contains(&long)));
+        for chunk in &chunks {
+            for span in &chunk.spans {
+                let prefix = &source[..span.start_byte];
+                assert!(prefix.ends_with('\n') || prefix.ends_with('。'));
+                assert!(source[..span.end_byte].ends_with('。'));
+            }
+        }
+        assert_eq!(unique_content(&source, &chunks), format!("{first}{long}{last}"));
+    }
+
     fn verify(source: &str, chunks: &[Chunk], limit: usize) {
         for c in chunks {
             assert!(c.content.encode_utf16().count() <= limit);
@@ -499,7 +516,7 @@ mod tests {
     #[test]
     fn adjacent_chunks_repeat_source_context_within_the_budget() {
         let source = format!("# Rules\n\n{}", "Each request uses the active production policy. ".repeat(60));
-        let chunks = chunks_for_file(&source, 512, true);
+        let chunks = chunks_for_file(&source, 512, std::path::Path::new("document.md"));
         assert!(chunks.len() > 2);
         verify(&source, &chunks, 512);
         for pair in chunks.windows(2) {
@@ -508,7 +525,7 @@ mod tests {
             assert!(next.start_byte < previous.end_byte, "adjacent chunks lost context");
             assert!(source[next.start_byte..previous.end_byte].encode_utf16().count() <= 80);
         }
-        let separate = chunks_for_file("# Test\nfirst policy\n# Production\nsecond policy", 512, true);
+        let separate = chunks_for_file("# Test\nfirst policy\n# Production\nsecond policy", 512, std::path::Path::new("document.md"));
         assert!(!separate[1].content.contains("first policy"));
     }
 
@@ -518,19 +535,18 @@ mod tests {
         let row = format!("| long-row | 1 | {} |", "x".repeat(1400));
         let body = format!("{header}\r\n{row}");
         let source = format!("# Benchmark\r\n{body}");
-        let chunks = chunks_for_file(&source, 512, true);
-        assert!(chunks.len() > 1);
-        verify(&source, &chunks, 512);
+        let chunks = chunks_for_file(&source, 512, std::path::Path::new("document.md"));
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].content, body);
         assert_eq!(chunks.iter().filter(|chunk| chunk.content.starts_with(header)).count(), 1);
         assert_eq!(unique_content(&source, &chunks), body);
         assert!(chunks.iter().all(|chunk| chunk.heading == "Benchmark"));
-        assert!(chunks[1].spans[0].start_byte < chunks[0].spans.last().unwrap().end_byte);
     }
 
     #[test]
     fn pipe_characters_do_not_change_section_boundaries() {
         let source = "# Before\n| A | B |\n| --- | --- |\n| one | two |\n# After | Details\nFollowing paragraph.";
-        let chunks = chunks_for_file(source, 512, true);
+        let chunks = chunks_for_file(source, 512, std::path::Path::new("document.md"));
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].heading, "Before");
         assert_eq!(chunks[1].heading, "After | Details");
@@ -540,7 +556,7 @@ mod tests {
     #[test]
     fn very_long_single_line_keeps_unicode_columns_exact() {
         let source = "一😀a".repeat(350_000);
-        let chunks = chunks_for_file(&source, 2200, false);
+        let chunks = chunks_for_file(&source, 2200, std::path::Path::new("source.rs"));
         let mut column = 1;
         for chunk in &chunks {
             let span = &chunk.spans[0];
@@ -564,16 +580,15 @@ mod tests {
         verify(source, &c, 2200);
     }
     #[test]
-    fn long_single_line_is_split_without_loss() {
+    fn long_single_sentence_stays_intact() {
         let source = "很长的一行😀".repeat(1600);
         let c = chunks(&source, 2200);
-        assert!(c.len() > 3);
-        verify(&source, &c, 2200);
+        assert_eq!(c.len(), 1);
+        assert_eq!(c[0].content, source);
         assert_eq!(
             unique_content(&source, &c),
             source
         );
-        assert!(c[1].spans[0].start_column > 1);
     }
     #[test]
     fn long_code_and_crlf_keep_exact_positions() {
@@ -591,7 +606,7 @@ mod tests {
     #[test]
     fn code_files_do_not_parse_hashes_or_frontmatter() {
         let source = "---\r\n# not a title\r\n".repeat(100);
-        let c = chunks_for_file(&source, 400, false);
+        let c = chunks_for_file(&source, 400, std::path::Path::new("source.rs"));
         verify(&source, &c, 400);
         assert_eq!(
             unique_content(&source, &c),
@@ -614,16 +629,15 @@ mod tests {
     #[test]
     fn unicode_columns_and_crlf_boundaries_are_exact() {
         let c = chunks("😀中文甲乙", 4);
-        assert_eq!(c[0].content, "😀中文");
-        assert_eq!((c[0].spans[0].start_byte, c[0].spans[0].end_byte), (0, 10));
+        assert_eq!(c[0].content, "😀中文甲乙");
+        assert_eq!((c[0].spans[0].start_byte, c[0].spans[0].end_byte), (0, 16));
         assert_eq!(
             (c[0].spans[0].start_column, c[0].spans[0].end_column),
-            (1, 4)
+            (1, 6)
         );
-        assert_eq!(c[1].spans[0].start_column, 4);
         let source = format!("{}\r\nnext", "a".repeat(399));
-        let c = chunks_for_file(&source, 400, false);
-        verify(&source, &c, 400);
+        let c = chunks_for_file(&source, 400, std::path::Path::new("source.rs"));
+        assert_eq!(c[0].content, format!("{}\r\n", "a".repeat(399)));
         for span in c.iter().flat_map(|chunk| &chunk.spans) {
             assert!(!(span.start_byte > 0 && source.as_bytes()[span.start_byte] == b'\n' && source.as_bytes()[span.start_byte - 1] == b'\r'));
             assert!(!(span.end_byte < source.len() && source.as_bytes()[span.end_byte] == b'\n' && source.as_bytes()[span.end_byte - 1] == b'\r'));

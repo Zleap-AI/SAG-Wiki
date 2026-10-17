@@ -488,7 +488,7 @@ mod tests {
         let files = dir.path().join("files");
         std::fs::create_dir(&files).unwrap();
         for id in 0..60 {
-            let paragraph = format!("nebula bridgeword chapter{id} ").repeat(60);
+            let paragraph = format!("nebula bridgeword chapter{id}. ").repeat(60);
             std::fs::write(files.join(format!("file-{id}.txt")), [&paragraph, &paragraph, &paragraph].into_iter().cloned().collect::<Vec<_>>().join("\n\n")).unwrap();
         }
         let store = Store::open(&dir.path().join("index.sqlite")).unwrap();

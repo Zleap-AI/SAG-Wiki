@@ -230,7 +230,7 @@ impl Explorer {
         let chunks = text::chunks_for_file(
             &source.body,
             self.store.settings()?.retrieval.chunk_chars,
-            text::is_markdown(Path::new(&document.path)),
+            Path::new(&document.path),
         );
         let terms = text::explore_summary(
             Path::new(&document.path),

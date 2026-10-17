@@ -23,7 +23,7 @@ it('恢复默认设置使用 V10 参数',async()=>{
   [...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='恢复默认参数')!.click();await tick();
   expect(document.querySelector<HTMLInputElement>('[aria-label="扩展轮数"]')!.value).toBe('2');
   expect(document.querySelector<HTMLInputElement>('[aria-label="每轮候选数量"]')!.value).toBe('100');
-  expect(document.querySelector<HTMLInputElement>('[aria-label="片段最大字符数"]')!.value).toBe('512');
+  expect(document.querySelector<HTMLInputElement>('[aria-label="片段目标字符数"]')!.value).toBe('512');
   document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();expect(onSave.mock.calls[0][0].retrieval.max_hops).toBe(2);expect(onSave.mock.calls[0][0].retrieval.candidate_k).toBe(100);
   expect(onSave.mock.calls[0][0].retrieval.chunk_chars).toBe(512);
  }finally{await unmount(app);document.body.innerHTML=''}
