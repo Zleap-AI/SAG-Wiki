@@ -2,7 +2,7 @@
  import {Button} from 'bits-ui';
  import {t} from '../lib/i18n';
  import {api} from '../lib/api';
- import {isHtml,isMarkdown,readonlyHtml,sourceLocation} from '../lib/domain';
+ import {isHtml,isMarkdown,readonlyHtml} from '../lib/domain';
  import {citationTerms,documentMatchIndex} from '../lib/search-highlights';
  import type {Candidate,Document} from '../lib/types';
  import HtmlDocument from './HtmlDocument.svelte';
@@ -23,7 +23,6 @@
  <div class="context-body"><p role="status">{$t('正在读取文件…')}</p></div>
 {:then result}
  <div class="context-body citation-body">
-  <div class="source-path">{source.path} · {$t(sourceLocation(source))}</div>
   {#if result.document.hash!==source.hash}<p class="source-warning">{$t('原文件已更新，以下显示当前内容。')}</p>{/if}
   <div class="citation-document">
    {#if isHtml(source.path)}<HtmlDocument body={result.document.body} terms={result.terms} initialMatch={result.initialMatch}/>
@@ -37,7 +36,6 @@
 
 <style>
  :global(.source-dialog .context-body.citation-body){display:flex;flex-direction:column;overflow:hidden;padding:0}
- .citation-body>.source-path{flex-shrink:0;margin:0;padding:16px 24px;font-size:11px}
  .source-warning{margin:0;padding:0 24px;color:var(--color-secondary)}
  .citation-document{display:flex;flex-direction:column;flex:1;min-height:0}
  .citation-document :global(.search-preview-body){flex:1;min-height:0;overflow:auto;padding:16px 24px}
