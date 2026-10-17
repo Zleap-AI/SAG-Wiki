@@ -328,6 +328,8 @@ where
         progress("思考中", None, message.tool_calls.len(), None);
         let generation_started = std::time::Instant::now();
         let mut reasoning_started = false;
+        let defer_answer = !definitions.is_empty() && message.tool_calls.is_empty();
+        let mut deferred_chunks = vec![];
         let turn =
             models::chat_turn(
                 client,
@@ -340,8 +342,12 @@ where
                     models::ChatDelta::Content(text) => {
                         // Text accompanying a required tool call is not a final answer.
                         if !require_tool {
-                            message.answer.push_str(text);
-                            progress("正在生成回答", Some(AnswerDelta::Append(text)), 0, None);
+                            if defer_answer {
+                                deferred_chunks.push(text.to_owned());
+                            } else {
+                                message.answer.push_str(text);
+                                progress("正在生成回答", Some(AnswerDelta::Append(text)), 0, None);
+                            }
                         }
                     }
                     models::ChatDelta::Reasoning(text) => {
@@ -435,6 +441,12 @@ where
             }
             message.context.as_mut().unwrap().elapsed_ms =
                 Some(started.elapsed().as_millis() as u64);
+            if defer_answer {
+                message.answer = turn.text;
+            }
+            for text in &deferred_chunks {
+                progress("正在生成回答", Some(AnswerDelta::Append(text)), 0, None);
+            }
             return Ok(traces);
         }
         require_tool = false;
@@ -825,7 +837,7 @@ mod tests {
                 stored.lock().unwrap().push(body);
                 let mut data = deltas
                     .into_iter()
-                    .map(|delta| format!("data: {}\n\n", json!({"choices":[{"delta":delta}]})))
+                    .map(|delta| format!("data: {}\n\n", if delta.get("error").is_some() { delta } else { json!({"choices":[{"delta":delta}]}) }))
                     .collect::<String>();
                 data.push_str("data: [DONE]\n\n");
                 write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",data.len(),data).unwrap();
@@ -1122,6 +1134,24 @@ mod tests {
         assert!(requests[0]["messages"].to_string().contains("介绍一下这个项目"));
         assert_eq!(requests[1]["tool_choice"], "required");
         assert_eq!(requests.len(), 3);
+    }
+    #[tokio::test]
+    async fn failed_tool_decision_does_not_save_tentative_answer() {
+        let (config, _) = server(vec![vec![
+            json!({"content":"未经检索的临时回答。"}),
+            json!({"error":{"message":"mock stream failure"}}),
+        ]]);
+        let mut current = message();
+        let mut visible = String::new();
+        let error = answer(
+            &reqwest::Client::new(), &config, "test", &mut current, &[],
+            16384, 512, 5, &CancellationToken::new(),
+            |_| async { panic!("工具决策尚未完成") },
+            |_,delta,_,_| { if let Some(AnswerDelta::Append(text)) = delta { visible.push_str(text); } },
+        ).await.err().expect("必须返回模型错误");
+        assert!(error.to_string().contains("模型生成失败"));
+        assert!(visible.is_empty());
+        assert!(current.answer.is_empty(), "不能把尚未确认的文字保存为回答");
     }
     #[tokio::test]
     async fn grounding_recovers_skipped_retrieval() {
