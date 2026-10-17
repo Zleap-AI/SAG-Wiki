@@ -14,7 +14,13 @@ const conversations=[{id:'first',title:'较早对话',messages:[message],updated
 let savedConversations=conversations;
 const log=()=>document.querySelector<HTMLElement>('.chat-log')!;
 const bottom=()=>log().scrollHeight-log().clientHeight;
-const openChat=async(title='较早对话')=>{document.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click();await vi.waitFor(()=>expect(log()).not.toBeNull())};
+const openChat=async(title='较早对话')=>{
+ if(!document.querySelector(`[title="${title}"]`)){
+  document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();
+  await vi.waitFor(()=>expect(document.querySelector(`[title="${title}"]`)).not.toBeNull());
+ }
+ document.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click();await vi.waitFor(()=>expect(log()).not.toBeNull())
+};
 beforeEach(async()=>{
  viewportHeight=200;resizeCallbacks.clear();savedConversations=conversations;
  vi.spyOn(HTMLElement.prototype,'scrollHeight','get').mockImplementation(function(this:HTMLElement){return this.classList.contains('chat-log')?400+(this.querySelector('.chat-messages')?.textContent?.length||0):0});
