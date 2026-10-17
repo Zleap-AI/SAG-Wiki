@@ -1,12 +1,11 @@
-use sag_core::protocol as cli_protocol;
+use sag_protocol as cli_protocol;
 mod install;
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use sag_core::types::ModelConfig;
+use sag_protocol::types::ModelConfig;
 use cli_protocol::*;
 use std::{
-    io::{BufRead, BufReader, IsTerminal, Read, Write},
-    net::{Shutdown, TcpStream},
+    io::{IsTerminal, Read, Write},
     path::PathBuf,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -41,7 +40,7 @@ struct Args {
     directory: Option<PathBuf>,
     #[arg(long)]
     path: Option<PathBuf>,
-    /// 最多返回的匹配行；默认 10，--count 默认统计全部。
+    /// 最多选择的语义证据块（各段完整返回）；-E/-F 为匹配行数。默认 10，--count 默认统计全部。
     #[arg(short = 'm', long, value_parser = clap::value_parser!(u16).range(1..=100))]
     max_results: Option<u16>,
     #[arg(short = 'c', long)]
@@ -113,6 +112,8 @@ enum CliCommand {
         target: String,
     },
     Status,
+    /// 管理独立后台服务。
+    Service { #[command(subcommand)] action: ServiceCommand },
     /// 配置检索服务。交互模式下隐藏密钥输入。
     Config(ConfigOptions),
     /// 将当前目录或指定目录加入知识库。
@@ -128,6 +129,8 @@ enum CliCommand {
         json: bool,
     },
 }
+#[derive(Subcommand)]
+enum ServiceCommand { Status, Stop, Restart, #[command(hide=true)] Serve }
 #[derive(clap::Args, Default)]
 struct ConfigOptions {
     /// 重新启用曾关闭的 CLI 接入。
@@ -149,7 +152,7 @@ struct ConfigOptions {
 struct Interrupt {
     cancelled: AtomicBool,
     password_prompt: AtomicBool,
-    connection: Mutex<Option<TcpStream>>,
+    connection: Mutex<Option<tokio_util::sync::CancellationToken>>,
 }
 fn interactive() -> bool {
     std::io::stdin().is_terminal() && std::io::stderr().is_terminal() && std::io::stdout().is_terminal()
@@ -161,8 +164,8 @@ fn configured(response: Response) -> Result<ModelConfig> {
         _ => bail!("SAG 核心返回了无效的配置响应"),
     }
 }
-fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt>) -> Result<ModelConfig> {
-    let current = configured(request(Command::Configure { enable: false, url: None, model: None, key: None }, path.clone(), 10, interrupt.clone())?)?;
+fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt>, current:Option<ModelConfig>) -> Result<ModelConfig> {
+    let current=match current{Some(current)=>current,None=>configured(request(Command::Configure { enable: false, url: None, model: None, key: None }, path.clone(), 10, interrupt.clone())?)?};
     if options.if_needed && current.has_key && options.url.is_none() && options.model.is_none() && options.key.is_none() && !options.key_stdin && !options.enable {
         eprintln!("已使用现有 JEV 配置。");
         return Ok(current);
@@ -213,8 +216,17 @@ fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt
     Ok(result)
 }
 fn main() {
+    if std::env::args().nth(1).as_deref()==Some("--build-info") {
+        println!("{}",serde_json::json!({"build_id":sag_protocol::BUILD_ID,"channel":sag_protocol::BUILD_CHANNEL,"protocol_version":VERSION}));return;
+    }
     let matches = Args::command().get_matches();
     let mut args = Args::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    if let Some(CliCommand::Service { action }) = &args.command {
+        let result=run_service(action);
+        if let Err(error)=result {eprintln!("{error:#}");std::process::exit(1);}
+        return;
+    }
+
     let mut filters = vec![];
     for (name, include) in [("include", true), ("exclude", false)] {
         if let (Some(indices), Some(values)) = (matches.indices_of(name), matches.get_many::<String>(name)) {
@@ -247,7 +259,7 @@ fn main() {
         handler.cancelled.store(true, Ordering::SeqCst);
         if handler.password_prompt.load(Ordering::SeqCst) { return; }
         if let Some(connection) = handler.connection.lock().unwrap().as_ref() {
-            if let Err(error) = connection.shutdown(Shutdown::Both) { eprintln!("停止连接失败：{error}"); }
+            connection.cancel();
         } else {
             std::process::exit(130);
         }
@@ -289,13 +301,16 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
     let cwd = std::env::current_dir()?;
     let explicit_patterns = !args.matching.patterns.is_empty() || !args.matching.pattern_files.is_empty();
     if args.command.is_none() {
-        if !args.extended_regexp && !args.fixed_strings && interactive() && !args.json && !sag_core::models::has_secret(&data_dir()?, "jev")? {
-            configure(ConfigOptions::default(), cwd.clone(), interrupted.clone())?;
+        if !args.extended_regexp && !args.fixed_strings && interactive() && !args.json {
+            let current=configured(request(Command::Configure{enable:false,url:None,model:None,key:None},cwd.clone(),10,interrupted.clone())?)?;
+            if !current.has_key {
+            configure(ConfigOptions::default(), cwd.clone(), interrupted.clone(),Some(current))?;
             if args.query.is_none() {
                 eprintln!("接下来运行 sag add 添加当前目录，再运行 sag \"搜索内容\"。");
                 return Ok(0);
             }
         }
+            }
         if args.query.is_none() && !explicit_patterns {
             Args::command().print_help()?;
             println!();
@@ -327,10 +342,10 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         Some(patterns)
     } else { None };
     let (command, path, json, timeout) = match args.command {
-        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. }) => unreachable!(),
+        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..}) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
         Some(CliCommand::Config(options)) => {
-            let config = configure(options, cwd, interrupted)?;
+            let config = configure(options, cwd, interrupted,None)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
             return Ok(0);
         }
@@ -375,7 +390,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
     match response {
         Response::Configured(config) => println!("{}", serde_json::to_string_pretty(&config)?),
         Response::Error(error) => bail!("{error}"),
-        Response::Status(status) => println!("{}\nCLI 接入：{}\n当前范围有索引：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", if status.connected { "已连接 SAG-Desktop" } else { "SAG 核心（独立模式）" }, status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
+        Response::Status(status) => println!("{}\nCLI 接入：{}\n当前范围有索引：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", if status.connected { "已连接 SAG 后台服务" } else { "SAG 后台服务未运行" }, status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
         Response::Added(output) => {
             if json { println!("{}", serde_json::to_string(&output)?); }
             else {
@@ -444,70 +459,54 @@ fn print_results(results: &[SearchResult]) {
 }
 
 fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Interrupt>) -> Result<Response> {
-    if interrupted.cancelled.load(Ordering::SeqCst) { bail!("操作已取消") }
-    let data = data_dir()?;
-    let endpoint: Option<Endpoint> = match std::fs::read(data.join("cli-endpoint.json")) {
-        Ok(bytes) => Some(serde_json::from_slice(&bytes).context("CLI 连接记录格式无效")?),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
-        Err(error) => return Err(error.into()),
-    };
-    let connection = if let Some(endpoint) = endpoint {
-        if endpoint.protocol_version != VERSION {
-            bail!("CLI 与 SAG 核心版本不兼容")
+    if interrupted.cancelled.load(Ordering::SeqCst) {bail!("操作已取消")}
+    let cancel=tokio_util::sync::CancellationToken::new();
+    *interrupted.connection.lock().unwrap()=Some(cancel.clone());
+    let result=tokio::runtime::Runtime::new()?.block_on(async {
+        let data=data_dir()?;
+        let client=if matches!(&command,Command::Status) {
+            match sag_client::Client::connect(&data).await? {
+                Some(client)=>client,
+                None=>return Ok(Response::Status(Status{protocol_version:VERSION,connected:false,enabled:false,allowed:false,index_ready:false,jev_configured:false,path:path.display().to_string()})),
+            }
+        } else {sag_client::ensure(&data,&std::env::current_exe()?).await?};
+        if matches!(&command,Command::Status) {
+            let info=client.info();
+            println!("服务版本：{}\n协议版本：{}\n服务进程：{}\n执行文件：{}",info.build_id,info.protocol_version,info.pid,info.executable);
         }
-        match TcpStream::connect_timeout(&([127, 0, 0, 1], endpoint.port).into(), Duration::from_secs(3)) {
-            Ok(stream) => Some((endpoint, stream)),
-            Err(error) if matches!(error.kind(), std::io::ErrorKind::ConnectionRefused | std::io::ErrorKind::TimedOut) => None,
-            Err(error) => return Err(error.into()),
+        tokio::select! {
+            _=cancel.cancelled()=>bail!("操作已取消"),
+            result=client.execute(path,command,Duration::from_secs(timeout))=>result,
         }
-    } else { None };
-    let Some((endpoint, mut stream)) = connection else {
-        // A standalone invocation owns the shared index only for its lifetime.
-        // Cover synchronous index refresh as well as the async request. Dropping
-        // the sender stops the timer after success; process exit releases SQLite locks.
-        let (deadline, timer) = std::sync::mpsc::channel::<()>();
-        let timeout_exit = if matches!(&command, Command::Match(request) if request.options.output == MatchOutputMode::Quiet) { 2 } else { 1 };
-        if matches!(command, Command::Search { .. } | Command::Match(_)) {
-            std::thread::spawn(move || {
-                if matches!(timer.recv_timeout(Duration::from_secs(timeout)), Err(std::sync::mpsc::RecvTimeoutError::Timeout)) {
-                    eprintln!("请求超时（包括索引检查），请缩小搜索目录或增加 --timeout");
-                    std::process::exit(timeout_exit);
-                }
-            });
+    });
+    *interrupted.connection.lock().unwrap()=None;
+    result
+}
+fn run_service(action:&ServiceCommand)->Result<()> {
+    let runtime=tokio::runtime::Runtime::new()?;
+    let data=data_dir()?;
+    if matches!(action,ServiceCommand::Serve) {
+        let stop=tokio_util::sync::CancellationToken::new();
+        let signal=stop.clone();
+        ctrlc::set_handler(move||signal.cancel())?;
+        return runtime.block_on(sag_core::server::run_until(data,stop));
+    }
+    runtime.block_on(async {
+        let connected=sag_client::Client::connect(&data).await?;
+        if matches!(action,ServiceCommand::Status) {
+            if let Some(client)=connected {println!("{}",serde_json::to_string_pretty(client.info())?);}
+            else {println!("SAG 后台服务未运行");}
+            return Ok(());
         }
-        let _deadline = deadline;
-        let runtime = tokio::runtime::Runtime::new()?;
-        return runtime.block_on(async {
-            let core = sag_core::cli_service::CliService::local(data)?;
-            core.run_local(path, command, tokio_util::sync::CancellationToken::new()).await
-        });
-    };
-    stream.set_read_timeout(Some(Duration::from_secs(timeout + 5)))?;
-    stream.set_write_timeout(Some(Duration::from_secs(5)))?;
-    *interrupted.connection.lock().unwrap() = Some(stream.try_clone()?);
-    let response = (|| -> Result<Response> {
-        let request = Request {
-            protocol_version: VERSION,
-            token: endpoint.token,
-            path,
-            command,
-        };
-        let bytes = serde_json::to_vec(&request)?;
-        if bytes.len() as u64 >= MAX_REQUEST {
-            bail!("请求超过长度上限")
+        if let Some(client)=connected {
+            client.call(sag_protocol::Operation::Shutdown,Duration::from_secs(10)).await?;
+            drop(client);
+            sag_client::wait_stopped(&data).await?;
         }
-        stream.write_all(&bytes)?;
-        stream.write_all(b"\n")?;
-        let mut line = Vec::new();
-        BufReader::new(stream)
-            .take(MAX_RESPONSE + 1)
-            .read_until(b'\n', &mut line)
-            .context("请求失败或超时")?;
-        if line.len() as u64 > MAX_RESPONSE || !line.ends_with(b"\n") {
-            bail!("SAG-Desktop 未返回完整结果")
-        }
-        Ok(serde_json::from_slice(&line)?)
-    })();
-    *interrupted.connection.lock().unwrap() = None;
-    response
+        if matches!(action,ServiceCommand::Restart) {
+            let client=sag_client::ensure(&data,&std::env::current_exe()?).await?;
+            println!("{}",serde_json::to_string_pretty(client.info())?);
+        } else {println!("SAG 后台服务已停止");}
+        Ok(())
+    })
 }

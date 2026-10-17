@@ -13,3 +13,7 @@ pub mod store;
 pub mod text;
 pub mod types;
 pub mod protocol;
+
+pub mod explore;
+pub mod service;
+pub mod server;

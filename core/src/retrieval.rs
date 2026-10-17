@@ -1,3 +1,4 @@
+pub use sag_protocol::{Term,Trace};
 use crate::{
     store::Store,
     text::{match_query, quote, tokenize},
@@ -24,12 +25,6 @@ static NAMES: LazyLock<Regex> = LazyLock::new(|| {
 });
 static SENTENCES: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?<!\b[A-Z])[.!?]\s+|\n+").unwrap());
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct Term {
-    pub term: String,
-    pub score: f64,
-    pub kind: String,
-}
 pub fn name_phrases(s: &str) -> Result<Vec<(usize, usize, String)>> {
     NAMES
         .find_iter(s)
@@ -175,13 +170,6 @@ fn rank(mut candidates: Vec<Candidate>) -> Vec<Candidate> {
             .then(a.id.cmp(&b.id))
     });
     candidates
-}
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct Trace {
-    pub hop: usize,
-    pub candidates: Vec<i64>,
-    pub terms: Vec<Term>,
-    pub evidence: Vec<i64>,
 }
 #[derive(serde::Serialize)]
 pub struct SearchOutput {

@@ -11,9 +11,18 @@ pub const HARNESS_NAMES: [&str; 3] = ["claude-code", "codex", "opencode"];
 pub const SKILL: &str = include_str!("../skills/sag/SKILL.md");
 const SKILL_FILES: &[(&str, &str)] = &[
     ("SKILL.md", SKILL),
-    ("references/parameters.md", include_str!("../skills/sag/references/parameters.md")),
-    ("references/ignores.md", include_str!("../skills/sag/references/ignores.md")),
-    ("references/setup.md", include_str!("../skills/sag/references/setup.md")),
+    (
+        "references/parameters.md",
+        include_str!("../skills/sag/references/parameters.md"),
+    ),
+    (
+        "references/ignores.md",
+        include_str!("../skills/sag/references/ignores.md"),
+    ),
+    (
+        "references/setup.md",
+        include_str!("../skills/sag/references/setup.md"),
+    ),
 ];
 #[path = "terminal_path.rs"]
 mod terminal_path;
@@ -24,6 +33,10 @@ struct Receipt {
     owner: String,
     hash: String,
     version: String,
+    #[serde(default)]
+    build_id: Option<String>,
+    #[serde(default)]
+    channel: Option<String>,
 }
 #[derive(Serialize)]
 pub struct Installation {
@@ -67,19 +80,68 @@ fn check_owned(path: &Path) -> Result<()> {
     Ok(())
 }
 fn write_owned(path: &Path, bytes: &[u8]) -> Result<()> {
+    use std::io::Write;
     if path.symlink_metadata().is_ok() {
         check_owned(path)?;
     }
-    fs::create_dir_all(path.parent().unwrap())?;
-    fs::write(path, bytes)?;
-    fs::write(
-        receipt_path(path),
-        serde_json::to_vec(&Receipt {
-            owner: OWNER.into(),
-            hash: digest(bytes),
-            version: env!("CARGO_PKG_VERSION").into(),
-        })?,
-    )?;
+    let directory = path.parent().unwrap();
+    fs::create_dir_all(directory)?;
+    let original = if path.exists() {
+        for file in [path.to_path_buf(), receipt_path(path)] {
+            if fs::metadata(&file)?.permissions().readonly() {
+                bail!("安装文件只读，未修改：{}", file.display());
+            }
+            fs::OpenOptions::new().write(true).open(&file)?;
+        }
+        Some((
+            fs::read(path)?,
+            fs::metadata(path)?.permissions(),
+            fs::read(receipt_path(path))?,
+            fs::metadata(receipt_path(path))?.permissions(),
+        ))
+    } else {
+        None
+    };
+    let mut staged = tempfile::NamedTempFile::new_in(directory)?;
+    staged.write_all(bytes)?;
+    staged.as_file().sync_all()?;
+    if digest(&fs::read(staged.path())?) != digest(bytes) {
+        bail!("安装文件校验失败，原文件未修改")
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        staged
+            .as_file()
+            .set_permissions(fs::Permissions::from_mode(
+                if path.file_name().is_some_and(|name| name == BINARY_NAME) {
+                    0o755
+                } else {
+                    0o600
+                },
+            ))?;
+    }
+    let mut record = tempfile::NamedTempFile::new_in(directory)?;
+    record.write_all(&serde_json::to_vec(&Receipt {
+        owner: OWNER.into(),
+        hash: digest(bytes),
+        version: env!("CARGO_PKG_VERSION").into(),
+        build_id: Some(sag_protocol::BUILD_ID.into()),
+        channel: Some(sag_protocol::BUILD_CHANNEL.into()),
+    })?)?;
+    record.as_file().sync_all()?;
+    staged.persist(path)?;
+    if let Err(error) = record.persist(receipt_path(path)) {
+        if let Some((old, permissions, receipt, receipt_permissions)) = original {
+            fs::write(path, old)?;
+            fs::set_permissions(path, permissions)?;
+            fs::write(receipt_path(path), receipt)?;
+            fs::set_permissions(receipt_path(path), receipt_permissions)?;
+        } else {
+            fs::remove_file(path)?;
+        }
+        return Err(error).context("安装记录写入失败，已恢复原安装");
+    }
     Ok(())
 }
 fn remove_owned(path: &Path) -> Result<()> {
@@ -109,7 +171,9 @@ fn validate_harness(directory: &Path, writing: bool) -> Result<()> {
                 if !metadata.file_type().is_file() {
                     bail!("安装记录不是普通文件，未修改：{}", record.display())
                 }
-                if writing { fs::OpenOptions::new().write(true).open(&record)?; }
+                if writing {
+                    fs::OpenOptions::new().write(true).open(&record)?;
+                }
             }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => return Err(error.into()),
@@ -118,7 +182,9 @@ fn validate_harness(directory: &Path, writing: bool) -> Result<()> {
             Ok(_) => {
                 check_owned(&file)?;
                 if writing {
-                    fs::OpenOptions::new().write(true).open(&file)
+                    fs::OpenOptions::new()
+                        .write(true)
+                        .open(&file)
                         .with_context(|| format!("无法更新 Skill：{}", file.display()))?;
                 }
             }
@@ -140,8 +206,11 @@ pub fn harness(home: &Path, name: &str, uninstall: bool) -> Result<PathBuf> {
     validate_harness(directory, !uninstall)?;
     for (name, contents) in SKILL_FILES {
         let file = directory.join(name);
-        if uninstall { remove_owned(&file)?; }
-        else { write_owned(&file, contents.as_bytes())?; }
+        if uninstall {
+            remove_owned(&file)?;
+        } else {
+            write_owned(&file, contents.as_bytes())?;
+        }
     }
     Ok(path)
 }
@@ -184,8 +253,7 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     let target = if uninstall {
         previous.clone()
     } else {
-        home.join(".local/bin")
-            .join(BINARY_NAME)
+        home.join(".local/bin").join(BINARY_NAME)
     };
     if uninstall {
         if target.try_exists()? {
@@ -201,6 +269,15 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         fs::create_dir_all(&data)?;
         fs::write(data.join("cli-initialized"), b"1")?;
         return Ok(target);
+    }
+    if target.exists()
+        && sag_protocol::BUILD_CHANNEL == "development"
+        && receipt(&target)?
+            .and_then(|record| record.channel)
+            .as_deref()
+            == Some("release")
+    {
+        bail!("开发版不会覆盖已安装的正式版 SAG，请使用独立开发产物")
     }
     if previous != target && previous.try_exists()? {
         check_owned(&previous)?;
@@ -257,10 +334,17 @@ pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
             }
         }
     }
-    let update_binary = inspect("cli", &previous)?.installed && fs::read(source)? != fs::read(&previous)?;
-    if !record.try_exists()? || update_binary || (previous.try_exists()? && previous.file_name() != Some(std::ffi::OsStr::new(BINARY_NAME))) {
+    let update_binary =
+        inspect("cli", &previous)?.installed && fs::read(source)? != fs::read(&previous)?;
+    if !record.try_exists()?
+        || update_binary
+        || (previous.try_exists()?
+            && previous.file_name() != Some(std::ffi::OsStr::new(BINARY_NAME)))
+    {
         binary(home, source, false)?;
     }
-    for name in skill_updates { harness(home, name, false)?; }
+    for name in skill_updates {
+        harness(home, name, false)?;
+    }
     Ok(())
 }

@@ -1,8 +1,10 @@
+mod support;
 use std::process::Command;
 #[test]
 fn config_saves_jev_without_desktop_and_never_prints_the_key() {
     use std::{io::Write, process::Stdio};
     let data = tempfile::tempdir().unwrap();
+    let _cleanup=support::ServiceCleanup(data.path().to_path_buf());
     let mut child = Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", data.path())
         .args(["config", "--url", "https://example.com/decisions", "--model", "test-model", "--key-stdin"])
@@ -45,53 +47,28 @@ fn invalid_arguments_fail_but_status_works_without_desktop() {
     }
     let missing = run(&["status"]);
     assert!(missing.status.success(), "{}", String::from_utf8_lossy(&missing.stderr));
-    assert!(String::from_utf8(missing.stdout).unwrap().contains("独立模式"));
+    assert!(String::from_utf8(missing.stdout).unwrap().contains("后台服务未运行"));
 }
 
 #[test]
 fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
-    use std::{
-        fs,
-        io::{BufRead, BufReader, Write},
-        net::TcpListener,
-    };
+    use std::fs;
     let home = tempfile::tempdir().unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    fs::write(
-        home.path().join("cli-endpoint.json"),
-        format!(
-            r#"{{"protocol_version":1,"port":{},"pid":1,"token":"test-token"}}"#,
-            listener.local_addr().unwrap().port()
-        ),
-    )
-    .unwrap();
     let cwd = home.path().join("项目 space");
     fs::create_dir_all(cwd.join("src")).unwrap();
     let cwd = cwd.canonicalize().unwrap();
     let path = cwd.join("src/main.rs");
     let server_path = path.clone();
     let query = "Where is 'quoted' permission\nvalidated?";
-    let server = std::thread::spawn(move || {
-        for (expected_query, content) in [(query, false), (query, true), (query, true), ("status", false)] {
-            let (mut stream, _) = listener.accept().unwrap();
-            let mut line = String::new();
-            BufReader::new(stream.try_clone().unwrap())
-                .read_line(&mut line)
-                .unwrap();
-            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["command"]["query"], expected_query);
-            assert_eq!(request["command"]["content"], content);
-            assert!(request["path"]
-                .as_str()
-                .unwrap()
-                .ends_with("项目 space/src"));
-            let mut item = serde_json::json!({"path":"./main.rs","absolute_path":server_path,"start_line":2,"end_line":4,"heading":"部署指南 / 生产环境"});
-            if content {
-                item["content"] = serde_json::json!("原文 'quoted'\nsecond line");
-            }
-            let reply = serde_json::json!({"type":"search","data":{"protocol_version":1,"scope":server_path.parent(),"results":[item],"truncated":false}});
-            writeln!(stream, "{reply}").unwrap();
-        }
+    let mut step=0;
+    let server=support::serve(home.path(),4,move|request|{
+        let (expected_query,content)=[(query,false),(query,true),(query,true),("status",false)][step];step+=1;
+        assert_eq!(request["command"]["query"],expected_query);
+        assert_eq!(request["command"]["content"],content);
+        assert!(request["path"].as_str().unwrap().ends_with("项目 space/src"));
+        let mut item=serde_json::json!({"path":"./main.rs","absolute_path":server_path,"start_line":2,"end_line":4,"heading":"部署指南 / 生产环境"});
+        if content{item["content"]=serde_json::json!("原文 'quoted'\nsecond line");}
+        serde_json::json!({"type":"search","data":{"protocol_version":2,"scope":server_path.parent(),"results":[item],"truncated":false}})
     });
     let run = |extra: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_sag"))
@@ -152,49 +129,21 @@ fn factory_droid_is_not_a_supported_installation_target() {
 
 #[test]
 fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
-    use std::{
-        fs,
-        io::{BufRead, BufReader, Write},
-        net::TcpListener,
-    };
+    use std::fs;
     for (command, response_type, message) in [("add", "added", "已加入知识库"), ("remove", "removed", "已从知识库移除")] {
     let data = tempfile::tempdir().unwrap();
+    let _cleanup=support::ServiceCleanup(data.path().to_path_buf());
     let cwd = data.path().join("项目 space");
     fs::create_dir_all(cwd.join("child")).unwrap();
     let cwd = cwd.canonicalize().unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    fs::write(data.path().join("cli-endpoint.json"), serde_json::json!({"protocol_version":1,"port":listener.local_addr().unwrap().port(),"pid":1,"token":"test-token"}).to_string()).unwrap();
-    listener.set_nonblocking(true).unwrap();
-    let server_cwd = cwd.clone();
-    let server = std::thread::spawn(move || {
-        for suffix in ["", "child"] {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-            let (mut stream, _) = loop {
-                match listener.accept() {
-                    Ok(connection) => break connection,
-                    Err(e)
-                        if e.kind() == std::io::ErrorKind::WouldBlock
-                            && std::time::Instant::now() < deadline =>
-                    {
-                        std::thread::sleep(std::time::Duration::from_millis(10))
-                    }
-                    Err(e) => panic!("CLI did not send add request: {e}"),
-                }
-            };
-            let mut line = String::new();
-            BufReader::new(stream.try_clone().unwrap())
-                .read_line(&mut line)
-                .unwrap();
-            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["command"]["command"], command);
-            assert_eq!(
-                std::path::Path::new(request["path"].as_str().unwrap()),
-                server_cwd.join(suffix)
-            );
-            let mut data = serde_json::json!({"path":server_cwd.join(suffix)});
-            if command == "add" { data["index_status"] = "pending".into(); data["cli_authorized"] = true.into(); }
-            writeln!(stream,"{}",serde_json::json!({"type":response_type,"data":data})).unwrap();
-        }
+    let server_cwd=cwd.clone();let mut step=0;
+    let server=support::serve(data.path(),2,move|request|{
+        let suffix=["","child"][step];step+=1;
+        assert_eq!(request["command"]["command"],command);
+        assert_eq!(std::path::Path::new(request["path"].as_str().unwrap()),server_cwd.join(suffix));
+        let mut data=serde_json::json!({"path":server_cwd.join(suffix)});
+        if command=="add"{data["index_status"]="pending".into();data["cli_authorized"]=true.into();}
+        serde_json::json!({"type":response_type,"data":data})
     });
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_sag"))
@@ -222,6 +171,7 @@ fn folder_commands_default_to_current_directory_and_accept_an_explicit_path() {
 #[test]
 fn standalone_can_explicitly_enable_previously_disabled_access() {
     let data = tempfile::tempdir().unwrap();
+    let _cleanup=support::ServiceCleanup(data.path().to_path_buf());
     std::fs::write(data.path().join("cli-access.json"), r#"{"enabled":false}"#).unwrap();
     let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", data.path()).args(args).output().unwrap();

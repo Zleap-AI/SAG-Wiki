@@ -5,28 +5,23 @@ use crate::{
     store::{self, Store},
 };
 use anyhow::{bail, Context, Result};
-use serde::{Deserialize, Serialize};
+#[cfg(test)]
+use std::sync::Weak;
 use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, RwLock, Weak},
+    sync::{Arc, RwLock},
     time::Duration,
 };
+#[cfg(test)]
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{TcpListener, TcpStream},
 };
 use tokio_util::sync::CancellationToken;
 
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Access {
-    pub enabled: bool,
-}
-
-impl Default for Access {
-    fn default() -> Self { Self { enabled: true } }
-}
+pub use sag_protocol::Access;
 
 pub struct CliService {
     store: Arc<Store>,
@@ -35,8 +30,8 @@ pub struct CliService {
     access: RwLock<Access>,
     token: String,
     stop: CancellationToken,
-    query_lock: Arc<tokio::sync::Mutex<()>>,
-    _instance: File,
+    _instance: Option<File>,
+    preparation: Option<File>,
     add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
     remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
     standalone: bool,
@@ -53,8 +48,27 @@ pub fn lock_instance(data: &Path) -> Result<File> {
     Ok(file)
 }
 impl CliService {
-    pub fn local(data: PathBuf) -> Result<Arc<Self>> {
+    pub(crate) fn shared(
+        store: Arc<Store>, client: reqwest::Client, data: PathBuf,
+        add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
+        remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
+    ) -> Result<Arc<Self>> {
+        Ok(Arc::new(Self {
+            store, client, access: RwLock::new(Self::load_access(&data)?), data,
+            token: String::new(), stop: CancellationToken::new(), _instance: None,
+            preparation: None, add_root, remove_root, standalone: false,
+        }))
+    }
+    pub(crate) async fn handle(&self, path: PathBuf, command: Command, cancel: CancellationToken) -> Result<Response> {
+        self.execute(Request { protocol_version: VERSION, token: self.token.clone(), path, command }, cancel).await
+    }
+    #[cfg(test)]
+    fn local(data: PathBuf) -> Result<Arc<Self>> {
         fs::create_dir_all(&data)?;
+        // Serialize standalone initialization and index writes, not model requests.
+        let preparation = OpenOptions::new().create(true).truncate(false).write(true)
+            .open(data.join("cli-prepare.lock"))?;
+        preparation.lock().context("无法准备 SAG 索引")?;
         let instance = lock_instance(&data)?;
         let store = Arc::new(Store::open(&data.join("sag.sqlite"))?);
         let add_store = store.clone();
@@ -66,8 +80,8 @@ impl CliService {
             data,
             token: String::new(),
             stop: CancellationToken::new(),
-            query_lock: Arc::new(tokio::sync::Mutex::new(())),
-            _instance: instance,
+            _instance: Some(instance),
+            preparation: Some(preparation),
             add_root: Arc::new(move |path| {
                 let root = add_store.add_root(path)?;
                 add_store.scan(&root, |_| {})?;
@@ -84,7 +98,8 @@ impl CliService {
             Err(e) => Err(e.into()),
         }
     }
-    pub async fn run_local(&self, path: PathBuf, command: Command, cancel: CancellationToken) -> Result<Response> {
+    #[cfg(test)]
+    async fn run_local(&self, path: PathBuf, command: Command, cancel: CancellationToken) -> Result<Response> {
         if matches!(command, Command::Search { .. } | Command::Match(_)) {
             let (scope, _) = self.authorized(&path)?;
             for root in self.store.roots()? {
@@ -95,11 +110,18 @@ impl CliService {
         }
         self.execute(Request { protocol_version: VERSION, token: self.token.clone(), path, command }, cancel).await
     }
-    pub fn start(
+    fn release_preparation(&self) -> Result<()> {
+        if let Some(preparation) = &self.preparation {
+            self._instance.as_ref().unwrap().unlock()?;
+            preparation.unlock()?;
+        }
+        Ok(())
+    }
+    #[cfg(test)]
+    fn start(
         store: Arc<Store>,
         client: reqwest::Client,
         data: PathBuf,
-        query_lock: Arc<tokio::sync::Mutex<()>>,
         instance: File,
         add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
         remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
@@ -125,8 +147,8 @@ impl CliService {
             access: RwLock::new(access),
             token,
             stop: CancellationToken::new(),
-            query_lock,
-            _instance: instance,
+            _instance: Some(instance),
+            preparation: None,
             add_root,
             remove_root,
             standalone: false,
@@ -163,6 +185,7 @@ impl CliService {
         });
         Ok(service)
     }
+    #[cfg(test)]
     async fn listen(
         listener: std::net::TcpListener,
         weak: Weak<Self>,
@@ -223,7 +246,8 @@ impl CliService {
         Ok((path, roots))
     }
     fn authorized(&self, requested: &Path) -> Result<(PathBuf, Vec<String>)> {
-        if !self.access().enabled {
+        let access = if self.standalone { Self::load_access(&self.data)? } else { self.access() };
+        if !access.enabled {
             bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
         }
         let (path, roots) = self.indexed_scope(requested)?;
@@ -302,10 +326,12 @@ impl CliService {
                 let path = request.path.canonicalize().context("无法打开这个文件夹")?;
                 if !path.is_dir() { bail!("请选择文件夹") }
                 (self.add_root)(&path)?;
-                let root = self.store.roots()?.into_iter()
-                    .find(|item| path.starts_with(&item.path))
-                    .context("目录已从知识库移除，请重新添加")?;
-                if self.standalone {
+                let root = loop {
+                    let root=self.store.roots()?.into_iter().find(|item|path.starts_with(&item.path)).context("目录已从知识库移除，请重新添加")?;
+                    if self._instance.is_some() || root.status=="ready" || root.error.is_some(){break root;}
+                    tokio::select!{_=cancel.cancelled()=>bail!("添加操作已取消，后台索引继续执行"),_=tokio::time::sleep(Duration::from_millis(20))=>{}}
+                };
+                if self.standalone || self._instance.is_none() {
                     if let Some(error) = root.error { bail!("目录已添加，但索引未完成：{error}") }
                 }
                 Ok(Response::Added(AddOutput { path: store::path_text(&path)?, index_status: root.status, cli_authorized: true }))
@@ -319,6 +345,7 @@ impl CliService {
                 if !self.status(&path)?.index_ready {
                     bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
                 }
+                self.release_preparation()?;
                 let tools = SagTools {
                     store: self.store.clone(), client: self.client.clone(), data_dir: self.data.clone(),
                     settings: self.store.settings()?, scope: scopes, references: vec![],
@@ -350,8 +377,8 @@ impl CliService {
                 if !status.jev_configured {
                     bail!("JEV 未配置，请运行 sag config，或在 SAG-Desktop 模型设置中配置")
                 }
+                self.release_preparation()?;
                 let operation = async {
-                    let _guard = self.query_lock.lock().await;
                     let (path, scopes) = self.authorized(&request.path)?;
                     let scope = store::path_text(&path)?;
                     let tools = SagTools {
@@ -434,6 +461,7 @@ impl CliService {
             }
         }
     }
+    #[cfg(test)]
     async fn serve(&self, stream: TcpStream) -> Result<()> {
         let (read, mut write) = stream.into_split();
         let mut read = BufReader::new(read);
@@ -475,6 +503,7 @@ impl CliService {
     }
     pub fn shutdown(&self) {
         self.stop.cancel();
+        if self.standalone || self._instance.is_none() { return; }
         match fs::remove_file(self.data.join("cli-endpoint.json")) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

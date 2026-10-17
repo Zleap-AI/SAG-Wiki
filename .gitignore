@@ -19,3 +19,6 @@ cli/target/
 src-tauri/bin/
 
 core/target/
+
+protocol/target/
+client/target/

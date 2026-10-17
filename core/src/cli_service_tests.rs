@@ -32,7 +32,6 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
         store,
         reqwest::Client::new(),
         dir.path().into(),
-        Arc::new(tokio::sync::Mutex::new(())),
         lock_instance(dir.path()).unwrap(),
         add_root,
         remove_root,

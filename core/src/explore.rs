@@ -1,12 +1,12 @@
+pub use sag_protocol::explore::*;
 use crate::{
     store::Store,
     text,
-    types::{Candidate, DocumentTerm},
+    types::DocumentTerm,
 };
 use anyhow::{bail, Result};
 use indexmap::IndexMap;
 use rusqlite::{params, OptionalExtension};
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::Path,
@@ -20,62 +20,12 @@ pub const OVERVIEW_LIMIT: usize = 24;
 pub const NODE_LIMIT: usize = 80;
 pub const PAGE_SIZE: usize = 12;
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct ExploreDocument {
-    pub id: i64,
-    pub path: String,
-    pub name: String,
-    pub hash: String,
-    pub file_type: String,
-}
-#[derive(Clone, Debug, Serialize)]
-pub struct ExploreOverview {
-    pub scope: String,
-    pub version: i64,
-    pub algorithm: &'static str,
-    pub total: usize,
-    pub documents: Vec<ExploreDocument>,
-    pub known_documents: Vec<ExploreDocument>,
-    pub indexing: bool,
-    pub partial: bool,
-}
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ExploreEdge {
-    pub source: i64,
-    pub target: i64,
-    pub source_hash: String,
-    pub target_hash: String,
-    pub score: f64,
-    pub terms: Vec<String>,
-    pub snapshot: String,
-}
-#[derive(Clone, Debug, Serialize)]
-pub struct ExploreNeighbors {
-    pub version: i64,
-    pub algorithm: &'static str,
-    pub snapshot: String,
-    pub center: ExploreDocument,
-    pub documents: Vec<ExploreDocument>,
-    pub edges: Vec<ExploreEdge>,
-    pub total: usize,
-    pub has_more: bool,
-    pub next_offset: usize,
-    pub candidate_limit_reached: bool,
-}
-#[derive(Clone, Debug, Serialize)]
-pub struct EvidencePair {
-    pub left: Candidate,
-    pub right: Candidate,
-    pub terms: Vec<String>,
-}
-#[derive(Clone, Debug, Serialize)]
-pub struct ExploreEvidence {
-    pub version: i64,
-    pub algorithm: &'static str,
-    pub left: ExploreDocument,
-    pub right: ExploreDocument,
-    pub pairs: Vec<EvidencePair>,
-}
+
+
+
+
+
+
 #[derive(Clone)]
 struct Neighborhood {
     scope: String,
@@ -86,10 +36,13 @@ struct Neighborhood {
     candidate_limit_reached: bool,
 }
 
+
+
 pub struct Explorer {
     store: Arc<Store>,
     snapshots: Mutex<IndexMap<String, Neighborhood>>,
     frequencies: Mutex<HashMap<(String, i64, String), usize>>,
+    graphs: Mutex<IndexMap<String, ExploreGraph>>,
 }
 impl Explorer {
     pub fn new(store: Arc<Store>) -> Self {
@@ -97,6 +50,7 @@ impl Explorer {
             store,
             snapshots: Mutex::new(IndexMap::new()),
             frequencies: Mutex::new(HashMap::new()),
+            graphs: Mutex::new(IndexMap::new()),
         }
     }
     fn scope(&self, scope: &str) -> Result<String> {
@@ -207,13 +161,100 @@ impl Explorer {
         Ok(ExploreOverview {
             scope,
             version,
-            algorithm: VERSION,
+            algorithm: VERSION.into(),
             total,
             documents,
             known_documents,
             indexing,
             partial,
         })
+    }
+    pub fn graph(&self, scope: &str, cancel: &CancellationToken) -> Result<ExploreGraph> {
+        let scope = self.scope(scope)?;
+        let version = self.store.version()?;
+        if let Some(saved) = self.graphs.lock().expect("graph cache mutex poisoned")
+            .get(&scope).filter(|saved| saved.version == version).cloned() {
+            return Ok(saved);
+        }
+        let documents = self.documents(&scope)?;
+        let mut summaries = Vec::with_capacity(documents.len());
+        let mut frequencies: HashMap<String, usize> = HashMap::new();
+        for document in &documents {
+            if cancel.is_cancelled() { bail!("已取消探索") }
+            let terms = self.summary(document)?;
+            for term in &terms { *frequencies.entry(term.term.clone()).or_default() += 1; }
+            summaries.push(terms);
+        }
+        let count = documents.len() as f64;
+        let mut postings: HashMap<String, Vec<(usize, f64)>> = HashMap::new();
+        let vectors: Vec<BTreeMap<String, f64>> = summaries.iter().enumerate().map(|(index, terms)| {
+            let mut vector: BTreeMap<_, _> = terms.iter().map(|term| {
+                let df = frequencies[&term.term] as f64;
+                let idf = (1.0 + (count - df + 0.5) / (df + 0.5)).ln();
+                (term.term.clone(), term.boost * (1.0 + (term.count as f64).ln()) * idf)
+            }).collect();
+            let norm = vector.values().map(|weight| weight * weight).sum::<f64>().sqrt();
+            for (term, weight) in &mut vector {
+                *weight /= norm;
+                postings.entry(term.clone()).or_default().push((index, *weight));
+            }
+            vector
+        }).collect();
+        // Bound candidate work for common vocabulary without limiting document coverage.
+        for entries in postings.values_mut() {
+            entries.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            entries.truncate(101);
+        }
+        let snapshot = uuid::Uuid::new_v4().to_string();
+        let mut edges = BTreeMap::new();
+        for (index, vector) in vectors.iter().enumerate() {
+            if cancel.is_cancelled() { bail!("已取消探索") }
+            let mut candidates: HashMap<usize, f64> = HashMap::new();
+            for (term, weight) in vector {
+                for (other, other_weight) in &postings[term] {
+                    if *other != index { *candidates.entry(*other).or_default() += weight * other_weight; }
+                }
+            }
+            let mut candidates: Vec<_> = candidates.into_iter().collect();
+            candidates.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            candidates.truncate(100);
+            let mut ranked = Vec::new();
+            for (other, _) in candidates {
+                let mut shared: Vec<_> = vector.iter().filter_map(|(term, weight)|
+                    vectors[other].get(term).map(|other_weight| (term.clone(), weight * other_weight))
+                ).collect();
+                let score: f64 = shared.iter().map(|(_, weight)| weight).sum();
+                shared.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+                let mut terms: Vec<String> = Vec::new();
+                for (term, _) in shared {
+                    if !terms.iter().any(|existing| existing.contains(&term) || term.contains(existing)) {
+                        terms.push(term);
+                    }
+                    if terms.len() == 16 { break; }
+                }
+                if score <= 0.0 || terms.is_empty() || (terms.len() == 1 && terms[0].chars().count() < 4) { continue; }
+                ranked.push((other, score, terms));
+            }
+            ranked.sort_by(|a, b| b.1.total_cmp(&a.1).then(a.0.cmp(&b.0)));
+            // A sparse union of each document's strongest five relationships.
+            for (other, score, terms) in ranked.into_iter().take(5) {
+                let (left, right) = if documents[index].id < documents[other].id {
+                    (&documents[index], &documents[other])
+                } else { (&documents[other], &documents[index]) };
+                edges.entry((left.id, right.id)).or_insert_with(|| ExploreEdge {
+                    source: left.id, target: right.id, source_hash: left.hash.clone(),
+                    target_hash: right.hash.clone(), score, terms, snapshot: snapshot.clone(),
+                });
+            }
+        }
+        self.consistent(version)?;
+        let result = ExploreGraph { scope: scope.clone(), version, snapshot,
+            documents, edges: edges.into_values().collect() };
+        let mut cache = self.graphs.lock().expect("graph cache mutex poisoned");
+        cache.retain(|_, saved| saved.version == version);
+        cache.insert(scope, result.clone());
+        if cache.len() > 8 { cache.shift_remove_index(0); }
+        Ok(result)
     }
     fn summary(&self, document: &ExploreDocument) -> Result<Vec<DocumentTerm>> {
         let saved: Option<String> = self.store.connection().query_row(
@@ -254,7 +295,7 @@ impl Explorer {
         let end = (offset + PAGE_SIZE).min(neighborhood.documents.len());
         Ok(ExploreNeighbors {
             version: neighborhood.version,
-            algorithm: VERSION,
+            algorithm: VERSION.into(),
             snapshot: snapshot.into(),
             center: neighborhood.center.clone(),
             documents: neighborhood.documents[offset..end].to_vec(),
@@ -498,21 +539,19 @@ impl Explorer {
         target: i64,
     ) -> Result<ExploreEvidence> {
         let scope = self.scope(scope)?;
-        let saved = self
-            .snapshots
-            .lock()
-            .expect("explore snapshot mutex poisoned")
-            .get(snapshot)
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("关联结果已过期，请重新设为中心"))?;
-        if saved.scope != scope {
-            bail!("关联不在当前探索范围内")
-        }
-        self.consistent(saved.version)?;
-        let edge = saved
-            .edges
-            .iter()
-            .find(|edge| edge.source == source && edge.target == target)
+        let local = self.snapshots.lock().expect("explore snapshot mutex poisoned")
+            .get(snapshot).cloned();
+        let (saved_scope, version, edges) = if let Some(saved) = local {
+            (saved.scope, saved.version, saved.edges)
+        } else {
+            let cache = self.graphs.lock().expect("graph cache mutex poisoned");
+            let saved = cache.get(&scope).filter(|saved| saved.snapshot == snapshot)
+                .ok_or_else(|| anyhow::anyhow!("关联结果已过期，请刷新探索"))?;
+            (saved.scope.clone(), saved.version, saved.edges.clone())
+        };
+        if saved_scope != scope { bail!("关联不在当前探索范围内") }
+        self.consistent(version)?;
+        let edge = edges.iter().find(|edge| edge.source == source && edge.target == target)
             .ok_or_else(|| anyhow::anyhow!("找不到当前关联"))?;
         let documents = self.documents(&scope)?;
         let left = documents
@@ -576,10 +615,10 @@ impl Explorer {
         if pairs.is_empty() {
             bail!("未找到可核对的共同原文，请刷新探索")
         }
-        self.consistent(saved.version)?;
+        self.consistent(version)?;
         Ok(ExploreEvidence {
-            version: saved.version,
-            algorithm: VERSION,
+            version,
+            algorithm: VERSION.into(),
             left: left.clone(),
             right: right.clone(),
             pairs,
@@ -591,6 +630,82 @@ impl Explorer {
 mod tests {
     use super::*;
     use std::{fs, sync::Arc};
+    #[test]
+    fn graph_covers_all_documents_and_keeps_sparse_verifiable_edges() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        fs::create_dir(&root).unwrap();
+        for index in 0..36 {
+            fs::write(root.join(format!("{index:02}.md")),
+                "# 增量索引\n文件监听收到重命名通知后，只更新变化路径的本地索引。") .unwrap();
+        }
+        fs::write(root.join("isolated.md"), "# Astronomy\nSaturn has spectacular rings composed of ice.").unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let scope = store.add_root(&root).unwrap();
+        store.scan(&scope, |_| {}).unwrap();
+        let explorer = Explorer::new(store.clone());
+        let graph = explorer.graph(&scope, &CancellationToken::new()).unwrap();
+        assert_eq!(graph.documents.len(), 37);
+        assert!(!graph.edges.is_empty());
+        assert!(graph.edges.len() <= graph.documents.len() * 5);
+        let isolated = graph.documents.iter().find(|doc| doc.name == "isolated.md").unwrap();
+        assert!(graph.edges.iter().all(|edge| edge.source != isolated.id && edge.target != isolated.id));
+        let edge = &graph.edges[0];
+        let evidence = explorer.evidence(&scope, &graph.snapshot, edge.source, edge.target).unwrap();
+        assert!(!evidence.pairs.is_empty());
+        for pair in evidence.pairs {
+            for term in pair.terms {
+                assert!(pair.left.content.contains(&term));
+                assert!(pair.right.content.contains(&term));
+            }
+        }
+        assert_eq!(graph.snapshot, explorer.graph(&scope, &CancellationToken::new()).unwrap().snapshot);
+        fs::write(root.join("00.md"), "# Biology\nPhotosynthesis releases oxygen in chloroplasts.").unwrap();
+        fs::remove_file(root.join("01.md")).unwrap();
+        fs::rename(root.join("02.md"), root.join("renamed.md")).unwrap();
+        store.scan(&scope, |_| {}).unwrap();
+        assert!(explorer.evidence(&scope, &graph.snapshot, edge.source, edge.target).is_err());
+        let updated = explorer.graph(&scope, &CancellationToken::new()).unwrap();
+        assert_eq!(updated.documents.len(), 36);
+        assert_ne!(updated.snapshot, graph.snapshot);
+        assert!(updated.documents.iter().any(|doc| doc.name == "renamed.md"));
+        let modified = updated.documents.iter().find(|doc| doc.name == "00.md").unwrap();
+        assert!(updated.edges.iter().all(|edge| edge.source != modified.id && edge.target != modified.id));
+        assert_eq!(fs::read_to_string(root.join("00.md")).unwrap(), "# Biology\nPhotosynthesis releases oxygen in chloroplasts.");
+    }
+    #[test]
+    #[ignore = "manual graph benchmark using disposable files and index"]
+    fn graph_large_libraries() {
+        for count in [1_000, 5_000] {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");fs::create_dir(&root).unwrap();
+        for index in 0..count {
+            fs::write(root.join(format!("note-{index}.md")), format!(
+                "# Research group{}\nKnowledge discovery document indexing retrieval group{} topic{}",
+                index % 20, index % 20, index % 50)).unwrap();
+        }
+        let store = Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let scope = store.add_root(&root).unwrap();store.scan(&scope, |_| {}).unwrap();
+        let explorer = Explorer::new(store);let start = std::time::Instant::now();
+        let graph = explorer.graph(&scope, &CancellationToken::new()).unwrap();
+        assert_eq!(graph.documents.len(), count);assert!(graph.edges.len() <= count * 5);
+        let cold = start.elapsed();let start = std::time::Instant::now();
+        assert_eq!(explorer.graph(&scope, &CancellationToken::new()).unwrap().snapshot, graph.snapshot);
+        println!("GRAPH_BENCH documents={} edges={} cold_ms={:.1} cached_ms={:.1}",graph.documents.len(),graph.edges.len(),cold.as_secs_f64()*1000.,start.elapsed().as_secs_f64()*1000.);
+        }
+    }
+    #[test]
+    fn graph_cancelled_request_does_not_publish_partial_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");fs::create_dir(&root).unwrap();
+        fs::write(root.join("a.md"), "# 文件监听\n重命名后增量更新索引。").unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let scope = store.add_root(&root).unwrap();store.scan(&scope, |_| {}).unwrap();
+        let explorer = Explorer::new(store);let cancel = CancellationToken::new();cancel.cancel();
+        assert!(explorer.graph(&scope, &cancel).is_err());
+        assert!(explorer.graphs.lock().unwrap().is_empty());
+        assert_eq!(explorer.graph(&scope, &CancellationToken::new()).unwrap().documents.len(), 1);
+    }
     #[test]
     fn overview_uses_only_indexed_documents_in_the_selected_folder() {
         let dir = tempfile::tempdir().unwrap();

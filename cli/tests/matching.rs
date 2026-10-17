@@ -1,8 +1,10 @@
+mod support;
 use std::{fs, process::{Command, Output}};
 
 #[test]
 fn fixed_and_regex_modes_match_lines_without_model_configuration() {
     let dir = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(dir.path().join("data"));
     let root = dir.path().join("项目 space");
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("src/sample.txt"), "a.b\r\naxb\r\na.b a.b\r\nERROR 42\r\nwarn 7\r\nerror 2\r\n").unwrap();
@@ -42,6 +44,7 @@ fn fixed_and_regex_modes_match_lines_without_model_configuration() {
 #[test]
 fn local_matches_follow_ignore_rules_and_removed_subdirectories() {
     let dir = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(dir.path().join("data"));
     let root = dir.path().join("project");
     fs::create_dir_all(root.join("hidden/deep")).unwrap();
     fs::create_dir(root.join("removed")).unwrap();
@@ -75,6 +78,7 @@ fn local_matches_follow_ignore_rules_and_removed_subdirectories() {
 #[test]
 fn line_anchors_and_whitespace_keep_real_line_boundaries() {
     let dir = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(dir.path().join("data"));
     let root = dir.path().join("project");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("lines.txt"), "\r\n \r\nvalue\r\n").unwrap();
@@ -101,6 +105,7 @@ fn line_anchors_and_whitespace_keep_real_line_boundaries() {
 #[test]
 fn local_matching_marks_oversized_content_without_breaking_json() {
     let dir = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(dir.path().join("data"));
     let root = dir.path().join("project");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("large.txt"), format!("needle {}\n", "x".repeat(600_000))).unwrap();

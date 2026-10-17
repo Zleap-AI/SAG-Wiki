@@ -41,8 +41,9 @@ Windows 对应命令为 `powershell -File .\install.ps1 -Key '你的密钥'`，�
 
 CLI 和可选的 SAG-Desktop 都引用 `core/` 中同一份索引、检索和配置实现，使用同一用户数据目录及 `sag.sqlite`、密钥和忽略规则。
 
-- 桌面端正在运行时，CLI 复用其本机服务，目录变更会同步显示。
-- 桌面端未运行时，CLI 直接运行核心；`sag add` 索引完成后返回，搜索前检查文件和忽略规则变更。
+- 桌面和 CLI 共用独立后台服务、同一份配置与知识库，目录变更会同步显示。
+- 退出桌面后服务继续运行；`sag add` 索引完成后返回，文件及忽略规则变化由后台监听更新。
+- `sag service status` 查看服务版本与进程，`sag service stop` 停止服务，`sag service restart` 重启服务。查看状态不会自动启动服务。
 - 两种模式都保留访问开关及目录范围约束，失败不会切换为其他搜索算法。曾关闭 CLI 接入时，可显式运行 `sag config --enable` 恢复。
 - 安装对应编程工具的 SAG Skill 后，新开会话即可使用；Agent 可运行 `sag add` 添加当前项目，再使用 `sag "搜索内容"`。
 

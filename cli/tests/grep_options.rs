@@ -1,3 +1,4 @@
+mod support;
 use std::{
     fs,
     io::Write,
@@ -6,6 +7,7 @@ use std::{
 };
 
 struct Project {
+    _cleanup: support::ServiceCleanup,
     _dir: tempfile::TempDir,
     root: PathBuf,
     data: PathBuf,
@@ -22,6 +24,7 @@ impl Project {
         }
         let data = dir.path().join("data");
         let project = Self {
+            _cleanup: support::ServiceCleanup(data.clone()),
             _dir: dir,
             root,
             data,

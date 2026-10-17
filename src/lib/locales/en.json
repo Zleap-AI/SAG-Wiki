@@ -764,7 +764,7 @@
   "安装位置": "Installation path",
   "编程工具": "Coding tools",
   "Skill 安装位置": "Skill installation paths",
-  "CLI 可独立运行；桌面端开启时共用知识库。": "CLI works independently and shares the knowledge base when the desktop app is open.",
+  "CLI 和桌面端共用后台服务，退出桌面后仍可使用。": "CLI and desktop share one background service, which stays available after quitting the desktop app.",
   "检索问题和候选片段会发送到已配置的 JEV 服务。": "Search queries and candidate passages are sent to your configured JEV service.",
   "{value0} 已卸载。": "{value0} uninstalled.",
   "{value0} 已安装。": "{value0} installed.",

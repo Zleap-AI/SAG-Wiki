@@ -2153,13 +2153,28 @@ dependencies = [
  "libc",
  "pathdiff",
  "rpassword",
+ "sag-client",
  "sag-core",
+ "sag-protocol",
  "serde",
  "serde_json",
  "sha2",
  "tempfile",
  "tokio",
  "tokio-util",
+]
+
+[[package]]
+name = "sag-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "sag-protocol",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -2190,6 +2205,8 @@ dependencies = [
  "reqwest",
  "rmcp",
  "rusqlite",
+ "sag-client",
+ "sag-protocol",
  "serde",
  "serde_json",
  "sha2",
@@ -2201,6 +2218,16 @@ dependencies = [
  "unicode-normalization",
  "uuid",
  "walkdir",
+]
+
+[[package]]
+name = "sag-protocol"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2347,6 +2374,16 @@ dependencies = [
  "cfg-if",
  "cpufeatures 0.2.17",
  "digest",
+ "sha2-asm",
+]
+
+[[package]]
+name = "sha2-asm"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b845214d6175804686b2bd482bcffe96651bb2d1200742b712003504a2dac1ab"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

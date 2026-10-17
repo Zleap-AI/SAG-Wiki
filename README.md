@@ -7,7 +7,7 @@
 
 ## 独立 CLI（桌面端可选）
 
-`sag` 与桌面端共用 `core/` 内核和同一份知识库，可独立运行：
+`sag` 与桌面端连接同一个独立后台服务。关闭桌面后，CLI 仍可使用同一份知识库：
 
 ```sh
 sh scripts/install.sh  # 从源码安装，需要 Rust；预编译包内使用 sh install.sh
@@ -22,7 +22,7 @@ sag -E -e 'ERROR' -e 'WARN' ./logs -l # 多条件与匹配文件列表
 
 安装时可直接传入密钥：`sh install.sh --key '你的密钥'`；也可按默认方式安装，通过隐藏输入完成配置。已配置时保留现有设置。
 
-独立 CLI 不依赖桌面框架；预编译包不要求安装编译工具。桌面端运行时复用其本机服务，未运行时直接使用本地核心。公共安装地址暂未设置。[安装、配置与命令说明](docs/CLI与Harness使用说明.md)。
+独立 CLI 不依赖桌面框架；预编译包不要求安装编译工具。桌面和 CLI 需要时自动启动服务。`sag service status/stop/restart` 分别查看、停止和重启服务。公共安装地址暂未设置。[安装、配置与命令说明](docs/CLI与Harness使用说明.md)。
 
 npm 发布包已按 `@zleap-ai/sag` 准备，尚未上传。运行 `node scripts/package-npm-cli.mjs` 生成 npm 安装包；账号登录、发布命令和支持平台见 [npm 发布说明](docs/npm发布说明.md)。
 

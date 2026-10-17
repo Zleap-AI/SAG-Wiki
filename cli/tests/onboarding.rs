@@ -1,4 +1,5 @@
 #![cfg(unix)]
+mod support;
 use std::{fs::File, io::{Read, Write}, os::fd::{AsRawFd, FromRawFd}, os::unix::process::CommandExt, process::{Child, Command, Stdio}, time::{Duration, Instant}};
 
 struct Terminal { child: Child, master: Option<File>, output: String }
@@ -73,6 +74,7 @@ impl Drop for Terminal {
 #[test]
 fn first_run_guides_configuration_and_does_not_echo_the_key() {
     let data = tempfile::tempdir().unwrap();
+    let _cleanup=support::ServiceCleanup(data.path().to_path_buf());
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
@@ -102,6 +104,7 @@ fn first_run_guides_configuration_and_does_not_echo_the_key() {
 #[test]
 fn interactive_local_matching_skips_first_use_model_setup() {
     let dir = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(dir.path().join("data"));
     let root = dir.path().join("project");
     std::fs::create_dir(&root).unwrap();
     std::fs::write(root.join("note.txt"), "needle\n").unwrap();
@@ -122,6 +125,7 @@ fn interactive_local_matching_skips_first_use_model_setup() {
 #[test]
 fn piped_installer_guides_setup_through_the_terminal() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let mut command = Command::new("/bin/sh");
     command.args(["-c", "cat \"$1\" | sh", "installer", concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/install.sh")])
         .env_clear().env("HOME", home.path()).env("SHELL", "/bin/zsh")
@@ -138,27 +142,18 @@ fn piped_installer_guides_setup_through_the_terminal() {
 
 #[test]
 fn setup_continues_the_original_search_after_saving() {
-    use std::{io::{BufRead, BufReader}, net::TcpListener};
     let data = tempfile::tempdir().unwrap();
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    std::fs::write(data.path().join("cli-endpoint.json"), serde_json::json!({"protocol_version":1,"port":listener.local_addr().unwrap().port(),"pid":1,"token":"test"}).to_string()).unwrap();
-    let root = data.path().canonicalize().unwrap();
-    let server_root = root.clone();
-    let server = std::thread::spawn(move || {
-        for step in 0..3 {
-            let (mut socket, _) = listener.accept().unwrap();
-            let mut line = String::new();
-            BufReader::new(socket.try_clone().unwrap()).read_line(&mut line).unwrap();
-            let request: serde_json::Value = serde_json::from_str(&line).unwrap();
-            let reply = if step < 2 {
-                assert_eq!(request["command"]["command"], "configure");
-                if step == 1 { assert_eq!(request["command"]["key"], "search-private-key"); }
-                serde_json::json!({"type":"configured","data":{"url":"https://api.302ai.cn/typesafeai/v1","model":"jev-latest","models":[],"has_key":step==1}})
-            } else {
-                assert_eq!(request["command"]["query"], "where is session validation?");
-                serde_json::json!({"type":"search","data":{"protocol_version":1,"scope":server_root,"results":[{"path":"./evidence.md","absolute_path":server_root.join("evidence.md"),"start_line":1,"end_line":1,"content":"session validation evidence"}],"truncated":false}})
-            };
-            writeln!(socket, "{reply}").unwrap();
+    let _cleanup=support::ServiceCleanup(data.path().to_path_buf());
+    let root=data.path().canonicalize().unwrap();let server_root=root.clone();let mut step=0;
+    let server=support::serve(data.path(),3,move|request|{
+        let current=step;step+=1;
+        if current<2{
+            assert_eq!(request["command"]["command"],"configure");
+            if current==1{assert_eq!(request["command"]["key"],"search-private-key");}
+            serde_json::json!({"type":"configured","data":{"url":"https://api.302ai.cn/typesafeai/v1","model":"jev-latest","models":[],"has_key":current==1}})
+        }else{
+            assert_eq!(request["command"]["query"],"where is session validation?");
+            serde_json::json!({"type":"search","data":{"protocol_version":2,"scope":server_root,"results":[{"path":"./evidence.md","absolute_path":server_root.join("evidence.md"),"start_line":1,"end_line":1,"content":"session validation evidence"}],"truncated":false}})
         }
     });
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
@@ -175,6 +170,7 @@ fn setup_continues_the_original_search_after_saving() {
 #[test]
 fn cancelling_setup_does_not_save_a_key() {
     let data = tempfile::tempdir().unwrap();
+    let _cleanup=support::ServiceCleanup(data.path().to_path_buf());
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
@@ -190,6 +186,7 @@ fn cancelling_setup_does_not_save_a_key() {
 #[test]
 fn cancelling_password_input_restores_terminal_echo() {
     let data = tempfile::tempdir().unwrap();
+    let _cleanup=support::ServiceCleanup(data.path().to_path_buf());
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);

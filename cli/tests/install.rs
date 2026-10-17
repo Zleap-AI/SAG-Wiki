@@ -1,6 +1,62 @@
 #![cfg(unix)]
 // These process tests isolate user directories through HOME, which is Unix-specific.
+mod support;
 use std::{fs, process::Command};
+
+#[test]
+fn upgrade_preserves_read_only_managed_files() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let run = || Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["install", "codex"]).env_clear().env("HOME", home.path())
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(run().status.success());
+    let path = home.path().join(".agents/skills/sag/SKILL.md");
+    let before = fs::read(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o400)).unwrap();
+    let result = run();
+    assert!(!result.status.success(), "read-only install must not be replaced");
+    assert_eq!(fs::read(&path).unwrap(), before);
+    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o400);
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+#[test]
+fn binary_upgrade_does_not_replace_a_read_only_installation() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let run = || Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["install", "cli"]).env_clear().env("HOME", home.path())
+        .env("SAG_DATA_DIR", home.path().join("data"))
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(run().status.success());
+    let path = home.path().join(".local/bin/sag");
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o555)).unwrap();
+    assert!(!run().status.success());
+    assert_eq!(fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o555);
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn development_install_cannot_replace_a_managed_release() {
+    let home = tempfile::tempdir().unwrap();
+    let run = || Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["install", "cli"]).env_clear().env("HOME", home.path())
+        .env("SAG_DATA_DIR", home.path().join("data"))
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(run().status.success());
+    let path = home.path().join(".local/bin/sag");
+    let original = fs::read(&path).unwrap();
+    let receipt_path = path.with_extension("sag-install.json");
+    let mut receipt: serde_json::Value = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+    receipt["channel"] = "release".into();
+    fs::write(&receipt_path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+    let refused = run();
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("开发版不会覆盖"));
+    assert_eq!(fs::read(path).unwrap(), original);
+}
 #[test]
 fn harness_installs_readable_references_and_removes_only_managed_files() {
     for (harness, directory) in [
@@ -9,6 +65,7 @@ fn harness_installs_readable_references_and_removes_only_managed_files() {
         ("opencode", ".config/opencode/skills/sag"),
     ] {
         let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
         let run = |verb| Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([verb, harness]).env_clear().env("HOME", home.path())
             .env("PATH", "/usr/bin:/bin").output().unwrap();
@@ -36,6 +93,7 @@ fn harness_installs_readable_references_and_removes_only_managed_files() {
 fn reference_edits_and_symlink_directories_prevent_partial_install_changes() {
     use sha2::{Digest, Sha256};
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let run = |verb| Command::new(env!("CARGO_BIN_EXE_sag"))
         .args([verb, "codex"]).env_clear().env("HOME", home.path())
         .env("PATH", "/usr/bin:/bin").output().unwrap();
@@ -72,6 +130,7 @@ fn reference_edits_and_symlink_directories_prevent_partial_install_changes() {
 fn blocked_reference_creation_preserves_the_previous_skill_entry() {
     use sha2::{Digest, Sha256};
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let install = || Command::new(env!("CARGO_BIN_EXE_sag"))
         .args(["install", "codex"]).env_clear().env("HOME", home.path())
         .env("PATH", "/usr/bin:/bin").output().unwrap();
@@ -95,6 +154,7 @@ fn blocked_reference_creation_preserves_the_previous_skill_entry() {
 #[test]
 fn install_is_repeatable_and_preserves_foreign_and_edited_files() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let run = |verb: &str| {
         Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([verb, "claude-code"])
@@ -126,6 +186,7 @@ fn install_is_repeatable_and_preserves_foreign_and_edited_files() {
 #[test]
 fn cli_uninstall_uses_recorded_location_when_path_changes() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let first = home.path().join("first");
     let second = home.path().join("second");
     fs::create_dir(&first).unwrap();
@@ -163,6 +224,7 @@ fn cli_uninstall_uses_recorded_location_when_path_changes() {
 #[test]
 fn cli_installs_in_stable_user_bin_instead_of_a_temporary_path_entry() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let transient = home.path().join(".codex/tmp/arg0/session");
     fs::create_dir_all(&transient).unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_sag"))
@@ -186,6 +248,7 @@ fn cli_installs_in_stable_user_bin_instead_of_a_temporary_path_entry() {
 #[test]
 fn missing_recorded_binary_does_not_recreate_the_old_temporary_directory() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let data = home.path().join("data");
     let old = home.path().join(".codex/tmp/arg0/expired/sag");
     fs::create_dir(&data).unwrap();
@@ -268,6 +331,7 @@ fn fresh_terminals_find_cli_and_uninstall_preserves_shell_settings() {
 #[test]
 fn custom_zdotdir_is_registered_and_cleanup_does_not_depend_on_the_current_shell() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let config = home.path().join("custom zsh");
     fs::create_dir(&config).unwrap();
     fs::write(config.join(".zshrc"), "# keep custom config").unwrap();
@@ -298,6 +362,7 @@ fn custom_zdotdir_is_registered_and_cleanup_does_not_depend_on_the_current_shell
 #[test]
 fn user_edits_to_managed_shell_blocks_are_not_overwritten_or_removed() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let run = |action: &str| {
         Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([action, "cli"])
@@ -328,6 +393,7 @@ fn user_edits_to_managed_shell_blocks_are_not_overwritten_or_removed() {
 #[test]
 fn reinstall_moves_a_legacy_binary_without_registering_the_temporary_path() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let run = || {
         Command::new(env!("CARGO_BIN_EXE_sag"))
             .args(["install", "cli"])
@@ -365,6 +431,7 @@ fn reinstall_moves_a_legacy_binary_without_registering_the_temporary_path() {
 #[test]
 fn failed_terminal_setup_preserves_legacy_install_for_retry() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let run = |action: &str| {
         Command::new(env!("CARGO_BIN_EXE_sag"))
             .args([action, "cli"])
@@ -423,6 +490,7 @@ fn failed_terminal_setup_preserves_legacy_install_for_retry() {
 #[test]
 fn explicit_install_and_uninstall_record_the_initialization_choice() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let data = home.path().join("data");
     let run = |action: &str| Command::new(env!("CARGO_BIN_EXE_sag"))
         .args([action,"cli"]).env_clear().env("HOME",home.path()).env("SHELL","/bin/zsh")
@@ -439,6 +507,7 @@ fn explicit_install_and_uninstall_record_the_initialization_choice() {
 #[test]
 fn release_installs_with_one_command_without_rust_or_desktop() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let release = home.path().join("download");
     fs::create_dir(&release).unwrap();
     fs::copy(env!("CARGO_BIN_EXE_sag"), release.join("sag")).unwrap();
@@ -453,12 +522,13 @@ fn release_installs_with_one_command_without_rust_or_desktop() {
         .env_clear().env("HOME", home.path()).env("SAG_DATA_DIR", home.path().join("data"))
         .output().unwrap();
     assert!(status.status.success(), "{}", String::from_utf8_lossy(&status.stderr));
-    assert!(String::from_utf8_lossy(&status.stdout).contains("独立模式"));
+    assert!(String::from_utf8_lossy(&status.stdout).contains("未运行"));
 }
 
 #[test]
 fn installer_accepts_key_and_model_without_echoing_the_key() {
     let home = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(home.path().join("data"));
     let result = Command::new("/bin/sh")
         .arg(concat!(env!("CARGO_MANIFEST_DIR"), "/../scripts/install.sh"))
         .args(["--key", "test-install-private-key", "--url", "https://example.com/decisions", "--model", "install-model"])

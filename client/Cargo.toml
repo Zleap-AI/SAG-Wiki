@@ -1,0 +1,12 @@
+[package]
+name = "sag-client"
+version = "0.1.0"
+edition = "2021"
+[dependencies]
+sag-protocol = { path = "../protocol" }
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros"] }
+uuid = { version = "1", features = ["v4"] }
+tempfile = "3"
