@@ -7,7 +7,19 @@ export const LocalImage=Image.extend({renderHTML({node,HTMLAttributes}){return['
 const extensions=[StarterKit,TableKit,LocalImage,TaskList,TaskItem.configure({nested:true})];const parser=new MarkdownManager({extensions});
 import {splitFrontmatter,protectHtml} from './markdown-source';
 export {splitFrontmatter,protectHtml,restoreHtml} from './markdown-source';
-export function renderMarkdown(text:string):string{return DOMPurify.sanitize(generateHTML(parser.parse(protectHtml(splitFrontmatter(text).body)),extensions),{ADD_ATTR:['data-source']});}
+export function renderMarkdown(text:string,referenceBody?:string):string{
+ if(referenceBody)text+='\n\n'+parser.instance.lexer(splitFrontmatter(referenceBody).body).filter(token=>token.type==='def').map(token=>token.raw).join('\n\n');
+ return DOMPurify.sanitize(generateHTML(parser.parse(protectHtml(splitFrontmatter(text).body)),extensions),{ADD_ATTR:['data-source']});
+}
+export function markdownCitation(body:string,ranges:{from:number;to:number}[]):string{
+ const normalized=body.replace(/\r\n?/g,'\n');
+ const positions=ranges.map(({from,to})=>({from:body.slice(0,from).replace(/\r\n?/g,'\n').length,to:body.slice(0,to).replace(/\r\n?/g,'\n').length}));
+ const {prefix,body:content}=splitFrontmatter(normalized);let offset=prefix.length;
+ return parser.instance.lexer(content).filter(token=>{
+  const from=offset;offset+=token.raw.length;
+  return token.type==='def'||positions.some(range=>from<range.to&&offset>range.from);
+ }).map(token=>token.raw).join('\n\n');
+}
 export async function hydrateImages(host:HTMLElement,path:string):Promise<void>{for(const image of host.querySelectorAll<HTMLImageElement>('img[data-source]')){const src=image.dataset.source!;if(/^(?:https?:|data:|javascript:)/i.test(src)){image.alt=get(t)('外部图片（未自动加载）');continue;}const base=dirname(path).replace(/\\/g,'/');const url=new URL(src,'file://'+(base.startsWith('/')?'':'/')+base+'/');let absolute=decodeURIComponent(url.pathname);if(/^[A-Za-z]:/.test(base))absolute=absolute.replace(/^\//,'');try{image.src=await api<string>('load_image',{path:absolute});}catch(error){image.alt=get(t)('图片不可用：{value0}',{value0:get(t)(String(error))});}}}
 export function renderAnswer(text:string,evidence:Candidate[]){
  const html=renderMarkdown(text);const doc=new DOMParser().parseFromString(html,'text/html');const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);const nodes:Text[]=[];while(walker.nextNode())nodes.push(walker.currentNode as Text);

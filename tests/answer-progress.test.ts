@@ -228,8 +228,10 @@ describe('流式 Markdown',()=>{
   resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});
   await vi.waitFor(()=>expect(currentAnswer().querySelector<HTMLButtonElement>('[data-citation="0"]')).not.toBeNull());
   expect(currentAnswer().querySelector('h3')?.textContent).toBe('文件内容');
+  const base=invoke.getMockImplementation()!;
+  invoke.mockImplementation((command,args)=>command==='read_document'?{path:evidence.path,name:evidence.title,body:evidence.content,hash:evidence.hash}:base(command,args));
   currentAnswer().querySelector<HTMLButtonElement>('[data-citation="0"]')!.click();await tick();
-  expect(document.querySelector('.source-text')?.textContent).toBe(evidence.content);
+  await vi.waitFor(()=>expect(document.querySelector('.source-panel .search-hit.active')?.textContent).toBe(evidence.content));
  });
 });
 

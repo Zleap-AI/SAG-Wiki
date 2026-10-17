@@ -362,6 +362,7 @@
   "输出 tokens 未返回": "Output token count unavailable",
   "返回 {value0} 个原文片段": "Source passages returned: {value0}",
   "返回上一层": "Go up one level",
+  "返回会话": "Back to conversation",
   "返回搜索": "Back to search",
   "返回文件夹": "Back to folder",
   "返回片段数量": "Returned passages",

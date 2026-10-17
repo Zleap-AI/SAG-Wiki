@@ -15,5 +15,6 @@ export function fileName(value:string):string{let n=value.trim();if(!n.toLowerCa
 
 export const isMarkdown=(path:string)=>/\.(md|markdown)$/i.test(path);
 export const isRtf=(path:string)=>/\.rtf$/i.test(path);
+export const isHtml=(path:string)=>/\.html?$/i.test(path);
 export const readonlyHtml=(path:string,body:string)=>`<pre class="${isRtf(path)?'rtf-preview':'code-preview'}">${escaped(body)}</pre>`;
 export function sourceLocation(c:Candidate):string {const translate=get(t);const location=c.source_spans?.length?c.source_spans.map(s=>translate('第 {value0} 行 {value1} 列 → 第 {value2} 行 {value3} 列',{value0:s.start_line,value1:s.start_column,value2:s.end_line,value3:s.end_column})).join(translate('；')):translate('第 {value0}–{value1} 行',{value0:c.start_line,value1:c.end_line});return isRtf(c.path)?`${translate('RTF 正文')} · ${location}`:location;}
