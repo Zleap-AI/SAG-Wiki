@@ -25,18 +25,19 @@ async function start(){app=mount(App,{target:document.body});await vi.waitFor(()
 it('搜索历史标题和内容，键盘打开结果，并保留原列表位置',async()=>{
  await start();
  const list=document.querySelector<HTMLElement>('.ask-content')!;list.scrollTop=520;list.dispatchEvent(new Event('scroll'));
- document.querySelector<HTMLButtonElement>('[aria-label="最近问答"]')!.click();await tick();
- const input=document.querySelector<HTMLInputElement>('[aria-label="搜索历史会话"]')!;
+ document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
+ const input=document.querySelector<HTMLInputElement>('input[aria-label="搜索历史会话"]')!;
  input.value='TRACING';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  const result=document.querySelector<HTMLButtonElement>('.history-search-result')!;
  expect(result.tabIndex).toBe(-1);expect(result.textContent).toContain('会话 41');expect(document.querySelectorAll('.history-search-result')).toHaveLength(1);
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector('.history-search-dialog')).toBeNull());
  expect(document.querySelector('.answer-text')?.textContent).toBe('Deep connection tracing');
- document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();await tick();
+ document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('button[aria-label="搜索会话"]')).not.toBeNull());
  expect(document.querySelector<HTMLElement>('.ask-content')!.scrollTop).toBe(520);
- document.querySelector<HTMLButtonElement>('[aria-label="最近问答"]')!.click();await tick();
- const titleInput=document.querySelector<HTMLInputElement>('[aria-label="搜索历史会话"]')!;
+ document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
+ const titleInput=document.querySelector<HTMLInputElement>('input[aria-label="搜索历史会话"]')!;
  titleInput.value='会话 23';titleInput.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  expect(document.querySelectorAll('.history-search-result')).toHaveLength(1);
  expect(document.querySelector('.history-search-result')!.textContent).toContain('会话 23');
@@ -47,10 +48,12 @@ it('最近问答放在右侧问答首页，左侧只保留知识库',async()=>{
  await start();
  expect(document.querySelector('.sidebar .recent-conversations')).toBeNull();
  expect(document.querySelectorAll('.workspace .recent-conversations .history-row')).toHaveLength(50);
+ expect(document.querySelector('.workspace .topbar')).toBeNull();
  expect(document.querySelector('[aria-label="调整会话与知识库区域大小"]')).toBeNull();
  document.querySelector<HTMLButtonElement>('.workspace .conversation-item')!.click();await tick();
  await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0'));
  expect(document.querySelector('.workspace .recent-conversations')).toBeNull();
+ expect(document.querySelector('.workspace .topbar')).not.toBeNull();
  expect(document.querySelector('.workspace [aria-label="最近问答"]')?.textContent).toContain('最近问答');
 });
 it('会话和知识库独立保存滚动位置，收起侧栏与重开应用后恢复',async()=>{
@@ -67,4 +70,15 @@ it('会话和知识库独立保存滚动位置，收起侧栏与重开应用后�
  expect(document.querySelector<HTMLElement>('.ask-content')!.scrollTop).toBe(430);
  expect(document.querySelector<HTMLElement>('.tree')!.scrollTop).toBe(170);
  expect(document.querySelector('[aria-label="折叠Knowledge"]')).not.toBeNull();
+});
+
+it('没有历史会话时只显示提问区，不保留列表或顶部导航的空位',async()=>{
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,...args)=>command==='list_conversations'?[]:original(command,...args));
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="发送问题"]')).not.toBeNull());
+ expect(document.querySelector('.ask-home')).not.toBeNull();
+ expect(document.querySelector('.ask-home.has-history')).toBeNull();
+ expect(document.querySelector('.recent-conversations')).toBeNull();
+ expect(document.querySelector('.workspace .topbar')).toBeNull();
 });

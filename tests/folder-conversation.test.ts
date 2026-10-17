@@ -38,7 +38,7 @@ it('文件夹菜单的问答开启独立对话，并将新问题限定在该文�
   const ask = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent?.trim() === '问答')!;
   ask.click();
   await vi.waitFor(() => expect(document.querySelector('.answer-text')).toBeNull());
-  expect(document.querySelector('.breadcrumb')?.textContent).toContain('notes');
+  expect(document.querySelector('.composer .scope-button')?.textContent).toContain('notes');
   expect(document.querySelector('.history-row.active')).toBeNull();
 
   const input = document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;

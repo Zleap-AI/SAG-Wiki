@@ -312,7 +312,7 @@ input,select,textarea{font-size:var(--text-ui)}
 /* Conversation history lives in the workspace; the sidebar is reserved for folders. */
 .real-client .sidebar>.tree{flex:1;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
 .real-client .ask-content.ask-home{overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain;padding-bottom:32px}
-.real-client .ask-home>.welcome{flex:none;min-height:200px;margin-top:clamp(16px,4vh,44px);padding-bottom:28px}
+.real-client .ask-home>.welcome{flex:none;min-height:200px;margin-top:clamp(24px,8vh,80px);padding-bottom:28px}
 .real-client .ask-home>.recent-conversations{flex-shrink:0;width:100%;max-width:800px;margin:28px auto 0;padding:0 36px;border:0}
 .real-client .ask-home .recent-heading{padding:0;margin-bottom:12px;height:auto;font-size:var(--text-ui)}
 .real-client .ask-home .recent-list{max-height:none;margin:0;padding:0;overflow:visible}
@@ -324,3 +324,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .conversation-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
 .real-client .conversation-actions .history-button{display:flex;align-items:center;gap:6px;padding:6px 8px;color:var(--color-secondary);font-size:var(--text-caption)}
 .real-client .conversation-actions .history-button>.icon{width:16px;height:16px}
+
+.real-client .ask-content.ask-home:not(.has-history){padding-block:0}
+.real-client .ask-home:not(.has-history)>.welcome{margin-top:auto}
+.real-client .ask-home:not(.has-history)>.composer-wrap{margin-bottom:auto}
