@@ -1540,8 +1540,8 @@ mod tests {
         store.connection().execute("INSERT INTO preferences VALUES(1,?)", [old.to_string()]).unwrap();
         let upgraded = store.settings().unwrap();
         assert_eq!(upgraded.retrieval_version, 10);
-        assert_eq!(upgraded.retrieval.candidate_k, 100);
-        assert_eq!(upgraded.retrieval.max_hops, 2);
+        assert_eq!(upgraded.retrieval.candidate_k, 50);
+        assert_eq!(upgraded.retrieval.max_hops, 1);
         assert_eq!(upgraded.jev.url, "https://existing.example/decisions");
         old["retrieval"]["candidate_k"] = serde_json::json!(70);
         store.connection().execute("UPDATE preferences SET value=? WHERE id=1", [old.to_string()]).unwrap();

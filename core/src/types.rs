@@ -189,10 +189,10 @@ pub struct Retrieval {
 impl Default for Retrieval {
     fn default() -> Self {
         Self {
-            candidate_k: 100,
+            candidate_k: 50,
             seed_k: 10,
             expansion_term_limit: 20,
-            max_hops: 2,
+            max_hops: 1,
             top_k: 10,
             chunk_chars: 512,
         }
@@ -392,23 +392,8 @@ mod default_tests {
     }
     #[test]
     fn retrieval_defaults_to_v10() {
-        assert_eq!(Settings::default().retrieval.chunk_chars, 512);
-        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().retrieval.chunk_chars, 512);
-        assert_eq!(Settings::default().retrieval.candidate_k, 100);
-        assert_eq!(
-            serde_json::from_str::<Settings>("{}")
-                .unwrap()
-                .retrieval
-                .candidate_k,
-            100
-        );
-        assert_eq!(Settings::default().retrieval.max_hops, 2);
-        assert_eq!(
-            serde_json::from_str::<Settings>("{}")
-                .unwrap()
-                .retrieval
-                .max_hops,
-            2
-        );
+        let expected = serde_json::json!({"candidate_k":50,"seed_k":10,"expansion_term_limit":20,"max_hops":1,"top_k":10,"chunk_chars":512});
+        assert_eq!(serde_json::to_value(Settings::default().retrieval).unwrap(), expected);
+        assert_eq!(serde_json::to_value(serde_json::from_str::<Settings>("{}").unwrap().retrieval).unwrap(), expected);
     }
 }
