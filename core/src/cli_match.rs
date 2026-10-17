@@ -9,6 +9,7 @@ struct Pattern {
 }
 struct Matcher {
     patterns: Vec<Pattern>,
+    literals: Option<regex::RegexSet>,
 }
 impl Matcher {
     fn new(request: &MatchRequest) -> Result<Self> {
@@ -55,7 +56,11 @@ impl Matcher {
             };
             patterns.push(Pattern { first, following });
         }
-        Ok(Self { patterns })
+        let literals = if matches!(request.mode, MatchMode::Fixed) {
+            Some(regex::RegexSetBuilder::new(request.patterns.iter().map(|p| regex::escape(p)))
+                .case_insensitive(request.options.ignore_case).build()?)
+        } else { None };
+        Ok(Self { patterns, literals })
     }
     fn find(&self, line: &str, from: usize) -> Option<Range<usize>> {
         self.patterns
@@ -134,7 +139,9 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
         if !included {
             return Ok(true);
         }
-        let document = tools.store.document(file)?;
+        let Some(document) = tools.store.matching_document(file, |body| {
+            mode == MatchOutputMode::Count || request.options.invert_match || matcher.literals.as_ref().is_none_or(|set| set.is_match(body))
+        })? else { return Ok(true); };
         let relative = format!("./{}", file.strip_prefix(&path)?.display());
         let spans: Vec<_> = text::Lines::new(&document.body)
             .spans

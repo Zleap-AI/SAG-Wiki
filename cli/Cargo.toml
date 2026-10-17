@@ -36,3 +36,13 @@ opt-level = "s"
 # Keep file integrity checks fast in development builds too.
 [profile.dev.package.sha2]
 opt-level = 3
+
+# The development service uses the same optimized matching libraries as release.
+[profile.dev.package.regex-automata]
+opt-level = 3
+[profile.dev.package.aho-corasick]
+opt-level = 3
+[profile.dev.package.memchr]
+opt-level = 3
+[profile.dev.package.encoding_rs]
+opt-level = 3

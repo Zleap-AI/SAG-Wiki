@@ -236,8 +236,8 @@ impl SagTools {
             vec![],
         ))
     }
-    fn candidate(document: &Document, start: usize, end: usize) -> Candidate {
-        let span = text::Lines::new(&document.body).span(&document.body, start, end);
+    fn candidate(document: &Document, lines: &text::Lines, start: usize, end: usize) -> Candidate {
+        let span = lines.span(&document.body, start, end);
         let key = store::hash(
             format!("{}:{}:{}:{}", document.path, document.hash, start, end).as_bytes(),
         );
@@ -286,7 +286,7 @@ impl SagTools {
         let sources = if start == end {
             vec![]
         } else {
-            vec![Self::candidate(&document, start, end)]
+            vec![Self::candidate(&document, &text::Lines::new(&document.body), start, end)]
         };
         Ok(Output::new(
             json!({"path":document.path,"offset":args.offset,"length":length,"total_characters":total,"has_more":more,"next_offset":more.then_some(args.offset+length),"version":document.hash}),
@@ -308,8 +308,9 @@ impl SagTools {
         let mut more = false;
         self.visit(paths, true, |path,base,metadata| {
             if !metadata.is_file() || !text::is_supported(path) || !Self::matches(&pattern,path,base) { return Ok(true) }
-            let document = self.store.document(path)?;
-            let starts=text::Lines::new(&document.body).spans.into_iter().map(|(start,_)|start).collect::<Vec<_>>();
+            let Some(document) = self.store.matching_document(path, |body| regex.is_match(body))? else { return Ok(true); };
+            let lines = text::Lines::new(&document.body);
+            let starts=lines.spans.iter().map(|(start,_)|*start).collect::<Vec<_>>();
             for found in regex.find_iter(&document.body) {
                 if self.cancel.is_cancelled() { bail!("已停止") }
                 if skipped < args.offset { skipped += 1; continue }
@@ -318,7 +319,7 @@ impl SagTools {
                 let last = starts.partition_point(|start| *start<found.end()).saturating_sub(1);
                 let start = starts[line.saturating_sub(args.context_lines)];
                 let end = starts.get(last.saturating_add(args.context_lines).saturating_add(1)).copied().unwrap_or(document.body.len());
-                let candidate = Self::candidate(&document,start,end);
+                let candidate = Self::candidate(&document,&lines,start,end);
                 matches.push(json!({"path":document.path,"line":line+1,"offset":document.body[..found.start()].chars().count(),"length":found.as_str().chars().count(),"context_offset":document.body[..start].chars().count(),"source_index":sources.len()}));
                 sources.push(candidate);
             }
@@ -494,6 +495,23 @@ pub(crate) mod tests {
             progress: Arc::new(|_, _| {}),
         };
         (dir, tools, root)
+    }
+    #[tokio::test]
+    async fn grep_preserves_multiple_unicode_locations_after_unmatched_content() {
+        let (_dir, tools, root) = fixture();
+        let path = root.join("before.txt");
+        let source = format!("{}汉字 needle🙂\r\n结束 needle\r\n", "无匹配内容\r\n".repeat(2000));
+        fs::write(&path, &source).unwrap();
+        let first = tools.execute("grep", json!({"query":"needle","path":path,"context_lines":0,"length":1})).await.unwrap();
+        assert_eq!(first.data["matches"][0]["line"], 2001);
+        assert_eq!(first.data["matches"][0]["offset"], source[..source.find("needle").unwrap()].chars().count());
+        assert_eq!(first.sources[0].content, "汉字 needle🙂\r\n");
+        assert_eq!(first.sources[0].hash, store::hash(source.as_bytes()));
+        assert_eq!(first.data["has_more"], true);
+        let second = tools.execute("grep", json!({"query":"needle","path":path,"context_lines":0,"offset":1,"length":1})).await.unwrap();
+        assert_eq!(second.data["matches"][0]["line"], 2002);
+        assert_eq!(second.sources[0].content, "结束 needle\r\n");
+        assert_eq!(second.data["has_more"], false);
     }
     #[tokio::test]
     async fn mcp_discovery_defaults_and_selected_tools() {

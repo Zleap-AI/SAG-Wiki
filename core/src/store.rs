@@ -408,11 +408,17 @@ impl Store {
         let canonical = path
             .canonicalize()
             .with_context(|| format!("路径不可用：{}", path.display()))?;
-        if !self
-            .roots()?
-            .iter()
-            .any(|r| canonical.starts_with(Path::new(&r.path)))
-        {
+        let allowed = {
+            let connection = self.connection();
+            let mut query = connection.prepare_cached("SELECT path FROM roots")?;
+            let paths = query.query_map([], |r| r.get::<_, String>(0))?;
+            let mut allowed = false;
+            for path in paths {
+                allowed |= canonical.starts_with(Path::new(&path?));
+            }
+            allowed
+        };
+        if !allowed {
             bail!("该路径不在已添加的文件夹内")
         };
         if self.is_excluded(&canonical)? { bail!("此目录已从知识库移除，请先重新添加") }
@@ -528,8 +534,13 @@ impl Store {
         Ok(entries)
     }
     pub fn document(&self, path: &Path) -> Result<Document> {
+        Ok(self.matching_document(path, |_| true)?.unwrap())
+    }
+    pub(crate) fn matching_document(&self, path: &Path, matches: impl FnOnce(&str) -> bool) -> Result<Option<Document>> {
         let path = self.authorize(path)?;
         let raw = fs::read(&path)?;
+        let body = crate::document_text::read_borrowed(&path, &raw)?;
+        if !matches(&body) { return Ok(None); }
         let id = self
             .connection()
             .query_row(
@@ -539,13 +550,13 @@ impl Store {
             )
             .optional()?
             .unwrap_or(0);
-        Ok(Document {
+        Ok(Some(Document {
             id,
             path: path_text(&path)?,
             name: path.file_name().unwrap().to_string_lossy().into(),
-            body: body(&path, &raw)?,
+            body: body.into_owned(),
             hash: hash(&raw),
-        })
+        }))
     }
     pub fn files(&self) -> Result<Vec<FileInfo>> {
         let c = self.connection();
