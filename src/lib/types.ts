@@ -16,11 +16,12 @@ export type ToolApproval={id:string;query_id:string;server_name:string;tool_name
 export type Retrieval={candidate_k:number;seed_k:number;expansion_term_limit:number;max_hops:number;top_k:number;chunk_chars:number};
 export type FileTypes={markdown:boolean;text:boolean;code:boolean;config:boolean};
 export type Settings={retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
-export type Message={question:string;answer:string;reasoning?:string;evidence:Candidate[];model:string;scope:string[];references:string[];status:string;error:string|null;retrieval_question:string;tool_calls?:ToolCallRecord[];context?:AnswerContext|null};
+export type ReasoningBlock={answer_offset:number;tool_count:number;content:string};
+export type Message={question:string;answer:string;reasoning?:string;reasoning_blocks?:ReasoningBlock[];evidence:Candidate[];model:string;scope:string[];references:string[];status:string;error:string|null;retrieval_question:string;tool_calls?:ToolCallRecord[];context?:AnswerContext|null};
 export type Conversation={id:string;title:string;messages:Message[];updated:number;deleted:boolean};
 export type Draft={path:string;name:string;body:string;hash:string;is_new:boolean};
 export type ToolCallRecord={id:string;answer_offset?:number|null;query:string;source_count:number;elapsed_ms?:number|null;tool_name?:string|null;server_name?:string|null;is_error?:boolean;denied?:boolean;result?:unknown;error?:string|null};
-export type Progress={reasoning_delta?:string|null;replace?:boolean;id:string;stage:string;delta:string|null;count:number;tool?:{call:ToolCallRecord;finished:boolean}|null};
+export type Progress={reasoning_delta?:string|null;reasoning_block?:ReasoningBlock|null;replace?:boolean;id:string;stage:string;delta:string|null;count:number;tool?:{call:ToolCallRecord;finished:boolean}|null};
 export type SearchPagination={total:number;page:number;page_size:number};
 export type QueryOutput={terms:string[];elapsed_ms?:number;results:Candidate[];pagination?:SearchPagination|null;trace:{hop:number;candidates:number[];terms:{term:string;score:number}[];evidence:number[]}[];conversation:Conversation|null};
 

@@ -43,6 +43,43 @@ describe('回答中的处理进度',()=>{
   expect([...document.querySelectorAll('.form-error')].filter(node=>node.textContent===translate(error,'en'))).toHaveLength(1);
   expect(document.querySelector('.content > .form-error')).toBeNull();
  });
+ it('思考穿插在对应文字和工具之间，只有当前思考展开，重开会话仍保持顺序',async()=>{
+  const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
+  const blocks=[
+   {answer_offset:0,tool_count:0,content:'先确定查找范围。'},
+   {answer_offset:8,tool_count:0,content:'决定调用搜索。'},
+   {answer_offset:8,tool_count:1,content:'核对工具返回的证据。'},
+  ];
+  const thought=async(index:number)=>{listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:blocks[index].content,reasoning_block:blocks[index],count:0}});await tick()};
+  const order=()=>[...document.querySelectorAll('.answer')[1].querySelectorAll('.answer-text,.reasoning,.tool-call')].map(node=>node.matches('.reasoning')?'思考':node.matches('.tool-call')?'工具':node.textContent).filter(Boolean);
+  await thought(0);await progress('正在生成回答','我先查询文档🙂');
+  await thought(1);
+  await vi.waitFor(()=>expect(order()).toEqual(['思考','我先查询文档🙂','思考']));
+  expect([...document.querySelectorAll('.reasoning button')].map(node=>node.getAttribute('aria-expanded'))).toEqual(['false','true']);
+  const call={id:'reasoning-order',query:'查询资料',source_count:1,answer_offset:8};
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'检索完成',delta:null,count:1,tool:{call,finished:true}}});await tick();
+  await thought(2);await progress('正在生成回答','这是最终回答。');
+  const expected=['思考','我先查询文档🙂','思考','工具','思考','这是最终回答。'];
+  await vi.waitFor(()=>expect(order()).toEqual(expected));
+  expect([...document.querySelectorAll('.reasoning button')].every(node=>node.getAttribute('aria-expanded')==='false')).toBe(true);
+  savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer:'我先查询文档🙂这是最终回答。',reasoning:blocks.map(block=>block.content).join(''),reasoning_blocks:blocks,tool_calls:[call],status:'complete'}]};
+  resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});await tick();await tick();
+  document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();await tick();
+  document.querySelector<HTMLButtonElement>('[title="已有对话"]')!.click();await tick();
+  await vi.waitFor(()=>expect(order()).toEqual(expected));
+ });
+ it('修正回答草稿后，相关思考仍留在新回答前面',async()=>{
+  const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:'先检查。',reasoning_block:{answer_offset:0,tool_count:0,content:'先检查。'},count:0}});await tick();
+  await progress('正在生成回答','错误草稿。');
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:'重新核对。',reasoning_block:{answer_offset:5,tool_count:0,content:'重新核对。'},count:0}});await tick();
+  await progress('正在修正引用','',undefined,true);
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:'继续检查。',reasoning_block:{answer_offset:0,tool_count:0,content:'继续检查。'},count:0}});await tick();
+  expect([...document.querySelectorAll('.reasoning button')].map(node=>node.getAttribute('aria-expanded'))).toEqual(['false','true']);
+  await progress('正在生成回答','已修正。');
+  const order=()=>[...document.querySelectorAll('.answer')[1].querySelectorAll('.answer-text,.reasoning')].map(node=>node.matches('.reasoning')?'思考':node.textContent).filter(Boolean);
+  await vi.waitFor(()=>expect(order()).toEqual(['思考','思考','已修正。']));
+ });
  it('思考时默认展开，生成回答时折叠，完成后仍可手动展开',async()=>{
   const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
   const emitThought=async(text:string)=>{listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:text,count:0}});await tick()};

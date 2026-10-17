@@ -2,7 +2,7 @@ use crate::{
     mcp::{ExternalTool, McpSession},
     models,
     retrieval::{SearchOutput, Trace},
-    types::{AnswerContext, Candidate, Message, ModelConfig, ToolCallRecord},
+    types::{AnswerContext, Candidate, Message, ModelConfig, ReasoningBlock, ToolCallRecord},
 };
 use anyhow::{bail, Context, Result};
 use serde::Deserialize;
@@ -33,7 +33,15 @@ impl Default for AgentOptions<'_> {
 pub enum AnswerDelta<'a> {
     Append(&'a str),
     Replace(&'a str),
-    Reasoning(&'a str),
+    Reasoning(&'a str, &'a ReasoningBlock),
+}
+
+fn truncate_answer(message: &mut Message, start: usize) {
+    message.answer.truncate(start);
+    let end = message.answer.encode_utf16().count();
+    for block in &mut message.reasoning_blocks {
+        block.answer_offset = block.answer_offset.min(end);
+    }
 }
 
 // Only source labels in prose (not code or Markdown links) refer to local evidence.
@@ -282,7 +290,19 @@ where
                             );
                             reasoning_started = true;
                             message.reasoning.push_str(&addition);
-                            progress("思考中", Some(AnswerDelta::Reasoning(&addition)), 0, None);
+                            let block = ReasoningBlock {
+                                answer_offset: message.answer.encode_utf16().count(),
+                                tool_count: message.tool_calls.len(),
+                                content: text.into(),
+                            };
+                            if let Some(last) = message.reasoning_blocks.last_mut().filter(|last| {
+                                last.answer_offset == block.answer_offset && last.tool_count == block.tool_count
+                            }) {
+                                last.content.push_str(text);
+                            } else {
+                                message.reasoning_blocks.push(block.clone());
+                            }
+                            progress("思考中", Some(AnswerDelta::Reasoning(&addition, &block)), 0, None);
                         }
                     },
                 )
@@ -353,7 +373,19 @@ where
                         );
                         reasoning_started = true;
                         message.reasoning.push_str(&addition);
-                        progress("思考中", Some(AnswerDelta::Reasoning(&addition)), 0, None);
+                        let block = ReasoningBlock {
+                            answer_offset: message.answer.encode_utf16().count(),
+                            tool_count: message.tool_calls.len(),
+                            content: text.into(),
+                        };
+                        if let Some(last) = message.reasoning_blocks.last_mut().filter(|last| {
+                            last.answer_offset == block.answer_offset && last.tool_count == block.tool_count
+                        }) {
+                            last.content.push_str(text);
+                        } else {
+                            message.reasoning_blocks.push(block.clone());
+                        }
+                        progress("思考中", Some(AnswerDelta::Reasoning(&addition, &block)), 0, None);
                     }
                 },
             )
@@ -381,7 +413,7 @@ where
             {
                 require_tool = true;
                 final_only = false;
-                message.answer.truncate(answer_start);
+                truncate_answer(message, answer_start);
                 progress("思考中", Some(AnswerDelta::Replace(&message.answer)), 0, None);
                 messages.push(json!({"role":"system","content":"你引用了尚未取得的来源。本轮没有工具证据。先调用合适的已启用工具，取得真实来源后再回答，不能自行编造编号。"}));
                 continue;
@@ -396,7 +428,7 @@ where
                 citations_repaired = true;
                 final_only = true;
                 synthesis_prepared = true;
-                message.answer.truncate(answer_start);
+                truncate_answer(message, answer_start);
                 progress("正在修正引用", Some(AnswerDelta::Replace(&message.answer)), 0, None);
                 messages.push(json!({"role":"system","content":format!(
                     "候选回答包含无效引用 {}。本轮合法 source_id 仅为 {}。逐项核对工具原文，将引用改为真正支持对应事实的 source_id；找不到支持时明确说明证据不足，禁止猜测或仅替换成任意合法编号。保留用户要求的输出格式，只返回修正后的最终回答。候选回答：\n{}",
@@ -407,7 +439,7 @@ where
             if uncited && !reviewed {
                 reviewed = true;
                 final_only = !allow_tools;
-                message.answer.truncate(answer_start);
+                truncate_answer(message, answer_start);
                 progress(
                     "正在复核证据与引用",
                     Some(AnswerDelta::Replace(&message.answer)),
@@ -427,7 +459,7 @@ where
                 continue;
             }
             if !invalid.is_empty() {
-                message.answer.truncate(answer_start);
+                truncate_answer(message, answer_start);
                 progress("引用校验未通过", Some(AnswerDelta::Replace(&message.answer)), 0, None);
                 bail!("模型引用了本轮不存在的原文编号：{}", invalid.join(", "))
             }
@@ -747,6 +779,7 @@ mod tests {
             question: "查询本地文件".into(),
             answer: String::new(),
             reasoning: String::new(),
+            reasoning_blocks: vec![],
             evidence: vec![],
             model: "test".into(),
             scope: vec!["/allowed".into()],
@@ -933,6 +966,36 @@ mod tests {
         assert!(requests.lock().unwrap()[2]["messages"].to_string().contains("超过上下文预算"));
     }
     #[tokio::test]
+    async fn reasoning_positions_follow_text_and_tools_and_survive_history() {
+        let mut first = call("lookup", "查询资料");
+        first.splice(0..0, [
+            json!({"reasoning_content":"先确定范围。"}),
+            json!({"reasoning_content":"再选择资料。"}),
+            json!({"content":"我先查询文档🙂"}),
+            json!({"reasoning_content":"现在执行搜索。"}),
+        ]);
+        let (config, _) = tool_server(vec![first, vec![
+            json!({"reasoning_content":"核对检索证据。"}),
+            json!({"content":"最终答案 [1]。"}),
+        ]]);
+        let mut current = message();
+        let mut events = vec![];
+        answer(&reqwest::Client::new(), &config, "test", &mut current, &[],
+            16384, 512, 5, &CancellationToken::new(),
+            |_| async { Ok(SearchOutput { results: vec![candidate(1,"支持答案的原文。")], trace: vec![] }) },
+            |_, delta, _, _| { if let Some(AnswerDelta::Reasoning(_, block)) = delta { events.push(block.clone()); } },
+        ).await.unwrap();
+        assert_eq!(events.iter().map(|block|(block.answer_offset,block.tool_count)).collect::<Vec<_>>(),vec![(0,0),(0,0),(8,0),(8,1)]);
+        assert_eq!(current.reasoning_blocks, vec![
+            ReasoningBlock { answer_offset:0, tool_count:0, content:"先确定范围。再选择资料。".into() },
+            ReasoningBlock { answer_offset:8, tool_count:0, content:"现在执行搜索。".into() },
+            ReasoningBlock { answer_offset:8, tool_count:1, content:"核对检索证据。".into() },
+        ]);
+        let saved:Message=serde_json::from_str(&serde_json::to_string(&current).unwrap()).unwrap();
+        assert_eq!(saved.reasoning_blocks,current.reasoning_blocks);
+        assert_eq!(saved.answer,"我先查询文档🙂最终答案 [1]。");
+    }
+    #[tokio::test]
     async fn streams_and_preserves_reasoning_separately_from_the_answer() {
         let (config, _) = server(vec![vec![
             json!({"reasoning_content":"先核对问题。"}),
@@ -958,7 +1021,7 @@ mod tests {
             |_| async { panic!("No search requested") },
             |_, _| async { Ok(true) },
             |_, delta, _, _| match delta {
-                Some(AnswerDelta::Reasoning(text)) => events.push(("reasoning", text.to_owned())),
+                Some(AnswerDelta::Reasoning(text, _)) => events.push(("reasoning", text.to_owned())),
                 Some(AnswerDelta::Append(text)) => events.push(("answer", text.to_owned())),
                 _ => {}
             },
@@ -1244,7 +1307,7 @@ mod tests {
         lookup.insert(0, json!({"content":"I will check the records. "}));
         let (config, _) = tool_server(vec![
             lookup,
-            vec![json!({"content":"Mercia was abolished in 918 [9]."})],
+            vec![json!({"content":"Mercia was abolished in 918 [9]."}), json!({"reasoning_content":"Recheck the citation."})],
             vec![json!({"content":"Mercia was abolished in 918 [1]."})],
         ]);
         let mut m = message();
@@ -1269,6 +1332,8 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(m.answer, "I will check the records. Mercia was abolished in 918 [1].");
+        assert_eq!(m.reasoning_blocks[0].answer_offset,26);
+        assert_eq!(m.reasoning_blocks[0].content,"Recheck the citation.");
     }
     #[test]
     fn grounding_citation_parser_rejects_unknown_ids_without_confusing_code_or_links() {

@@ -321,12 +321,21 @@ pub struct ToolCallRecord {
     #[serde(default)]
     pub error: Option<String>,
 }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ReasoningBlock {
+    /// UTF-16 position in the answer, after the preceding tool calls.
+    pub answer_offset: usize,
+    pub tool_count: usize,
+    pub content: String,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {
     pub question: String,
     pub answer: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub reasoning: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reasoning_blocks: Vec<ReasoningBlock>,
     pub evidence: Vec<Candidate>,
     pub model: String,
     pub scope: Vec<String>,
@@ -367,6 +376,7 @@ pub struct Progress {
     pub stage: String,
     pub delta: Option<String>,
     pub reasoning_delta: Option<String>,
+    pub reasoning_block: Option<ReasoningBlock>,
     pub count: usize,
     pub tool: Option<ToolProgress>,
 }

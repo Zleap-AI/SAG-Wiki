@@ -735,6 +735,7 @@ mod tests {
             question: "old".repeat(10000),
             answer: "历史".repeat(10000),
             reasoning: String::new(),
+            reasoning_blocks: vec![],
             evidence: vec![],
             model: String::new(),
             scope: vec![],

@@ -1671,6 +1671,7 @@ mod tests {
             question: "第一问".into(),
             answer: "第一答".into(),
             reasoning: String::new(),
+            reasoning_blocks: vec![],
             evidence: vec![],
             model: "test".into(),
             scope: vec![],

@@ -36,9 +36,9 @@ it('keeps citation numbering across text separated by multiple tool calls',()=>{
   {id:'second',query:'查询二',source_count:1,answer_offset:first.length+middle.length},
  ]);
  const parse=(html:string)=>new DOMParser().parseFromString(html,'text/html');
- expect(parse(result.beforeTools[0]).body.textContent).toBe(first);
- expect(parse(result.beforeTools[1]).querySelector('strong')!.textContent).toBe('第一条证据');
- expect(parse(result.beforeTools[1]).querySelector('.citation')!.textContent).toBe('1');
+ expect(parse(result.events[0].html).body.textContent).toBe(first);
+ expect(parse(result.events[1].html).querySelector('strong')!.textContent).toBe('第一条证据');
+ expect(parse(result.events[1].html).querySelector('.citation')!.textContent).toBe('1');
  expect([...parse(result.html).querySelectorAll('.citation')].map(node=>node.textContent)).toEqual(['2','1']);
  expect(result.sources.map(item=>item.first.path)).toEqual(['/notes/b.md','/notes/a.md']);
 });
@@ -48,7 +48,7 @@ it('resolves Markdown links defined after a tool call',()=>{
  const result=renderAnswer(before+'检索完成。\n\n[ref]: https://example.com/guide',[],[
   {id:'search',query:'检索资料',source_count:0,answer_offset:before.length},
  ]);
- const doc=new DOMParser().parseFromString(result.beforeTools[0],'text/html');
+ const doc=new DOMParser().parseFromString(result.events[0].html,'text/html');
  expect(doc.querySelector('a')?.getAttribute('href')).toBe('https://example.com/guide');
  expect(doc.querySelector('a')?.textContent).toBe('资料');
 });

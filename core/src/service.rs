@@ -594,6 +594,7 @@ async fn execute_query(
             question: q.question.clone(),
             answer: String::new(),
             reasoning: String::new(),
+            reasoning_blocks: vec![],
             evidence: vec![],
             model: q.model.clone(),
             scope: q.scope.clone(),
@@ -619,6 +620,7 @@ async fn execute_query(
                         stage: stage.into(),
                         delta: delta.map(String::from),
                         reasoning_delta: None,
+                        reasoning_block: None,
                         count,
                         tool: tool.map(|(call, finished)| ToolProgress {
                             call: call.clone(),
@@ -686,6 +688,7 @@ async fn execute_query(
                                     stage: stage.into(),
                                     delta: None,
                                     reasoning_delta: None,
+                        reasoning_block: None,
                                     replace: false,
                                     count,
                                     tool: None,
@@ -726,12 +729,13 @@ async fn execute_query(
                             stage: stage.into(),
                             delta: Some(text.into()),
                             reasoning_delta: None,
+                        reasoning_block: None,
                             replace: true,
                             count,
                             tool: None,
                         },
                     ),
-                    Some(agent::AnswerDelta::Reasoning(text)) => emit(
+                    Some(agent::AnswerDelta::Reasoning(text, block)) => emit(
                         app,
                         "query-progress",
                         Progress {
@@ -739,6 +743,7 @@ async fn execute_query(
                             stage: stage.into(),
                             delta: None,
                             reasoning_delta: Some(text.into()),
+                            reasoning_block: Some(block.clone()),
                             replace: false,
                             count,
                             tool: None,
@@ -749,7 +754,7 @@ async fn execute_query(
                         other.map(|d| match d {
                             agent::AnswerDelta::Append(text) => text,
                             agent::AnswerDelta::Replace(_) => unreachable!(),
-                            agent::AnswerDelta::Reasoning(_) => unreachable!(),
+                            agent::AnswerDelta::Reasoning(_, _) => unreachable!(),
                         }),
                         count,
                         tool,
