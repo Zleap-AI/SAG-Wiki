@@ -9,16 +9,6 @@ export const dirname=(path:string)=>path.replace(/[\\/][^\\/]+[\\/]?$/,'');
 export const inside=(path:string,parent:string)=>path===parent||path.startsWith(parent.replace(/[\\/]$/,'')+(parent.includes('\\')?'\\':'/'));
 export function normalizeScope(paths:string[]):string[]{return [...new Set(paths)].filter(p=>!paths.some(other=>other!==p&&inside(p,other)));}
 export function documentResults(candidates:Candidate[]):{first:Candidate;matches:Candidate[]}[]{const groups=new Map<string,Candidate[]>();for(const c of candidates){const list=groups.get(c.path)||[];list.push(c);groups.set(c.path,list)}return [...groups.values()].map(matches=>({first:matches[0],matches}));}
-export function citationGroups(candidates:Candidate[]):{first:Candidate;numbers:number[]}[]{
- const groups=new Map<string,{first:Candidate;numbers:number[]}>();
- candidates.forEach((candidate,index)=>{
-  const key=candidate.hash||candidate.path;
-  const group=groups.get(key);
-  if(group)group.numbers.push(index+1);
-  else groups.set(key,{first:candidate,numbers:[index+1]});
- });
- return [...groups.values()];
-}
 export const escaped=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));
 export function sourceHtml(text:string,evidence:Candidate[]):string{return escaped(text).replace(/\[(\d+)\]/g,(raw,n)=>evidence[Number(n)-1]?`<button class="citation" data-citation="${Number(n)-1}">${n}</button>`:raw).replace(/\n/g,'<br>');}
 export function fileName(value:string):string{let n=value.trim();if(!n.toLowerCase().endsWith('.md'))n+='.md';if(!n||/[\\/:\0]/.test(n)||/[ .]$/.test(n)||/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(n))throw Error('请输入有效的 Markdown 文件名');return n;}
