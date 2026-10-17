@@ -14,6 +14,8 @@ sag -c "Where is the retry policy configured?" . -m 3
 
 Use SAG for semantic search: ask a specific, complete question. `-c` includes original passages; results provide paths and line ranges. For a known symbol, exact text or regular-expression match, use `grep` directly.
 
+Start with one complete query when the request asks one question, even if it needs multiple reasoning steps or documents. Split only a request that asks multiple distinct questions, using one complete query per question. Preserve each question’s subject, constraints and relationships. Independent questions may run in parallel, up to 20 queries. If one question depends on another answer, query it after that evidence is available.
+
 Start with 3–5 results. Read the evidence, then inspect a missing part of an already located function directly. Use a focused grep lookup for unresolved identifiers; ask SAG again only when the missing information still needs semantic discovery. Stop when the requested behavior and call relationships have source evidence.
 
 Each command accepts **one directory**, never a file path or several directories. `-m` accepts **1–100** (default 10); narrow the scope before increasing it. Avoid vague keyword-only semantic queries, broad symbol lists and rereading overlapping code.
