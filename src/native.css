@@ -346,12 +346,14 @@ input,select,textarea{font-size:var(--text-ui)}
 
 .real-client .sidebar>.tree-heading{border-top:1px solid var(--color-window-border);margin-top:6px;padding-top:14px;height:42px;flex-shrink:0}
 
-.real-client:not(.compact-sidebar) .sidebar .brand-row{padding-right:9px}
+.real-client:not(.compact-sidebar) .sidebar .brand-row{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
 .real-client .sidebar>.tree-heading>.icon-button{width:28px;height:28px}
-.real-client:not(.compact-sidebar) .sidebar-bottom{padding-right:9px}
+.real-client:not(.compact-sidebar) .sidebar-bottom{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
 .real-client .sidebar-tools>button:last-child{width:28px;height:28px;min-height:28px;padding:6px;justify-content:center}
 
-.real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:9px}
+.real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
 .real-client .sidebar .tree-more{width:28px;min-width:28px;height:28px;margin:0}
 
 .real-client .sidebar .tree-row{padding-right:0}
+
+.real-client .sidebar .brand-row>.icon-button:focus-visible,.real-client .sidebar>.tree-heading>.icon-button:focus-visible,.real-client .sidebar-tools>button:focus-visible{outline-offset:-2px}
