@@ -64,7 +64,7 @@ describe('回答中的处理进度',()=>{
   expect([...document.querySelectorAll('.reasoning button')].every(node=>node.getAttribute('aria-expanded')==='false')).toBe(true);
   savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer:'我先查询文档🙂这是最终回答。',reasoning:blocks.map(block=>block.content).join(''),reasoning_blocks:blocks,tool_calls:[call],status:'complete'}]};
   resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});await tick();await tick();
-  document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();await tick();
+  document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();await tick();
   await vi.waitFor(()=>expect(document.querySelector('[title="已有对话"]')).not.toBeNull());
   document.querySelector<HTMLButtonElement>('[title="已有对话"]')!.click();await tick();
   await vi.waitFor(()=>expect(order()).toEqual(expected));
@@ -150,7 +150,7 @@ describe('SAG2 工具调用卡片',()=>{
   const answer=intro+'这是检索后的回答。';
   savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer,tool_calls:[{...call,source_count:2}],status:'complete'}]};
   resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});await tick();await tick();
-  document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();await tick();
+  document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();await tick();
   await vi.waitFor(()=>expect(document.querySelector('[title="已有对话"]')).not.toBeNull());
   document.querySelector<HTMLButtonElement>('[title="已有对话"]')!.click();await tick();
   await vi.waitFor(()=>expect(content()).toEqual([intro,'工具','这是检索后的回答。']));

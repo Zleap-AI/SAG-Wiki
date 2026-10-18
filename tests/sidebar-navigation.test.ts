@@ -33,7 +33,7 @@ it('搜索历史标题和内容，键盘打开结果，并保留原列表位置'
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector('.history-search-dialog')).toBeNull());
  expect(document.querySelector('.answer-text')?.textContent).toBe('Deep connection tracing');
- document.querySelector<HTMLButtonElement>('[aria-label="新问答"]')!.click();
+ document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('button[aria-label="搜索会话"]')).not.toBeNull());
  expect(document.querySelector<HTMLElement>('.ask-content')!.scrollTop).toBe(520);
  document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
@@ -53,8 +53,12 @@ it('最近问答放在右侧问答首页，左侧只保留知识库',async()=>{
  document.querySelector<HTMLButtonElement>('.workspace .conversation-item')!.click();await tick();
  await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0'));
  expect(document.querySelector('.workspace .recent-conversations')).toBeNull();
- expect(document.querySelector('.workspace .topbar')).not.toBeNull();
- expect(document.querySelector('.workspace [aria-label="最近问答"]')?.textContent).toContain('最近问答');
+ expect(document.querySelector('.workspace .topbar')).toBeNull();
+ document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.history-row')).toHaveLength(50));
+ expect(document.querySelector('.answer-text')).toBeNull();
+ document.querySelector<HTMLButtonElement>('.conversation-item')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0'));
 });
 it('会话和知识库独立保存滚动位置，收起侧栏与重开应用后恢复',async()=>{
  await start();

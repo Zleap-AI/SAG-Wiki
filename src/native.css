@@ -321,10 +321,12 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .ask-home .conversation-item>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .real-client .ask-home .history-more{flex-shrink:0}
 @media(max-width:1080px){.real-client .ask-home>.recent-conversations{padding-left:28px;padding-right:28px}}
-.real-client .conversation-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
-.real-client .conversation-actions .history-button{display:flex;align-items:center;gap:6px;padding:6px 8px;color:var(--color-secondary);font-size:var(--text-caption)}
-.real-client .conversation-actions .history-button>.icon{width:16px;height:16px}
 
 .real-client .ask-content.ask-home:not(.has-history){padding-block:0}
 .real-client .ask-home:not(.has-history)>.welcome{margin-top:auto}
 .real-client .ask-home:not(.has-history)>.composer-wrap{margin-bottom:auto}
+
+.real-client .ask-content{position:relative}
+.real-client .conversation-back{position:absolute;top:12px;left:18px;z-index:2;width:32px;height:32px;background:var(--color-paper);color:var(--color-secondary)}
+.real-client .conversation-back:hover{background:var(--color-hover);color:var(--color-ink)}
+.real-client .ask-content:not(.ask-home)>.chat-log{padding-top:56px}
