@@ -54,7 +54,7 @@ it('restores saved English across all settings pages and preserves original file
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.welcome h1')?.textContent).toBe('Ask your files'));
  expect(document.body.textContent).toContain('用户原来的问题');expect(document.body.textContent).toContain('资料');
- expect(document.querySelector('.sidebar-nav')?.textContent).toContain('Chat');
+ expect(document.querySelector('.workspace-switch')?.textContent).toContain('Chat');
  click('Settings');await tick();
  for(const page of ['General','Appearance','File settings','Shortcuts','Model settings','Chat settings','Search settings','Data and privacy','About']){
   click(page);await tick();

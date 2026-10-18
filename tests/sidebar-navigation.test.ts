@@ -86,3 +86,23 @@ it('没有历史会话时只显示提问区，不保留列表或顶部导航的�
  expect(document.querySelector('.recent-conversations')).toBeNull();
  expect(document.querySelector('.workspace .topbar')).toBeNull();
 });
+
+it('问答与搜索切换位于右侧顶部，折叠左栏后仍可切换并保留会话',async()=>{
+ await start();
+ expect(document.querySelector('.sidebar nav')).toBeNull();
+ const nav=document.querySelector<HTMLElement>('.workspace-header nav')!;
+ expect(nav).not.toBeNull();
+ const ask=nav.querySelector<HTMLButtonElement>('[title="问答"]')!;
+ const search=nav.querySelector<HTMLButtonElement>('[title="搜索（⌘ / Ctrl + K）"]')!;
+ expect(ask.getAttribute('aria-current')).toBe('page');
+ document.querySelector<HTMLButtonElement>('.conversation-item')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0'));
+ expect(document.querySelector('.workspace-header [aria-label="返回会话列表"]')).not.toBeNull();
+ search.click();
+ await vi.waitFor(()=>expect(search.getAttribute('aria-current')).toBe('page'));
+ expect(document.querySelector('.search-page')).not.toBeNull();
+ document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
+ ask.click();
+ await vi.waitFor(()=>expect(ask.getAttribute('aria-current')).toBe('page'));
+ expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0');
+});

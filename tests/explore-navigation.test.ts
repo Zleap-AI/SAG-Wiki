@@ -35,7 +35,7 @@ it('从子目录原文返回原来的探索范围，并保留问答范围',async
  await vi.waitFor(()=>expect(document.querySelector('.explore-node')).not.toBeNull());
  expect(invoke.mock.calls.filter(([name])=>name==='explore_overview').at(-1)?.[1]).toMatchObject({scope:'/notes'});
  expect(document.querySelector('[data-explore-tab]')?.getAttribute('data-state')).toBe('active');
- const ask=[...document.querySelectorAll<HTMLButtonElement>('.sidebar-nav button')].find(b=>b.textContent?.trim()==='问答')!;ask.click();
+ const ask=[...document.querySelectorAll<HTMLButtonElement>('.workspace-switch button')].find(b=>b.textContent?.trim()==='问答')!;ask.click();
  await vi.waitFor(()=>expect(document.querySelector('.scope-button')?.textContent).toContain('全部文件'));
  expect(invoke.mock.calls.some(([name])=>name==='run_query')).toBe(false);
 });
