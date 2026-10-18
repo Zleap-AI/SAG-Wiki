@@ -106,3 +106,15 @@ it('问答与搜索切换位于右侧顶部，折叠左栏后仍可切换并保�
  await vi.waitFor(()=>expect(ask.getAttribute('aria-current')).toBe('page'));
  expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0');
 });
+
+it('没有文件夹时显示说明和可用的添加按钮',async()=>{
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,...args)=>command==='list_roots'?[]:original(command,...args));
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.folder-empty-state')).not.toBeNull());
+ expect(document.querySelector('.tree-heading')?.textContent).toContain('文件夹管理');
+ expect(document.querySelector('.folder-empty-state')?.textContent).toContain('添加文件夹后，即可对其中的文件提问和搜索。');
+ const button=document.querySelector<HTMLButtonElement>('.folder-empty-state button')!;
+ expect(button.textContent).toContain('添加文件夹');
+ expect(button.disabled).toBe(false);
+});

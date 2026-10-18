@@ -338,3 +338,20 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .sidebar .brand-row{margin-bottom:8px}
 
 .real-client .search-page:not(.has-results){padding-top:24px;padding-bottom:clamp(88px,16vh,160px)}
+
+.real-client .folder-empty-state{margin:8px;padding:16px 12px;border:1px dashed var(--color-rule);border-radius:10px}
+.real-client .folder-empty-state p{font-size:var(--text-caption);line-height:1.7;color:var(--color-secondary);overflow-wrap:anywhere}
+.real-client .folder-empty-state button{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;padding:8px;font-size:var(--text-ui)}
+.real-client .folder-empty-state .icon{width:16px;height:16px}
+
+.real-client .sidebar>.tree-heading{border-top:1px solid var(--color-window-border);margin-top:6px;padding-top:14px;height:42px;flex-shrink:0}
+
+.real-client:not(.compact-sidebar) .sidebar .brand-row{padding-right:9px}
+.real-client .sidebar>.tree-heading>.icon-button{width:28px;height:28px}
+.real-client:not(.compact-sidebar) .sidebar-bottom{padding-right:9px}
+.real-client .sidebar-tools>button:last-child{width:28px;height:28px;min-height:28px;padding:6px;justify-content:center}
+
+.real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:9px}
+.real-client .sidebar .tree-more{width:28px;min-width:28px;height:28px;margin:0}
+
+.real-client .sidebar .tree-row{padding-right:0}

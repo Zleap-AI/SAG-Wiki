@@ -832,5 +832,7 @@
   "没有找到相关会话": "No matching conversations",
   "搜索会话": "Search conversations",
   "返回会话列表": "Back to conversations",
-  "问答与搜索": "Ask and search"
+  "问答与搜索": "Ask and search",
+  "文件夹管理": "Folder management",
+  "添加文件夹后，即可对其中的文件提问和搜索。": "Add a folder to ask questions about its files and search their contents."
 }
