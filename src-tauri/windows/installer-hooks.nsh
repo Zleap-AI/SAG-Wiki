@@ -1,3 +1,27 @@
+; Keep language selection available when an older install saved English.
+!define MUI_LANGDLL_ALWAYSSHOW
+!define MUI_LANGDLL_ALLLANGUAGES
+
+!macro SAG_STOP_INSTALLED_COMPONENTS
+  !insertmacro CheckIfAppIsRunning "$INSTDIR\${MAINBINARYNAME}.exe" "${PRODUCTNAME}"
+  ${If} ${FileExists} "$INSTDIR\bin\sag.exe"
+    nsExec::ExecToLog /TIMEOUT=15000 '"$INSTDIR\bin\sag.exe" service stop'
+    Pop $0
+    ${If} $0 != 0
+      DetailPrint "SAG service stop returned $0; checking the installed sag.exe for running processes."
+    ${EndIf}
+    !insertmacro CheckIfAppIsRunning "$INSTDIR\bin\sag.exe" "${PRODUCTNAME} (sag.exe)"
+  ${EndIf}
+!macroend
+
+!macro NSIS_HOOK_PREINSTALL
+  !insertmacro SAG_STOP_INSTALLED_COMPONENTS
+!macroend
+
+!macro NSIS_HOOK_PREUNINSTALL
+  !insertmacro SAG_STOP_INSTALLED_COMPONENTS
+!macroend
+
 ; Update only existing shortcuts that point to this installation. Keep their
 ; target, arguments, working directory and AppUserModelID intact.
 !macro SAG_UPDATE_SHORTCUT_ICON shortcut

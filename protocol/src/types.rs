@@ -302,7 +302,7 @@ impl Default for Settings {
             language: "zh-CN".into(),
             start_page: "ask".into(),
             editor_size: 15,
-            show_hidden: true,
+            show_hidden: false,
             watch: true,
             index_workers: 8,
             conversion_workers: 4,

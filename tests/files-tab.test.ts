@@ -18,7 +18,12 @@ beforeEach(()=>{
   if(command==='list_files')return files;
   if(command==='get_index_status')return{paused:false,tasks:[]};
   if(command==='browse_folders')return{path:'/home',parent:'/',home:'/home',folders:[]};
-  if(command==='list_entries')return args.path==='/notes'?[{path:'/notes/intro.txt',name:'intro.txt',directory:false,symlink:false},{path:'/notes/private.bin',name:'private.bin',directory:false,symlink:false},{path:'/notes/nested',name:'nested',directory:true,symlink:false}]:[];
+  if(command==='list_entries'){
+   if(args.path==='/notes')return[{path:'/notes/intro.txt',name:'intro.txt',directory:false,symlink:false},{path:'/notes/private.bin',name:'private.bin',directory:false,symlink:false},{path:'/notes/nested',name:'nested',directory:true,symlink:false}];
+   if(args.path==='/notes/nested')return[{path:'/notes/nested/deep',name:'deep',directory:true,symlink:false}];
+   if(args.path==='/notes/nested/deep')return[{path:'/notes/nested/deep/result.txt',name:'result.txt',directory:false,symlink:false}];
+   return[];
+  }
   if(command==='read_document')return{id:2,path:args.path,name:args.path.split('/').at(-1),body:'已索引文档正文',hash:'original'};
   return[];
  });
@@ -27,7 +32,7 @@ afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerH
 const fileTab=()=>document.querySelector<HTMLButtonElement>('.workspace-switch [title="文件"]')!;
 async function start(){app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.ask-content')).not.toBeNull())}
 async function open(path:string){document.querySelector<HTMLButtonElement>(`.simple-file-list [title="${path}"]`)!.click();await vi.waitFor(()=>expect(path.endsWith('.txt')?document.querySelector('.readonly-document'):document.querySelector(`.folder-browser h1`)?.textContent===path.split('/').at(-1)).toBeTruthy())}
-it('文件标签从总览逐层进入，只展示已索引文件，原文返回所属目录',async()=>{
+it('文件标签从总览逐层进入，保留未索引文件，原文返回所属目录',async()=>{
  await start();fileTab().click();
  await vi.waitFor(()=>expect(fileTab().getAttribute('aria-current')).toBe('page'));
  expect(document.querySelector('.folder-browser h1')?.textContent).toBe('已索引文件');
@@ -48,7 +53,7 @@ it('文件标签从总览逐层进入，只展示已索引文件，原文返回�
  expect(document.querySelector('.library-folder-title .library-folder-action')?.textContent).toBe('新建文档');
  expect(document.querySelector('.library-folder-title .library-explore')?.textContent).toBe('探索模式');
  expect(document.querySelector('.library-stats')).toBeNull();
- expect(document.querySelector('.simple-file-list [title="/notes/private.bin"]')).toBeNull();
+ expect([...document.querySelectorAll('.simple-file-entry.unindexed')].some(entry=>entry.textContent==='private.bin')).toBe(true);
  await open('/notes/nested');await open('/notes/nested/deep');await open('/notes/nested/deep/result.txt');
  await vi.waitFor(()=>expect(document.querySelector('.readonly-document')?.textContent).toContain('已索引文档正文'));
  expect(fileTab().getAttribute('aria-current')).toBe('page');

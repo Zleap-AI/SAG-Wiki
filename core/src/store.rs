@@ -642,12 +642,12 @@ impl Store {
         for item in fs::read_dir(path)? {
             let item = item?;
             let name = item.file_name().to_string_lossy().to_string();
-            if self.is_excluded(&item.path())? { continue; }
             if !show_hidden && name.starts_with('.') {
                 continue;
             };
             let ty = item.file_type()?;
-            if ty.is_dir() || ty.is_symlink() || text::is_supported(&item.path()) || crate::docling::is_source(&item.path()) {
+            if ty.is_dir() && self.is_excluded(&item.path())? { continue; }
+            if ty.is_dir() || ty.is_symlink() || ty.is_file() {
                 entries.push(Entry {
                     path: path_text(&item.path())?,
                     name,
@@ -1982,7 +1982,7 @@ mod tests {
         store.remove_path(&removed).unwrap();
         assert_eq!(fs::read_to_string(&removed).unwrap(), "sharedmarker removedcontent");
         assert!(store.document(&removed).is_err());
-        assert!(!store.entries(&root, true).unwrap().iter().any(|entry| entry.path == path_text(&removed).unwrap()));
+        assert!(store.entries(&root, true).unwrap().iter().any(|entry| entry.path == path_text(&removed).unwrap()));
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         store.update_paths(root.to_str().unwrap(), &[removed.clone()], |_| {}).unwrap();
         let matches = store.search_files("sharedmarker", &[], 10).unwrap();
@@ -3205,7 +3205,9 @@ mod tests {
         fs::write(&hidden_file, "hiddenmarker").unwrap();
         fs::write(root.join("visible.md"), "visiblemarker").unwrap();
         fs::write(root.join(".note.md"), "dotfilemarker").unwrap();
-        assert!(store.settings().unwrap().show_hidden);
+        let mut settings = store.settings().unwrap();
+        settings.show_hidden = true;
+        store.save_settings(&settings).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         assert!(store.search_files("hiddenmarker", &[], 10).unwrap().is_empty());
         assert_eq!(store.search_files("visiblemarker", &[], 10).unwrap().len(), 1);

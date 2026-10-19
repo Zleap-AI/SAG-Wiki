@@ -256,6 +256,7 @@
   "显示": "Show",
   "仅影响文件树显示，隐藏子目录不会进入索引。": "Only affects the file tree. Hidden subfolders are not indexed.",
   "显示工具名称和参数，由你决定是否执行": "Review the tool name and arguments before allowing a call",
+  "仅在右侧文件列表显示，左侧始终隐藏；不影响索引。": "Show hidden folders only in the file list on the right. They remain hidden in the left sidebar; indexing is unchanged.",
   "显示隐藏文件夹": "Show hidden folders",
   "最大化": "Maximize",
   "最小化": "Minimize",
@@ -1165,5 +1166,13 @@
   "当前已是最新版本，请重新检查更新": "You are up to date. Check for updates again.",
   "无法获取已签名的更新，请确认发布包包含 latest.json 和签名": "Cannot retrieve a signed update. The release must include latest.json and signatures.",
   "更新下载或签名校验失败": "Update download or signature verification failed",
-  "重新检查更新": "Check again"
+  "重新检查更新": "Check again",
+  "全部": "All",
+  "已索引": "Indexed",
+  "未索引": "Not indexed",
+  "按索引状态筛选": "Filter by index status",
+  "没有符合条件的文件": "No matching files",
+  "去设置": "Open settings",
+  "请前往文件设置，配置文件格式和文档转换。": "Open File settings to configure file formats and document conversion.",
+  "需要转换文档后才能检索": "Convert this document before searching its contents."
 }

@@ -1,6 +1,6 @@
 import brandIconUrl from '../assets/brand-icon.png';
 import {
- ArrowLeft, ArrowRight, ArrowUp, Bold, Check, ChevronDown, ChevronRight, CodeXml, Copy,
+ ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUp, Bold, Check, ChevronDown, ChevronRight, CodeXml, Copy,
  Download, Ellipsis, FileText, Folder, FolderUp, Globe, History, Info, Italic, List, ListOrdered,
  Maximize, MessageSquareText, Minus, Moon, PanelLeft, Pause, Play, Pencil, Plus, Quote,
  Redo2, RefreshCw, Search, SlidersHorizontal, Square, Strikethrough, Sun, Trash2, Undo2, X, Plug,
@@ -16,7 +16,7 @@ const glyph:Record<string,LucideIconData>={
  strike:Strikethrough,bulletList:List,orderedList:ListOrdered,blockquote:Quote,
  codeBlock:CodeXml,undo:Undo2,redo:Redo2,stop:Square,minimize:Minus,maximize:Maximize,
  copy:Copy,delete:Trash2,pause:Pause,play:Play,history:History,
- plug:Plug,
+ plug:Plug,switch:ArrowLeftRight,
 };
 export const icon=(name:string)=>buildLucideSvg(glyph[name],{
  className:'icon',hasA11yProp:false,attributes:{focusable:'false'},
