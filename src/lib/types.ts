@@ -1,0 +1,37 @@
+import type {ReasoningEffort} from './reasoning';
+import type {Language} from './i18n';
+export type Root={path:string;name:string;status:string;count:number;error:string|null};
+export type Entry={path:string;name:string;directory:boolean;symlink:boolean};
+export type Document={id:number;path:string;name:string;body:string;hash:string};
+export type FileInfo={id:number;path:string;name:string};
+export type SourceSpan={start_byte:number;end_byte:number;start_line:number;start_column:number;end_line:number;end_column:number};
+export type AnswerContext={limit:number;reserved_output:number;estimated_input:number;omitted_sources:number;omitted_history:number;input_tokens:number|null;output_tokens:number|null;elapsed_ms?:number|null;generation_ms?:number|null};
+export type Candidate={id:number;document_id:number;path:string;title:string;heading:string;content:string;start_line:number;end_line:number;source_ranges:[number,number][];source_spans?:SourceSpan[];bm25:number;score:number;order:number;hash:string};
+export type ModelConfig={reasoning_effort?:ReasoningEffort|null;url:string;model:string;models:string[];has_key:boolean};
+export type McpServer={id:string;name:string;transport:'http'|'stdio';url:string;command:string;args:string[];require_confirmation:boolean;has_credentials:boolean;tools?:McpToolInfo[]|null};
+export type McpCredentials={env:Record<string,string>;headers:Record<string,string>};
+export type McpToolInfo={name:string;description:string};
+export type ModelProfile={reasoning_effort?:ReasoningEffort|null;system_prompt:string;sag2_enabled?:boolean;mcp_servers:string[];mcp_tools?:Record<string,string[]>};
+export type ToolApproval={id:string;query_id:string;server_name:string;tool_name:string;arguments:Record<string,unknown>};
+export type Retrieval={candidate_k:number;seed_k:number;expansion_term_limit:number;max_hops:number;top_k:number;chunk_chars:number};
+export type FileTypes={markdown:boolean;text:boolean;code:boolean;config:boolean};
+export type Settings={conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
+export type ReasoningBlock={answer_offset:number;tool_count:number;content:string};
+export type Message={created_at?:number|null;question:string;answer:string;reasoning?:string;reasoning_blocks?:ReasoningBlock[];evidence:Candidate[];model:string;scope:string[];references:string[];status:string;error:string|null;retrieval_question:string;tool_calls?:ToolCallRecord[];context?:AnswerContext|null};
+export type Conversation={id:string;title:string;messages:Message[];updated:number;deleted:boolean};
+export type Draft={path:string;name:string;body:string;hash:string;is_new:boolean};
+export type ToolCallRecord={id:string;answer_offset?:number|null;query:string;source_count:number;elapsed_ms?:number|null;tool_name?:string|null;server_name?:string|null;is_error?:boolean;denied?:boolean;result?:unknown;error?:string|null};
+export type Progress={reasoning_delta?:string|null;reasoning_block?:ReasoningBlock|null;replace?:boolean;id:string;stage:string;delta:string|null;count:number;tool?:{call:ToolCallRecord;finished:boolean}|null};
+export type SearchPagination={total:number;page:number;page_size:number};
+export type QueryOutput={terms:string[];elapsed_ms?:number;results:Candidate[];pagination?:SearchPagination|null;trace:{hop:number;candidates:number[];terms:{term:string;score:number}[];evidence:number[]}[];conversation:Conversation|null};
+
+export type CliAccess={enabled:boolean};
+
+export type DoclingStatus={installed:boolean;running:boolean;stage:string;message:string;downloaded:number;total:number|null;percent?:number|null;error:string|null;formats:[string,string[]][]};
+
+export type IndexTask={path:string;stage:string;completed:number;total:number;files:string[]};
+export type IndexStatus={paused:boolean;tasks:IndexTask[]};
+export type FolderIndexOptions={file_types:FileTypes;convert_other_formats:boolean;conversion_formats?:string[]|null};
+export type IndexHistory={id:number;path:string;name:string;started_at:number;finished_at:number;completed:number;total:number;status:string;error:string|null};
+export type IndexFileLog={time:number;path:string;stage:string;status:string;error:string|null};
+export type IndexHistoryLog={raw:string|null};

@@ -1,0 +1,252 @@
+<p align="center">
+  <img src="docs/assets/readme/sag-wiki-logo.png" alt="SAG-Wiki" width="294" />
+</p>
+
+<h1 align="center">SAG-Wiki</h1>
+
+<p align="center">
+  <strong>English</strong> · <a href="README-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  <a href="https://arxiv.org/abs/2610.22588"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2610.22588-18181b" /></a>
+  <img alt="SAG-Wiki version" src="https://img.shields.io/badge/SAG--Wiki-v0.1.0-18181b" />
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-3776ab" />
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-339933" />
+  <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-18181b" />
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-18181b" /></a>
+</p>
+
+<p align="center"><strong>Lightweight and easy. Fast indexing. Precise retrieval.</strong></p>
+
+<p align="center">
+  A lightweight knowledge base for people and agents. Index and search your local files without LLM calls, then ask questions with answers you can trace to the source.
+</p>
+
+https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
+
+## Contents
+
+<p align="center">
+  <a href="#project">Project</a> ·
+  <a href="#technology">Technology</a> ·
+  <a href="#user-guide">User Guide</a> ·
+  <a href="#agent-guide">Agent Guide</a> ·
+  <a href="#developer-guide">Developer Guide</a> ·
+  <a href="#community">Community</a>
+</p>
+
+---
+
+<a id="project"></a>
+
+## SAG-Wiki in one minute
+
+Add a folder to make your documents, notes, and code searchable. Find a passage, ask a question across files, open the source behind an answer, or give your coding agent access to the same knowledge base.
+
+- **Light:** just **9–12 MB** to download, with no separate database to install.
+- **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
+- **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
+
+Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. Enable the optional document converter to bring PDF, Office, and other formats into the same workflow.
+
+### How it compares
+
+| Capability | **SAG-Wiki** | LLM Wiki | Typical vector RAG |
+| --- | --- | --- | --- |
+| Getting started | **Add a local folder** | Have an agent read sources and maintain wiki pages | Import documents, split them, and build a vector index |
+| Preparing knowledge | **No LLM calls or embeddings** | An LLM writes and updates summaries and links | An embedding model encodes document chunks |
+| Knowledge you search | **Original documents, with passage locations** | Generated, interlinked wiki pages | Indexed document chunks |
+| File changes | **Watch local files and update the index** | Have the agent revise affected pages | Update affected chunks and embeddings |
+| Finding information | **SAG2 evidence retrieval across files** | Navigate and query the maintained wiki | Retrieve by vector similarity, optionally with reranking |
+| Everyday use | **Desktop search, cited Q&A, document editing, and relationship exploration** | Agent workflows and a Markdown editor | Depends on the application |
+| Agent access | **CLI and a ready-to-install Skill** | Instructions for maintaining and reading the wiki | Application-specific tools or APIs |
+
+The comparison uses [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) and the [standard vector RAG workflow](https://docs.langchain.com/oss/python/deepagents/retrieval). Features vary by implementation.
+
+---
+
+<a id="technology"></a>
+
+## Technology
+
+SAG-Wiki runs on **SAG2, our original retrieval method**. It builds a local index without embeddings or LLM calls, then uses Jev evidence scoring and query-time expansion to find supporting passages across documents. LLMs are used when you choose to generate an answer.
+
+https://github.com/user-attachments/assets/bcdf9dbf-7535-41d6-bd22-bde0ea824525
+
+<p align="center">
+  <img src="docs/assets/readme/sag2-retrieval-comparison-en.png" alt="SAG2 Recall@10 exceeds SAG and BM25 on high-difficulty MuSiQue, medium-difficulty 2WikiMultiHopQA, and low-difficulty HotpotQA, with relative percentage gains" width="940" />
+</p>
+
+<sub>SAG-Wiki is represented by its underlying SAG2 benchmark results. Recall@10 measures evidence recall in the first ten results. SAG2 uses 1,000 questions per benchmark; MuSiQue was used for method development. SAG and BM25 are reference values from the original SAG paper. Difficulty labels are presentation categories; relative gains use the displayed scores.</sub>
+
+**[Read the SAG2 paper](https://arxiv.org/abs/2610.22588)** · For the method, benchmark results, and reproduction code, see **[SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark)**.
+
+---
+
+<a id="user-guide"></a>
+
+## User Guide
+
+| Feature | What you need |
+| --- | --- |
+| File indexing and quick search | Add a folder; no API key needed |
+| SAG2 semantic retrieval | Configure a Jev service and API key |
+| Cited Q&A | Configure an answer model and API key; SAG2 retrieval also requires Jev configuration |
+
+SAG-Wiki itself is free and open source. External service charges depend on your chosen provider. Original files stay on your machine; in-depth retrieval and Q&A send the required questions, document passages, or context to the services you configure.
+
+### 1. Download and add a folder
+
+SAG-Wiki supports **macOS and Windows**. Installers will be available in [Releases](https://github.com/Zleap-AI/SAG-Wiki/releases):
+
+| System | Installer | Size |
+| --- | --- | --- |
+| macOS | `.dmg`, coming soon | Approx. 12 MB |
+| Windows | `.exe`, coming soon | Approx. 9 MB |
+
+Sizes reflect current builds and exclude optional document conversion components and recognition models downloaded on demand.
+
+Install and open SAG-Wiki, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
+
+<p align="center">
+  <img src="docs/assets/readme/product-folders-en.png" alt="Local folders and documents in SAG-Wiki" width="940" />
+</p>
+
+### 2. Search your files
+
+Once indexing finishes, use **Search** to find passages and preview the source. Quick search works locally; configure Jev in **Settings → Models** for in-depth semantic retrieval.
+
+<p align="center">
+  <img src="docs/assets/readme/product-search-en.png" alt="Search results with the matching source passage" width="940" />
+</p>
+
+### 3. Ask questions and check the source
+
+Configure your answer model in **Settings → Models**, then ask in **Chat**. Use `@` to select files, and click a citation to see the passage supporting the answer.
+
+<p align="center">
+  <img src="docs/assets/readme/product-chat-en.png" alt="A question answered with document citations in SAG-Wiki" width="940" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/product-citation-en.png" alt="Opening a citation highlights the original passage" width="940" />
+</p>
+
+---
+
+<a id="agent-guide"></a>
+
+## Agent Guide
+
+Give your agent this one sentence:
+
+> Install the [SAG Skill](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag), follow [this guide](https://github.com/Zleap-AI/SAG-Wiki#agent-guide) to set up the CLI, and enable SAG search for my current project.
+
+SAG supports **Claude Code, Codex, and OpenCode**. The CLI works independently or shares the desktop's settings and knowledge base. First-time setup needs your Jev API key; start a new agent session after installing the Skill.
+
+<details>
+<summary>Manual installation and usage</summary>
+
+If `sag` is already installed, skip to configuration. Until prebuilt CLI releases are available, install Rust and build from source:
+
+```sh
+git clone https://github.com/Zleap-AI/SAG-Wiki.git
+cd SAG-Wiki
+```
+
+macOS:
+
+```sh
+sh scripts/install.sh
+```
+
+Windows PowerShell:
+
+```powershell
+cargo build --release --locked --manifest-path cli/Cargo.toml
+.\cli\target\release\sag.exe install cli
+```
+
+Open a new terminal after installation, run `sag` for first-time Jev configuration, then install the Skill for your agent:
+
+```sh
+sag
+sag install codex        # or: claude-code / opencode
+```
+
+Start a new agent session. In the project you want to search, add the folder and confirm indexing is ready before searching:
+
+```sh
+sag add
+sag check
+sag "Where is permission checked?" . -m 5
+```
+
+See the [CLI guide](docs/CLI与Harness使用说明.md) for configuration and other commands.
+
+</details>
+
+---
+
+<a id="developer-guide"></a>
+
+## Developer Guide
+
+The **Rust CLI is the runtime foundation**. The `sag` executable starts a shared local service; both terminal commands and the Tauri desktop connect to it through the same client. Indexing, retrieval, and model configuration live in one core, and remain available after the desktop exits.
+
+```mermaid
+flowchart TD
+    Desktop["Desktop · Svelte + Tauri"] --> Client["sag-client"]
+    Agent["Terminal / Agent · sag CLI"] --> Client
+    Client --> Service["sag service serve · Rust core"]
+    Service --> Local["Local files + SQLite index"]
+    Service --> Jev["Jev · evidence retrieval"]
+    Service --> LLM["LLM · answer generation"]
+```
+
+| Directory | Contents |
+| --- | --- |
+| `src/` | Desktop interface |
+| `src-tauri/` | Desktop system features and service connection |
+| `cli/` | Command-line entry point and Skill installation |
+| `core/` | Indexing, retrieval, and Q&A |
+| `client/`, `protocol/` | Client communication and protocol |
+
+Follow the [environment guide](docs/开发指南.md#环境) to prepare Node.js, Rust, and your platform's Tauri development dependencies, then run:
+
+```sh
+git clone https://github.com/Zleap-AI/SAG-Wiki.git
+cd SAG-Wiki
+npm ci
+npm run tauri dev
+```
+
+After changes, run `npm run check` and `npm test`; the [checks section](docs/开发指南.md#代码检查) lists all validation commands. See the [development guide](docs/开发指南.md), [architecture](docs/架构设计.md), and [documentation index](docs/README.md) for builds and implementation details.
+
+---
+
+## Contributing and License
+
+Contributions are welcome through [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) and [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls). For changes to the application, follow the [development guide](docs/开发指南.md); retrieval research and reproduction code live in [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark).
+
+SAG-Wiki is released under the [MIT License](LICENSE). Third-party notices are in [src-tauri/licenses](src-tauri/licenses/).
+
+---
+
+<a id="community"></a>
+
+## Community
+
+Join the SAG community on Discord or WeChat to connect with maintainers and other users.
+
+<table align="center">
+  <tr>
+    <th>Discord</th>
+    <th>WeChat</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/assets/readme/discord-community-qr.jpg" alt="SAG Discord community QR code" width="220" /></td>
+    <td align="center"><img src="docs/assets/readme/wechat-community-qr.png" alt="SAG WeChat community QR code" width="220" /></td>
+  </tr>
+</table>

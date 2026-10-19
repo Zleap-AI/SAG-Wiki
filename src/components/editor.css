@@ -1,0 +1,138 @@
+.native-editor-toolbar.editor-toolbar {
+  min-height: 48px;
+  padding: 8px 28px;
+  justify-content: center;
+  background: var(--color-panel);
+  border-bottom: 1px solid var(--color-rule);
+}
+
+.native-editor-toolbar .format-controls {
+  gap: 8px;
+  min-width: 0;
+}
+
+.native-editor-toolbar .native-format-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.native-editor-toolbar .paragraph-control {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.native-editor-toolbar .paragraph-control .ui-select {
+  appearance: none;
+  width: 100px;
+  height: 28px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--color-rule);
+  border-radius: 7px;
+  background: var(--color-paper);
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--text-ui);
+  cursor: pointer;
+}
+
+.native-editor-toolbar .paragraph-control > svg {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--color-secondary);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.native-editor-toolbar .toolbar-divider {
+  height: 18px;
+  flex-shrink: 0;
+  margin: 0 2px;
+}
+
+.native-editor-toolbar .native-format-group button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-transparent);
+  border-radius: 7px;
+  background: var(--color-transparent);
+  color: var(--color-secondary);
+  cursor: pointer;
+}
+
+.native-editor-toolbar .native-format-group button > svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.native-editor-toolbar .native-format-group button:hover:not(:disabled) {
+  background: var(--color-hover);
+  color: var(--color-ink);
+}
+
+.native-editor-toolbar .native-format-group button[aria-pressed='true'] {
+  border-color: var(--color-rule);
+  background: var(--color-paper);
+  color: var(--color-ink);
+  box-shadow: 0 1px 2px var(--color-shadow);
+}
+
+.native-editor-toolbar .native-format-group button:active:not(:disabled) {
+  background: var(--color-selected);
+}
+
+.native-editor-toolbar .native-format-group button:focus-visible,
+.native-editor-toolbar .paragraph-control .ui-select:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.native-editor-toolbar .native-format-group button:disabled {
+  opacity: .34;
+  cursor: default;
+}
+
+.rich-document-sheet #rich-editor {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.rich-document-sheet .tiptap {
+  min-height: 300px;
+  padding-bottom: 64px;
+  caret-color: var(--color-ink);
+  font-size: var(--editor-font-size, 15px);
+  line-height: 1.8;
+}
+
+.rich-document-sheet .tiptap > :first-child {
+  margin-top: 0;
+}
+
+.rich-document-sheet .tiptap pre {
+  tab-size: 4;
+}
+
+.rich-document-sheet .tiptap code {
+  font-size: var(--text-ui);
+}
+
+.rich-document-sheet .tiptap a {
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}

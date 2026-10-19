@@ -1,0 +1,10 @@
+{
+  "name": "@zleap-ai/sag",
+  "version": "0.1.0",
+  "description": "Search local project files with SAG. Desktop app optional.",
+  "private": true,
+  "bin": { "sag": "bin/sag.cjs" },
+  "files": ["bin/", "native/", "README.md"],
+  "engines": { "node": ">=18" },
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" }
+}

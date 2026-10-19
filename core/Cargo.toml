@@ -1,0 +1,72 @@
+[package]
+name = "sag-core"
+version = "0.1.0"
+edition = "2021"
+
+[build-dependencies]
+cc = "1"
+
+[dependencies]
+sag-protocol = { path = "../protocol" }
+sag-client = { path = "../client" }
+anyhow = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+rust_decimal = { version = "1.43", default-features = false, features = ["std", "maths"] }
+dirs = "6"
+tempfile = "3"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
+notify = "8"
+walkdir = "2"
+sha2 = "0.10"
+unicode-normalization = "0.1"
+jieba-rs = "0.11"
+regex = "1"
+regex-syntax = "0.8"
+fancy-regex = "0.16"
+indexmap = "2"
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "rustls", "gzip"] }
+tar = "0.4"
+libc = "0.2"
+portable-pty = "0.9"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+rmcp = { version = "3.5.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+glob = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "net", "io-util"] }
+tokio-util = "0.7"
+futures-util = "0.3"
+flate2 = "1"
+tokenx-rs = "0.1"
+uuid = { version = "1", features = ["v4", "serde"] }
+base64 = "0.22"
+icu_collator = "1.5"
+icu_locid = "1.5"
+encoding_rs = "0.8"
+chardetng = "1"
+unicode-casefold = "0.2"
+ignore = "0.4.33"
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+sha2 = { version = "0.10", features = ["asm"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSAttributedString", "NSData", "NSString"] }
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSAttributedString"] }
+[dev-dependencies]
+tempfile = "3"
+
+# Keep file integrity checks fast in development builds too.
+[profile.dev.package.sha2]
+opt-level = 3
+
+# Keep the native text-matching loops fast when testing the desktop in debug mode.
+[profile.dev.package.regex-automata]
+opt-level = 3
+[profile.dev.package.aho-corasick]
+opt-level = 3
+[profile.dev.package.memchr]
+opt-level = 3
+[profile.dev.package.encoding_rs]
+opt-level = 3
+[profile.dev.package.tokenx-rs]
+opt-level = 3
