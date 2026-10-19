@@ -14,7 +14,7 @@ sag --version
 sag
 ```
 
-The published `@zleap-ai/sag@0.1.5` contains native executables for these two platforms. Rust, source compilation and desktop installation are unnecessary. npm registers the `sag` command. Reuse an existing working `sag` installation.
+The published `@zleap-ai/sag` contains native executables for these two platforms. Rust, source compilation and desktop installation are unnecessary. npm registers the `sag` command. Reuse an existing working `sag` installation.
 
 The first interactive run of `sag` guides configuration of the JEV retrieval service. The endpoint and model prompts show their current values; press Enter to keep them. First-time setup requires a key, entered with hidden input. The default endpoint is `https://api.302ai.cn/typesafeai/v1`, and the model is `jev-latest`. CLI search needs only this retrieval configuration. The answer model is configured separately in desktop.
 
