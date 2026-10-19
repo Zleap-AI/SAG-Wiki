@@ -45,7 +45,7 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 | System | Download | Size |
 | --- | --- | --- |
 | macOS | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-macOS-arm64.dmg) | 12.5MB |
-| Windows | Coming soon | — |
+| Windows | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-Windows-x64-setup.exe) | 9.5MB |
 
 The installer size excludes optional document conversion components and recognition models downloaded on demand.
 
