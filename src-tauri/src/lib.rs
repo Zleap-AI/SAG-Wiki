@@ -1,5 +1,7 @@
 mod cli_commands;
 mod folder_picker;
+#[cfg(windows)]
+mod windows_icon;
 #[path = "../../cli/src/install.rs"]
 mod cli_install;
 use sag_client::Client;
@@ -371,6 +373,8 @@ pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            #[cfg(windows)]
+            windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
             let data = protocol::data_dir()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             let source = cli_commands::service_source(app.handle(), cli_install_error.is_none())

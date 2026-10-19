@@ -45,7 +45,7 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 | 系统 | 下载 | 大小 |
 | --- | --- | --- |
 | macOS | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-macOS-arm64.dmg) | 12.5MB |
-| Windows | 待发布 | — |
+| Windows | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-Windows-x64-setup.exe) | 9.5MB |
 
 安装包大小不含按需下载的文档转换组件和识别模型。
 
