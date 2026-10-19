@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {version as appVersion} from '../../src-tauri/tauri.conf.json';
  import {t,setLanguage,type Language} from '../lib/i18n';
  import {onDestroy} from 'svelte';
  import Input from "./ui/Input.svelte";
@@ -175,7 +176,7 @@
     {:else if page==='shortcuts'}
      <section class="settings-group settings-shortcuts">{#each [[$t("搜索文件"),'⌘ / Ctrl + K'],[$t("新建问答"),'⌘ / Ctrl + N'],[$t("保存文档"),'⌘ / Ctrl + S'],[$t("发送或搜索"),'Enter'],[$t("问题换行"),'Shift + Enter'],[$t("引用文件"),'@'],[$t("选择引用"),'↑ ↓ / Enter / Esc']] as [label,key]}<div class="setting-row"><strong>{label}</strong><kbd>{key}</kbd></div>{/each}</section>
     {:else}
-     <div class="settings-about">{@html logo}<h3>SAG Wiki</h3><p>{$t("向你的文件提问")}</p><span>0.1.0 · Tauri + Rust + SQLite</span>
+     <div class="settings-about">{@html logo}<h3>SAG Wiki</h3><p>{$t("向你的文件提问")}</p><span>{appVersion} · Tauri + Rust + SQLite</span>
       <div class="settings-about-links"><a href="https://github.com/Zleap-AI/SAG-Wiki" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'project')}>{$t('开源项目')} · GitHub</a><a href="https://zleap.com" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'company')}>{$t('开发公司')} · Zleap</a></div>
      </div>
     {/if}
