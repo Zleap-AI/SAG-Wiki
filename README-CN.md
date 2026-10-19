@@ -187,7 +187,7 @@ sag check
 sag "权限在哪里检查？" . -m 5
 ```
 
-完整的 Agent 安装流程见 Skill 的 [setup 指南](cli/skills/sag/references/setup.md#first-use-setup)，其他命令见 [CLI 使用说明](docs/CLI与Harness使用说明.md)。
+完整的 Agent 安装流程见 Skill 的 [setup 指南](cli/skills/sag/references/setup.md#first-use-setup)，其他命令见 [CLI 使用说明](docs/zh-CN/CLI与Harness使用说明.md)。
 
 </details>
 
@@ -217,7 +217,7 @@ flowchart TD
 | `core/` | 索引、检索和问答 |
 | `client/`、`protocol/` | 客户端通信与协议 |
 
-按[环境说明](docs/开发指南.md#环境)准备 Node.js、Rust 和对应系统的 Tauri 开发依赖，然后运行：
+按[环境说明](docs/zh-CN/开发指南.md#环境)准备 Node.js、Rust 和对应系统的 Tauri 开发依赖，然后运行：
 
 ```sh
 git clone https://github.com/Zleap-AI/SAG-Wiki.git
@@ -226,13 +226,13 @@ npm ci
 npm run tauri dev
 ```
 
-修改后运行 `npm run check` 和 `npm test`，完整检查命令见[代码检查](docs/开发指南.md#代码检查)。构建和实现细节见[开发指南](docs/开发指南.md)、[架构设计](docs/架构设计.md)与[文档目录](docs/README.md)。
+修改后运行 `npm run check` 和 `npm test`，完整检查命令见[代码检查](docs/zh-CN/开发指南.md#代码检查)。构建和实现细节见[开发指南](docs/zh-CN/开发指南.md)、[架构设计](docs/zh-CN/架构设计.md)与[文档目录](docs/zh-CN/README.md)。
 
 ---
 
 ## 参与贡献与许可
 
-欢迎通过 [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) 反馈问题，通过 [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls) 参与开发。应用修改请参照[开发指南](docs/开发指南.md)；检索研究与实验复现请前往 [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark)。
+欢迎通过 [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) 反馈问题，通过 [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls) 参与开发。应用修改请参照[开发指南](docs/zh-CN/开发指南.md)；检索研究与实验复现请前往 [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark)。
 
 SAG-Wiki 使用 [MIT 许可证](LICENSE)。第三方依赖许可保留在 [src-tauri/licenses](src-tauri/licenses/) 中。
 

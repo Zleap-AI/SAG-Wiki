@@ -187,7 +187,7 @@ sag check
 sag "Where is permission checked?" . -m 5
 ```
 
-See the Skill's [setup guide](cli/skills/sag/references/setup.md#first-use-setup) for the complete agent workflow and the [CLI guide](docs/CLI与Harness使用说明.md) for other commands.
+See the Skill's [setup guide](cli/skills/sag/references/setup.md#first-use-setup) for the complete agent workflow and the [CLI guide](docs/en/cli-and-harness.md) for other commands.
 
 </details>
 
@@ -217,7 +217,7 @@ flowchart TD
 | `core/` | Indexing, retrieval, and Q&A |
 | `client/`, `protocol/` | Client communication and protocol |
 
-Follow the [environment guide](docs/开发指南.md#环境) to prepare Node.js, Rust, and your platform's Tauri development dependencies, then run:
+Follow the [environment guide](docs/en/development.md#environment) to prepare Node.js, Rust, and your platform's Tauri development dependencies, then run:
 
 ```sh
 git clone https://github.com/Zleap-AI/SAG-Wiki.git
@@ -226,13 +226,13 @@ npm ci
 npm run tauri dev
 ```
 
-After changes, run `npm run check` and `npm test`; the [checks section](docs/开发指南.md#代码检查) lists all validation commands. See the [development guide](docs/开发指南.md), [architecture](docs/架构设计.md), and [documentation index](docs/README.md) for builds and implementation details.
+After changes, run `npm run check` and `npm test`; the [checks section](docs/en/development.md#code-checks) lists all validation commands. See the [development guide](docs/en/development.md), [architecture](docs/en/architecture.md), and [documentation index](docs/en/README.md) for builds and implementation details.
 
 ---
 
 ## Contributing and License
 
-Contributions are welcome through [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) and [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls). For changes to the application, follow the [development guide](docs/开发指南.md); retrieval research and reproduction code live in [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark).
+Contributions are welcome through [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) and [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls). For changes to the application, follow the [development guide](docs/en/development.md); retrieval research and reproduction code live in [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark).
 
 SAG-Wiki is released under the [MIT License](LICENSE). Third-party notices are in [src-tauri/licenses](src-tauri/licenses/).
 

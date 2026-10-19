@@ -1,5 +1,7 @@
 # sag CLI
 
+[English](../en/cli-and-harness.md) · [文档目录](README.md)
+
 ## 独立安装与配置
 
 sag 可以独立运行，不需要安装或启动 SAG Wiki 桌面端。检索命令会自动启动或复用本机服务。

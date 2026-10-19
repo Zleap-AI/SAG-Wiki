@@ -1,5 +1,7 @@
 # 发布 @zleap-ai/sag
 
+[English](../en/npm-publishing.md) · [文档目录](README.md)
+
 发布后的安装命令：
 
 ```sh
