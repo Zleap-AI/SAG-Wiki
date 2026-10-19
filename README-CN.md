@@ -47,7 +47,11 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 | macOS | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-macOS-arm64.dmg) | 12.5MB |
 | Windows | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-Windows-x64-setup.exe) | 9.5MB |
 
-> 请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
+**给 Agent 安装**
+
+```text
+请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
+```
 
 安装包大小不含按需下载的文档转换组件和识别模型。
 
@@ -143,7 +147,9 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 
 把这句话发给 Agent：
 
-> 请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
+```text
+请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
+```
 
 支持 **Claude Code、Codex、OpenCode**。Skill 包含 CLI 安装、配置、项目索引和验证流程。**无需安装 SAG Wiki 桌面端，也能单独使用 CLI**；安装桌面端后，两者共用配置和知识库。已有配置会直接复用，首次语义检索需要在终端中私密填写自己的 Jev API Key。统一以 GitHub 上的 Skill 链接为安装入口，Agent 会从同一目录获取配套文件。
 
