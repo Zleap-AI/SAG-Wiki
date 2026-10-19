@@ -2,6 +2,27 @@
 
 SAG CLI and the optional SAG Wiki desktop app share the same local service, knowledge base, settings and credentials. Search automatically uses registered folders within the requested directory, or the requested subtree of a registered root. There is no per-folder CLI authorization setting.
 
+## First-use setup
+
+When asked to install this Skill and enable SAG for a project, complete the applicable steps yourself. The desktop app is optional; npm supplies the native CLI without a Rust toolchain or source build.
+
+1. Run `sag --version`. Reuse an existing installation. If the command is missing, check Node.js and npm, then install:
+
+   ```bash
+   npm install -g @zleap-ai/sag
+   sag --version
+   ```
+
+   The published 0.1.5 package supports macOS Apple Silicon and Windows x64, and requires Node.js 18 or later. Check the actual system and architecture before installation. If Node.js or npm is missing, arrange Node.js installation through the user's existing package manager or [official installer](https://nodejs.org/en/download), within the environment's permissions. Report an unsupported platform or installation failure directly; source compilation is not part of normal setup. npm owns this command's installation and PATH entry; an additional `sag install cli` is unnecessary.
+
+2. Install the current Skill folder for the active agent at the [location below](#installation-and-removal), including `SKILL.md` and all three references: `setup.md`, `parameters.md`, and `ignores.md`. Retrieve all four files from the [canonical GitHub folder](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag), without building the repository. Preserve user-edited files and unrelated skills. The npm CLI embeds a release-time Skill snapshot, so `sag install codex`, `sag install claude-code`, or `sag install opencode` may supply older instructions. Keep the GitHub version when following this setup. A new agent session loads it automatically; use the instructions already read to finish the current setup.
+
+3. Run `sag config --if-needed` to reuse existing Jev settings. If a key is missing, have the user run `sag` in an interactive terminal and enter their Jev endpoint, model and API key there. The key input is hidden. If credentials were already supplied through a secure local source, use `sag config --key-stdin` as described below. Do not request keys in chat. Only the Jev retrieval configuration is required for CLI semantic search; a desktop answer model is unnecessary.
+
+4. From the intended project directory, run `sag check --json`. If coverage is `none`, run `sag add` for that directory, then check again. For `partial`, inspect `sag list` and the intended scope; retain explicitly excluded subtrees. For `excluded` or disabled CLI access, report the existing setting and change it only when the user's request authorizes that change. Wait for pending indexing; report file errors or an empty index instead of searching unrelated directories.
+
+5. Confirm the installed version, all four Skill files, usable Jev configuration and `sag check` readiness with at least one indexed file. Verify one semantic search using the user's question or a specific question about that project. Report completion with the searched project and verification result. If user credential entry is still pending, report that remaining step explicitly; CLI and Skill installation alone do not establish search readiness.
+
 ## Directory and status commands
 
 | Command | Meaning |
@@ -53,6 +74,8 @@ If setup is required and credentials have not been supplied, ask the user to run
 Search and management commands that need the core start or reuse the service automatically. Stopping or restarting affects desktop and CLI requests sharing that service; run these actions when requested or necessary for an authorized service update. The internal `sag service serve` command runs the service in the foreground for startup diagnostics; normal use does not require it. Service subcommands do not accept `--json` or a directory.
 
 ## Installation and removal
+
+For an npm-installed CLI, use `npm install -g @zleap-ai/sag` to update and `npm uninstall -g @zleap-ai/sag` to remove it. The commands below manage SAG's own executable installation or bundled Skill snapshot. For the current GitHub Skill, use the first-use workflow above.
 
 ```bash
 sag install cli
