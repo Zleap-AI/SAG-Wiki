@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2610.22588"><img alt="论文" src="https://img.shields.io/badge/paper-arXiv%3A2610.22588-18181b" /></a>
-  <img alt="SAG-Wiki 版本" src="https://img.shields.io/badge/SAG--Wiki-v0.1.0-18181b" />
+  <a href="https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5"><img alt="SAG-Wiki 版本" src="https://img.shields.io/badge/SAG--Wiki-v0.1.5-18181b" /></a>
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-3776ab" />
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-339933" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-18181b" />
@@ -42,9 +42,16 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 ## 一分钟了解 SAG-Wiki
 
+| 系统 | 下载 | 大小 |
+| --- | --- | --- |
+| macOS（Apple Silicon，M 系列） | [下载 .dmg · v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-macOS-arm64.dmg) | 约 12.5 MB |
+| Windows | `.exe`，待发布 | — |
+
+安装包大小不含按需下载的文档转换组件和识别模型。
+
 添加一个文件夹，就能搜索其中的文档、笔记和代码。查找原文、跨文件提问、核对答案出处，也可以让编程 Agent 使用同一份知识库。
 
-- **轻**：安装包仅约 **9–12 MB**，无需额外安装数据库。
+- **轻**：安装包仅约 **12.5 MB**，无需额外安装数据库。
 - **快**：百万字索引约 **200 ms**，索引和检索不调用 LLM。
 - **准**：原创 **SAG2** 检索技术，检索效果超越 RAG、GraphRAG 等。
 
@@ -98,14 +105,7 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 
 ### 1. 下载，添加文件夹
 
-支持 **macOS 和 Windows**，安装包将在 [Releases](https://github.com/Zleap-AI/SAG-Wiki/releases) 发布：
-
-| 系统 | 安装包 | 大小 |
-| --- | --- | --- |
-| macOS | `.dmg`，待发布 | 约 12 MB |
-| Windows | `.exe`，待发布 | 约 9 MB |
-
-大小参考当前构建，不含按需下载的文档转换组件和识别模型。
+从上方表格下载 DMG，打开后将 SAG Wiki 拖入 Applications。当前 macOS 版本尚未通过 Apple 公证，首次打开可能出现系统安全提示。
 
 安装并打开 SAG-Wiki，点击“文件夹管理”旁的 **+**，添加需要检索的文件夹。原文件保留在原处。
 
