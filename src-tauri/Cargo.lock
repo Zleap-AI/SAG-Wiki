@@ -2583,7 +2583,7 @@ dependencies = [
 
 [[package]]
 name = "sag-desktop"
-version = "0.1.1"
+version = "0.1.5"
 dependencies = [
  "anyhow",
  "dirs 6.0.0",

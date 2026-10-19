@@ -1119,9 +1119,5 @@
   "转换并行数": "Concurrent conversions",
   "默认 4，可设为 1–16；所有文件夹共用，下次索引任务生效。": "Default: 4 (1–16). Applies to all folders from the next indexing run.",
   "转换并行数应为 1–16": "Concurrent conversions must be between 1 and 16",
-  "先索引 Markdown、文本等直接支持的文件，再并行转换其他格式，最后索引转换结果。已完成索引的文件可立即搜索。": "Markdown and other native text files are indexed first, then other formats are converted in parallel and indexed. Indexed files are immediately searchable.",
-  "移除文件夹": "Remove folder",
-  "确定移除「{value0}」及其索引吗？": "Remove “{value0}” and its index?",
-  "本地原文件和会话记录会保留，之后可重新添加文件夹。": "Original files and conversations will be kept. You can add the folder again later.",
-  "确认移除文件夹": "Confirm removing folder"
+  "先索引 Markdown、文本等直接支持的文件，再并行转换其他格式，最后索引转换结果。已完成索引的文件可立即搜索。": "Markdown and other native text files are indexed first, then other formats are converted in parallel and indexed. Indexed files are immediately searchable."
 }
