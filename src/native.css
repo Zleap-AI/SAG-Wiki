@@ -28,6 +28,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client.compact-sidebar .sidebar-titlebar .window-controls{position:absolute;top:0;left:0}
 .real-client .sidebar-titlebar .window-controls{margin:0;gap:0}
 .real-client .sidebar-titlebar .window-controls button{width:24px;height:32px;padding:0}
+.real-client .sidebar-titlebar .window-controls.windows button>.icon{width:17px;height:17px}
 .real-client .sidebar{padding:14px 12px 12px;background:var(--color-sidebar)}
 .real-client .brand-row{height:38px;padding:0 10px;gap:9px;margin-bottom:16px}
 .real-client .brand-row>.brand-mark{width:36px;height:36px;margin:-6px;background:transparent;border-radius:0;mix-blend-mode:multiply}

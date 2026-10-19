@@ -132,6 +132,9 @@ enum CliCommand {
     /// 将当前目录或指定目录加入知识库。
     Add {
         directory: Option<PathBuf>,
+        /// 只索引指定扩展名，如 md,txt,html,py,ts；省略时保留已有设置。
+        #[arg(long, value_delimiter = ',', num_args = 1)]
+        types: Option<Vec<String>>,
         #[arg(long)]
         json: bool,
     },
@@ -367,8 +370,8 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
             println!("{}", serde_json::to_string_pretty(&config)?);
             return Ok(0);
         }
-        Some(CliCommand::Add { directory, json }) => (
-            Command::Add,
+        Some(CliCommand::Add { directory, types, json }) => (
+            match types { Some(extensions) => Command::AddWithTypes { extensions }, None => Command::Add },
             cwd.join(directory.unwrap_or_default()),
             json,
             10,
@@ -426,6 +429,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
                         IndexCoverage::Excluded => "已排除",
                         IndexCoverage::None => "未加入索引",
                     }, output.index_ready, output.enabled, output.indexed_files);
+                if let Some(extensions) = &output.extensions { println!("原生索引格式：{}", extensions.join(",")); }
                 if !output.roots.is_empty() { print_roots(&output.roots); }
                 match output.coverage {
                     IndexCoverage::None | IndexCoverage::Partial => println!("如需索引整个目录，请在该目录运行 sag add。"),

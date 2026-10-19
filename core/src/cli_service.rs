@@ -295,7 +295,12 @@ impl CliService {
             else if covering.is_some() { IndexCoverage::Included }
             else if roots.is_empty() { IndexCoverage::None }
             else { IndexCoverage::Partial };
+        let extensions = if coverage == IndexCoverage::Included {
+            let options = self.store.folder_index_options(&path)?;
+            Some(options.extensions.unwrap_or_else(|| crate::text::enabled_extensions(&options.file_types)))
+        } else { None };
         Ok(CheckOutput {
+            extensions,
             path: store::path_text(&path)?,
             coverage,
             index_ready: !excluded && !roots.is_empty() && roots.iter().all(|root| root.status == "ready"),
@@ -353,12 +358,36 @@ impl CliService {
                 (self.remove_root)(&path)?;
                 Ok(Response::Removed { path: store::path_text(&path)? })
             }
-            Command::Add => {
+            command @ (Command::Add | Command::AddWithTypes { .. }) => {
                 if !self.access().enabled {
                     bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
                 }
                 let path = request.path.canonicalize().context("无法打开这个文件夹")?;
                 if !path.is_dir() { bail!("请选择文件夹") }
+                if let Command::AddWithTypes { extensions } = command {
+                    let mut extensions: Vec<_> = extensions.into_iter()
+                        .map(|extension| extension.trim().trim_start_matches('.').to_ascii_lowercase()).collect();
+                    if extensions.is_empty() { bail!("请至少指定一种文件扩展名") }
+                    for extension in &extensions {
+                        if extension.is_empty() || !crate::text::is_supported(Path::new(&format!("file.{extension}")))
+                            || extension.contains(['/', '\\', '.']) {
+                            bail!("不支持的索引格式：{extension}。--types 仅支持原生文本和代码格式，如 md,txt,html,py,js,ts,json,yaml")
+                        }
+                    }
+                    extensions.sort();
+                    extensions.dedup();
+                    let roots = self.store.roots()?;
+                    let root = roots.iter().find(|root| path.starts_with(&root.path));
+                    if root.is_some_and(|root| matches!(root.status.as_str(), "pending" | "indexing")) {
+                        bail!("此文件夹正在索引，请完成后再修改索引设置")
+                    }
+                    let settings = self.store.settings()?;
+                    let mut rules = crate::folder_index::Rules::new(root.map_or(path.as_path(), |root| Path::new(&root.path)), &settings)?;
+                    let mut options = rules.directory(&path)?.clone();
+                    options.extensions = Some(extensions);
+                    options.convert_other_formats = false;
+                    crate::folder_index::write(&path, &options)?;
+                }
                 (self.add_root)(&path)?;
                 let root = loop {
                     let root=self.store.roots()?.into_iter().find(|item|path.starts_with(&item.path)).context("目录已从知识库移除，请重新添加")?;

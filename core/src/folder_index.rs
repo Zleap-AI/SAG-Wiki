@@ -13,6 +13,7 @@ pub struct Rules {
 impl Rules {
     pub fn new(root: &Path, settings: &Settings) -> Result<Self> {
         let options = read(root)?.unwrap_or_else(|| FolderIndexOptions {
+            extensions: None,
             file_types: settings.file_types.clone(), convert_other_formats: settings.convert_other_formats,
             conversion_formats: settings.conversion_formats.clone(),
         });

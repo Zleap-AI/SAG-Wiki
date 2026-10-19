@@ -44,8 +44,8 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 | 系统 | 下载 | 大小 |
 | --- | --- | --- |
-| macOS | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-macOS-arm64.dmg) | 12.5MB |
-| Windows | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-Windows-x64-setup.exe) | 9.5MB |
+| macOS | [v0.1.6](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.6/SAG-Wiki-0.1.6-macOS-arm64.dmg) | 14.0MB |
+| Windows | [v0.1.6](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.6/SAG-Wiki-0.1.6-Windows-x64-setup.exe) | 10.7MB |
 
 **给 Agent 安装**
 
@@ -57,7 +57,7 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 添加一个文件夹，就能搜索其中的文档、笔记和代码。查找原文、跨文件提问、核对答案出处，也可以让编程 Agent 使用同一份知识库。
 
-- **轻**：安装包仅约 **12.5 MB**，无需额外安装数据库。
+- **轻**：安装包仅约 **14 MB**，无需额外安装数据库。
 - **快**：百万字索引约 **200 ms**，索引和检索不调用 LLM。
 - **准**：原创 **SAG2** 检索技术，检索效果超越 RAG、GraphRAG 等。
 

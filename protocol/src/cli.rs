@@ -47,6 +47,7 @@ pub enum Command {
         key: Option<String>,
     },
     Add,
+    AddWithTypes { extensions: Vec<String> },
     Remove,
     Search {
         query: String,
@@ -156,6 +157,8 @@ pub enum IndexCoverage {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CheckOutput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<String>>,
     pub path: String,
     pub coverage: IndexCoverage,
     pub index_ready: bool,

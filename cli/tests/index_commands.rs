@@ -96,3 +96,91 @@ fn list_and_check_distinguish_parent_coverage_exclusions_and_empty_directories()
     assert_eq!(invalid.status.code(), Some(2));
     assert!(String::from_utf8(invalid.stderr).unwrap().contains("必须是目录"));
 }
+
+#[test]
+fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() {
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let _cleanup = support::ServiceCleanup(data.clone());
+    let project = temp.path().join("项目 formats");
+    fs::create_dir_all(project.join("child")).unwrap();
+    let sources = [
+        ("readme.MD", "format fixture markdown"),
+        ("main.py", "format fixture python"),
+        ("main.js", "format fixture javascript"),
+        ("settings.json", "{\"fixture\":\"format fixture json\"}"),
+        ("page.html", "<p>format fixture html</p>"),
+        ("child/main.ts", "format fixture typescript"),
+        ("child/main.js", "format fixture child javascript"),
+        ("ignored.ts", "format fixture ignored"),
+    ];
+    for (name, content) in sources { fs::write(project.join(name), content).unwrap(); }
+    fs::write(project.join(".sagignore"), "# User rule\nignored.ts\n").unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", &data).current_dir(&project).args(args).output().unwrap();
+    let check = |directory: &str| {
+        let output = run(&["check", directory, "--json"]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+    };
+    let matches = || {
+        let output = run(&["-F", "format fixture", ".", "-l", "--json"]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice::<Value>(&output.stdout).unwrap()["files"].as_array().unwrap()
+            .iter().map(|file| file["path"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
+    };
+    for types in ["pdf", "md,unknown", "", "md,,py", "../md"] {
+        let output = run(&["add", "--types", types]);
+        assert!(!output.status.success(), "accepted {types}");
+        assert_eq!(fs::read_to_string(project.join(".sagignore")).unwrap(), "# User rule\nignored.ts\n");
+    }
+    let missing = run(&["check", "--json"]);
+    assert_eq!(serde_json::from_slice::<Value>(&missing.stdout).unwrap()["coverage"], "none");
+    let added = run(&["add", "--types", ".MD,py,TS,md", "--json"]);
+    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
+    assert_eq!(check(".")["indexed_files"], 3);
+    let files = matches();
+    assert_eq!(files.len(), 3);
+    assert!(files.iter().any(|path| path.ends_with("readme.MD")));
+    assert!(files.iter().any(|path| path.ends_with("main.py")));
+    assert!(files.iter().any(|path| path.ends_with("child/main.ts")));
+    assert!(run(&["add"]).status.success());
+    assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
+    assert!(String::from_utf8(run(&["check"]).stdout).unwrap().contains("原生索引格式：md,py,ts"));
+    assert!(run(&["service", "stop"]).status.success());
+    assert_eq!(check(".")["indexed_files"], 3);
+    assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
+
+    // A child selection updates that subtree while retaining the parent's selection.
+    let child = run(&["add", "child", "--types", "js"]);
+    assert!(child.status.success(), "{}", String::from_utf8_lossy(&child.stderr));
+    assert_eq!(check("child")["extensions"], serde_json::json!(["js"]));
+    assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
+    let files = matches();
+    assert_eq!(files.len(), 3);
+    assert!(files.iter().any(|path| path.ends_with("child/main.js")));
+    assert!(!files.iter().any(|path| path.ends_with("main.ts")));
+    assert!(files.iter().any(|path| path.ends_with("main.py")));
+
+    let replaced = run(&["add", "--types", "html,json"]);
+    assert!(replaced.status.success(), "{}", String::from_utf8_lossy(&replaced.stderr));
+    // The explicit child selection remains in effect.
+    assert_eq!(check(".")["extensions"], serde_json::json!(["html", "json"]));
+    assert_eq!(check(".")["indexed_files"], 3);
+    let files = matches();
+    assert!(files.iter().any(|path| path.ends_with("page.html")));
+    assert!(files.iter().any(|path| path.ends_with("settings.json")));
+    assert!(files.iter().any(|path| path.ends_with("child/main.js")));
+    for (name, content) in sources { assert_eq!(fs::read_to_string(project.join(name)).unwrap(), content); }
+    let rules = fs::read_to_string(project.join(".sagignore")).unwrap();
+    assert!(rules.starts_with("# User rule\nignored.ts\n"));
+    assert_eq!(rules.matches("# SAG Wiki index options: begin").count(), 1);
+    assert!(run(&["service", "stop"]).status.success());
+    let store = sag_core::store::Store::open(&data.join("sag.sqlite")).unwrap();
+    let files = store.files().unwrap();
+    assert_eq!(files.len(), 3);
+    for name in ["page.html", "settings.json", "child/main.js"] {
+        assert!(files.iter().any(|file| file.path.ends_with(name)), "missing index entry: {name}");
+    }
+}

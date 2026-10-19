@@ -1033,10 +1033,13 @@ impl Store {
         let rows = query.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?;
         Ok(rows)
     }
-    fn indexable_path(path: &Path, settings: &FolderIndexOptions) -> bool {
+    pub(crate) fn indexable_path(path: &Path, settings: &FolderIndexOptions) -> bool {
         if crate::docling::in_output(path) {
             settings.convert_other_formats && text::is_markdown(path)
                 && crate::docling::is_selected(&path.with_extension(""), &settings.conversion_formats)
+        } else if let Some(extensions) = &settings.extensions {
+            path.extension().and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extensions.iter().any(|selected| selected.eq_ignore_ascii_case(extension)))
         } else {
             text::is_indexable(path, &settings.file_types)
         }

@@ -1,6 +1,6 @@
 {
   "name": "sag-desktop",
-  "version": "0.1.1",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "test": "vitest run",
     "build:cli": "node scripts/build-cli.mjs",
     "package:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
-    "build:cli:dev": "node scripts/build-cli.mjs --debug"
+    "build:cli:dev": "node scripts/build-cli.mjs --debug",
+    "package:updates": "node scripts/package-updates.mjs"
   },
   "dependencies": {
     "@lucide/icons": "1.56.0",

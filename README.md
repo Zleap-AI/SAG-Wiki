@@ -44,8 +44,8 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 | System | Download | Size |
 | --- | --- | --- |
-| macOS | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-macOS-arm64.dmg) | 12.5MB |
-| Windows | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-Windows-x64-setup.exe) | 9.5MB |
+| macOS | [v0.1.6](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.6/SAG-Wiki-0.1.6-macOS-arm64.dmg) | 14.0MB |
+| Windows | [v0.1.6](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.6/SAG-Wiki-0.1.6-Windows-x64-setup.exe) | 10.7MB |
 
 **Install for your agent**
 
@@ -57,7 +57,7 @@ The installer size excludes optional document conversion components and recognit
 
 Add a folder to make your documents, notes, and code searchable. Find a passage, ask a question across files, open the source behind an answer, or give your coding agent access to the same knowledge base.
 
-- **Light:** just **12.5 MB** to download, with no separate database to install.
+- **Light:** just **14 MB** to download, with no separate database to install.
 - **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
 - **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
 

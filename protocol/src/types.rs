@@ -219,6 +219,8 @@ impl Default for FileTypes {
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FolderIndexOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<String>>,
     pub file_types: FileTypes,
     pub convert_other_formats: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -226,7 +228,31 @@ pub struct FolderIndexOptions {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
+pub struct UpdateSettings {
+    pub source: UpdateSource,
+    pub github_url: String,
+    pub website_url: String,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateSource {
+    #[default]
+    Github,
+    Website,
+}
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            source: UpdateSource::Github,
+            github_url: "https://github.com/Zleap-AI/SAG-Wiki".into(),
+            website_url: String::new(),
+        }
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Settings {
+    pub updates: UpdateSettings,
     pub convert_other_formats: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversion_formats: Option<Vec<String>>,
@@ -258,6 +284,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            updates: UpdateSettings::default(),
             convert_other_formats: false,
             conversion_formats: None,
             retrieval_version: crate::RETRIEVAL_VERSION,

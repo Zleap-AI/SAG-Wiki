@@ -1,5 +1,8 @@
 mod cli_commands;
 mod folder_picker;
+mod updates;
+#[cfg(windows)]
+mod windows_icon;
 #[path = "../../cli/src/install.rs"]
 mod cli_install;
 use sag_client::Client;
@@ -328,6 +331,9 @@ fn open_about_link(target: &str) -> CommandResult<()> {
         "302-api-keys" => "https://302.ai/api-keys/list",
         _ => return Err("未知的关于页面链接".into()),
     };
+    open_browser_url(url)
+}
+fn open_browser_url(url: &str) -> CommandResult<()> {
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
     #[cfg(target_os = "windows")]
@@ -370,7 +376,11 @@ fn reveal(path: &Path) -> anyhow::Result<()> {
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::UpdateSession::default())
         .setup(|app| {
+            #[cfg(windows)]
+            windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
             let data = protocol::data_dir()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             let source = cli_commands::service_source(app.handle(), cli_install_error.is_none())
@@ -518,6 +528,9 @@ pub fn run() {
             reveal_path,
             open_data_directory,
             open_about_link,
+            updates::check_app_update,
+            updates::download_app_update,
+            updates::install_app_update,
             load_image,
             get_service_info
         ])

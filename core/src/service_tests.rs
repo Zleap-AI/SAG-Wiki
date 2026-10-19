@@ -877,7 +877,7 @@ async fn folder_index_options_apply_through_rpc_and_rebuild_only_the_requested_r
     std::fs::create_dir(&folder).unwrap();
     std::fs::write(folder.join("note.md"), "documentation").unwrap();
     std::fs::write(folder.join("main.py"), "print('local settings')").unwrap();
-    let initial = FolderIndexOptions { file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
+    let initial = FolderIndexOptions { extensions: None, file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
     let Output::Text(root) = call(&client, Operation::AddRootWithOptions { path: folder.to_string_lossy().into_owned(), options: initial.clone() }).await else { panic!("root") };
     for (options, name) in [
         (initial.clone(), "note.md"),
@@ -916,7 +916,7 @@ async fn nested_folder_settings_reindex_only_the_selected_subdirectory_over_rpc(
     std::fs::write(folder.join("papers/note.md"), "paper evidence").unwrap();
     std::fs::write(folder.join("papers/main.py"), "print('code')").unwrap();
     std::fs::write(folder.join("sibling/note.md"), "sibling evidence").unwrap();
-    let initial = FolderIndexOptions { file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
+    let initial = FolderIndexOptions { extensions: None, file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
     let Output::Text(root) = call(&client, Operation::AddRootWithOptions { path: folder.to_string_lossy().into_owned(), options: initial.clone() }).await else { panic!("root") };
     let child = format!("{root}/papers");
     let changed = FolderIndexOptions { file_types: FileTypes { markdown: false, code: true, ..initial.file_types.clone() }, ..initial.clone() };
