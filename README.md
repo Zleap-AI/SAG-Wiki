@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2610.22588"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2610.22588-18181b" /></a>
-  <img alt="SAG-Wiki version" src="https://img.shields.io/badge/SAG--Wiki-v0.1.0-18181b" />
+  <a href="https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5"><img alt="SAG-Wiki version" src="https://img.shields.io/badge/SAG--Wiki-v0.1.5-18181b" /></a>
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-3776ab" />
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-339933" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-18181b" />
@@ -42,9 +42,16 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 ## SAG-Wiki in one minute
 
+| System | Download | Size |
+| --- | --- | --- |
+| macOS | [v0.1.5](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.5/SAG-Wiki-0.1.5-macOS-arm64.dmg) | 12.5MB |
+| Windows | Coming soon | — |
+
+The installer size excludes optional document conversion components and recognition models downloaded on demand.
+
 Add a folder to make your documents, notes, and code searchable. Find a passage, ask a question across files, open the source behind an answer, or give your coding agent access to the same knowledge base.
 
-- **Light:** just **9–12 MB** to download, with no separate database to install.
+- **Light:** just **12.5 MB** to download, with no separate database to install.
 - **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
 - **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
 
@@ -98,14 +105,7 @@ SAG-Wiki itself is free and open source. External service charges depend on your
 
 ### 1. Download and add a folder
 
-SAG-Wiki supports **macOS and Windows**. Installers will be available in [Releases](https://github.com/Zleap-AI/SAG-Wiki/releases):
-
-| System | Installer | Size |
-| --- | --- | --- |
-| macOS | `.dmg`, coming soon | Approx. 12 MB |
-| Windows | `.exe`, coming soon | Approx. 9 MB |
-
-Sizes reflect current builds and exclude optional document conversion components and recognition models downloaded on demand.
+Download the DMG from the table above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
 
 Install and open SAG-Wiki, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
 
