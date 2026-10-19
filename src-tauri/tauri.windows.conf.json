@@ -1,0 +1,42 @@
+{
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "SAG Wiki",
+        "width": 1280,
+        "height": 850,
+        "minWidth": 960,
+        "minHeight": 600,
+        "decorations": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": [
+      "nsis"
+    ],
+    "resources": {
+      "licenses/LUCIDE.txt": "licenses/LUCIDE.txt",
+      "licenses/BITS-UI.txt": "licenses/BITS-UI.txt",
+      "licenses/SHADCN-SVELTE.txt": "licenses/SHADCN-SVELTE.txt",
+      "licenses/MORPHDOM.txt": "licenses/MORPHDOM.txt",
+      "licenses/GRAPH-VIEW.txt": "licenses/GRAPH-VIEW.txt",
+      "icons/windows/icon.ico": "icons/sag-rounded-v2.ico",
+      "bin/sag.exe": "bin/sag.exe"
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh",
+        "installerIcon": "icons/windows/icon.ico",
+        "uninstallerIcon": "icons/windows/icon.ico"
+      }
+    },
+    "icon": [
+      "icons/windows/32x32.png",
+      "icons/windows/128x128.png",
+      "icons/windows/128x128@2x.png",
+      "icons/windows/icon.ico"
+    ]
+  }
+}

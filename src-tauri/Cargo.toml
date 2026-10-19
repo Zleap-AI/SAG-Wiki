@@ -1,0 +1,31 @@
+[package]
+name = "sag-desktop"
+version = "0.1.1"
+edition = "2021"
+[lib]
+name = "sag_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+serde_json = "1"
+[dependencies]
+sag-protocol = { path = "../protocol" }
+sag-client = { path = "../client" }
+tokio = { version = "1", features = ["sync", "time"] }
+anyhow = "1"
+dirs = "6"
+tauri = { version = "2", features = ["tray-icon"] }
+tauri-plugin-dialog = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+sha2 = "0.10"
+tempfile = "3"
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
+
+# Keep file integrity checks fast in development builds too.
+[profile.dev.package.sha2]
+opt-level = 3

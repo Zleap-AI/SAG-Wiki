@@ -1,0 +1,48 @@
+[package]
+name = "sag-cli"
+version = "0.1.1"
+edition = "2021"
+
+[[bin]]
+name = "sag"
+path = "src/main.rs"
+
+[dependencies]
+sag-core = { path = "../core" }
+sag-client = { path = "../client" }
+sag-protocol = { path = "../protocol" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio-util = "0.7"
+rpassword = "7"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+ctrlc = { version = "3", features = ["termination"] }
+dirs = "6"
+pathdiff = "0.2"
+sha2 = "0.10"
+tempfile = "3"
+
+[dev-dependencies]
+libc = "0.2"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1
+opt-level = "s"
+
+# Keep file integrity checks fast in development builds too.
+[profile.dev.package.sha2]
+opt-level = 3
+
+# The development service uses the same optimized matching libraries as release.
+[profile.dev.package.regex-automata]
+opt-level = 3
+[profile.dev.package.aho-corasick]
+opt-level = 3
+[profile.dev.package.memchr]
+opt-level = 3
+[profile.dev.package.encoding_rs]
+opt-level = 3
