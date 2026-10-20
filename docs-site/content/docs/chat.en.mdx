@@ -1,0 +1,63 @@
+---
+title: "Q&A"
+description: "Ask about your files and verify answers against their sources."
+---
+
+## Start a conversation
+
+Open Q&A and send your question. Type `@` to select a file. The scope selector controls which documents can be retrieved.
+
+![An answer with citations](/images/product-chat-en.png)
+
+Tool calls display progress and elapsed time. Model text, reasoning and tools appear in the order they occur.
+
+## Open a citation
+
+Click a citation number to open the full document in the side panel, automatically positioned at and highlighting the referenced passage. HTML and Markdown are supported.
+
+![Source document opened from a citation](/images/product-citation-en.png)
+
+Citations help you verify the answer. Read the surrounding context when information is incomplete or contradictory. If you open the standalone document view, Back returns to the conversation.
+
+## Manage conversations
+
+Return to the conversation list to switch chats or start a new one. New conversations use separate context while previous chats remain in history.
+
+## Configure an answer model
+
+Enter your provider endpoint, model and API key in settings. Configure Jev as well for semantic retrieval. Jev finds evidence; the answer model composes the response.
+
+## Q&A settings in detail
+
+Location: **Settings → Q&A settings**. Select the answer model you want to configure first.
+
+![Reasoning effort and system prompt per model](/images/product-chat-settings-en.png)
+
+### Settings saved per model
+
+| Setting | Purpose | Notes |
+| --- | --- | --- |
+| Reasoning effort | Choose a supported reasoning level | Options depend on the model and service. Higher effort usually takes longer; use Default when unsupported. |
+| System prompt | Specify role, language, style or task requirements | Applies only to the selected model. Blank uses the built-in prompt; clear it to restore that prompt. |
+| Built-in SAG tools | Allow local search, reading, matching, time and calculations | Disable the group or individual tools. Semantic search also requires Jev. |
+| External MCP bindings | Select external servers and tools for the model | Connection details are shared; bindings and enabled tools are per model. |
+
+Use the reasoning options actually shown by the UI. Some models offer Off, Low, Medium, High or Max. Unsupported means the specific model/service combination has no mapped reasoning parameter; it does not mean the model is unusable. Restore Default in that case.
+
+A system prompt does not replace connection settings or add tool support to an incompatible model. See [MCP and tool bindings](/en/docs/mcp) for setup, testing and confirmations.
+
+### Request settings shared by all models
+
+| Setting | Default / range | Effect |
+| --- | --- | --- |
+| Tool calls per turn | 10 / 1–100 | Total SAG and external MCP calls during one Q&A turn. Complex tasks may need more calls; higher limits can increase latency and service use. |
+| Answer context budget (tokens) | 65536 / minimum 4096 | Controls input including the question, history, tool records and citations. No fixed maximum; set it within the model's actual capacity. History or material may be reduced to fit. |
+| Request timeout | 120 seconds / 10–600 seconds | How long to wait for service requests. A short timeout can interrupt slow models; a long one delays failure feedback. |
+
+The context budget is not an output-length setting; output length is controlled by the model service. Entering a value beyond the provider limit does not expand model capacity and may cause failure.
+
+The tool-call limit differs from SAG2 expansion rounds. One `search` call can contain several retrieval rounds and Jev requests.
+
+### Save and verify
+
+After saving, send a new question and check the selected model, tool calls and citations. When changing models, verify that model's prompt, reasoning and tools instead of assuming it inherits the previous model's configuration.

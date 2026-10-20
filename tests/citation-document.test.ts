@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import {loadDocumentBridge} from './helpers/document-bridge';
 import {afterEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import CitationDocument from '../src/components/CitationDocument.svelte';
@@ -26,9 +27,9 @@ it('HTML 全文保留样式和图片，定位到实际引用位置',async()=>{
  expect(doc.body.textContent).toContain('未引用的中间内容');
  expect([...doc.querySelectorAll('style')].some(style=>style.textContent==='p{color:red}')).toBe(true);
  expect(doc.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,QUJD');
- expect(frame.getAttribute('sandbox')).toBe('allow-same-origin');
+ expect(frame.getAttribute('sandbox')).toBe('allow-scripts');expect(doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content')).toContain("script-src 'nonce-");
  const scroll=vi.fn();doc.querySelectorAll('.search-hit').forEach(mark=>Object.defineProperty(mark,'scrollIntoView',{value:scroll}));
- Object.defineProperty(frame,'contentDocument',{value:doc});frame.dispatchEvent(new Event('load'));await tick();
+ loadDocumentBridge(frame,doc);await tick();
  expect(doc.querySelector('.search-hit.active')?.getAttribute('data-search-match')).toBe('1');
  expect([...doc.querySelectorAll('.search-hit.active')].map(mark=>mark.textContent).join('')).toBe('引用的完整段落。');
  expect(scroll).toHaveBeenCalledWith({block:'center'});
