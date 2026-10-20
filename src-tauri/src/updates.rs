@@ -37,29 +37,14 @@ pub struct UpdateInfo {
 }
 
 #[derive(Deserialize)]
-struct GithubRelease {
-    tag_name: String,
-    body: Option<String>,
-    draft: bool,
-    prerelease: bool,
-    assets: Vec<GithubAsset>,
-}
-#[derive(Deserialize)]
-struct GithubAsset {
-    name: String,
-    browser_download_url: String,
-}
-
-// Website sources use this manifest, with keys such as darwin-aarch64 and windows-x86_64.
-#[derive(Deserialize)]
-struct WebsiteRelease {
+struct UpdateManifest {
     version: String,
     #[serde(default)]
     notes: String,
-    platforms: BTreeMap<String, WebsiteInstaller>,
+    platforms: BTreeMap<String, ManifestPackage>,
 }
 #[derive(Deserialize)]
-struct WebsiteInstaller {
+struct ManifestPackage {
     url: String,
 }
 
@@ -89,7 +74,7 @@ fn github_endpoint(value: &str) -> Result<Url> {
     let repo = segments[1].trim_end_matches(".git");
     ensure!(!repo.is_empty(), "请填写 GitHub 项目地址");
     Ok(Url::parse(&format!(
-        "https://api.github.com/repos/{}/{repo}/releases/latest",
+        "https://github.com/{}/{repo}/releases/latest/download/latest.json",
         segments[0]
     ))?)
 }
@@ -108,48 +93,8 @@ fn update_info(current: &str, latest: &str, notes: String) -> Result<UpdateInfo>
     })
 }
 
-fn github_update(
-    release: GithubRelease,
-    current: &str,
-    os: &str,
-    arch: &str,
-) -> Result<UpdateInfo> {
-    ensure!(
-        !release.draft && !release.prerelease,
-        "更新源返回了未正式发布的版本"
-    );
-    let mut info = update_info(current, &release.tag_name, release.body.unwrap_or_default())?;
-    if info.available {
-        let matches_arch = |name: &str| match arch {
-            "aarch64" => name.contains("arm64") || name.contains("aarch64"),
-            "x86_64" => name.contains("x64") || name.contains("x86_64") || name.contains("amd64"),
-            _ => false,
-        };
-        let asset = release
-            .assets
-            .iter()
-            .filter(|asset| {
-                let name = asset.name.to_lowercase();
-                match os {
-                    "macos" => {
-                        name.ends_with(".dmg")
-                            && (matches_arch(&name) || name.contains("universal"))
-                    }
-                    "windows" => {
-                        (name.ends_with(".exe") || name.ends_with(".msi")) && matches_arch(&name)
-                    }
-                    _ => false,
-                }
-            })
-            .min_by_key(|asset| !asset.name.to_lowercase().ends_with(".exe"))
-            .context("新版本尚未提供当前系统的安装包")?;
-        info.download_url = Some(https_url(&asset.browser_download_url)?.to_string());
-    }
-    Ok(info)
-}
-
-fn website_update(
-    release: WebsiteRelease,
+fn manifest_update(
+    release: UpdateManifest,
     current: &str,
     os: &str,
     arch: &str,
@@ -167,10 +112,7 @@ fn website_update(
 }
 
 async fn check(config: UpdateSettings, current: &str, os: &str, arch: &str) -> Result<UpdateInfo> {
-    let endpoint = match config.source {
-        UpdateSource::Github => github_endpoint(&config.github_url)?,
-        UpdateSource::Website => https_url(&config.website_url)?,
-    };
+    let endpoint = manifest_endpoint(&config)?;
     let client = reqwest::Client::builder()
         .user_agent(format!("SAG-Wiki/{current}"))
         .https_only(true)
@@ -184,10 +126,7 @@ async fn check(config: UpdateSettings, current: &str, os: &str, arch: &str) -> R
     if !response.status().is_success() {
         bail!("更新检查失败（HTTP {}）", response.status().as_u16());
     }
-    match config.source {
-        UpdateSource::Github => github_update(response.json().await?, current, os, arch),
-        UpdateSource::Website => website_update(response.json().await?, current, os, arch),
-    }
+    manifest_update(response.json().await?, current, os, arch)
 }
 
 #[tauri::command]
@@ -207,16 +146,7 @@ pub async fn check_app_update(
 
 fn manifest_endpoint(config: &UpdateSettings) -> Result<Url> {
     match config.source {
-        UpdateSource::Github => {
-            // Reuse repository validation; release assets carry the signed update manifest.
-            github_endpoint(&config.github_url)?;
-            let repo = config
-                .github_url
-                .trim()
-                .trim_end_matches('/')
-                .trim_end_matches(".git");
-            https_url(&format!("{repo}/releases/latest/download/latest.json"))
-        }
+        UpdateSource::Github => github_endpoint(&config.github_url),
         UpdateSource::Website => https_url(&config.website_url),
     }
 }
@@ -344,6 +274,21 @@ pub async fn install_app_update(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn checks_release_manifest_without_rest_api() {
+        let config = UpdateSettings::default();
+        assert_eq!(
+            github_endpoint(&config.github_url).unwrap(),
+            Url::parse("https://github.com/Zleap-AI/SAG-Wiki/releases/latest/download/latest.json")
+                .unwrap(),
+            "checking and downloading must use the same release manifest, without the REST API"
+        );
+        assert_eq!(
+            github_endpoint(&config.github_url).unwrap(),
+            manifest_endpoint(&config).unwrap()
+        );
+    }
 
     #[test]
     fn resolves_signed_manifests_without_opening_a_browser() {
@@ -485,47 +430,44 @@ mod tests {
         }
     }
 
-    fn release() -> GithubRelease {
+    fn release() -> UpdateManifest {
         serde_json::from_value(json!({
-            "tag_name":"v0.1.10", "body":"Release notes", "draft":false, "prerelease":false,
-            "assets":[
-                {"name":"SAG-Wiki-0.1.10-macOS-arm64.dmg","browser_download_url":"https://example.com/mac-arm.dmg"},
-                {"name":"SAG-Wiki-0.1.10-macOS-x64.dmg","browser_download_url":"https://example.com/mac-intel.dmg"},
-                {"name":"SAG-Wiki-0.1.10-Windows-x64.msi","browser_download_url":"https://example.com/windows.msi"},
-                {"name":"SAG-Wiki-0.1.10-Windows-x64-setup.exe","browser_download_url":"https://example.com/windows.exe"}
-            ]
-        })).unwrap()
+            "version":"0.1.10", "notes":"Release notes", "platforms":{
+                "darwin-aarch64":{"url":"https://example.com/mac-arm.app.tar.gz"},
+                "darwin-x86_64":{"url":"https://example.com/mac-intel.app.tar.gz"},
+                "windows-x86_64":{"url":"https://example.com/windows.exe"}
+            }
+        }))
+        .unwrap()
     }
 
     #[test]
     fn selects_the_matching_installer() {
         for (os, arch, suffix) in [
-            ("macos", "aarch64", "mac-arm.dmg"),
-            ("macos", "x86_64", "mac-intel.dmg"),
+            ("macos", "aarch64", "mac-arm.app.tar.gz"),
+            ("macos", "x86_64", "mac-intel.app.tar.gz"),
             ("windows", "x86_64", "windows.exe"),
         ] {
-            let info = github_update(release(), "0.1.9", os, arch).unwrap();
+            let info = manifest_update(release(), "0.1.9", os, arch).unwrap();
             assert!(info.available);
+            assert_eq!(info.notes, "Release notes");
             assert!(info.download_url.unwrap().ends_with(suffix));
         }
-        assert!(github_update(release(), "0.1.9", "windows", "aarch64").is_err());
+        assert!(manifest_update(release(), "0.1.9", "windows", "aarch64").is_err());
     }
 
     #[test]
     fn compares_semantic_versions_and_does_not_offer_downgrades() {
         assert!(
-            github_update(release(), "0.1.9", "macos", "aarch64")
+            manifest_update(release(), "0.1.9", "macos", "aarch64")
                 .unwrap()
                 .available
         );
         for current in ["0.1.10", "0.1.10+customer1", "0.2.0"] {
-            let info = github_update(release(), current, "macos", "aarch64").unwrap();
+            let info = manifest_update(release(), current, "macos", "aarch64").unwrap();
             assert!(!info.available);
             assert!(info.download_url.is_none());
         }
-        let mut draft = release();
-        draft.draft = true;
-        assert!(github_update(draft, "0.1.9", "macos", "aarch64").is_err());
         assert!(update_info("0.1.5", "v0.2.0-beta.1", String::new()).is_err());
         assert!(update_info("0.1.5", "invalid", String::new()).is_err());
     }
@@ -536,7 +478,7 @@ mod tests {
             github_endpoint("https://github.com/customer/wiki.git/")
                 .unwrap()
                 .as_str(),
-            "https://api.github.com/repos/customer/wiki/releases/latest"
+            "https://github.com/customer/wiki/releases/latest/download/latest.json"
         );
         for address in [
             "http://github.com/a/b",
@@ -560,7 +502,7 @@ mod tests {
             }}),
         )
         .unwrap();
-        let info = website_update(release, "0.1.5", "windows", "x86_64").unwrap();
+        let info = manifest_update(release, "0.1.5", "windows", "x86_64").unwrap();
         assert_eq!(
             info.download_url.as_deref(),
             Some("https://example.com/new.exe")
@@ -574,15 +516,20 @@ mod tests {
     #[test]
     #[ignore = "read-only live GitHub integration check"]
     fn checks_real_github_release() {
-        let info = tauri::async_runtime::block_on(check(
-            UpdateSettings::default(),
-            "0.1.0",
-            "macos",
-            "aarch64",
-        ))
-        .unwrap();
-        assert!(info.available);
-        assert!(info.download_url.unwrap().ends_with(".dmg"));
-        println!("GitHub latest version: {}", info.latest_version);
+        for (os, arch, suffix) in [
+            ("macos", "aarch64", "macOS-arm64.app.tar.gz"),
+            ("windows", "x86_64", "Windows-x64-setup.exe"),
+        ] {
+            let info =
+                tauri::async_runtime::block_on(check(UpdateSettings::default(), "0.1.6", os, arch))
+                    .unwrap();
+            assert!(info.available);
+            assert!(info.download_url.unwrap().ends_with(suffix));
+            assert!(!info.notes.is_empty());
+            println!(
+                "GitHub manifest version for {os}/{arch}: {}",
+                info.latest_version
+            );
+        }
     }
 }
