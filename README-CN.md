@@ -44,8 +44,8 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 | 系统 | 下载 | 大小 |
 | --- | --- | --- |
-| macOS | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-macOS-arm64.dmg) | 14.0MB |
-| Windows | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-Windows-x64-setup.exe) | 10.7MB |
+| macOS | [v0.1.8](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.8/SAG-Wiki-0.1.8-macOS-arm64.dmg) | 14.0MB |
+| Windows | [v0.1.8](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.8/SAG-Wiki-0.1.8-Windows-x64-setup.exe) | 10.7MB |
 
 **给 Agent 安装**
 
