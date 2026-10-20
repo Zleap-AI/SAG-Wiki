@@ -246,7 +246,7 @@ fn nested_conversion_options_use_source_folder_rules_and_keep_siblings_unchanged
     let b = root_path.join("b");
     fs::create_dir_all(a.join("excluded")).unwrap();
     fs::create_dir(&b).unwrap();
-    let enabled = FolderIndexOptions { file_types: FileTypes { markdown: false, text: false, code: false, config: false }, convert_other_formats: true, conversion_formats: None };
+    let enabled = FolderIndexOptions { extensions: None, file_types: FileTypes { markdown: false, text: false, code: false, config: false }, convert_other_formats: true, conversion_formats: None };
     let disabled = FolderIndexOptions { convert_other_formats: false, ..enabled.clone() };
     crate::folder_index::write(root_path, &disabled).unwrap();
     crate::folder_index::write(&a, &enabled).unwrap();
@@ -288,6 +288,7 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     fs::write(root_path.join("notes.docx"), "selectedword evidence").unwrap();
     fs::write(nested.join("voice.mp3"), "selectedaudio evidence").unwrap();
     let mut options = FolderIndexOptions {
+        extensions: None,
         file_types: FileTypes::default(), convert_other_formats: true, conversion_formats: None,
     };
     crate::folder_index::write(root_path, &options).unwrap();

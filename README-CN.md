@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2610.22588"><img alt="论文" src="https://img.shields.io/badge/paper-arXiv%3A2610.22588-18181b" /></a>
-  <img alt="SAG-Wiki 版本" src="https://img.shields.io/badge/SAG--Wiki-v0.1.0-18181b" />
+  <a href="https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5"><img alt="SAG-Wiki 版本" src="https://img.shields.io/badge/SAG--Wiki-v0.1.5-18181b" /></a>
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-3776ab" />
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-339933" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-18181b" />
@@ -42,9 +42,22 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 ## 一分钟了解 SAG-Wiki
 
+| 系统 | 下载 | 大小 |
+| --- | --- | --- |
+| macOS | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-macOS-arm64.dmg) | 14.0MB |
+| Windows | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-Windows-x64-setup.exe) | 10.7MB |
+
+**给 Agent 安装**
+
+```text
+请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
+```
+
+安装包大小不含按需下载的文档转换组件和识别模型。
+
 添加一个文件夹，就能搜索其中的文档、笔记和代码。查找原文、跨文件提问、核对答案出处，也可以让编程 Agent 使用同一份知识库。
 
-- **轻**：安装包仅约 **9–12 MB**，无需额外安装数据库。
+- **轻**：安装包仅约 **14 MB**，无需额外安装数据库。
 - **快**：百万字索引约 **200 ms**，索引和检索不调用 LLM。
 - **准**：原创 **SAG2** 检索技术，检索效果超越 RAG、GraphRAG 等。
 
@@ -98,14 +111,7 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 
 ### 1. 下载，添加文件夹
 
-支持 **macOS 和 Windows**，安装包将在 [Releases](https://github.com/Zleap-AI/SAG-Wiki/releases) 发布：
-
-| 系统 | 安装包 | 大小 |
-| --- | --- | --- |
-| macOS | `.dmg`，待发布 | 约 12 MB |
-| Windows | `.exe`，待发布 | 约 9 MB |
-
-大小参考当前构建，不含按需下载的文档转换组件和识别模型。
+从上方表格下载 DMG，打开后将 SAG Wiki 拖入 Applications。当前 macOS 版本尚未通过 Apple 公证，首次打开可能出现系统安全提示。
 
 安装并打开 SAG-Wiki，点击“文件夹管理”旁的 **+**，添加需要检索的文件夹。原文件保留在原处。
 
@@ -141,39 +147,37 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 
 把这句话发给 Agent：
 
-> 请安装 [SAG Skill](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag)，按[这里的指南](https://github.com/Zleap-AI/SAG-Wiki/blob/main/README-CN.md#agent-guide)配置 CLI，让当前项目可以使用 SAG 检索。
+```text
+请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
+```
 
-支持 **Claude Code、Codex、OpenCode**，CLI 可独立使用，也可与桌面共用配置和知识库。首次配置需要你提供 Jev API Key；安装 Skill 后，新开 Agent 会话即可加载。
+支持 **Claude Code、Codex、OpenCode**。Skill 包含 CLI 安装、配置、项目索引和验证流程。**无需安装 SAG Wiki 桌面端，也能单独使用 CLI**；安装桌面端后，两者共用配置和知识库。已有配置会直接复用，首次语义检索需要在终端中私密填写自己的 Jev API Key。统一以 GitHub 上的 Skill 链接为安装入口，Agent 会从同一目录获取配套文件。
+
+安装 Node.js 18 或以上版本后，运行：
+
+```sh
+npm install -g @zleap-ai/sag
+```
+
+已发布的 **0.1.5** npm 包包含 **macOS Apple Silicon 和 Windows x64** 程序，无需 Rust 工具链或源码编译。安装 CLI 不会安装桌面端。
 
 <details>
 <summary>手动安装与使用</summary>
 
-已有 `sag` 命令可直接跳到配置步骤。预编译 CLI 发布前，可安装 Rust 后从源码构建：
+已有 `sag` 命令可直接复用；没有则运行上面的 npm 安装命令，然后在终端中检查版本并完成首次 Jev 配置：
 
 ```sh
-git clone https://github.com/Zleap-AI/SAG-Wiki.git
-cd SAG-Wiki
-```
-
-macOS：
-
-```sh
-sh scripts/install.sh
-```
-
-Windows PowerShell：
-
-```powershell
-cargo build --release --locked --manifest-path cli/Cargo.toml
-.\cli\target\release\sag.exe install cli
-```
-
-安装后新开终端，运行 `sag` 完成首次 Jev 配置，再安装对应 Agent 的 Skill：
-
-```sh
+sag --version
 sag
-sag install codex        # 也可以是 claude-code / opencode
 ```
+
+将链接中的 [Skill 文件夹](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag)（包含 `SKILL.md` 和 `references/`）放到对应 Agent 的目录：
+
+| Agent | Skill 文件夹 |
+| --- | --- |
+| Codex | `~/.agents/skills/sag/` |
+| Claude Code | `~/.claude/skills/sag/` |
+| OpenCode | `~/.config/opencode/skills/sag/` |
 
 新开 Agent 会话。在需要检索的项目目录运行，确认索引就绪后开始搜索：
 
@@ -183,7 +187,7 @@ sag check
 sag "权限在哪里检查？" . -m 5
 ```
 
-配置和其他命令见 [CLI 使用说明](docs/CLI与Harness使用说明.md)。
+完整的 Agent 安装流程见 Skill 的 [setup 指南](cli/skills/sag/references/setup.md#first-use-setup)，其他命令见 [CLI 使用说明](docs/zh-CN/CLI与Harness使用说明.md)。
 
 </details>
 
@@ -213,7 +217,7 @@ flowchart TD
 | `core/` | 索引、检索和问答 |
 | `client/`、`protocol/` | 客户端通信与协议 |
 
-按[环境说明](docs/开发指南.md#环境)准备 Node.js、Rust 和对应系统的 Tauri 开发依赖，然后运行：
+按[环境说明](docs/zh-CN/开发指南.md#环境)准备 Node.js、Rust 和对应系统的 Tauri 开发依赖，然后运行：
 
 ```sh
 git clone https://github.com/Zleap-AI/SAG-Wiki.git
@@ -222,13 +226,13 @@ npm ci
 npm run tauri dev
 ```
 
-修改后运行 `npm run check` 和 `npm test`，完整检查命令见[代码检查](docs/开发指南.md#代码检查)。构建和实现细节见[开发指南](docs/开发指南.md)、[架构设计](docs/架构设计.md)与[文档目录](docs/README.md)。
+修改后运行 `npm run check` 和 `npm test`，完整检查命令见[代码检查](docs/zh-CN/开发指南.md#代码检查)。构建和实现细节见[开发指南](docs/zh-CN/开发指南.md)、[架构设计](docs/zh-CN/架构设计.md)与[文档目录](docs/zh-CN/README.md)。
 
 ---
 
 ## 参与贡献与许可
 
-欢迎通过 [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) 反馈问题，通过 [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls) 参与开发。应用修改请参照[开发指南](docs/开发指南.md)；检索研究与实验复现请前往 [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark)。
+欢迎通过 [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) 反馈问题，通过 [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls) 参与开发。应用修改请参照[开发指南](docs/zh-CN/开发指南.md)；检索研究与实验复现请前往 [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark)。
 
 SAG-Wiki 使用 [MIT 许可证](LICENSE)。第三方依赖许可保留在 [src-tauri/licenses](src-tauri/licenses/) 中。
 

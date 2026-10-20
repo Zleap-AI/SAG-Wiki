@@ -28,6 +28,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client.compact-sidebar .sidebar-titlebar .window-controls{position:absolute;top:0;left:0}
 .real-client .sidebar-titlebar .window-controls{margin:0;gap:0}
 .real-client .sidebar-titlebar .window-controls button{width:24px;height:32px;padding:0}
+.real-client .sidebar-titlebar .window-controls.windows button>.icon{width:17px;height:17px}
 .real-client .sidebar{padding:14px 12px 12px;background:var(--color-sidebar)}
 .real-client .brand-row{height:38px;padding:0 10px;gap:9px;margin-bottom:16px}
 .real-client .brand-row>.brand-mark{width:36px;height:36px;margin:-6px;background:transparent;border-radius:0;mix-blend-mode:multiply}
@@ -399,6 +400,12 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .library-folder-action{margin-left:auto;flex-shrink:0;display:flex;align-items:center;gap:6px;height:32px;padding:5px 10px;font-size:var(--text-ui)}
 .real-client .library-folder-action>.icon{width:15px;height:15px}
 .library-folder-heading{width:100%}
+.real-client .folder-browser .library-folder-meta{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-top:5px;min-height:24px;font:400 var(--text-caption)/1.6 var(--font-body);color:var(--color-muted)}
+.real-client .folder-browser .library-folder-meta .folder-count{margin:0;font:inherit;color:inherit}
+.real-client .folder-browser .library-file-filter{display:inline-flex;align-items:center;gap:5px;padding:0;border:0;background:transparent;color:inherit;font:inherit;cursor:pointer}
+.real-client .library-file-filter>span{text-decoration:underline;text-underline-offset:4px;text-decoration-thickness:1px}
+.real-client .library-file-filter>.icon{width:12px;height:12px}
+.real-client .library-file-filter:hover{color:var(--color-ink)}
 .library-explore-heading{display:flex;align-items:center;gap:16px;padding:12px 24px 0}
 .library-explore-heading h1{font-size:22px;font-weight:600;margin:0}
 .real-client .library-explore-heading>.library-mode-back{margin:0}
@@ -409,6 +416,7 @@ input,select,textarea{font-size:var(--text-ui)}
 
 .real-client .simple-file-entry{display:flex;align-items:center;border-bottom:1px solid var(--color-rule)}
 .real-client .simple-file-entry>.simple-file-row{flex:1;min-width:0;border-bottom:0}
+.real-client .simple-file-entry.unindexed>.simple-file-row{opacity:.45}
 .real-client .library-parent{color:var(--color-secondary)}
 .real-client .library-mode-back{display:flex;align-items:center;gap:8px;align-self:flex-start;margin:12px 24px 0;padding:8px;color:var(--color-secondary)}
 .real-client .library-mode-back>.icon{width:17px;height:17px}

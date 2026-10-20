@@ -1,41 +1,36 @@
 # sag CLI
 
+[English](../en/cli-and-harness.md) · [文档目录](README.md)
+
 ## 独立安装与配置
 
-sag 可以独立运行，不需要安装或启动 SAG Wiki，也不需要后台常驻进程。
+sag 可以独立运行，不需要安装或启动 SAG Wiki 桌面端。检索命令会自动启动或复用本机服务。
 
-从对应平台的预编译安装包解压后，在该目录执行一条命令：
-
-```sh
-sh install.sh
-```
-
-Windows 解压对应 ZIP 后执行 `powershell -File .\install.ps1`。安装器放置用户级命令并自动配置 PATH；预编译包不要求 Rust、Node.js 或桌面框架。
-
-开发者从本仓库源码安装也只需一条命令（需要 Rust 工具链）：
+安装 Node.js 18 或以上版本后，在 macOS Apple Silicon 或 Windows x64 上执行：
 
 ```sh
-sh scripts/install.sh
+npm install -g @zleap-ai/sag
+sag --version
+sag
 ```
 
-交互安装会立即引导配置 JEV 检索服务。接口地址和模型名显示当前值，直接回车即可保留；首次使用必须填写密钥，输入隐藏。默认地址为 `https://api.302ai.cn/typesafeai/v1`，模型为 `jev-latest`。纯 CLI 搜索只需要这一项检索配置，问答模型在桌面端另行设置。
+已发布的 `@zleap-ai/sag` 包含这两个平台的原生程序，无需 Rust、源码编译或桌面端。npm 负责注册 `sag` 命令；已有可用的 `sag` 时直接复用。
+
+首次在交互终端运行 `sag` 会引导配置 JEV 检索服务。接口地址和模型名显示当前值，直接回车即可保留；首次使用必须填写密钥，输入隐藏。默认地址为 `https://api.302ai.cn/typesafeai/v1`，模型为 `jev-latest`。纯 CLI 搜索只需要这一项检索配置，问答模型在桌面端另行设置。
 
 如果安装时没有终端，首次在终端运行 `sag` 或 `sag "搜索内容"` 会自动进入同一引导；从搜索进入时，保存后继续原来的查询。已有密钥时自动使用现有配置。Ctrl+C 可取消，填写完成前不会保存。`sag config` 可以随时重新配置。
 
-安装时也可直接传入密钥，并按需指定接口和模型：
+已有本机密钥文件时，可通过标准输入配置，并按需指定接口和模型：
 
 ```sh
-sh install.sh --key '你的密钥'
-sh install.sh --key '你的密钥' --url 'https://example.com/decisions' --model '模型名'
-# 通过标准输入传递密钥
-printf '%s' "$JEV_API_KEY" | sh install.sh --key-stdin
+sag config --url "$JEV_URL" --model "$JEV_MODEL" --key-stdin < "$JEV_KEY_FILE"
 ```
 
-Windows 对应命令为 `powershell -File .\install.ps1 -Key '你的密钥'`，也支持 `-Url`、`-Model`。命令参数可能保存在终端历史中；希望避免记录密钥时，使用默认的隐藏输入或 `--key-stdin`。
+通常直接运行 `sag`，在隐藏输入提示中填写密钥即可。不要将密钥粘贴到聊天中或写进命令参数。
 
 密钥存入当前用户私有配置，不显示在配置结果或安装日志中。非交互环境不会等待输入；Agent 可读取明确错误并提示用户在终端运行 `sag`。`sag config --if-needed` 仅在缺少配置时引导，已有配置则保留；普通管道环境运行 `sag config` 只输出脱敏配置和是否已有密钥。
 
-公共下载地址暂未设置。`scripts/install.sh` 支持 `SAG_RELEASE_BASE_URL` 接入之后的发布地址并校验下载包 SHA-256；`node scripts/package-cli.mjs` 生成当前平台的压缩包和校验文件，`SAG_TARGET` 可指定已配置的 Rust 目标平台。发布地址确定后才能提供公网一键安装命令。
+把 [GitHub 上的 SAG Skill 链接](https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md) 发给 Agent，并要求按其中的 setup 流程配置当前项目，Agent 会获取同一目录的配套文件，完成 CLI 安装、Skill 安装、配置检查、项目索引和检索验证。首次密钥输入由用户在终端中完成。源代码构建仅用于开发，见[开发指南](开发指南.md)。
 
 ## 与桌面端共用
 
@@ -156,12 +151,15 @@ notes/draft-*.md
 
 | 对象 | 用户级位置 |
 | --- | --- |
-| CLI | 固定使用 `~/.local/bin`（Windows 文件名为 `sag.exe`） |
+| npm CLI | npm 的全局安装目录，可用 `npm prefix -g` 查看 |
+| 桌面端管理或 `sag install cli` 安装的 CLI | `~/.local/bin`（Windows 文件名为 `sag.exe`） |
 | Claude Code | `~/.claude/skills/sag/SKILL.md` |
 | Codex | `~/.agents/skills/sag/SKILL.md` |
 | OpenCode | `~/.config/opencode/skills/sag/SKILL.md` |
 
-重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；后续 PATH 顺序变化不会影响安装位置；卸载按记录清理。检测到外部文件、用户修改或被改写的 SAG 终端配置区段时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。不会更改 AGENTS.md、MCP 配置或增加文件监听进程。
+npm 安装的 CLI 用 `npm install -g @zleap-ai/sag` 更新，用 `npm uninstall -g @zleap-ai/sag` 卸载。无需再运行 `sag install cli` 创建第二份命令。
+
+`sag install` 重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；后续 PATH 顺序变化不会影响安装位置；卸载按记录清理。检测到外部文件、用户修改或被改写的 SAG 终端配置区段时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。
 
 CLI 命令为 `sag`。客户端启动时会更新受管理的 CLI 和未被用户修改过的 SAG Skill；明确卸载的 CLI 不会自动恢复。`.sagignore` 文件名和已有知识库保持不变。
 

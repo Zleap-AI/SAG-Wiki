@@ -1,9 +1,15 @@
 ---
 name: sag
-description: Search local project files by meaning. Use to understand unfamiliar behavior, discover implementations, or manage SAG knowledge-base folders and ignore rules.
+description: Set up the standalone SAG CLI and search local project files by meaning. Use for SAG installation, project search setup, understanding unfamiliar implementations, or managing indexed folders and ignore rules.
 ---
 
 Run the installed `sag` command from the project directory, not this Skill directory. Use `sag status` for service and configuration diagnostics, `sag list` for registered directories, and `sag check` for directory coverage and index readiness.
+
+## Setup
+
+For installation requests or a missing `sag` command, follow [first-use setup](references/setup.md#first-use-setup). Install the standalone CLI through `npm install -g @zleap-ai/sag`; SAG Wiki desktop is optional. Reuse an existing CLI and configuration.
+
+The canonical installation entry is [this GitHub SKILL.md](https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md). For installation requests, retrieve it and all sibling references from the [same source folder](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag), then install them for the current agent. Use that GitHub version throughout setup; an older CLI's bundled Skill may predate these instructions.
 
 ## Search
 

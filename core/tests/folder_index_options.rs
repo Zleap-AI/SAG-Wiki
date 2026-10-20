@@ -3,7 +3,7 @@ use sag_protocol::types::{FileTypes, FolderIndexOptions};
 use std::{fs, path::Path};
 
 fn options(markdown: bool, code: bool) -> FolderIndexOptions {
-    FolderIndexOptions { file_types: FileTypes { markdown, text: false, code, config: false }, convert_other_formats: false, conversion_formats: None }
+    FolderIndexOptions { extensions: None, file_types: FileTypes { markdown, text: false, code, config: false }, convert_other_formats: false, conversion_formats: None }
 }
 
 #[test]
@@ -135,4 +135,32 @@ fn nested_options_inherit_and_override_without_reindexing_siblings() {
     assert_eq!(store.files().unwrap().len(), 3);
     assert_eq!(store.folder_index_options(&Path::new(&root).join("sibling")).unwrap(), options(false, false));
     assert_eq!(fs::read_to_string(child.join("note.md")).unwrap(), "documentation evidence");
+}
+
+#[test]
+fn extension_selection_applies_to_incremental_indexing_with_code_disabled_globally() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = temp.path().join("project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("main.PY"), "initial python evidence").unwrap();
+    fs::write(project.join("note.md"), "excluded markdown evidence").unwrap();
+    let mut selected = options(false, false);
+    selected.extensions = Some(vec!["py".into()]);
+    folder_index::write(&project, &selected).unwrap();
+    let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+    assert!(!store.settings().unwrap().file_types.code);
+    let root = store.add_root(&project).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(store.files().unwrap().len(), 1);
+    let python = Path::new(&root).join("added.py");
+    let javascript = Path::new(&root).join("added.js");
+    fs::write(&python, "incremental python evidence").unwrap();
+    fs::write(&javascript, "excluded javascript evidence").unwrap();
+    store.update_paths(&root, &[python.clone(), javascript], |_| {}).unwrap();
+    let files = store.files().unwrap();
+    assert_eq!(files.len(), 2);
+    assert!(files.iter().all(|file| file.path.to_lowercase().ends_with(".py")));
+    fs::write(&python, "updated python evidence").unwrap();
+    store.update_paths(&root, &[python.clone()], |_| {}).unwrap();
+    assert_eq!(store.document(&python).unwrap().body, "updated python evidence");
 }

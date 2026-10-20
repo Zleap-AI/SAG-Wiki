@@ -27,6 +27,8 @@
     },
     "windows": {
       "nsis": {
+        "languages": ["English", "SimpChinese", "TradChinese"],
+        "displayLanguageSelector": true,
         "installerHooks": "windows/installer-hooks.nsh",
         "installerIcon": "icons/windows/icon.ico",
         "uninstallerIcon": "icons/windows/icon.ico"

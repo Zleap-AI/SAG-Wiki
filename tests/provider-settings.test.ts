@@ -44,17 +44,29 @@ it('LLM 六个供应商自动填入地址，自定义地址与模型列表可以
  await choose('answer','custom');await input(address('answer'),'https://proxy.example/v1');await save();
  expect(onSave.mock.calls[0][0].answer).toMatchObject({url:'https://proxy.example/v1',model:'first',models:['first','second']});
 });
-it('Jev 只有三个供应商，并分别填入对应评分接口',async()=>{
- expect(providers.jev.map(provider=>provider.label)).toEqual(['302.AI','OpenRouter','Typesafe']);
+it('Jev 预设供应商填入对应评分接口，并提供自定义选项',async()=>{
+ expect(providers.jev.map(provider=>provider.label)).toEqual(['302.AI','OpenRouter','Typesafe','自定义']);
  await setup();
- for(const provider of providers.jev){await choose('jev',provider.value);expect(address('jev').value).toBe(provider.url);}
+ for(const provider of providers.jev.filter(provider=>provider.value!=='custom')){await choose('jev',provider.value);expect(address('jev').value).toBe(provider.url);}
  trigger('jev').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
- await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(3));
- expect(document.querySelector('[role=option][data-value=custom]')).toBeNull();
+ await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(4));
+ expect(document.querySelector('[role=option][data-value=custom]')).not.toBeNull();
 });
-it('原有非预设地址不丢失，Jev 显示已保存的接口',async()=>{
+it('Jev 自定义地址用于测试连接，保存后重新打开仍显示该地址',async()=>{
+ const onSave=await setup();await choose('jev','custom');
+ await input(address('jev'),'https://scorer.example/v1/decisions');
+ expect(trigger('jev').textContent).toContain('自定义');
+ await input(key('jev'),'test-custom-key');api.mockResolvedValue('连接成功');
+ card('jev').querySelector<HTMLButtonElement>('.settings-card-actions button')!.click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'jev',key:'test-custom-key',config:expect.objectContaining({url:'https://scorer.example/v1/decisions'})})));
+ await save();expect(onSave).toHaveBeenCalledTimes(1);
+ const saved=structuredClone(onSave.mock.calls[0][0]);expect(saved.jev.url).toBe('https://scorer.example/v1/decisions');
+ await unmount(app!);app=undefined;document.body.innerHTML='';await setup(saved);
+ expect(trigger('jev').textContent).toContain('自定义');expect(address('jev').value).toBe(saved.jev.url);
+});
+it('原有非预设地址不丢失，Jev 显示自定义',async()=>{
  const settings=structuredClone(value);settings.answer.url='https://proxy.example/chat';settings.jev.url='https://scorer.example/systemone';
- const onSave=await setup(settings);expect(trigger('answer').textContent).toContain('自定义');expect(trigger('jev').textContent).toContain('已保存的接口');
+ const onSave=await setup(settings);expect(trigger('answer').textContent).toContain('自定义');expect(trigger('jev').textContent).toContain('自定义');
  await save();expect(onSave.mock.calls[0][0].jev.url).toBe(settings.jev.url);
 });
 it('供应商切换不会将已保存或已输入的另一家密钥用于测试或保存',async()=>{

@@ -1,5 +1,7 @@
 # SAG 独立后台服务与桌面统一内核实施计划
 
+[English](../en/service-unification-plan.md) · [文档目录](README.md)
+
 日期：2026-10-18
 
 状态：内核迁移已实现，本机验收通过；正式发行包和 Windows 安装待发布验证

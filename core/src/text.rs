@@ -200,49 +200,28 @@ fn file_kind(path: &std::path::Path) -> Option<FileKind> {
     }) {
         return Some(FileKind::Code);
     }
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "md" | "markdown" => Some(FileKind::Markdown),
-        "txt" | "rst" | "rtf" => Some(FileKind::Text),
-        "json" | "jsonc" | "yaml" | "yml" | "toml" | "ini" | "cfg" | "conf" | "xml" => Some(FileKind::Config),
-            "rs"
-                | "py"
-                | "js"
-                | "jsx"
-                | "ts"
-                | "tsx"
-                | "mjs"
-                | "cjs"
-                | "go"
-                | "java"
-                | "c"
-                | "h"
-                | "cpp"
-                | "hpp"
-                | "cc"
-                | "cs"
-                | "rb"
-                | "php"
-                | "swift"
-                | "kt"
-                | "kts"
-                | "scala"
-                | "sh"
-                | "bash"
-                | "zsh"
-                | "ps1"
-                | "sql"
-                | "html"
-                | "htm"
-                | "css"
-                | "scss"
-                | "vue"
-                | "svelte"
-                | "r"
-                | "lua"
-                | "dart" => Some(FileKind::Code),
-        _ => None,
-    }
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    if MARKDOWN_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Markdown) }
+    else if TEXT_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Text) }
+    else if CODE_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Code) }
+    else if CONFIG_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Config) }
+    else { None }
 }
+const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown"];
+const TEXT_EXTENSIONS: &[&str] = &["txt", "rst", "rtf"];
+const CODE_EXTENSIONS: &[&str] = &[
+    "rs", "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "c", "h", "cpp", "hpp", "cc", "cs",
+    "rb", "php", "swift", "kt", "kts", "scala", "sh", "bash", "zsh", "ps1", "sql", "html", "htm", "css",
+    "scss", "vue", "svelte", "r", "lua", "dart",
+];
+const CONFIG_EXTENSIONS: &[&str] = &["json", "jsonc", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml"];
+pub fn enabled_extensions(types: &crate::types::FileTypes) -> Vec<String> {
+    [(types.markdown, MARKDOWN_EXTENSIONS), (types.text, TEXT_EXTENSIONS),
+     (types.code, CODE_EXTENSIONS), (types.config, CONFIG_EXTENSIONS)]
+        .into_iter().filter(|(enabled, _)| *enabled)
+        .flat_map(|(_, extensions)| extensions.iter().map(|extension| (*extension).into())).collect()
+}
+
 pub fn is_supported(path: &std::path::Path) -> bool {
     file_kind(path).is_some()
 }

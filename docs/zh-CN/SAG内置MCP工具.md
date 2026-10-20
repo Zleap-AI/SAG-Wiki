@@ -1,5 +1,7 @@
 # SAG 内置 MCP 工具
 
+[English](../en/mcp-tools.md) · [文档目录](README.md)
+
 SAG 内置 MCP 提供六个只读工具。客户端通过 MCP 协议发现和调用工具，连接位于同一个 Rust 进程内，不开放 HTTP 端口，不启动额外程序。工具定义的唯一来源是 `src/lib/sag-tools.json`，前端目录和 Rust MCP 共用这份定义。
 
 模型调用中的名称带有 `sag2_` 前缀，避免与其他服务重名；界面显示为 `SAG · search`、`SAG · list`、`SAG · read`、`SAG · grep`、`SAG · getTime`、`SAG · calculate`。

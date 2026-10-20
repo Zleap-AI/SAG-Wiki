@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2610.22588"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2610.22588-18181b" /></a>
-  <img alt="SAG-Wiki version" src="https://img.shields.io/badge/SAG--Wiki-v0.1.0-18181b" />
+  <a href="https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5"><img alt="SAG-Wiki version" src="https://img.shields.io/badge/SAG--Wiki-v0.1.5-18181b" /></a>
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-3776ab" />
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-339933" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-18181b" />
@@ -42,9 +42,22 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 ## SAG-Wiki in one minute
 
+| System | Download | Size |
+| --- | --- | --- |
+| macOS | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-macOS-arm64.dmg) | 14.0MB |
+| Windows | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-Windows-x64-setup.exe) | 10.7MB |
+
+**Install for your agent**
+
+```text
+Install https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md and follow its setup flow for my current project.
+```
+
+The installer size excludes optional document conversion components and recognition models downloaded on demand.
+
 Add a folder to make your documents, notes, and code searchable. Find a passage, ask a question across files, open the source behind an answer, or give your coding agent access to the same knowledge base.
 
-- **Light:** just **9–12 MB** to download, with no separate database to install.
+- **Light:** just **14 MB** to download, with no separate database to install.
 - **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
 - **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
 
@@ -98,14 +111,7 @@ SAG-Wiki itself is free and open source. External service charges depend on your
 
 ### 1. Download and add a folder
 
-SAG-Wiki supports **macOS and Windows**. Installers will be available in [Releases](https://github.com/Zleap-AI/SAG-Wiki/releases):
-
-| System | Installer | Size |
-| --- | --- | --- |
-| macOS | `.dmg`, coming soon | Approx. 12 MB |
-| Windows | `.exe`, coming soon | Approx. 9 MB |
-
-Sizes reflect current builds and exclude optional document conversion components and recognition models downloaded on demand.
+Download the DMG from the table above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
 
 Install and open SAG-Wiki, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
 
@@ -141,39 +147,37 @@ Configure your answer model in **Settings → Models**, then ask in **Chat**. Us
 
 Give your agent this one sentence:
 
-> Install the [SAG Skill](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag), follow [this guide](https://github.com/Zleap-AI/SAG-Wiki#agent-guide) to set up the CLI, and enable SAG search for my current project.
+```text
+Install https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md and follow its setup flow for my current project.
+```
 
-SAG supports **Claude Code, Codex, and OpenCode**. The CLI works independently or shares the desktop's settings and knowledge base. First-time setup needs your Jev API key; start a new agent session after installing the Skill.
+SAG supports **Claude Code, Codex, and OpenCode**. The Skill includes CLI installation, configuration, project indexing and verification. **The CLI works without SAG Wiki desktop** and shares its settings and knowledge base when the desktop is installed. Existing settings are reused; first-time semantic search needs your own Jev API key, entered privately in a terminal. The GitHub Skill link is the canonical installation entry; the agent retrieves its supporting files from the same directory.
+
+With Node.js 18 or later installed:
+
+```sh
+npm install -g @zleap-ai/sag
+```
+
+The published **0.1.5** npm package includes **macOS Apple Silicon and Windows x64** binaries. It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
 
 <details>
 <summary>Manual installation and usage</summary>
 
-If `sag` is already installed, skip to configuration. Until prebuilt CLI releases are available, install Rust and build from source:
+If `sag` is already installed, reuse it. Otherwise run the npm command above, then verify the command and complete first-time Jev setup in a terminal:
 
 ```sh
-git clone https://github.com/Zleap-AI/SAG-Wiki.git
-cd SAG-Wiki
-```
-
-macOS:
-
-```sh
-sh scripts/install.sh
-```
-
-Windows PowerShell:
-
-```powershell
-cargo build --release --locked --manifest-path cli/Cargo.toml
-.\cli\target\release\sag.exe install cli
-```
-
-Open a new terminal after installation, run `sag` for first-time Jev configuration, then install the Skill for your agent:
-
-```sh
+sag --version
 sag
-sag install codex        # or: claude-code / opencode
 ```
+
+Install the linked [Skill folder](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag), including `SKILL.md` and `references/`, at the location for your agent:
+
+| Agent | Skill folder |
+| --- | --- |
+| Codex | `~/.agents/skills/sag/` |
+| Claude Code | `~/.claude/skills/sag/` |
+| OpenCode | `~/.config/opencode/skills/sag/` |
 
 Start a new agent session. In the project you want to search, add the folder and confirm indexing is ready before searching:
 
@@ -183,7 +187,7 @@ sag check
 sag "Where is permission checked?" . -m 5
 ```
 
-See the [CLI guide](docs/CLI与Harness使用说明.md) for configuration and other commands.
+See the Skill's [setup guide](cli/skills/sag/references/setup.md#first-use-setup) for the complete agent workflow and the [CLI guide](docs/en/cli-and-harness.md) for other commands.
 
 </details>
 
@@ -213,7 +217,7 @@ flowchart TD
 | `core/` | Indexing, retrieval, and Q&A |
 | `client/`, `protocol/` | Client communication and protocol |
 
-Follow the [environment guide](docs/开发指南.md#环境) to prepare Node.js, Rust, and your platform's Tauri development dependencies, then run:
+Follow the [environment guide](docs/en/development.md#environment) to prepare Node.js, Rust, and your platform's Tauri development dependencies, then run:
 
 ```sh
 git clone https://github.com/Zleap-AI/SAG-Wiki.git
@@ -222,13 +226,13 @@ npm ci
 npm run tauri dev
 ```
 
-After changes, run `npm run check` and `npm test`; the [checks section](docs/开发指南.md#代码检查) lists all validation commands. See the [development guide](docs/开发指南.md), [architecture](docs/架构设计.md), and [documentation index](docs/README.md) for builds and implementation details.
+After changes, run `npm run check` and `npm test`; the [checks section](docs/en/development.md#code-checks) lists all validation commands. See the [development guide](docs/en/development.md), [architecture](docs/en/architecture.md), and [documentation index](docs/en/README.md) for builds and implementation details.
 
 ---
 
 ## Contributing and License
 
-Contributions are welcome through [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) and [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls). For changes to the application, follow the [development guide](docs/开发指南.md); retrieval research and reproduction code live in [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark).
+Contributions are welcome through [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) and [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls). For changes to the application, follow the [development guide](docs/en/development.md); retrieval research and reproduction code live in [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark).
 
 SAG-Wiki is released under the [MIT License](LICENSE). Third-party notices are in [src-tauri/licenses](src-tauri/licenses/).
 
