@@ -1176,5 +1176,7 @@
   "没有符合条件的文件": "No matching files",
   "去设置": "Open settings",
   "请前往文件设置，配置文件格式和文档转换。": "Open File settings to configure file formats and document conversion.",
-  "需要转换文档后才能检索": "Convert this document before searching its contents."
+  "需要转换文档后才能检索": "Convert this document before searching its contents.",
+  "帮助文档": "Help & documentation",
+  "打开帮助文档": "Open help documentation"
 }

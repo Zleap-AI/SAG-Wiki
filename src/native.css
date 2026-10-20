@@ -62,6 +62,9 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .agent-connect-entry{position:absolute;right:24px;top:26px;display:flex;align-items:center;gap:7px;height:34px;padding:6px 12px;font-size:var(--text-ui);color:var(--color-secondary);background:var(--color-paper);box-shadow:none}
 .real-client .agent-connect-entry>.icon{width:15px;height:15px}
 .real-client .sidebar-tools .icon{width:16px;height:16px}
+.real-client:not(.compact-sidebar) .sidebar-tools{gap:8px}
+.real-client:not(.compact-sidebar) .sidebar-tools>button:first-child{margin-right:auto}
+.real-client .sidebar-tools .sidebar-help{width:28px;height:28px;min-height:28px;padding:6px;justify-content:center;flex-shrink:0}
 .real-client .index-status{font-size:var(--text-caption);line-height:1.5}
 .real-client.compact-sidebar .sidebar{padding:14px 9px 12px}
 .real-client.compact-sidebar .brand-row{height:auto;gap:10px;padding:0;margin-bottom:16px}

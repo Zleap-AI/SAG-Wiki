@@ -51,3 +51,15 @@ it('打开浏览器失败时只提示错误并保留会话',async()=>{
  await vi.waitFor(()=>expect(document.querySelector('#notice')?.textContent).toContain('无法在浏览器中打开链接'));
  expect(document.querySelector('.user-message')?.textContent).toBe('参考资料');
 });
+
+it('侧栏帮助在系统浏览器打开文档站，收起侧栏后仍可使用',async()=>{
+ const help=()=>document.querySelector<HTMLButtonElement>('button[aria-label="打开帮助文档"]')!;
+ expect(help().title).toBe('帮助文档');
+ help().click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_external_link',{url:'http://sag-wiki.zleap.com'}));
+ expect(document.querySelector('.user-message')?.textContent).toBe('参考资料');
+ document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
+ invoke.mockClear();help().click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_external_link',{url:'http://sag-wiki.zleap.com'}));
+ expect(document.querySelector('.user-message')?.textContent).toBe('参考资料');
+});
