@@ -1019,7 +1019,7 @@ impl Store {
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(false))?;
         let count = self.scan_directory(root, directory, &files, &settings, false, Some(false), &progress)?;
         let (sources, convert) = self.conversion_files(Path::new(root), directory, &settings, &excluded)?;
-        let issues = if convert { self.convert_sources(root, directory, &sources, settings.conversion_workers, &progress)? } else { vec![] };
+        let issues = if convert { self.convert_sources(root, directory, &sources, &settings, &progress)? } else { vec![] };
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(true))?;
         let converted_count = self.scan_directory(root, directory, &files, &settings, false, Some(true), progress)?;
         for (path, error) in issues {
@@ -1063,14 +1063,15 @@ impl Store {
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
             if entry.file_type().is_some_and(|kind| kind.is_dir()) { rules.directory(entry.path())?; }
             if entry.path().starts_with(directory) && entry.file_type().is_some_and(|kind| kind.is_file())
-                && crate::docling::is_source(entry.path()) && rules.file(entry.path())?.convert_other_formats
+                && crate::docling::is_source(entry.path()) && !crate::docling::is_pem_key(entry.path())?
+                && rules.file(entry.path())?.convert_other_formats
                 && crate::docling::is_selected(entry.path(), &rules.file(entry.path())?.conversion_formats) {
                 files.push(entry.into_path());
             }
         }
         Ok((files, rules.converts_files()))
     }
-    fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], workers: usize, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
+    fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
         let mut issues = vec![];
         let mut rules = crate::folder_index::Rules::new(Path::new(root), &self.settings()?)?;
         // Keep ownership beside the derived files so removing/re-adding a library
@@ -1119,7 +1120,7 @@ impl Store {
         thread::scope(|scope| -> Result<()> {
             let (tx, rx) = std::sync::mpsc::channel();
             let mut handles = Vec::new();
-            for _ in 0..workers.min(sources.len()) {
+            for _ in 0..settings.conversion_workers.min(sources.len()) {
                 let tx = tx.clone();
                 let next = &next;
                 handles.push(scope.spawn(move || -> Result<()> {
@@ -1165,6 +1166,14 @@ impl Store {
                 if let Err(error) = result {
                     self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
                     issues.push((source, error.to_string()));
+                } else {
+                    let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
+                    if let Some(file) = self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false)? {
+                        let mut db = self.connection();
+                        let tx = db.transaction()?;
+                        Self::write_prepared(&tx, root, file)?;
+                        tx.commit()?;
+                    }
                 }
                 progress(IndexProgress { count: index + 1, total: sources.len() });
             }

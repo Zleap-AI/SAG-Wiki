@@ -6,6 +6,10 @@ export const compactNumber=(value:number)=>compactFormatter.format(value);
 export function durationLabel(milliseconds:number):string{const seconds=milliseconds/1000;if(seconds<60)return `${Math.round(seconds*10)/10}s`;const rounded=Math.round(seconds);return `${Math.floor(rounded/60)}m ${rounded%60}s`;}
 export const basename=(path:string)=>path.split(/[\\/]/).filter(Boolean).pop()||path;
 export const dirname=(path:string)=>path.replace(/[\\/][^\\/]+[\\/]?$/,'');
+export function displayPath(path:string):string{
+ if(path.startsWith('\\\\?\\UNC\\'))return '\\\\'+path.slice(8);
+ return path.replace(/^\\\\\?\\([A-Za-z]:\\)/,'$1');
+}
 export const inside=(path:string,parent:string)=>path===parent||path.startsWith(parent.replace(/[\\/]$/,'')+(parent.includes('\\')?'\\':'/'));
 export function indexedDirectoryEntries(files:FileInfo[],directory:string):Entry[]{
  const prefix=directory.replace(/[\\/]$/,'')+(directory.includes('\\')?'\\':'/');

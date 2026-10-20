@@ -1020,6 +1020,8 @@
   "等待处理": "Waiting",
   "正在处理的文件": "Files being processed",
   "查看失败详情": "View failure details",
+  "未能索引的文件": "Files that could not be indexed",
+  "定位文件 {value0}": "Locate file {value0}",
   "{value0} 的索引进度": "Indexing progress for {value0}",
   "暂停后，正在处理的文件完成后停下；已索引内容仍可搜索。": "Pausing takes effect after the current files finish. Indexed content remains searchable.",
   "获取 API Key": "Get an API key",

@@ -8,6 +8,18 @@ describe('范围和文件操作',()=>{
 });
 import{protectHtml,restoreHtml,splitFrontmatter}from '../src/lib/markdown-source';
 import{compactNumber,durationLabel,readonlyHtml,sourceLocation}from '../src/lib/domain';
+import {displayPath} from '../src/lib/domain';
+
+describe('Windows 路径显示',()=>{
+ it.each([
+  [String.raw`\\?\D:\Documents\大模型算法备案`,String.raw`D:\Documents\大模型算法备案`],
+  [String.raw`\\?\UNC\server\share\报告.pdf`,String.raw`\\server\share\报告.pdf`],
+  [String.raw`C:\notes\one.md`,String.raw`C:\notes\one.md`],
+  [String.raw`\\server\share\one.md`,String.raw`\\server\share\one.md`],
+  ['/notes/one.md','/notes/one.md'],
+  [String.raw`\\?\Volume{guid}\one.md`,String.raw`\\?\Volume{guid}\one.md`],
+ ])('显示 %s 为 %s',(path,label)=>expect(displayPath(path)).toBe(label));
+});
 describe('回答统计格式',()=>{
  it.each([[523,'523'],[12002,'12K'],[1187,'1.2K'],[999950,'1M'],[1500000,'1.5M'],[2100000000,'2.1B'],[23.46,'23.5']])('紧凑显示 %s', (value,label)=>expect(compactNumber(value as number)).toBe(label));
  it.each([[15320,'15.3s'],[60000,'1m 0s'],[119950,'2m 0s']])('显示耗时 %s',(value,label)=>expect(durationLabel(value as number)).toBe(label));

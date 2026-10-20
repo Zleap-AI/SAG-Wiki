@@ -3,7 +3,7 @@
  import ExploreView from './ExploreView.svelte';
  import LibraryStats from './LibraryStats.svelte';
  import Modal from './ui/Modal.svelte';
- import {t} from '../lib/i18n';import {icon} from '../lib/icons';import {basename} from '../lib/domain';
+ import {t} from '../lib/i18n';import {icon} from '../lib/icons';import {basename,displayPath} from '../lib/domain';
  import type {Entry,FileInfo,Root} from '../lib/types';import type {LibrarySession} from '../lib/explore';
  import '../styles/explore.css';
  export let scope:string;export let session:LibrarySession;export let entries:Entry[];export let reading:boolean;export let revision:number;
@@ -30,7 +30,7 @@
   {#if !scope}<LibraryStats files={indexedFiles} {roots} {revision} onDetails={onIndexDetails} {onPauseChange}/>{/if}
   <div class="simple-file-list">
    {#if scope}<Button.Root class="simple-file-row library-parent" aria-label={$t('返回上层')} onclick={()=>onbrowse(parent)}>{@html icon('back')}<span>{$t('返回上层')}</span></Button.Root>{/if}
-   {#each visibleEntries as entry}{@const unindexed=!!scope&&!entry.directory&&!indexedPaths.has(entry.path)}<div class="simple-file-entry" class:unindexed role="presentation" oncontextmenu={(e:MouseEvent)=>{e.preventDefault();onmenu(e,entry.path,!scope,!entry.directory)}}><Button.Root class="simple-file-row" title={unindexed?undefined:entry.path} onclick={()=>{if(unindexed)conversionPrompt=true;else onbrowse(entry.path)}}>{@html icon(entry.directory?'folder':'file')}<span>{entry.name}</span>{#if entry.directory}{@html icon('chevron')}{/if}</Button.Root></div>{/each}
+   {#each visibleEntries as entry}{@const unindexed=!!scope&&!entry.directory&&!indexedPaths.has(entry.path)}<div class="simple-file-entry" class:unindexed role="presentation" oncontextmenu={(e:MouseEvent)=>{e.preventDefault();onmenu(e,entry.path,!scope,!entry.directory)}}><Button.Root class="simple-file-row" title={unindexed?undefined:displayPath(entry.path)} onclick={()=>{if(unindexed)conversionPrompt=true;else onbrowse(entry.path)}}>{@html icon(entry.directory?'folder':'file')}<span>{entry.name}</span>{#if entry.directory}{@html icon('chevron')}{/if}</Button.Root></div>{/each}
   </div>
   {#if reading}<div class="empty" role="status">{$t('正在读取文件夹…')}</div>{:else if !entries.length}<div class="empty">{scope?$t('文件夹是空的'):$t('添加文件夹并完成索引后，文件会显示在这里。')}</div>{:else if !visibleEntries.length}<div class="empty">{$t('没有符合条件的文件')}</div>{/if}
  </section>{/if}

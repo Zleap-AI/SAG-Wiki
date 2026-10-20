@@ -7,6 +7,7 @@
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import {indexStages} from '../lib/index-stages';
+ import {displayPath} from '../lib/domain';
  import type {Root,IndexStatus,IndexHistory} from '../lib/types';
  export let roots:Root[]=[];
  export let onClose:()=>void;
@@ -59,7 +60,7 @@
    {@const task=status.tasks.find(task=>task.path===root.path)}
    <section class="index-root">
     <div class="index-root-title">{@html icon('folder')}<strong>{root.name}</strong><span>{status.paused?$t(task&&task.files.length?'正在暂停…':'索引已暂停'):task?stageLabel(task.stage):$t('等待处理')}</span></div>
-    <p class="index-root-path" title={root.path}>{root.path}</p>
+    <p class="index-root-path" title={displayPath(root.path)}>{displayPath(root.path)}</p>
     {#if task}
      {@const step=indexStages.findIndex(item=>item.stage===task.stage)}
      <ol class="index-pipeline" aria-label={$t('索引流程')}>
@@ -67,7 +68,7 @@
      </ol>
      <p class="index-stage-description">{step>=0?$t(indexStages[step].description):$t('先索引文本，再转换其他格式，最后索引转换结果。')}</p>
      {#if task.total>0}<div class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:task.completed,value1:task.total})}</div><progress aria-label={$t('{value0} 的索引进度',{value0:root.name})} value={task.completed} max={task.total}></progress>{/if}
-     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span>{file}</span></li>{/each}</ul>{/if}
+     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span>{displayPath(file)}</span></li>{/each}</ul>{/if}
     {/if}
    </section>
   {/each}
@@ -86,10 +87,10 @@
    {#each issueRoots as root (root.path)}
     <div class="index-root">
      <div class="index-root-title">{@html icon('folder')}<strong>{root.name}</strong><span>{$t(root.status==='error'?'读取失败':root.status==='partial'?'部分失败':'已完成')}</span></div>
-     <p class="index-root-path" title={root.path}>{root.path}</p>
+     <p class="index-root-path" title={displayPath(root.path)}>{displayPath(root.path)}</p>
      <p class="small muted">{$t('已索引 {value0} 个文件',{value0:root.count})}</p>
      {#if root.status==='partial'}<p class="small muted">{$t('以下文件未进入索引，其他文件可正常检索。')}</p>{/if}
-     {#if root.error}<details class="index-failure"><summary>{$t('查看失败详情')}</summary><pre class="index-issue-details">{root.error.split('\n').map(line=>$t(line)).join('\n')}</pre></details>{/if}
+     {#if root.error}<details class="index-failure"><summary>{$t('查看失败详情')}</summary><pre class="index-issue-details">{root.error.split('\n').map(line=>$t(displayPath(line))).join('\n')}</pre></details>{/if}
     </div>
    {/each}
   </section>{/if}

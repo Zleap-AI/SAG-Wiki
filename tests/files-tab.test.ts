@@ -3,9 +3,9 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import App from '../src/App.svelte';
 import {indexedDirectoryEntries} from '../src/lib/domain';
-const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
+const {invoke,listeners}=vi.hoisted(()=>({invoke:vi.fn(),listeners:new Map<string,(event:{payload:any})=>void>()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
-vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
+vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async(name,handler)=>{listeners.set(name,handler);return()=>listeners.delete(name)})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 const files=[{id:1,path:'/notes/intro.txt',name:'intro.txt'},{id:2,path:'/notes/nested/deep/result.txt',name:'result.txt'}];
@@ -28,10 +28,46 @@ beforeEach(()=>{
   return[];
  });
 });
-afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerHTML='';vi.clearAllMocks();localStorage.removeItem('sag.sidebar.expanded')});
+afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerHTML='';vi.clearAllMocks();listeners.clear();localStorage.removeItem('sag.sidebar.expanded')});
 const fileTab=()=>document.querySelector<HTMLButtonElement>('.workspace-switch [title="文件"]')!;
 async function start(){app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.ask-content')).not.toBeNull())}
+it('Windows 侧栏和文件列表提示显示普通路径，浏览仍提交原始路径',async()=>{
+ const path=String.raw`\\?\D:\资料`,child=path+'\\intro.txt';
+ const fallback=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='list_roots')return[{path,name:'资料',status:'ready',count:1,error:null}];
+  if(command==='list_files')return[{id:1,path:child,name:'intro.txt'}];
+  if(command==='list_entries')return[{path:child,name:'intro.txt',directory:false,symlink:false}];
+  return fallback(command,args);
+ });
+ await start();
+ const root=document.querySelector<HTMLButtonElement>('.tree-name')!;
+ expect(root.title).toBe(String.raw`D:\资料`);root.click();
+ await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.simple-file-entry .simple-file-row')?.title).toBe(String.raw`D:\资料\intro.txt`));
+ expect(invoke).toHaveBeenCalledWith('list_entries',{path});
+ document.querySelector<HTMLButtonElement>('.simple-file-entry .simple-file-row')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('read_document',{path:child}));
+});
 async function open(path:string){document.querySelector<HTMLButtonElement>(`.simple-file-list [title="${path}"]`)!.click();await vi.waitFor(()=>expect(path.endsWith('.txt')?document.querySelector('.readonly-document'):document.querySelector(`.folder-browser h1`)?.textContent===path.split('/').at(-1)).toBeTruthy())}
+it('转换仍在运行时，已发布的文件会更新总数和类型图表',async()=>{
+ let completed=1;
+ const fallback=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='get_settings')return{theme:'light',start_page:'files',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='list_roots')return[{path:'/notes',name:'Notes',status:'indexing',count:completed,error:null}];
+  if(command==='get_index_status')return{paused:false,tasks:[{path:'/notes',stage:'converting',completed,total:50,files:['/notes/next.pdf']}]};
+  if(command==='list_files')return Array.from({length:completed},(_,i)=>({id:i+1,path:`/notes/.sag-converted/report-${i}.pdf.md`,name:`report-${i}.pdf.md`}));
+  return fallback(command,args);
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(listeners.has('data-changed')).toBe(true));
+ await vi.waitFor(()=>expect(document.querySelector('.file-stats-heading strong')?.textContent).toBe('1'));
+ completed=2;listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.file-stats-heading strong')?.textContent).toBe('2'));
+ expect(document.querySelector('.file-type-legend')?.textContent).toContain('PDF2');
+ expect(document.querySelector('.folder-count')?.textContent).toContain('2 个已索引文件');
+ expect(document.querySelector('.index-state')?.textContent).toBe('正在索引');
+});
 it('文件标签从总览逐层进入，保留未索引文件，原文返回所属目录',async()=>{
  await start();fileTab().click();
  await vi.waitFor(()=>expect(fileTab().getAttribute('aria-current')).toBe('page'));

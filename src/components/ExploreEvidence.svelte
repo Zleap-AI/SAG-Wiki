@@ -4,7 +4,7 @@
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import {highlightedText} from '../lib/search-highlights';
- import {sourceLocation} from '../lib/domain';
+ import {displayPath,sourceLocation} from '../lib/domain';
  import type {ExploreEvidence} from '../lib/explore';
  export let evidence:ExploreEvidence|null=null;
  export let error='';
@@ -20,7 +20,7 @@
    {#each evidence.pairs as pair,index}
     <section class="evidence-pair"><h3>{$t('原文对照 {value0}',{value0:index+1})}</h3><div class="explore-terms">{#each pair.terms as term}<span>{term}</span>{/each}</div>
      {#each [pair.left,pair.right] as source}
-      <article><strong>{source.title}</strong><p class="source-path">{source.path}</p><small>{source.heading} · {sourceLocation(source)}</small><blockquote>{@html highlightedText(source.content,pair.terms)}</blockquote><Button.Root class="outline" onclick={()=>onOpen(source.path,pair.terms)}>{$t('打开文档')}</Button.Root></article>
+      <article><strong>{source.title}</strong><p class="source-path">{displayPath(source.path)}</p><small>{source.heading} · {sourceLocation(source)}</small><blockquote>{@html highlightedText(source.content,pair.terms)}</blockquote><Button.Root class="outline" onclick={()=>onOpen(source.path,pair.terms)}>{$t('打开文档')}</Button.Root></article>
      {/each}
     </section>
    {/each}

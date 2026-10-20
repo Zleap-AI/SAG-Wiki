@@ -13,6 +13,102 @@ fn other_formats_are_opt_in_and_never_reconvert_native_or_generated_text() {
     assert_eq!(output_path(Path::new("/library"), Path::new("/library/a/report.pdf")).unwrap(), Path::new("/library/.sag-converted/a/report.pdf.md"));
 }
 
+#[test]
+fn pem_keys_are_skipped_without_excluding_keynote_documents() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    let key = library.join("_.example.com.key");
+    fs::write(&key, "-----BEGIN PRIVATE KEY-----\nfixture, not a key\n").unwrap();
+    assert!(is_pem_key(&key).unwrap());
+    let keynote = library.join("presentation.KEY");
+    fs::write(&keynote, b"PK\x03\x04fixture").unwrap();
+    assert!(!is_pem_key(&keynote).unwrap());
+    assert!(is_source(&keynote));
+    fs::remove_file(keynote).unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let root = store.add_root(&library).unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.convert_other_formats = true;
+    store.save_settings(&settings).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(store.roots().unwrap()[0].status, "ready");
+    assert!(store.files().unwrap().is_empty());
+    assert!(store.index_history().unwrap()[0].error.is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn pdf_without_markdown_retries_with_pdfium_and_preserves_both_errors_on_failure() {
+    use std::os::unix::fs::PermissionsExt;
+    let (_temp, store, root) = fixture();
+    let binary = store.docling.binary("docling");
+    fs::write(&binary, r#"#!/bin/sh
+set -eu
+source="$1"
+shift
+backend=''
+output=''
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --output-file) shift; output="$1";;
+    --pdf-backend) shift; backend="$1";;
+  esac
+  shift
+done
+echo "${backend:-default}" >> "$(dirname "$0")/calls"
+if [ "$backend" = pypdfium2 ]; then
+  if [ "$(cat "$source")" = FAIL ]; then echo 'invalid PDF' >&2; exit 1; fi
+  echo recoveredpdf > "$output"
+fi
+"#).unwrap();
+    fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+    let source = Path::new(&root).join("report.pdf");
+    let output = output_path(Path::new(&root), &source).unwrap();
+    fs::write(&source, "PDF").unwrap();
+    store.docling.convert(&source, &output).unwrap();
+    assert!(fs::read_to_string(&output).unwrap().contains("recoveredpdf"));
+    assert_eq!(fs::read_to_string(store.docling.home.join("bin/calls")).unwrap(), "default\npypdfium2\n");
+    fs::remove_file(&output).unwrap();
+    fs::write(&source, "FAIL").unwrap();
+    let error = store.docling.convert(&source, &output).unwrap_err().to_string();
+    assert!(error.contains("Docling 未生成 Markdown"));
+    assert!(error.contains("invalid PDF"));
+    assert!(!output.exists());
+}
+
+#[test]
+fn completed_conversions_are_searchable_before_the_conversion_phase_finishes() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let root = store.add_root(&library).unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.convert_other_formats = true;
+    store.save_settings(&settings).unwrap();
+    let mut records = std::collections::BTreeMap::new();
+    for name in ["first.pdf", "second.pdf"] {
+        let source = Path::new(&root).join(name);
+        fs::write(&source, "source").unwrap();
+        let output = output_path(Path::new(&root), &source).unwrap();
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(&output, "streamingevidence").unwrap();
+        records.insert(name, (fingerprint(&source).unwrap(), fingerprint(&output).unwrap()));
+    }
+    fs::write(Path::new(&root).join(".sag-converted/.sag-converted.json"), serde_json::to_vec(&records).unwrap()).unwrap();
+    let observed = Mutex::new(Vec::new());
+    store.scan(&root, |progress| {
+        if store.indexing.task(&root).stage == "converting" && progress.count > 0 {
+            assert_eq!(store.files().unwrap().len(), progress.count);
+            assert_eq!(store.search_files("streamingevidence", &[], 5).unwrap().len(), progress.count);
+            observed.lock().unwrap().push(progress.count);
+        }
+    }).unwrap();
+    assert_eq!(*observed.lock().unwrap(), vec![1, 2]);
+    assert_eq!(store.index_history().unwrap()[0].completed, 2);
+}
+
 #[cfg(unix)]
 fn fixture() -> (tempfile::TempDir, Store, String) {
     use std::os::unix::fs::PermissionsExt;
@@ -208,6 +304,52 @@ fn terminal_download_frames_include_all_active_packages_and_model_percentages() 
     converter.update_download_line(b"model.safetensors:  42%|####      | 42M/100M [00:03<00:04, 12MB/s]");
     assert_eq!(converter.status().percent, Some(42.0));
     assert_eq!(converter.status().total, None);
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_component_command_starts_and_exits_without_waiting_for_cursor_report() {
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Arc::new(Docling::new(temp.path()));
+    let copy = converter.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let task = std::thread::spawn(move || {
+        tx.send(copy.run(copy.command("cmd.exe").args(["/d", "/c", "echo component-ready"]), true)).unwrap();
+    });
+    let result = rx.recv_timeout(Duration::from_secs(5));
+    if result.is_err() { converter.cancel(); }
+    let result = result.expect("Windows 组件命令卡在 ConPTY 光标位置握手");
+    task.join().unwrap();
+    result.unwrap();
+    assert!(converter.status().message.contains("component-ready"));
+}
+
+#[cfg(windows)]
+#[test]
+fn windows_component_progress_is_live_and_cancellation_stops_the_process_tree() {
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Arc::new(Docling::new(temp.path()));
+    let copy = converter.clone();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let task = std::thread::spawn(move || {
+        tx.send(copy.run(copy.command("cmd.exe").args([
+            "/d", "/c", "echo torch 1.2 MiB/10.0 MiB & ping -n 30 127.0.0.1 >NUL",
+        ]), true)).unwrap();
+    });
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let mut visible = false;
+    while std::time::Instant::now() < deadline {
+        if converter.status().message.contains("torch") { visible = true; break; }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    converter.cancel();
+    let result = rx.recv_timeout(Duration::from_secs(5)).expect("取消后 Windows 安装进程没有退出");
+    task.join().unwrap();
+    assert!(visible, "Windows 安装进度未在进程运行时显示");
+    assert!(result.unwrap_err().to_string().contains("已取消下载"));
+    assert!(!converter.installed());
+    assert_eq!(converter.status().downloaded, (1.2 * 1048576.0) as u64);
+    assert_eq!(converter.status().total, Some(10 * 1048576));
 }
 
 #[test]

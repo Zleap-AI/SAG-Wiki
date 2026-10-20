@@ -10,6 +10,15 @@ vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:a
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.resetAllMocks()});
 const options={file_types:{markdown:true,text:true,code:false,config:false},convert_other_formats:false};
+it('Windows 文件夹设置显示普通路径，保存使用原始路径',async()=>{
+ const path=String.raw`\\?\D:\资料`;
+ invoke.mockImplementation(async command=>command==='get_folder_index_options'?structuredClone(options):null);
+ app=mount(FolderIndexSettings,{target:document.body,props:{path,onSaved:vi.fn(),onClose:vi.fn()}});
+ await vi.waitFor(()=>expect(document.querySelector('#folder-type-code')).not.toBeNull());
+ expect(document.querySelector('.folder-path')?.textContent).toBe(String.raw`D:\资料`);
+ document.querySelector<HTMLButtonElement>('.dialog-footer .primary')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('save_folder_index_options',{path,options,rebuild:false}));
+});
 it('重新索引提交当前文件夹和选择，显示清除范围说明',async()=>{
  invoke.mockImplementation(async command=>command==='get_folder_index_options'?structuredClone(options):{installed:true,running:false});
  const onSaved=vi.fn(),onClose=vi.fn();

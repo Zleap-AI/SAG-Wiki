@@ -6,6 +6,7 @@
  import EvidenceDrawer from './ExploreEvidence.svelte';
  import {api} from '../lib/api';import {t} from '../lib/i18n';import {icon} from '../lib/icons';
  import {copyGraph,graphFromData} from '../lib/explore';
+ import {displayPath} from '../lib/domain';
  import {overviewEdges} from '../lib/graph-layout';
  import type {LibrarySession,ExploreOverview,ExploreGraphData,ExploreGraph,ExploreEdge,ExploreEvidence} from '../lib/explore';
  export let scope:string;export let session:LibrarySession;export let revision:number;
@@ -68,7 +69,7 @@
 <section class="explore-view graph-view" aria-label={$t('文档探索')}>
  <div class="explore-toolbar">
   <div class="explore-search">{@html icon('search')}<Input value={query} oninput={(e)=>query=e.currentTarget.value} onkeydown={(e)=>{if(e.key==='Enter'&&matches.length)locate(matches[0].id);if(e.key==='Escape')query=''}} aria-label={$t('在关系图中查找文档')} placeholder={$t('在关系图中查找文档')} maxlength={200}/>
-   {#if query.trim()}<div class="explore-picker">{#each matches as doc}<Button.Root title={doc.path} onclick={()=>locate(doc.id)}>{@html icon('file')}<span>{doc.name}</span></Button.Root>{:else}<p>{$t('没有匹配的文件')}</p>{/each}</div>{/if}
+   {#if query.trim()}<div class="explore-picker">{#each matches as doc}<Button.Root title={displayPath(doc.path)} onclick={()=>locate(doc.id)}>{@html icon('file')}<span>{doc.name}</span></Button.Root>{:else}<p>{$t('没有匹配的文件')}</p>{/each}</div>{/if}
   </div>
   <div class="explore-controls">
    {#if graph.center!==null}<Button.Root class="outline" onclick={back} disabled={!session.history.length}>{@html icon('back')}{$t('返回上一步')}</Button.Root><Button.Root class="outline" onclick={reset}>{$t('关系总览')}</Button.Root>{/if}
@@ -90,7 +91,7 @@
   </div>
   {#if selected}<aside class="graph-preview" aria-label={$t('文档预览')}>
    <div class="graph-preview-head"><span>{@html icon('file')}<strong>{selected.name}</strong></span><Button.Root class="icon-button" aria-label={$t('关闭预览')} onclick={()=>void select(null)}>{@html icon('close')}</Button.Root></div>
-   <p class="graph-preview-path" title={selected.path}>{selected.path}</p>
+   <p class="graph-preview-path" title={displayPath(selected.path)}>{displayPath(selected.path)}</p>
    <div class="graph-preview-actions"><Button.Root class="primary" onclick={()=>onopen(selected!.path,[])}>{$t('打开文档')}</Button.Root><Button.Root class="outline" onclick={()=>focus(selected!.id)} disabled={graph.center===selected.id}>{$t('查看局部')}</Button.Root></div>
    <div class="graph-preview-scroll">
     {#if previewLoading}<p class="graph-preview-note" role="status">{$t('正在读取原文…')}</p>{:else if previewError}<p role="alert">{$t(previewError)}</p>{:else}<p class="graph-excerpt">{preview}</p>{/if}

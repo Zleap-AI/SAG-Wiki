@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 let app:ReturnType<typeof mount>;
 let fail=false;
-const onAdd=vi.fn(async(paths:string[])=>fail?paths.filter(path=>path==='/home/docs').map(path=>({path,error:'没有权限'})):[]);
+const onAdd=vi.fn(async(paths:string[]):Promise<{path:string;error:string}[]>=>fail?paths.filter(path=>path==='/home/docs').map(path=>({path,error:'没有权限'})):[]);
 const onClose=vi.fn();
 const contents:Record<string,{path:string;name:string}[]>={
  '/home':[{path:'/home/docs',name:'docs'},{path:'/home/projects',name:'projects'},{path:'/home/added',name:'added'}],
@@ -26,6 +26,34 @@ beforeEach(()=>{fail=false;onAdd.mockClear();onClose.mockClear();invoke.mockImpl
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 async function start(){app=mount(FolderPicker,{target:document.body,props:{roots:['/home/added'],onAdd,onClose}});await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 docs"]')).not.toBeNull())}
 async function click(label:string){document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click();await tick()}
+it.each([
+ [String.raw`\\?\C:\Users\PC`,String.raw`C:\Users\PC`],
+ [String.raw`\\?\UNC\server\share`,String.raw`\\server\share`],
+])('Windows 路径正常显示，导航和添加仍使用原始路径：%s',async(raw,shown)=>{
+ const child=raw+'\\资料',shownChild=shown+'\\资料';
+ invoke.mockImplementation(async command=>{
+  if(command==='browse_folders')return{path:raw,parent:null,home:raw,folders:[{path:child,name:'资料'}]};
+  throw Error(command);
+ });
+ app=mount(FolderPicker,{target:document.body,props:{roots:[],onAdd,onClose}});
+ await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="文件夹路径"]')?.value).toBe(shown));
+ const folder=document.querySelector<HTMLButtonElement>('.folder-picker-folder')!;
+ expect(folder.title).toBe(shownChild);
+ folder.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('browse_folders',{path:child,showHidden:false}));
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 资料"]')).not.toBeNull());
+ await click('选择 资料');
+ const selection=document.querySelector('.folder-picker-selection span')!;
+ expect(selection.textContent).toBe(shownChild);expect(selection.getAttribute('title')).toBe(shownChild);
+ expect(document.querySelector('.folder-picker-selection button')?.getAttribute('aria-label')).toBe('取消选择 '+shownChild);
+ onAdd.mockResolvedValueOnce([{path:child,error:'没有权限'}]);
+ document.querySelector<HTMLButtonElement>('.folder-picker-footer .primary')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('[role="alert"]')?.textContent).toBe(shownChild+'：没有权限'));
+ expect(onAdd).toHaveBeenCalledWith([child]);
+ const input=document.querySelector<HTMLInputElement>('[aria-label="文件夹路径"]')!;
+ input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('browse_folders',{path:shown,showHidden:false}));
+});
 it('应用内跨目录多选，一次提交所选文件夹，不自动加入浏览过的目录',async()=>{
  await start();
  expect(document.querySelector<HTMLButtonElement>('[aria-label="选择 added"]')!.disabled).toBe(true);

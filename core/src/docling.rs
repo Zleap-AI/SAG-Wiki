@@ -40,6 +40,13 @@ pub fn is_source(path: &Path) -> bool {
     FORMATS.iter().any(|(_, extensions)| extensions.split_whitespace().any(|ext| name.strip_suffix(ext).is_some_and(|prefix| prefix.ends_with('.'))))
 }
 
+pub fn is_pem_key(path: &Path) -> Result<bool> {
+    if !path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("key")) { return Ok(false); }
+    let mut header = [0; 32];
+    let length = fs::File::open(path)?.read(&mut header)?;
+    Ok(header[..length].starts_with(b"-----BEGIN "))
+}
+
 pub fn is_selected(path: &Path, formats: &Option<Vec<String>>) -> bool {
     formats.as_ref().is_none_or(|formats| {
         let name = path.file_name().unwrap().to_string_lossy().to_lowercase();
@@ -290,6 +297,11 @@ impl Docling {
         if let Some(directory) = command.get_current_dir() { builder.cwd(directory); }
         let mut child = pair.slave.spawn_command(builder).context("无法启动 Docling 组件")?;
         drop(pair.slave);
+        // ConPTY inherits the cursor and waits for a position report before starting the child.
+        #[cfg(windows)]
+        let mut input = pair.master.take_writer()?;
+        #[cfg(windows)]
+        input.write_all(b"\x1b[1;1R")?;
         let mut reader = pair.master.try_clone_reader()?;
         let (tx, rx) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
@@ -334,6 +346,8 @@ impl Docling {
             }
             child.wait()?;
         }
+        #[cfg(windows)]
+        drop(input);
         drop(pair.master);
         handle.join().expect("Docling output reader panicked");
         for line in rx {
@@ -353,12 +367,25 @@ impl Docling {
         // Atomic publication: partial/failed conversion must never become indexed Markdown.
         let staging = tempfile::tempdir_in(parent)?;
         let temporary = staging.path().join("document.md");
-        self.run(self.command(self.binary("docling"))
-            .arg(source).args(["--to", "md", "--image-export-mode", "placeholder", "--abort-on-error", "--document-timeout", "300"])
-            .arg("--artifacts-path").arg(self.home.join("models"))
-            .arg("--output-file").arg(&temporary), false)?;
-        let content = fs::read_to_string(&temporary).context("Docling 未生成 Markdown")?;
-        if content.trim().is_empty() { bail!("Docling 未提取到正文") }
+        let convert = |backend: Option<&str>| -> Result<String> {
+            let mut command = self.command(self.binary("docling"));
+            command.arg(source).args(["--to", "md", "--image-export-mode", "placeholder", "--abort-on-error", "--document-timeout", "300"])
+                .arg("--artifacts-path").arg(self.home.join("models"))
+                .arg("--output-file").arg(&temporary);
+            if let Some(backend) = backend { command.args(["--pdf-backend", backend]); }
+            self.run(&mut command, false)?;
+            let content = fs::read_to_string(&temporary).context("Docling 未生成 Markdown")?;
+            if content.trim().is_empty() { bail!("Docling 未提取到正文") }
+            Ok(content)
+        };
+        let content = match convert(None) {
+            Ok(content) => content,
+            Err(first) if source.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("pdf")) => {
+                if temporary.exists() { fs::remove_file(&temporary)?; }
+                convert(Some("pypdfium2")).map_err(|second| anyhow::anyhow!("PDF 默认引擎转换失败：{first}\n备用 PDF 引擎转换失败：{second}"))?
+            }
+            Err(error) => return Err(error),
+        };
         let mut file = tempfile::NamedTempFile::new_in(parent)?;
         // Relative source link survives moving the whole knowledge folder.
         let depth = output.ancestors().position(|path| path.file_name().is_some_and(|name| name == OUTPUT_DIRECTORY))

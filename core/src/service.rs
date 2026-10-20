@@ -981,12 +981,17 @@ impl Service {
                         root.clone()
                     }
                 };
+                let last_update = std::cell::Cell::new(std::time::Instant::now());
                 if let Err(e) = indexer::apply_request(&worker_store, request, |progress| {
                     emit(
                         &handle,
                         "index-progress",
                         serde_json::json!({"path":root,"count":progress.count,"total":progress.total,"stage":worker_store.indexing.task(&root).stage}),
-                    )
+                    );
+                    if progress.count > 0 && last_update.get().elapsed() >= std::time::Duration::from_secs(1) {
+                        last_update.set(std::time::Instant::now());
+                        emit(&handle, "data-changed", ());
+                    }
                 }) {
                     emit(&handle, "app-error", format!("{}：{}", root, e));
                 }

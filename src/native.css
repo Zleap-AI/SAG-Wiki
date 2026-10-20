@@ -148,7 +148,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .send{width:32px;height:32px;flex-shrink:0;margin-left:auto}
 .real-client .send>.icon{width:17px;height:17px}
 .real-client .reference-chip,.real-client .mention-help{font-size:var(--text-caption)}
-.real-client .mention-picker{left:36px;right:36px;border-radius:12px;box-shadow:0 8px 32px var(--color-control-shadow)}
+.real-client .mention-picker{border-radius:12px;box-shadow:0 8px 32px var(--color-control-shadow)}
 .real-client .mention-heading{font-size:var(--text-ui);font-weight:550;padding:12px 14px}
 .real-client .mention-options button{padding:9px 13px;gap:9px;min-height:44px}
 .real-client .mention-options strong{font-size:var(--text-ui)}
@@ -257,7 +257,7 @@ input,select,textarea{font-size:var(--text-ui)}
 #notice button:last-child{width:20px;height:20px;padding:3px;display:flex;align-items:center;justify-content:center}
 #notice button:last-child .icon{width:14px;height:14px}
 #notice button:hover{background:var(--color-hover);color:var(--color-ink)}
-@media(max-width:1080px){.real-client .chat-messages,.real-client .ask-content>.composer-wrap{padding-left:28px;padding-right:28px}.real-client .mention-picker{left:28px;right:28px}.real-client .search-page{padding-left:20px;padding-right:20px}.real-client .search-layout{grid-template-columns:240px minmax(0,1fr);gap:14px}.real-client .search-preview{padding:17px}.real-client .model-button{max-width:160px}}
+@media(max-width:1080px){.real-client .chat-messages,.real-client .ask-content>.composer-wrap{padding-left:28px;padding-right:28px}.real-client .search-page{padding-left:20px;padding-right:20px}.real-client .search-layout{grid-template-columns:240px minmax(0,1fr);gap:14px}.real-client .search-preview{padding:17px}.real-client .model-button{max-width:160px}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
 
 #context-menu .menu-item[data-highlighted]{background:var(--color-hover)}

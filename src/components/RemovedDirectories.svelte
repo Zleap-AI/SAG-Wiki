@@ -4,6 +4,7 @@
  import {Button} from 'bits-ui';
  import {api} from '../lib/api';
  import {t} from '../lib/i18n';
+ import {displayPath} from '../lib/domain';
  let paths:string[]=[],loading=true,pending='',error='',notice='';
  onMount(()=>{
   let active=true,unlisten:(()=>void)|undefined;
@@ -22,7 +23,7 @@
  <div class="removed-heading"><h3>{$t('已移除的文件和文件夹')}</h3><p class="settings-help">{$t('这些文件和文件夹不显示在知识库中，也不参与搜索。本地原文件始终保留。')}</p></div>
  {#if loading}<p class="settings-help">{$t('正在读取…')}</p>
  {:else if !paths.length}<p class="settings-help removed-empty">{$t('暂无已移除的文件和文件夹。')}</p>
- {:else}{#each paths as path(path)}<div class="setting-row"><code>{path}</code><Button.Root type="button" class="outline" disabled={!!pending} onclick={()=>restore(path)}>{$t(pending===path?'正在恢复…':'恢复')}</Button.Root></div>{/each}{/if}
+ {:else}{#each paths as path(path)}<div class="setting-row"><code>{displayPath(path)}</code><Button.Root type="button" class="outline" disabled={!!pending} onclick={()=>restore(path)}>{$t(pending===path?'正在恢复…':'恢复')}</Button.Root></div>{/each}{/if}
  {#if notice}<p class="settings-help" role="status">{notice}</p>{/if}
  {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
 </section>

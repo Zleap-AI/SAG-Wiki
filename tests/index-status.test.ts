@@ -10,6 +10,48 @@ vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:a
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear()});
+it('失败详情单独显示完整文件名与路径，并可定位原文件',async()=>{
+ const path=String.raw`\\?\D:\资料`,file=path+'\\'+('很长的子目录\\'.repeat(12))+'主表 生成式人工智能上线备案表.pdf';
+ const record={id:43,path,name:'资料',started_at:1700000000000,finished_at:1700000001000,completed:1,total:1,status:'partial',error:'未能索引 1 个文件\n\n'+file+'\nDocling 未生成 Markdown'};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_index_status')return{paused:false,tasks:[]};
+  if(command==='get_index_history')return[record];
+  if(command==='get_index_history_log')return{raw:JSON.stringify({time:1700000000000,path:file,stage:'converting',status:'failed',error:'Docling 未生成 Markdown'})};
+  if(command==='reveal_path')return;
+  throw Error(command);
+ });
+ app=mount(IndexDetails,{target:document.body,props:{roots:[],onClose:vi.fn(),onPauseChange:vi.fn()}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-history-toggle .index-root-path')?.textContent).toBe(file.slice(4)));
+ expect(document.querySelector('.index-history-toggle .index-root-path')?.getAttribute('title')).toBe(file.slice(4));
+ expect(document.querySelector('.index-history-toggle')?.getAttribute('aria-expanded')).toBe('false');
+ await vi.waitFor(()=>expect(document.querySelector('.index-failure')).not.toBeNull());
+ const details=document.querySelector<HTMLDetailsElement>('.index-failure')!;details.open=true;details.dispatchEvent(new Event('toggle'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-failed-file strong')?.textContent).toBe('主表 生成式人工智能上线备案表.pdf'));
+ expect(document.querySelector('.index-failed-file .index-file-path')?.textContent).toBe(file.slice(4));
+ expect(document.querySelector('.index-failure pre')?.textContent).not.toContain('\\\\?\\');
+ document.querySelector<HTMLButtonElement>('.index-failed-file')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('reveal_path',{path:file}));
+});
+it('Windows 索引路径显示常规格式，打开历史文件仍使用原始路径',async()=>{
+ const path=String.raw`\\?\D:\Documents\大模型算法备案`,file=path+String.raw`\报告.pdf`;
+ const root={path,name:'大模型算法备案',status:'indexing',count:1,error:null};
+ const record={id:42,path,name:root.name,started_at:1700000000000,finished_at:1700000001000,completed:1,total:1,status:'ready',error:null};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_index_status')return {paused:false,tasks:[{path,stage:'converting',completed:1,total:2,files:[file]}]};
+  if(command==='get_index_history')return [record];
+  if(command==='get_index_history_log')return {raw:JSON.stringify({path:file,stage:'converting',status:'completed',error:null})};
+  if(command==='open_index_history_file')return;
+  throw Error(command);
+ });
+ app=mount(IndexDetails,{target:document.body,props:{roots:[root],onClose:vi.fn(),onPauseChange:vi.fn()}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-current-files span')?.textContent).toBe(String.raw`D:\Documents\大模型算法备案\报告.pdf`));
+ expect([...document.querySelectorAll('.index-root-path')].map(node=>[node.textContent,node.getAttribute('title')])).toEqual(Array(2).fill([String.raw`D:\Documents\大模型算法备案`,String.raw`D:\Documents\大模型算法备案`]));
+ expect(document.querySelector('.index-issues-dialog')?.textContent).not.toContain('\\\\?\\');
+ document.querySelector<HTMLButtonElement>('.index-history-toggle')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-history-file')?.getAttribute('title')).toBe(String.raw`D:\Documents\大模型算法备案\报告.pdf`));
+ document.querySelector<HTMLButtonElement>('.index-history-file')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_index_history_file',{id:42,path:file}));
+});
 it('部分文件索引失败时可查看具体路径，同时显示已索引文件数量',async()=>{
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
