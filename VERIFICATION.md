@@ -2,6 +2,14 @@
 
 版本：0.1.9。验证日期：2026-10-21。
 
+## 2026-10-22 接入 Agent 入口修复
+
+实机复现右上角显示“飞牛设置”，点击打开飞牛设置页。与原版对照后确认迁移时改动了按钮文案与目标页，补齐 CLI 时未恢复。本次仅将按钮文字、无障碍名称和提示恢复为“接入 Agent”，点击目标恢复为 CLI；飞牛设置仍在设置菜单中。
+
+前端构建及 Svelte 检查通过。Linux 真实服务页面与 fnOS 1.2.0701 实机均验证右上角文案和点击目标。按用户要求保持 0.1.9，在测试机卸载重装当前包；恢复原有 File 授权并重新索引后，实际执行 `sag check --json` 返回退出码 0、`index_ready: true`、37 个文件及 `ready` 状态。未改动 CLI、搜索和转换逻辑。
+
+x86、ARM 安装包均核对 manifest 版本、三个程序的 Linux ELF 架构、执行权限及 SHA-256；GitLab 上传后下载核验一致。证据：`.local/qa/agent-entry-before.json`、`.local/qa/agent-entry-local-after.json`、`.local/qa/agent-entry-nas-after.json`、`docs-site/public/images/fnos-agent-entry.png`。本次发布使用 `v0.1.9-fnos-cli.1` 标记，应用版本仍为 0.1.9。 中英文 CLI、安装文档与入口截图已同步；文档构建、四个相关页面、下载链接、图片加载与双语搜索验证通过。
+
 ## 2026-10-22 CLI 补齐
 
 复用原版 CLI 的命令、匹配参数、输出格式、退出码、配置和 Skill 安装逻辑；新增飞牛 Unix Socket 连接，以内核提供的进程 UID 关联该用户的网页数据。只开放 CLI 所需操作，搜索前后复查原生权限，`--types` 写入前检查 `.sagignore` 权限。CLI 不使用 root 或应用账户。
