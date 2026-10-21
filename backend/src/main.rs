@@ -1,6 +1,7 @@
 mod file_permissions;
 mod cli;
 mod fnos;
+mod remote;
 
 use anyhow::{bail, Context, Result};
 use axum::{extract::{DefaultBodyLimit, Query, State}, http::{HeaderMap, StatusCode}, response::{sse::{Event, KeepAlive, Sse}, IntoResponse, Response}, routing::{get, post}, Json, Router};
@@ -20,6 +21,7 @@ struct App {
     data: PathBuf,
     users: Arc<Mutex<HashMap<u32, Arc<Service>>>>,
     worker_socket: PathBuf,
+    remote: Arc<remote::Access>,
 }
 
 struct ApiError(anyhow::Error);
@@ -32,7 +34,7 @@ impl IntoResponse for ApiError {
     }
 }
 
-// This server listens only on the fnOS gateway socket, never on a TCP port.
+// Browser RPC is only served on the fnOS gateway socket; remote MCP uses its own token.
 fn user(headers: &HeaderMap) -> Result<u32> {
     headers.get("x-trim-userid").context("请从飞牛桌面打开应用，缺少网关用户身份")?
         .to_str()?.parse().context("飞牛网关用户身份无效")
@@ -152,6 +154,17 @@ fn operation(request: &Rpc) -> Result<Operation> {
 async fn rpc(State(app): State<App>, headers: HeaderMap, Json(request): Json<Rpc>) -> Result<Json<Value>, ApiError> {
     let uid = user(&headers)?;
     same_origin(&headers)?;
+    if request.command == "fnos_remote_status" {
+        return Ok(Json(json!({"enabled":app.remote.enabled(uid),"port":remote::address()?.port()})));
+    }
+    if request.command == "fnos_remote_rotate" {
+        if !app.service(uid).await?.cli.access().enabled { return Err(anyhow::anyhow!("请先启用 CLI 接入").into()); }
+        return Ok(Json(json!({"token":app.remote.rotate(uid)?})));
+    }
+    if request.command == "fnos_remote_revoke" {
+        app.remote.revoke(uid)?;
+        return Ok(Json(Value::Null));
+    }
     if request.command == "fnos_cli_run" {
         return Ok(Json(cli::run_command(&app, uid, &request.args).await?));
     }
@@ -255,12 +268,20 @@ async fn main() -> Result<()> {
     let socket = destination.join("app.sock");
     let native = Fnos::new(std::env::var_os("SAG_FNOS_API_SOCKET").map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/var/run/trim_open_gateway_apiscope.socket")))?;
-    let app = App { fnos: native, data, worker_socket: destination.join("worker.sock"), users: Arc::new(Mutex::new(HashMap::new())) };
+    let remote = Arc::new(remote::Access::open(&data)?);
+    let app = App { fnos: native, data, remote, worker_socket: destination.join("worker.sock"), users: Arc::new(Mutex::new(HashMap::new())) };
     let assets = destination.join("www");
     if !assets.join("index.html").is_file() { bail!("缺少前端构建文件 www/index.html"); }
     // The lifecycle script removes only this application's stale socket before start.
     let listener = tokio::net::UnixListener::bind(&socket)?;
     let stop = CancellationToken::new();
+    let remote_listener = tokio::net::TcpListener::bind(remote::address()?).await.context("远程 MCP 端口无法监听")?;
+    let remote_app = app.clone();
+    let remote_stop = stop.clone();
+    let remote_task = tokio::spawn(async move {
+        axum::serve(remote_listener, remote::router(remote_app, remote_stop.clone()))
+            .with_graceful_shutdown(remote_stop.cancelled_owned()).await
+    });
     let cli_app = app.clone();
     let cli_stop = stop.clone();
     let cli_task = tokio::spawn(cli::run(cli_app, destination.join("cli.sock"), cli_stop));
@@ -274,6 +295,7 @@ async fn main() -> Result<()> {
         }
     }).await?;
     cli_task.await??;
+    remote_task.await??;
     std::fs::remove_file(socket)?;
     Ok(())
 }

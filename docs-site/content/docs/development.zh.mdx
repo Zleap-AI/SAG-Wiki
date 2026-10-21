@@ -33,7 +33,7 @@ npm run package:fnos -- --arch arm
 
 ## 原生 API
 
-后端仅监听 `${TRIM_APPDEST}/app.sock`。从环境变量读取 `TRIM_API_TOKEN`，通过 `/var/run/trim_open_gateway_apiscope.socket` 调用 `POST /api/v1/trimapp`。令牌不写入配置、不返回前端。
+网页后端监听 `${TRIM_APPDEST}/app.sock`。从环境变量读取 `TRIM_API_TOKEN`，通过 `/var/run/trim_open_gateway_apiscope.socket` 调用 `POST /api/v1/trimapp`。令牌不写入配置、不返回前端。
 
 声明的 scope 为 `trim.file.userAccess`、`trim.file.userAcl` 和 `trim.file.path`。目录授权之外，读取和写入仍分别检查当前用户 ACL。新文件检查父目录写入权限，符号链接按真实路径验证授权范围。
 
@@ -81,3 +81,13 @@ cargo zigbuild -p sag-desktop-fnos -p sag-cli --features sag-cli/fnos --release 
 ```
 
 Linux 测试覆盖原版命令兼容性、已安装启动器、CLI 和网页共享索引、原生授权撤回、用户隔离、服务启停以及 Agent Skill 安装。`python3 tests/fnos-linux.py --serve` 在测试容器的 1427 端口提供本地页面，模拟当前用户 1501；此模式仅存在于测试夹具。
+
+## 远程 MCP
+
+`backend/src/remote.rs` 在 15679 端口提供 Streamable HTTP `/mcp`。该入口只提供现有的只读文件工具，不暴露网页 RPC、用户设置、Shell 或文件写入。访问密钥由已登录的飞牛用户生成，服务器仅保存 SHA-256 摘要；所有远程请求按密钥确定用户，忽略客户端自报的 UID。每次调用检查 CLI 开关、原生授权及返回的文件路径，并在返回前复查密钥和权限。重新生成、关闭远程接入及关闭 CLI 均可阻止旧连接继续读取。
+
+飞牛重装可能把保留的远程密钥配置改为 root 所有；启动时恢复该文件的应用账户归属及 0600 权限，保留已有密钥。
+
+远程入口拒绝带 Origin 的浏览器请求，限制并发为 20、请求体为 32 KiB。网页网关和远程入口独立，飞牛登录 Cookie 与系统 API 令牌不会发送给 Codex。局域网或 VPN 可访问服务端口，公网部署由 HTTPS 反向代理终止 TLS。
+
+`cargo test -p sag-desktop-fnos remote_mcp` 覆盖真实 MCP 客户端握手、共享模型搜索、用户隔离、伪造 UID、撤销权限、密钥轮换、暂停 CLI，以及请求进行中撤销密钥。Linux 集成测试另覆盖打包程序的 TCP 入口。

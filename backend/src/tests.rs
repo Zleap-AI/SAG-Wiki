@@ -1,6 +1,7 @@
 use super::*;
 use axum::{body::{to_bytes, Body}, http::Request};
 use std::{collections::BTreeMap, sync::{Mutex as StdMutex, Once}};
+use std::os::unix::fs::PermissionsExt;
 use tower::ServiceExt;
 
 #[test]
@@ -90,7 +91,9 @@ impl Fixture {
         let socket = directory.path().join("api.sock");
         let listener = tokio::net::UnixListener::bind(&socket).unwrap();
         let server = tokio::spawn(async move { axum::serve(listener, gateway).await.unwrap(); });
-        let app = App { fnos: Fnos::new(socket).unwrap(), data: directory.path().join("data"), worker_socket: directory.path().join("worker.sock"), users: Arc::new(Mutex::new(HashMap::new())) };
+        let data = directory.path().join("data");
+        let remote = Arc::new(remote::Access::open(&data).unwrap());
+        let app = App { fnos: Fnos::new(socket).unwrap(), data, remote, worker_socket: directory.path().join("worker.sock"), users: Arc::new(Mutex::new(HashMap::new())) };
         Self { directory, app, a, b, readonly, requests, denied, server }
     }
 
@@ -108,6 +111,151 @@ impl Fixture {
         for service in self.app.users.lock().await.values() { service.finish().await.unwrap(); }
         self.server.abort();
     }
+
+    async fn remote(&self, token: Option<&str>, value: Value, extra: &[(&str, &str)]) -> (StatusCode, Value) {
+        let mut request = Request::builder().method("POST").uri("/mcp")
+            .header("host", "nas.test:15679")
+            .header("content-type", "application/json").header("accept", "application/json, text/event-stream")
+            .header("mcp-protocol-version", "2025-06-18");
+        if let Some(token) = token { request = request.header("authorization", format!("Bearer {token}")); }
+        for (key, value) in extra { request = request.header(*key, *value); }
+        let response = remote::router(self.app.clone(), CancellationToken::new()).oneshot(request.body(Body::from(value.to_string())).unwrap()).await.unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 1024*1024).await.unwrap();
+        let value = if bytes.first() == Some(&b'{') { serde_json::from_slice(&bytes).unwrap() } else { Value::String(String::from_utf8(bytes.to_vec()).unwrap()) };
+        (status, value)
+    }
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn remote_mcp_authenticates_tokens_and_preserves_native_user_permissions() {
+    let f = Fixture::new().await;
+    for (uid, path) in [(1000, &f.a), (1001, &f.b)] {
+        assert_eq!(f.rpc(Some(uid), "add_root", json!({"path":path})).await.0, StatusCode::OK);
+        f.app.service(uid).await.unwrap().cli.configure(sag_protocol::Access {enabled:true}).unwrap();
+    }
+    let (status, generated) = f.rpc(Some(1000), "fnos_remote_rotate", json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    let token = generated["token"].as_str().unwrap();
+    let stored = std::fs::read_to_string(f.app.data.join("remote-access.json")).unwrap();
+    assert!(!stored.contains(token));
+    assert_eq!(std::fs::metadata(f.app.data.join("remote-access.json")).unwrap().permissions().mode() & 0o777, 0o600);
+    let status = f.rpc(Some(1000), "fnos_remote_status", json!({})).await.1;
+    assert_eq!(status["enabled"], true);
+    assert!(status.get("token").is_none());
+    assert_eq!(f.rpc(Some(1001), "fnos_remote_status", json!({})).await.1["enabled"], false);
+    assert!(!f.rpc(None, "fnos_remote_rotate", json!({})).await.0.is_success());
+
+    let list = json!({"jsonrpc":"2.0","id":1,"method":"tools/list"});
+    assert_eq!(f.remote(None, list.clone(), &[]).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(f.remote(Some("wrong"), list.clone(), &[]).await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(f.remote(Some(token), list.clone(), &[("origin","https://untrusted.example")]).await.0, StatusCode::FORBIDDEN);
+    let (status, output) = f.remote(Some(token), list.clone(), &[]).await;
+    assert_eq!(status, StatusCode::OK, "{output}");
+    assert_eq!(output["result"]["tools"].as_array().unwrap().len(), 6);
+    assert!(output["result"]["tools"].as_array().unwrap().iter().all(|tool| tool["annotations"]["readOnlyHint"] == true));
+    let read = |path: &Path| json!({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read","arguments":{"path":path}}});
+    let (status, output) = f.remote(Some(token), read(&f.a.join("hello.md")), &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(output.to_string().contains("nativefnosmarker"));
+    let (_, denied) = f.remote(Some(token), read(&f.b.join("secret.md")), &[("x-trim-userid","1001")]).await;
+    assert_eq!(denied["result"]["isError"], true);
+    assert!(!denied.to_string().contains("bob-private-marker"));
+    let (_, denied) = f.remote(Some(token), json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"save_document","arguments":{}}}), &[]).await;
+    assert_eq!(denied["result"]["isError"], true);
+    f.denied.lock().unwrap().insert(f.a.join("hello.md").display().to_string());
+    let (_, denied) = f.remote(Some(token), read(&f.a.join("hello.md")), &[]).await;
+    assert_eq!(denied["result"]["isError"], true);
+    assert!(!denied.to_string().contains("nativefnosmarker"));
+    f.denied.lock().unwrap().clear();
+    assert_eq!(f.rpc(Some(1000), "fnos_remote_revoke", json!({})).await.0, StatusCode::OK);
+    assert_eq!(f.remote(Some(token), list.clone(), &[]).await.0, StatusCode::UNAUTHORIZED);
+    let (_, generated) = f.rpc(Some(1000), "fnos_remote_rotate", json!({})).await;
+    let next = generated["token"].as_str().unwrap();
+    assert_ne!(token, next);
+    assert_eq!(f.remote(Some(token), list.clone(), &[]).await.0, StatusCode::UNAUTHORIZED);
+    f.app.service(1000).await.unwrap().cli.configure(sag_protocol::Access {enabled:false}).unwrap();
+    assert_eq!(f.remote(Some(next), list, &[]).await.0, StatusCode::FORBIDDEN);
+    f.finish().await;
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn remote_mcp_streamable_http_client_initializes_and_reads_without_browser_session() {
+    use rmcp::{ServiceExt, model::CallToolRequestParams, transport::{StreamableHttpClientTransport, streamable_http_client::StreamableHttpClientTransportConfig}};
+    let f = Fixture::new().await;
+    f.rpc(Some(1000), "add_root", json!({"path":f.a})).await;
+    f.app.service(1000).await.unwrap().cli.configure(sag_protocol::Access {enabled:true}).unwrap();
+    let token = f.app.remote.rotate(1000).unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+    let app = f.app.clone();
+    let stop = CancellationToken::new();
+    let shutdown = stop.clone();
+    let server = tokio::spawn(async move { axum::serve(listener, remote::router(app, shutdown.clone())).with_graceful_shutdown(shutdown.cancelled_owned()).await.unwrap(); });
+    let mut headers = reqwest::header::HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+    let http = reqwest::Client::builder().default_headers(headers).build().unwrap();
+    let client = ().serve(StreamableHttpClientTransport::with_client(http, StreamableHttpClientTransportConfig::with_uri(url))).await.unwrap();
+    assert_eq!(client.peer_info().unwrap().server_info.as_ref().unwrap().name, "SAG Wiki fnOS");
+    assert_eq!(client.list_all_tools().await.unwrap().len(), 6);
+    let result = client.call_tool(CallToolRequestParams::new("read").with_arguments(json!({"path":f.a.join("hello.md")}).as_object().unwrap().clone())).await.unwrap();
+    assert!(serde_json::to_string(&result).unwrap().contains("nativefnosmarker"));
+    client.cancel().await.unwrap();
+    stop.cancel();server.await.unwrap();
+    f.finish().await;
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn remote_mcp_search_uses_shared_jev_and_revocation_blocks_in_flight_results() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = Fixture::new().await;
+    f.rpc(Some(1000), "add_root", json!({"path":f.a})).await;
+    let service = f.app.service(1000).await.unwrap();
+    service.cli.configure(sag_protocol::Access {enabled:true}).unwrap();
+    for _ in 0..100 {
+        if service.store.roots().unwrap().iter().all(|root| root.status == "ready") { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let hold = Arc::new(AtomicBool::new(false));
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let paused = hold.clone(); let started = entered.clone(); let release = resume.clone();
+    let model = Router::new().fallback(post(move |Json(request): Json<Value>| {
+        let hold=paused.clone();let entered=started.clone();let resume=release.clone();
+        async move {
+            if hold.load(Ordering::SeqCst) { entered.notify_one(); resume.notified().await; }
+            let answers=request["questions"].as_object().unwrap().keys().map(|key|(key.clone(),json!({"type":"noul","noul":0.8}))).collect::<serde_json::Map<_,_>>();
+            Json(json!({"answers":answers}))
+        }
+    }));
+    let listener=tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut settings=service.store.settings().unwrap();
+    settings.jev.url=format!("http://{}",listener.local_addr().unwrap());settings.retrieval.max_hops=0;
+    service.store.save_settings(&settings).unwrap();
+    sag_core::models::save_secret(&service.data_dir,"jev","local-test-only").unwrap();
+    let model_server=tokio::spawn(async move{axum::serve(listener,model).await.unwrap()});
+    let token=f.app.remote.rotate(1000).unwrap();
+    let query=|question:&str|json!({"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search","arguments":{"query":question,"top_k":1}}});
+    let (status, output)=f.remote(Some(&token),query("What does Alice's document say?"),&[]).await;
+    assert_eq!(status,StatusCode::OK,"{output}");
+    assert_ne!(output["result"]["isError"],true,"{output}");
+    assert!(output.to_string().contains("nativefnosmarker"),"{output}");
+    hold.store(true,Ordering::SeqCst);
+    let app=f.app.clone();let secret=token.clone();let body=query("Find the contents of Alice's native document.");
+    let pending=tokio::spawn(async move{
+        remote::router(app,CancellationToken::new()).oneshot(Request::builder().method("POST").uri("/mcp")
+            .header("host","nas.test:15679").header("authorization",format!("Bearer {secret}"))
+            .header("content-type","application/json").header("accept","application/json, text/event-stream")
+            .header("mcp-protocol-version","2025-06-18").body(Body::from(body.to_string())).unwrap()).await.unwrap()
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(10),entered.notified()).await.unwrap();
+    f.app.remote.revoke(1000).unwrap();resume.notify_waiters();
+    let response=pending.await.unwrap();let status=response.status();
+    let bytes=to_bytes(response.into_body(),1024*1024).await.unwrap();
+    let text=String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(!text.contains("nativefnosmarker"),"{text}");
+    assert!(status==StatusCode::UNAUTHORIZED||text.contains("远程接入已撤销"),"{status}: {text}");
+    model_server.abort();f.finish().await;
 }
 
 #[tokio::test(flavor="multi_thread")]

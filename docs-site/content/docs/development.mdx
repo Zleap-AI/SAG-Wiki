@@ -33,7 +33,7 @@ Set `FNPACK` to the official tool path. The packaging script verifies Linux ELF 
 
 ## Native APIs
 
-The backend listens only on `${TRIM_APPDEST}/app.sock`. It reads `TRIM_API_TOKEN` from the process environment and calls `POST /api/v1/trimapp` over `/var/run/trim_open_gateway_apiscope.socket`. Tokens are never persisted or returned to the browser.
+The browser backend listens on `${TRIM_APPDEST}/app.sock`. It reads `TRIM_API_TOKEN` from the process environment and calls `POST /api/v1/trimapp` over `/var/run/trim_open_gateway_apiscope.socket`. Tokens are never persisted or returned to the browser.
 
 Requested scopes are `trim.file.userAccess`, `trim.file.userAcl`, and `trim.file.path`. Reads and writes independently check the current user's ACL. New files require parent-directory write access; symlinks are resolved before checking authorization boundaries.
 
@@ -81,3 +81,13 @@ cargo zigbuild -p sag-desktop-fnos -p sag-cli --features sag-cli/fnos --release 
 ```
 
 Linux integration tests cover command compatibility, the installed launcher, shared indexes, revoked permissions, user isolation, service lifecycle, and Agent Skill installation. Inside the test container, `python3 tests/fnos-linux.py --serve` exposes a local page on port 1427 using simulated user 1501; this mode exists only in the test fixture.
+
+## Remote MCP
+
+`backend/src/remote.rs` serves Streamable HTTP at `/mcp` on port 15679. It exposes the existing read-only file tools, without browser RPC, settings, shell execution or file writes. Signed-in fnOS users create access tokens; only SHA-256 digests are stored. Every remote request derives its user from the token and ignores client-supplied user IDs. Calls check the CLI switch, native file authorization and returned paths, then recheck the token and permissions before returning. Rotation, revocation and disabling CLI access block further reads.
+
+fnOS may retain the token registry with root ownership after reinstallation. Startup restores this file to the application account with mode 0600, preserving existing tokens.
+
+The endpoint rejects browser requests carrying Origin, limits concurrency to 20, and limits request bodies to 32 KiB. The browser gateway and remote endpoint remain separate. fnOS login cookies and system API tokens are never sent to Codex. Use the service port over LAN or VPN; terminate TLS through an HTTPS reverse proxy for public access.
+
+`cargo test -p sag-desktop-fnos remote_mcp` covers a real MCP client handshake, shared-model search, user isolation, forged user IDs, revoked permissions, token rotation, disabled CLI access, and revocation during an in-flight request. Linux integration additionally exercises the packaged TCP endpoint.

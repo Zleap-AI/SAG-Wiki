@@ -30,6 +30,19 @@ fn twenty_standalone_processes_search_the_same_index_concurrently() {
     store.save_settings(&settings).unwrap();
     sag_core::models::save_secret(&data, "jev", "test-only").unwrap();
     drop(store);
+    // Starting the shared service queues an initial rescan. Complete setup
+    // before measuring search concurrency, otherwise requests can hit indexing.
+    let added = Command::new(env!("CARGO_BIN_EXE_sag")).env("SAG_DATA_DIR", &data)
+        .args(["add", root.to_str().unwrap(), "--json"]).output().unwrap();
+    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    let ready_deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let checked = Command::new(env!("CARGO_BIN_EXE_sag")).env("SAG_DATA_DIR", &data)
+            .args(["check", root.to_str().unwrap(), "--json"]).output().unwrap();
+        if checked.status.success() { break; }
+        assert!(std::time::Instant::now() < ready_deadline, "index did not become ready");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     let server = std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(8);
         let mut requests = vec![];

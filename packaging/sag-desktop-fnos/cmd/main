@@ -52,6 +52,10 @@ case "${1:-}" in
     stop_process "$WORKER_PID" "$WORKER"
     mkdir -p "$TRIM_PKGVAR/users" "$TRIM_PKGVAR/mcp-workers"
     chown "$app_uid:$app_gid" "$TRIM_APPDEST" "$TRIM_PKGVAR" "$TRIM_PKGVAR/users"
+    if [ -f "$TRIM_PKGVAR/remote-access.json" ]; then
+      chown "$app_uid:$app_gid" "$TRIM_PKGVAR/remote-access.json"
+      chmod 600 "$TRIM_PKGVAR/remote-access.json"
+    fi
     chmod u+rwx "$TRIM_APPDEST"
     chmod 711 "$TRIM_PKGVAR"
     chmod 700 "$TRIM_PKGVAR/users"

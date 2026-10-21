@@ -3,6 +3,7 @@
  import {Button} from 'bits-ui';
  import Switch from './ui/Switch.svelte';
  import Input from './ui/Input.svelte';
+ import RemoteAccess from './RemoteAccess.svelte';
  import {api} from '../lib/api';
  import {t} from '../lib/i18n';
  let enabled=false,loading=true,busy=false,error='',directory='',command='sag status';
@@ -25,6 +26,7 @@
  </div>
  </details>
 </section>
+<RemoteAccess {enabled}/>
 <section class="settings-group">
  <div class="setting-row"><div><strong>{$t('测试 CLI')}</strong><p>{$t('以当前飞牛用户运行实际 sag 程序。支持带引号的参数，不执行 Shell 命令。')}</p></div></div>
  <div class="settings-fields cli-body">

@@ -370,7 +370,7 @@ impl SagTools {
             sources,
         ))
     }
-    pub(crate) async fn execute(&self, name: &str, arguments: Value) -> Result<Output> {
+    pub async fn execute(&self, name: &str, arguments: Value) -> Result<Output> {
         if !self.enabled.iter().any(|enabled| enabled == name) {
             bail!("当前模型未启用 SAG / {name}")
         }

@@ -4,7 +4,7 @@
 
 飞牛版与非飞牛版使用同一产品版本号，当前为 **0.1.9**。平台通过安装包名称区分，不再单独递增飞牛版本。此前 0.2.x 为迁移测试编号，已有修复与功能保留。
 
-本次发布标记为 `v0.1.9-fnos-cli.1`，包含完整 CLI、设置界面修复和右上角“接入 Agent”入口；应用内版本仍为 **0.1.9**。以下链接指向本次安装包。
+本次发布标记为 `v0.1.9-fnos-remote`，包含完整 CLI、设置界面修复和电脑远程 MCP 接入；应用内版本仍为 **0.1.9**。以下链接指向本次安装包。
 
 ## 使用
 
@@ -14,8 +14,8 @@
 
 | 架构 | 0.1.9 安装包 | SHA-256 |
 | --- | --- | --- |
-| x86-64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-cli.1/sag-desktop-fnos-0.1.9-x86.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-cli.1/sag-desktop-fnos-0.1.9-x86.fpk.sha256) |
-| ARM64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-cli.1/sag-desktop-fnos-0.1.9-arm.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-cli.1/sag-desktop-fnos-0.1.9-arm.fpk.sha256) |
+| x86-64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk.sha256) |
+| ARM64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk.sha256) |
 
 仓库与附件为私有内容，下载需要对应 GitLab 访问权限。已装 0.2.x 迁移测试版的设备会因飞牛版本检查而拒绝直接覆盖为 0.1.9；请保留现有应用数据。
 
@@ -30,7 +30,7 @@
 - 统一网关 `X-Trim-Userid`：按用户隔离 SQLite 索引、模型密钥、会话和草稿。
 - 独立浏览器通过飞牛授权页面返回应用，校验一次性 state。
 
-服务仅监听 Unix Socket，不开放独立 TCP 端口。系统 API 令牌只在后端读取，不持久化、不发送给前端。新文件按父目录写入权限检查；符号链接按真实路径检查授权范围。
+网页服务通过 Unix Socket 接入飞牛网关；远程 MCP 使用独立的 15679 端口，需要当前用户生成的访问密钥，仅提供只读知识库工具。局域网或 VPN 可直接访问，公网接入需使用 HTTPS 反向代理。系统 API 令牌只在后端读取，不持久化、不发送给前端。新文件按父目录写入权限检查；符号链接按真实路径检查授权范围。
 
 ## 范围
 

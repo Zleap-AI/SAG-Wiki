@@ -5,6 +5,33 @@ description: Use SAG from a NAS terminal or the fnOS web app.
 
 The CLI shares the signed-in fnOS user's index, Jev configuration and ignore rules with the web app. Closing the browser does not stop the CLI; keep the SAG Wiki application running. Native fnOS authorization is checked for file access. Each user has a separate index and credentials.
 
+## Remote access from your computer
+
+Codex on your computer can search, list and read the NAS knowledge base through remote MCP, without the NAS CLI or manual SSH. Remote access shares the current fnOS user's index, Jev configuration and file permissions, and exposes read-only tools.
+
+1. Click **Connect an Agent** at the top right and enable **CLI access**.
+2. Under **Remote access from your computer**, enter a reachable URL such as `http://192.168.1.100:15679/mcp`. Use the NAS LAN or VPN address. The fnOS web login URL cannot be used directly. For public access, configure an HTTPS reverse proxy forwarding `/mcp` to NAS port `15679`.
+3. Click **Generate access token**, then **Copy Codex configuration**.
+4. Add the configuration to `~/.codex/config.toml` on your computer, preserving existing contents, and start a new Codex session.
+
+```toml
+[mcp_servers.sag_fnos]
+url = "http://192.168.1.100:15679/mcp"
+http_headers = { Authorization = "Bearer <ACCESS_TOKEN>" }
+startup_timeout_sec = 30
+tool_timeout_sec = 600
+```
+
+Keep this configuration private because it contains the access token. The token is only returned when generated; the server stores a digest. Regenerating immediately invalidates the old configuration. **Disable remote access** revokes the token, and disabling **CLI access** also blocks remote calls. Other fnOS users have separate tokens and knowledge bases.
+
+Ask Codex, for example:
+
+> Use sag_fnos to search the knowledge base, summarize the acceptance requirements, and cite the source files.
+
+Returned paths belong to the NAS. Read those files through the `sag_fnos` `read` tool rather than opening them on your computer. Keep the SAG Wiki application running; its browser tab may be closed.
+
+![Remote access settings example](/images/fnos-remote-access.png)
+
 ## Install
 
 Enable SSH for an administrator account, sign in to the NAS, then run:

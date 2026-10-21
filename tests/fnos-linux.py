@@ -133,9 +133,16 @@ retained.chmod(0o700)
 (retained/'cli-access.json').write_text('{"enabled":true}')
 os.chown(retained,0,0)
 os.chown(retained/'cli-access.json',0,0)
+# fnOS may also retain the application-wide token registry as root.
+retained_remote = data/'remote-access.json'
+retained_remote.write_text('{"1501":"retained-token-hash"}')
+retained_remote.chmod(0o600)
+os.chown(retained_remote,0,0)
 try:
     lifecycle('start')
     assert retained.stat().st_uid == 1500 and (retained/'cli-access.json').stat().st_uid == 1500
+    assert retained_remote.stat().st_uid == 1500 and retained_remote.stat().st_mode & 0o777 == 0o600
+    assert rpc('fnos_remote_status')['enabled']
     lifecycle('status')
     assert Path(f"/proc/{(data / 'app.pid').read_text().strip()}/status").read_text().split('Uid:')[1].split()[0] == '1500'
     assert Path(f"/proc/{(data / 'worker.pid').read_text().strip()}/status").read_text().split('Uid:')[1].split()[0] == '0'
@@ -239,6 +246,32 @@ s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1]);s.sendall((json.dumps({'u
     assert web['code'] == 0 and json.loads(web['stdout'])['matched'], web
     web = rpc('fnos_cli_run',{'command':'sag --version','directory':root})
     assert web['code'] == 0 and '0.1.9' in web['stdout'], web
+    # Remote MCP authenticates independently of the fnOS browser gateway.
+    token = rpc('fnos_remote_rotate')['token']
+    def remote_mcp(message, access_token=token, extra=None):
+        connection = http.client.HTTPConnection('127.0.0.1',15679,timeout=30)
+        headers = {'Content-Type':'application/json','Accept':'application/json, text/event-stream',
+                   'MCP-Protocol-Version':'2025-06-18'}
+        if access_token is not None: headers['Authorization'] = 'Bearer '+access_token
+        headers.update(extra or {})
+        connection.request('POST','/mcp',json.dumps(message),headers)
+        response=connection.getresponse();content=response.read();connection.close()
+        return response.status,content
+    initialized={'jsonrpc':'2.0','id':1,'method':'initialize','params':{'protocolVersion':'2025-06-18','capabilities':{},'clientInfo':{'name':'Linux remote verification','version':'1'}}}
+    assert remote_mcp(initialized,None)[0] == 401
+    status,content=remote_mcp(initialized)
+    assert status == 200 and json.loads(content)['result']['serverInfo']['name']=='SAG Wiki fnOS',content
+    call={'jsonrpc':'2.0','id':2,'method':'tools/call','params':{'name':'read','arguments':{'path':root+'/private.txt'}}}
+    status,content=remote_mcp(call)
+    assert status==200 and b'alice-private-marker' in content,content
+    call['params']['arguments']['path']=str(base/'bob/private.txt')
+    status,content=remote_mcp(call,extra={'X-Trim-Userid':'1502'})
+    assert json.loads(content)['result']['isError'] and b'bob-private-marker' not in content,content
+    assert remote_mcp(initialized,extra={'Origin':'https://untrusted.example'})[0]==403
+    assert token not in (data/'remote-access.json').read_text()
+    rpc('fnos_remote_revoke')
+    assert remote_mcp(initialized)[0]==401
+    print('PASS remote MCP TCP, handshake, real file read, token auth, user isolation and revocation',flush=True)
     stopped = sag(['service','stop'])
     assert stopped.returncode == 0, stopped.stderr
     assert '未运行' in sag(['service','status']).stdout

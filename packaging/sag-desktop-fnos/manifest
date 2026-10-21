@@ -12,4 +12,6 @@ desktop_applaunchname=sag-desktop-fnos.main
 os_min_version=1.2.0401
 micro_app=true
 ctl_stop=true
+service_port=15679
+checkport=true
 disable_authorization_path=false
