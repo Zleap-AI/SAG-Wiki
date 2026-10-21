@@ -4,16 +4,16 @@ description: "Install an FPK matching your NAS architecture."
 ---
 
 1. Enable manual installation in fnOS App Center.
-2. Download and select the [x86-64 package](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk) or [ARM64 package](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk).
+2. Download and select the [x86-64 package](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk) or [ARM64 package](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk).
 3. Open **SAG Wiki** from the fnOS desktop.
 4. Click **Add folder**, then **Choose and authorize folder**, approve the directory, and add it to the index.
 
 The web entry is `/app/sag-desktop-fnos/`. Remote MCP uses port 15679 and requires an access token generated in **Connect an Agent**; see [CLI and Agent](/en/docs/cli) for setup. fnOS manages authorization, start/stop, and updates.
 
-These downloads belong to the `v0.1.9-fnos-remote` release, including the full CLI, settings layout fixes, and remote MCP access from your computer. The application version remains **0.1.9**.
+These downloads belong to the `v0.1.9-fnos-agent-guide` release, including the full CLI, settings layout fixes, and remote MCP access from your computer. The application version remains **0.1.9**.
 
 The fnOS and desktop editions share the same product version, currently **0.1.9**. Earlier 0.2.x numbers identified migration test builds; aligning the version retains their features and fixes. Packages are published through the private GitLab repository and require repository access to download. Installation, authorization, PDF conversion, and Q&A have been verified on fnOS 1.2.0701.
 
-Verify downloads using the [x86-64 checksum](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk.sha256) or [ARM64 checksum](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk.sha256). fnOS blocks direct installation of 0.1.9 over an installed 0.2.x migration test build. Preserve existing application data when changing the displayed version.
+Verify downloads using the [x86-64 checksum](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk.sha256) or [ARM64 checksum](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk.sha256). fnOS blocks direct installation of 0.1.9 over an installed 0.2.x migration test build. Preserve existing application data when changing the displayed version.
 
 Persistent data lives under the fnOS-provided `TRIM_PKGVAR/users/<uid>/`. Updates do not intentionally delete data. Follow fnOS data-retention options when uninstalling. Original files remain in the authorized directories.

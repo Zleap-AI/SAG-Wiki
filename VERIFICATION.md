@@ -2,6 +2,14 @@
 
 版本：0.1.9。验证日期：2026-10-22。
 
+## 2026-10-22 接入指引与 Skill
+
+实机复现“接入 Agent”只有 CLI 测试和远程连接表单，缺少原版的 Skill 安装区与使用指南。对照原版后确认迁移时未保留这些界面。现提供“电脑远程接入”和“NAS 本机 CLI”两组选项，默认展示完整连接步骤；保留连接配置、密钥操作和 CLI 测试。电脑页包含远程 Skill 下载、三个 Agent 的安装目录与提问示例；NAS 页包含 CLI 安装、Codex/Claude Code/OpenCode 的安装、卸载、命令复制和完整 CLI 使用指南。
+
+构建生成两个 ZIP：原版 CLI Skill 的入口及三个参考文件逐字节与源文件一致；远程 `sag-fnos` Skill 使用已有 MCP 工具读取 NAS 路径。两种下载均不包含访问密钥。Skill 格式验证、10 项前端测试、Svelte 检查和 Linux 生命周期、CLI、远程 MCP 集成检查均通过；本次未修改 Rust 运行逻辑。
+
+fnOS 1.2.0701 测试机以 0.1.9 卸载重装，原生目录重新授权后 37 个文件恢复 ready。页面验证三个 Agent 的安装和卸载共六次操作，退出码全部为 0；实际下载并核对 Skill 内容。远程密钥轮换后已更新本机 Codex 配置，通过 Tailscale 再次搜索到扫描 PDF 的 OCR 原文。证据：`.local/qa/agent-guide-nas-installs.json`、`.local/qa/agent-guide-remote-result.json`、`.local/qa/agent-guide-nas-remote.png`。中英文文档、两张隐私处理截图、六个页面和双语 Skill 搜索检查通过；两个架构的安装包与校验文件上传后重新下载校验一致。
+
 ## 2026-10-22 电脑远程接入
 
 新增独立的 Streamable HTTP MCP 入口（15679 端口），电脑无需 SSH 即可调用现有只读文件工具。访问密钥绑定飞牛用户，仅保存 SHA-256 摘要；网页生成与撤销密钥，远程请求不接受客户端指定 UID。查询前后检查原生权限、CLI 开关和密钥状态。Codex 配置通过界面复制，密钥不会出现在页面代码示例或截图中。

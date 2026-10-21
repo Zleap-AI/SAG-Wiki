@@ -9,10 +9,11 @@ The CLI shares the signed-in fnOS user's index, Jev configuration and ignore rul
 
 Codex on your computer can search, list and read the NAS knowledge base through remote MCP, without the NAS CLI or manual SSH. Remote access shares the current fnOS user's index, Jev configuration and file permissions, and exposes read-only tools.
 
-1. Click **Connect an Agent** at the top right and enable **CLI access**.
+1. Click **Connect an Agent** at the top right, enable **CLI access**, and select **Remote access from your computer**.
 2. Under **Remote access from your computer**, enter a reachable URL such as `http://192.168.1.100:15679/mcp`. Use the NAS LAN or VPN address. The fnOS web login URL cannot be used directly. For public access, configure an HTTPS reverse proxy forwarding `/mcp` to NAS port `15679`.
 3. Click **Generate access token**, then **Copy Codex configuration**.
-4. Add the configuration to `~/.codex/config.toml` on your computer, preserving existing contents, and start a new Codex session.
+4. Add the configuration to `~/.codex/config.toml` on your computer, preserving existing contents.
+5. Click **Download remote Skill**, extract the complete `sag-fnos` folder into `~/.agents/skills/` on your computer, then start a new Codex session. The page also lists the Claude Code and OpenCode Skills directories; configure the MCP connection in those tools before installing their Skill.
 
 ```toml
 [mcp_servers.sag_fnos]
@@ -30,9 +31,16 @@ Ask Codex, for example:
 
 Returned paths belong to the NAS. Read those files through the `sag_fnos` `read` tool rather than opening them on your computer. Keep the SAG Wiki application running; its browser tab may be closed.
 
-![Remote access settings example](/images/fnos-remote-access.png)
+![Remote connection steps and Skill download](/images/fnos-agent-guide.png)
 
-## Install
+## CLI and Skill on the NAS
+
+In **Connect an Agent → CLI on the NAS**, select an authorized working directory, click **Install CLI**, then **Install** for your agent. Codex, Claude Code and OpenCode have separate install, uninstall and command-copy buttons. Results show the actual CLI output and exit code. Installation targets the current NAS user’s home directory.
+
+**Download CLI Skill** provides the complete `sag` folder with parameter, setup and ignore-rule references for other agents running on the NAS. The **CLI usage guide** is expanded by default and covers adding directories, checking the index, semantic search, removing/restoring directories and configuration.
+
+![NAS Agent Skill installation](/images/fnos-cli-skills.png)
+
 
 Enable SSH for an administrator account, sign in to the NAS, then run:
 
@@ -46,12 +54,11 @@ You can also run `sag install cli` in the browser test below. If fnOS has not cr
 
 ## Test in the browser
 
-Click **Connect an Agent** at the top right of the main window, or open **Settings → CLI**. Select an authorized working directory, enter a command beginning with `sag`, and click **Run command**. The page displays the actual executable's stdout, stderr and exit code. Quoted arguments are supported; shell pipelines, redirections and other programs are not executed. Use an SSH terminal for interactive credential entry.
+Click **Connect an Agent** at the top right of the main window, or open **Settings → Connect an Agent → CLI on the NAS**. Select an authorized working directory, enter a command beginning with `sag`, and click **Run command**. The page displays the actual executable's stdout, stderr and exit code. Quoted arguments are supported; shell pipelines, redirections and other programs are not executed. Use an SSH terminal for interactive credential entry.
 
 
 ![Connect an Agent in the top-right corner on fnOS](/images/fnos-agent-entry.png)
 
-![CLI settings and command testing on fnOS](/images/fnos-cli.png)
 
 ## Commands
 

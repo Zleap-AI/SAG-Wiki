@@ -91,3 +91,6 @@ fnOS may retain the token registry with root ownership after reinstallation. Sta
 The endpoint rejects browser requests carrying Origin, limits concurrency to 20, and limits request bodies to 32 KiB. The browser gateway and remote endpoint remain separate. fnOS login cookies and system API tokens are never sent to Codex. Use the service port over LAN or VPN; terminate TLS through an HTTPS reverse proxy for public access.
 
 `cargo test -p sag-desktop-fnos remote_mcp` covers a real MCP client handshake, shared-model search, user isolation, forged user IDs, revoked permissions, token rotation, disabled CLI access, and revocation during an in-flight request. Linux integration additionally exercises the packaged TCP endpoint.
+
+
+The connection page separates computer remote access from CLI usage on the NAS. `scripts/build-agent-skills.mjs` generates two ZIP files before development and production builds: the CLI archive contains the entry point and all three references from `cli/skills/sag/`, and the remote Skill comes from `skills/sag-fnos/`. Neither archive contains access tokens. Browser install buttons run the existing `sag install/uninstall` commands as the current NAS user.

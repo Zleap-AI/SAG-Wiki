@@ -4,16 +4,16 @@ description: "安装对应 NAS 架构的 FPK。"
 ---
 
 1. 在飞牛应用中心启用手动安装。
-2. 下载并选择 [x86-64 安装包](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk) 或 [ARM64 安装包](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk)。
+2. 下载并选择 [x86-64 安装包](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk) 或 [ARM64 安装包](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk)。
 3. 完成安装后，从飞牛桌面打开 **SAG Wiki**。
 4. 点击“添加文件夹”，然后“选择并授权文件夹”。选择目录，确认授权，再添加索引。
 
 网页入口为 `/app/sag-desktop-fnos/`。电脑远程 MCP 使用 15679 端口，需要在“接入 Agent”中生成访问密钥；连接步骤见 [CLI 与 Agent](/zh/docs/cli)。文件授权、应用启动与停止、升级均由飞牛管理。
 
-当前下载对应 `v0.1.9-fnos-remote` 发布，包含完整 CLI、设置界面修复和电脑远程 MCP 接入；应用内版本号仍为 **0.1.9**。
+当前下载对应 `v0.1.9-fnos-agent-guide` 发布，包含完整 CLI、设置界面修复和电脑远程 MCP 接入；应用内版本号仍为 **0.1.9**。
 
 飞牛版与非飞牛版使用同一产品版本号，当前为 **0.1.9**。此前 0.2.x 是迁移测试编号；统一编号保留已有功能与修复。安装包通过私有 GitLab 仓库发布，下载需要仓库访问权限。安装、授权、PDF 转换与问答已在 fnOS 1.2.0701 实机验证。
 
-可下载 [x86-64 校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk.sha256) 或 [ARM64 校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk.sha256) 核对完整性。已安装 0.2.x 迁移测试版的设备会被飞牛版本检查阻止直接安装 0.1.9；不要为变更显示版本而删除现有应用数据。
+可下载 [x86-64 校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk.sha256) 或 [ARM64 校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk.sha256) 核对完整性。已安装 0.2.x 迁移测试版的设备会被飞牛版本检查阻止直接安装 0.1.9；不要为变更显示版本而删除现有应用数据。
 
 运行数据位于飞牛提供的 `TRIM_PKGVAR/users/<uid>/`。升级不会主动删除数据；卸载时按飞牛的保留数据选项操作。原始文档保留在用户授权的目录中。

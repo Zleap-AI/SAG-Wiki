@@ -4,7 +4,7 @@
 
 飞牛版与非飞牛版使用同一产品版本号，当前为 **0.1.9**。平台通过安装包名称区分，不再单独递增飞牛版本。此前 0.2.x 为迁移测试编号，已有修复与功能保留。
 
-本次发布标记为 `v0.1.9-fnos-remote`，包含完整 CLI、设置界面修复和电脑远程 MCP 接入；应用内版本仍为 **0.1.9**。以下链接指向本次安装包。
+本次发布标记为 `v0.1.9-fnos-agent-guide`，补齐电脑远程接入与 NAS 本机 CLI 的分步指引、Skill 下载及 Agent 安装入口；应用内版本仍为 **0.1.9**。以下链接指向本次安装包。
 
 ## 使用
 
@@ -14,8 +14,8 @@
 
 | 架构 | 0.1.9 安装包 | SHA-256 |
 | --- | --- | --- |
-| x86-64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-x86.fpk.sha256) |
-| ARM64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-remote/sag-desktop-fnos-0.1.9-arm.fpk.sha256) |
+| x86-64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk.sha256) |
+| ARM64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk.sha256) |
 
 仓库与附件为私有内容，下载需要对应 GitLab 访问权限。已装 0.2.x 迁移测试版的设备会因飞牛版本检查而拒绝直接覆盖为 0.1.9；请保留现有应用数据。
 

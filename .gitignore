@@ -1,6 +1,7 @@
 node_modules/
 target/
 dist/
+public/skills/
 release/
 tools/
 .local/

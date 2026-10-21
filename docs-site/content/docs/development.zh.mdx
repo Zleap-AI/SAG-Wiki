@@ -91,3 +91,6 @@ Linux 测试覆盖原版命令兼容性、已安装启动器、CLI 和网页共�
 远程入口拒绝带 Origin 的浏览器请求，限制并发为 20、请求体为 32 KiB。网页网关和远程入口独立，飞牛登录 Cookie 与系统 API 令牌不会发送给 Codex。局域网或 VPN 可访问服务端口，公网部署由 HTTPS 反向代理终止 TLS。
 
 `cargo test -p sag-desktop-fnos remote_mcp` 覆盖真实 MCP 客户端握手、共享模型搜索、用户隔离、伪造 UID、撤销权限、密钥轮换、暂停 CLI，以及请求进行中撤销密钥。Linux 集成测试另覆盖打包程序的 TCP 入口。
+
+
+接入页面按电脑远程与 NAS 本机分为两组指引。`scripts/build-agent-skills.mjs` 在开发启动和生产构建前生成两个 ZIP；CLI Skill 直接打包 `cli/skills/sag/` 的入口和全部三个参考文件，远程 Skill 来自 `skills/sag-fnos/`。下载包不包含访问密钥。浏览器安装按钮调用现有用户身份下的 `sag install/uninstall`，不写入访问网页的电脑。
