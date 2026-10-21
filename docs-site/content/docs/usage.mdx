@@ -1,0 +1,60 @@
+---
+title: "Files, search, and answers"
+description: "Authorize NAS folders, search documents, and edit Markdown."
+---
+
+The sidebar title sits at the top, with its collapse control on the right. The fnOS UI does not reserve space for desktop window buttons.
+
+## Authorize folders
+
+Click **Choose and authorize folder**. The fnOS desktop uses its native picker. A standalone browser redirects to fnOS authorization and returns to the application. Add an authorized directory to the index, or refresh authorization status. fnOS folder authorization selects one directory at a time.
+
+**fnOS settings** lists authorized folders with a folder icon, folder name, and readable path. Long paths wrap inside the list. Directory labels use `trim.file.convertPath`. In the fnOS desktop, **Open app settings** uses the native settings page. Standalone pages provide **Open fnOS desktop** and show the path **App Center → Installed → SAG Wiki → Settings**, because the native settings API requires the desktop host.
+
+Expand **Indexing options** to choose file types and automatic conversion for this folder. Long content scrolls while the footer actions remain visible.
+
+![Add a folder](/images/fnos-folder-picker.png)
+
+![fnOS authorization settings](/images/fnos-settings.png)
+
+## Search and answer
+
+Open **Search**, select **Fast**, and enter keywords. Configure Jev and an answer model under model settings before using deep retrieval and Q&A. Select a result to preview its source, then open the document to edit it.
+
+With the built-in SAG search tool enabled, knowledge questions use local retrieval before answering, even when the question does not mention a file. Known paths can be read directly; exact text can use grep. Greetings, translation or rewriting of supplied text, and explicit requests not to search can be answered directly. Calculations and time queries use their corresponding enabled tools. Configure tools per model under **Settings → Answers → Tool bindings**.
+
+![Search and source preview](/images/fnos-search.png)
+
+## Save documents
+
+Markdown changes are saved explicitly. Saving checks native write permission and the source version to avoid overwriting external edits. Read-only documents remain readable; saving returns a permission error.
+
+Reads and queries recheck revoked permissions. Reauthorize in fnOS or remove the directory from the knowledge base. Removing a directory deletes its index, leaving original files intact.
+
+## PDF and Office conversion
+
+Under **Settings → Files → Other formats**, install Docling to download the runtime, format components, and recognition models. Installation supports progress, cancellation, retry, and uninstall. Components may use several GB; scanned documents and audio/video can require additional model downloads.
+
+Select formats and conversion concurrency, then save. New folders inherit these defaults; existing folders have their own indexing options. Converted Markdown is stored in `.sag-converted/` inside the original folder. Originals are preserved, unchanged results are reused, and manually edited output is not overwritten automatically.
+
+![Docling format settings](/images/fnos-docling-formats.png)
+
+Scanned PDFs use the same PDF conversion option. The component performs OCR before producing indexable Markdown. An image-only Chinese sample has been verified on the NAS: Chinese text, dates, numbers, and table fields are searchable, and Q&A calls search and cites the recognized source. This test used a clear printed page; handwriting and severely blurred scans were not covered.
+
+![Scanned PDF OCR and Q&A verification](/images/fnos-ocr-qa.png)
+
+Read-only folders can reuse existing output. New conversions require write access to the output directory. Reading converted content also checks permission on its source; revoked source access blocks the derived content.
+
+## Local MCP
+
+Under **Settings → Answers → Tool bindings**, add a **Local command (stdio)** service or import MCP JSON containing `command` and `args`. Enter the NAS command, one argument per line, and required environment variables. Test the connection, then select tools for the model. HTTP services, per-call confirmation, and tool selection remain available.
+
+![Local MCP settings](/images/fnos-mcp-stdio.png)
+
+Commands run on the NAS under the current fnOS user's UID and groups. Use executables and paths that exist on the NAS; install Node.js or Python first if the service requires it. Working directories and configuration are isolated per user. Commands use that user's system file permissions. Disconnecting or stopping the app terminates the corresponding process group.
+
+## User isolation
+
+Indexes, credentials, conversations, drafts, and browser search history are isolated by user. Backend identity comes from the gateway's `X-Trim-Userid`, never from a user ID submitted by the browser.
+
+Documentation screenshots use fixture data. The native picker, folder addition, Markdown saving, automatic text and scanned PDF conversion, indexing, search, and Q&A through the built-in SAG MCP have also been verified on fnOS 1.2.0701. Office conversion and stdio MCP have separate Linux integration coverage and have not yet run on that NAS. This device cannot directly reach Hugging Face; checksum-verified official model files were supplied for the PDF verification.

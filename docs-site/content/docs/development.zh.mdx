@@ -1,0 +1,72 @@
+---
+title: "开发与验证"
+description: "独立 Rust 服务、飞牛 SDK 与 FPK 构建。"
+---
+
+## 结构
+
+- `src/`：Svelte 界面，官方 `@trimjs/web-app` SDK、HTTP 请求与事件流。
+- `backend/`：Unix Socket 服务、网关身份、原生 API 调用及用户隔离。
+- `core/`、`client/`、`protocol/`：从 SAG Desktop 当前源码复制的索引、检索、问答内核；文件读取增加权限检查。
+- `packaging/sag-desktop-fnos/`：飞牛 manifest、资源权限、入口和生命周期脚本。
+
+原始 `SAG-Desktop` 项目不被此项目构建或修改。
+
+## 构建
+
+```sh
+npm ci
+npm run build
+cargo test -p sag-desktop-fnos
+cargo test -p sag-core --test fnos_permissions
+```
+
+安装 Zig、cargo-zigbuild 和 fnpack，并通过 rustup 安装目标标准库后：
+
+```sh
+rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+npm run package:fnos -- --arch x86
+npm run package:fnos -- --arch arm
+```
+
+设置 `FNPACK` 指向官方工具。脚本验证二进制为对应架构的 Linux ELF，拒绝把 macOS 程序打入 FPK。生成文件及 SHA-256 位于 `release/`。
+
+## 原生 API
+
+后端仅监听 `${TRIM_APPDEST}/app.sock`。从环境变量读取 `TRIM_API_TOKEN`，通过 `/var/run/trim_open_gateway_apiscope.socket` 调用 `POST /api/v1/trimapp`。令牌不写入配置、不返回前端。
+
+声明的 scope 为 `trim.file.userAccess`、`trim.file.userAcl` 和 `trim.file.path`。目录授权之外，读取和写入仍分别检查当前用户 ACL。新文件检查父目录写入权限，符号链接按真实路径验证授权范围。
+
+浏览器请求优先使用浏览器生成的 `Sec-Fetch-Site` 检查同源关系，避免网关改写 Host 后误拒绝；缺少该请求头时比较规范化后的 Origin 和 Host。跨站请求继续拒绝。
+
+实机 fnOS 1.2.0701 的 `trim.file.convertPath` 直接返回路径数组；文档示例返回 `{status, result}`。后端兼容两种格式，对外提供统一结果；不符合格式或状态失败时明确报错。
+
+## 浏览器验证
+
+```sh
+cargo build -p sag-desktop-fnos
+npx playwright install chromium
+npm run build
+npm run test:e2e
+npm --prefix docs-site ci
+npm --prefix docs-site run build
+```
+
+端到端测试启动独立临时目录、模拟飞牛原生 API 和本地网关，使用真实 SAG 服务验证授权回调、索引、搜索、编辑保存、只读拒绝与跨用户拒绝。不调用付费模型服务。测试网关改写 Host，覆盖来源校验；目录弹窗检查标题对齐、内边距和底部按钮。
+
+[飞牛开发文档](https://developer.fnnas.com/llms-full.txt)
+
+## 转换与本地进程
+
+Docling 按用户安装，保留原格式列表、增量转换、并行数、取消与卸载能力。音视频依赖使用提供相同 `webrtcvad` 模块的 [webrtcvad-wheels](https://pypi.org/project/webrtcvad-wheels/2.0.14/)，通过 uv 的依赖排除选项替换仅提供源码的旧发行包，避免要求 NAS 安装 C 编译器。转换前检查原文件读取与输出写入权限；清理旧结果检查删除权限。
+
+生命周期以 root 启动 `sag-fnos-worker`，HTTP 服务通过 `runuser` 切换到应用账户。私有 Socket 的内核对端 UID 必须为应用账户；MCP 启动前切换到登录用户 UID、GID 和附加组，清空继承环境，设置独立工作目录并禁用后续提权。连接关闭和应用停止时结束整个进程组。Docling 子进程移除 `TRIM_API_TOKEN`。
+
+`tests/Dockerfile.fnos` 与 `tests/fnos-linux.py` 提供一次性 Linux 验证环境，覆盖启动/停止、真实 stdio 连接、跨用户文件拒绝、凭据隔离、子进程清理。`--docling` 真实下载组件并转换 PDF、Word、Excel、PowerPoint。已在 fnOS 1.2.0701 实机验证网关身份、原生选择器、授权目录读写、文本与扫描 PDF 自动转换、索引与搜索；设备上的跨用户拒绝、权限撤销、Office 转换和 stdio MCP 尚未逐项验证。
+
+应用创建的转换文件及目录给当前飞牛用户设置 POSIX ACL；扩展 ACL 掩码前保留其他用户和组的有效权限。读取转换文件仍核对原文件权限。
+
+
+Docling 子进程以组件数据目录为工作目录，不依赖应用账号是否具有主目录。安装失败会显示程序路径和底层错误。该行为已有回归测试；0.2.6 在实机中已成功启动组件并安装 Python 与格式依赖。该设备访问 Hugging Face 返回网络不可达，本次通过飞牛文件管理补齐已核对校验值的官方模型，再由安装程序完成检查。文本与扫描 PDF 的自动转换、索引和搜索均已通过；直接联网下载模型尚未在该设备成功。
+
+扫描件实机验证使用一页、单张图像、无文字层的中文 PDF。核对 OCR 输出的 7 项字段、唯一检索标记、问答调用记录及可打开的引用；原 PDF 的 SHA-256 保持一致。测试样本和结果保留在验证记录中，未将参考答案加入问答上下文。

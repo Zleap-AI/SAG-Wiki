@@ -1,0 +1,72 @@
+---
+title: "Development and validation"
+description: "Native Rust service, fnOS SDK, and FPK builds."
+---
+
+## Structure
+
+- `src/`: Svelte UI, official `@trimjs/web-app` SDK, HTTP requests, and event streaming.
+- `backend/`: Unix socket server, gateway identity, native API client, and user isolation.
+- `core/`, `client/`, `protocol/`: copied SAG Desktop indexing, retrieval, and Q&A engine with additional file permission checks.
+- `packaging/sag-desktop-fnos/`: fnOS manifest, resource scopes, entry, and lifecycle scripts.
+
+Building this project does not modify the original `SAG-Desktop` project.
+
+## Build
+
+```sh
+npm ci
+npm run build
+cargo test -p sag-desktop-fnos
+cargo test -p sag-core --test fnos_permissions
+```
+
+Install Zig, cargo-zigbuild, and official fnpack, then install the target standard libraries with rustup:
+
+```sh
+rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+npm run package:fnos -- --arch x86
+npm run package:fnos -- --arch arm
+```
+
+Set `FNPACK` to the official tool path. The packaging script verifies Linux ELF architecture and refuses macOS executables. FPKs and SHA-256 files are generated in `release/`.
+
+## Native APIs
+
+The backend listens only on `${TRIM_APPDEST}/app.sock`. It reads `TRIM_API_TOKEN` from the process environment and calls `POST /api/v1/trimapp` over `/var/run/trim_open_gateway_apiscope.socket`. Tokens are never persisted or returned to the browser.
+
+Requested scopes are `trim.file.userAccess`, `trim.file.userAcl`, and `trim.file.path`. Reads and writes independently check the current user's ACL. New files require parent-directory write access; symlinks are resolved before checking authorization boundaries.
+
+Browser requests use the browser-generated `Sec-Fetch-Site` header for same-origin validation, avoiding false rejection when a gateway rewrites Host. Clients without that header use normalized Origin and Host comparison. Cross-site requests remain rejected.
+
+On the tested fnOS 1.2.0701 device, `trim.file.convertPath` returns a path array directly; the documented example returns `{status, result}`. The backend accepts both formats and exposes one consistent result, rejecting malformed or failed responses.
+
+## Browser validation
+
+```sh
+cargo build -p sag-desktop-fnos
+npx playwright install chromium
+npm run build
+npm run test:e2e
+npm --prefix docs-site ci
+npm --prefix docs-site run build
+```
+
+End-to-end tests use temporary folders, simulated fnOS APIs and a local gateway, with the actual SAG service. They cover authorization callbacks, indexing, search, saving, read-only rejection, and cross-user rejection. No paid model services are called. The fixture rewrites Host to cover proxy origin validation; folder-picker checks cover title alignment, content padding, and footer actions.
+
+[fnOS developer guide](https://developer.fnnas.com/llms-full.txt)
+
+## Conversion and local processes
+
+Docling is installed per user, retaining format selection, incremental conversion, concurrency, cancellation, and uninstall. Audio/video dependencies use [webrtcvad-wheels](https://pypi.org/project/webrtcvad-wheels/2.0.14/), which provides the same `webrtcvad` module. uv excludes the original source-only distribution, avoiding a C compiler requirement on the NAS. Conversions check source read access and output write access; cleanup checks delete permission.
+
+Lifecycle scripts start `sag-fnos-worker` as root and switch the HTTP service to the package account using `runuser`. The private socket verifies the kernel-supplied peer UID. MCP commands drop to the login user's UID, GID, and supplementary groups, clear the inherited environment, use a separate working directory, and disable privilege escalation. Disconnect and shutdown terminate the process group. Docling subprocesses remove `TRIM_API_TOKEN`.
+
+`tests/Dockerfile.fnos` and `tests/fnos-linux.py` provide disposable Linux validation for start/stop, stdio initialization, cross-user file denial, credentials, and process cleanup. `--docling` downloads actual components and converts PDF, Word, Excel, and PowerPoint. Gateway identity, the native picker, authorized folder reads/writes, automatic text and scanned PDF conversion, indexing, and search have been verified on fnOS 1.2.0701. Cross-user denial, revoked permissions, Office conversion, and stdio MCP have not been individually exercised on that NAS.
+
+App-created conversion output and directories receive a POSIX ACL for the current fnOS user. Existing users and groups retain their effective permissions when the ACL mask grows. Reads still check the original source permission.
+
+
+Docling subprocesses use the component directory as their working directory, so an application account does not need a home directory. Installation errors include the executable path and underlying error. Regression tests cover this behavior, and 0.2.6 successfully launches the component and installs Python and format dependencies on the NAS. This device reports a network-unreachable error when accessing Hugging Face. For this verification, checksum-verified official models were transferred through the native file manager, and the installer completed its checks. Automatic text and scanned PDF conversion, indexing, and search passed; direct online model downloads have not succeeded on this device.
+
+The on-device OCR test uses a one-page Chinese PDF containing one image and no text layer. Verification checks seven recognized fields, a unique search marker, the Q&A tool call, and an accessible citation. The original PDF SHA-256 remains unchanged. The verification record retains the fixture and results; expected answers were not added to the Q&A context.

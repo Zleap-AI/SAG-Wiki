@@ -1,0 +1,20 @@
+---
+title: "SAG Wiki for fnOS"
+description: "Native fnOS file authorization, indexing, and Q&A."
+---
+
+`sag-desktop-fnos` is an independent application using the fnOS unified gateway and native file authorization. It retains indexing, fast search, SAG2 retrieval, cited answers, and Markdown editing.
+
+## Requirements
+
+- fnOS 1.2.0401 or newer; related mobile capabilities require fnOS App 1.34.0 or newer.
+- Choose the x86 or ARM FPK for your NAS processor.
+- Fast search needs no model key. SAG2 requires Jev; generated answers require a configured answer model.
+
+## Supported features
+
+Markdown, text, RTF, source code, and configuration files are supported. Docling automatically converts PDF, Word, Excel, PowerPoint, and other selected formats for indexing. MCP supports remote HTTP and local stdio commands, with tool selection and per-call confirmation. fnOS manages application updates, start/stop, and desktop entries.
+
+Indexes, settings, model credentials, and conversation history are isolated by fnOS user UID. Each user must authorize folders in the native picker.
+
+[Installation](/en/docs/installation) · [Usage](/en/docs/usage) · [Development and validation](/en/docs/development)

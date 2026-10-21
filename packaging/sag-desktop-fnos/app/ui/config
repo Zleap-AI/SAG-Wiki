@@ -1,0 +1,14 @@
+{
+  ".url": {
+    "sag-desktop-fnos.main": {
+      "title": "SAG Wiki",
+      "icon": "images/icon_{0}.png",
+      "type": "iframe",
+      "protocol": "",
+      "gatewayPrefix": "/app/sag-desktop-fnos",
+      "gatewaySocket": "app.sock",
+      "url": "/app/sag-desktop-fnos/",
+      "allUsers": true
+    }
+  }
+}

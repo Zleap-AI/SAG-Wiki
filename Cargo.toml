@@ -1,0 +1,12 @@
+[workspace]
+members = ["backend", "core", "client", "protocol"]
+resolver = "2"
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
+[profile.dev.package.sha2]
+opt-level = 3
+

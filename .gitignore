@@ -1,0 +1,14 @@
+node_modules/
+target/
+dist/
+release/
+tools/
+.local/
+/output/
+/tmp/
+.DS_Store
+docs-site/.next/
+docs-site/.source/
+docs-site/qa/
+
+__pycache__/

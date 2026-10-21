@@ -1,0 +1,9 @@
+{
+  "title": "SAG Wiki for fnOS",
+  "pages": [
+    "index",
+    "installation",
+    "usage",
+    "development"
+  ]
+}

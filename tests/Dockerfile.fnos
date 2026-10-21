@@ -1,0 +1,6 @@
+FROM debian:bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends python3 ca-certificates curl procps acl && rm -rf /var/lib/apt/lists/*
+RUN useradd -u 1500 -m sagapp && useradd -u 1501 -m alice && useradd -u 1502 -m bob
+# Build from the repository root, then run with the matching Linux binaries:
+# docker build -f tests/Dockerfile.fnos -t sag-fnos-test .
+# docker run --rm -v "$PWD:/source:ro" -v "$PWD/target/aarch64-unknown-linux-gnu/release:/binaries:ro" sag-fnos-test python3 /source/tests/fnos-linux.py --docling

@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "models": [
+    {
+      "ids": ["qwen3.6-flash"],
+      "hosts": ["api.302.ai", "api.302ai.cn", "dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "dashscope-us.aliyuncs.com"],
+      "source": "https://www.alibabacloud.com/help/en/model-studio/deep-thinking",
+      "context_window": null,
+      "default_parameters": {"enable_thinking": false, "temperature": 0},
+      "levels": [
+        {"value": "none", "parameters": {"enable_thinking": false}},
+        {"value": "low", "parameters": {"enable_thinking": true, "thinking_budget": 1024}},
+        {"value": "medium", "parameters": {"enable_thinking": true, "thinking_budget": 4096}},
+        {"value": "high", "parameters": {"enable_thinking": true, "thinking_budget": 8192}},
+        {"value": "max", "parameters": {"enable_thinking": true, "thinking_budget": 32768}}
+      ]
+    },
+    {
+      "ids": ["deepseek-flash", "deepseek-v4-pro"],
+      "hosts": ["api.302.ai", "api.302ai.cn", "api.deepseek.com"],
+      "source": "https://api-docs.deepseek.com/api/create-chat-completion/",
+      "context_window": 1048576,
+      "default_parameters": {},
+      "levels": [
+        {"value": "none", "parameters": {"reasoning_effort": "none"}},
+        {"value": "low", "parameters": {"reasoning_effort": "low"}},
+        {"value": "high", "parameters": {"reasoning_effort": "high"}},
+        {"value": "max", "parameters": {"reasoning_effort": "max"}}
+      ]
+    }
+  ]
+}
