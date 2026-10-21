@@ -4,6 +4,25 @@ use std::{collections::HashSet, sync::{LazyLock, Mutex}};
 use indexmap::IndexMap;
 use unicode_normalization::UnicodeNormalization;
 
+/// A resource rejection is a file issue, not permission to publish partial text.
+#[derive(Debug)]
+pub(crate) struct ResourceLimit(pub String);
+impl std::fmt::Display for ResourceLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "索引文本超过资源上限：{}；原文件未修改，本次文件索引未写入", self.0)
+    }
+}
+impl std::error::Error for ResourceLimit {}
+
+pub(crate) const MAX_INDEX_LINE_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_INDEX_STRUCTURE_ITEMS: usize = 131_072;
+
+fn charge(total: &mut usize, bytes: usize, limit: usize) -> Result<(), ResourceLimit> {
+    *total = total.checked_add(bytes).filter(|total| *total <= limit)
+        .ok_or_else(|| ResourceLimit(format!("分块及元数据预算为 {} MiB", limit / 1024 / 1024)))?;
+    Ok(())
+}
+
 static JIEBA: LazyLock<Jieba> = LazyLock::new(Jieba::new);
 static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}\p{N}]").unwrap());
 static STOPS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
@@ -66,14 +85,19 @@ pub fn index_text(text: &str) -> String {
 }
 pub const EXPLORE_SUMMARY_VERSION: i64 = 2;
 pub fn explore_summary<'a>(path: &std::path::Path, chunks: impl Iterator<Item = (&'a str, &'a str)>) -> Vec<crate::types::DocumentTerm> {
+    explore_summary_bounded(path, chunks, usize::MAX).expect("unlimited explore summary")
+}
+pub(crate) fn explore_summary_bounded<'a>(path: &std::path::Path, chunks: impl Iterator<Item = (&'a str, &'a str)>, byte_limit: usize) -> Result<Vec<crate::types::DocumentTerm>, ResourceLimit> {
     let code = matches!(file_kind(path), Some(FileKind::Code | FileKind::Config));
     let title: HashSet<_> = tokenize(path.file_stem().and_then(|s| s.to_str()).unwrap_or("")).into_iter().collect();
     let mut headings = HashSet::new();
     let mut counts = std::collections::HashMap::<String, usize>::new();
     let mut seen_passages = HashSet::new();
+    let mut bytes = 0usize;
     for (heading, content) in chunks {
         headings.extend(tokenize(heading));
         if !seen_passages.insert(content.trim()) { continue; }
+        charge(&mut bytes, 64, byte_limit)?;
         let mut importing = false;
         let content = content.lines().filter(|line| {
             let line = line.trim();
@@ -95,7 +119,11 @@ pub fn explore_summary<'a>(path: &std::path::Path, chunks: impl Iterator<Item = 
             if term.chars().count() < 2 || term.chars().all(|c| c.is_numeric()) { continue; }
             if matches!(term, "copyright" | "reserved" | "免责声明" | "版权所有" | "以及" | "可以" | "一个" | "进行" | "通过" | "需要" | "相关" | "使用" | "内容" | "本文") { continue; }
             if code && matches!(term, "import" | "from" | "export" | "default" | "const" | "let" | "var" | "return" | "function" | "class" | "true" | "false" | "null" | "undefined" | "public" | "private" | "static" | "void" | "string" | "number" | "async" | "await" | "self" | "this" | "else" | "new" | "pub" | "use" | "mut" | "impl" | "std" | "def" | "int" | "bool") { continue; }
-            *counts.entry(term.to_owned()).or_default() += 1;
+            if let Some(count) = counts.get_mut(term) { *count += 1; }
+            else {
+                charge(&mut bytes, 64 + term.len() * 2, byte_limit)?;
+                counts.insert(term.to_owned(), 1);
+            }
         }
     }
     let mut terms: Vec<_> = counts.into_iter().map(|(term, count)| {
@@ -104,7 +132,7 @@ pub fn explore_summary<'a>(path: &std::path::Path, chunks: impl Iterator<Item = 
     }).collect();
     terms.sort_by(|a,b| (b.boost * (1.0 + (b.count as f64).ln())).total_cmp(&(a.boost * (1.0 + (a.count as f64).ln()))).then(a.term.cmp(&b.term)));
     terms.truncate(64);
-    terms
+    Ok(terms)
 }
 pub fn quote(text: &str) -> String {
     format!("\"{}\"", text.replace('"', "\"\""))
@@ -356,9 +384,35 @@ pub fn chunks(content: &str, max_chars: usize) -> Vec<Chunk> {
     chunks_for_file(content, max_chars, std::path::Path::new("document.md"))
 }
 pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) -> Vec<Chunk> {
+    build_chunks(content, max_chars, path, None).expect("unlimited chunk construction")
+}
+
+pub(crate) fn chunks_for_index(content: &str, max_chars: usize, path: &std::path::Path, byte_limit: usize) -> Result<Vec<Chunk>, ResourceLimit> {
+    build_chunks(content, max_chars, path, Some(byte_limit))
+}
+
+fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_limit: Option<usize>) -> Result<Vec<Chunk>, ResourceLimit> {
     let markdown = is_markdown(path);
     let code = matches!(file_kind(path), Some(FileKind::Code | FileKind::Config));
     assert!(max_chars >= 2);
+    let ranges = indexable_ranges(content, path);
+    if byte_limit.is_some() {
+        if content.bytes().filter(|byte| matches!(byte, b'\r' | b'\n')).count() > MAX_INDEX_STRUCTURE_ITEMS {
+            return Err(ResourceLimit(format!("换行数量不得超过 {MAX_INDEX_STRUCTURE_ITEMS}")));
+        }
+        let mut boundaries = 0usize;
+        for &(start, end) in &ranges {
+            for line in content[start..end].split(['\r', '\n']) {
+                if line.len() > MAX_INDEX_LINE_BYTES {
+                    return Err(ResourceLimit("单行可索引文本不得超过 256 KiB".into()));
+                }
+            }
+            boundaries += content[start..end].chars().filter(|ch| "。！？!?.\n".contains(*ch)).count();
+            if boundaries > MAX_INDEX_STRUCTURE_ITEMS {
+                return Err(ResourceLimit(format!("句子/行边界数量不得超过 {MAX_INDEX_STRUCTURE_ITEMS}")));
+            }
+        }
+    }
     let lines = Lines::new(content);
     let heading_re = Regex::new(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$").unwrap();
     let fence_re = Regex::new(r"^\s{0,3}(`{3,}|~{3,})").unwrap();
@@ -371,28 +425,29 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
             .first()
             .is_some_and(|(s, e)| content[*s..*e].trim() == "---");
     let mut blocks: Vec<(String, usize, usize, bool)> = vec![];
-    let flush = |last: usize,
+    let mut block_bytes = 0usize;
+    let mut flush = |last: usize,
                  start: &mut Option<usize>,
                  headings: &Vec<String>,
                  code: bool,
-                 blocks: &mut Vec<(String, usize, usize, bool)>| {
+                 blocks: &mut Vec<(String, usize, usize, bool)>| -> Result<(), ResourceLimit> {
         if let Some(first) = start.take() {
             let s = lines.spans[first].0;
             let e = lines.spans[last].1;
             if !content[s..e].trim().is_empty() {
-                blocks.push((
-                    headings
+                let heading = headings
                         .iter()
                         .filter(|s| !s.is_empty())
                         .cloned()
                         .collect::<Vec<_>>()
-                        .join(" / "),
-                    s,
-                    e,
-                    code,
-                ));
+                        .join(" / ");
+                if let Some(limit) = byte_limit {
+                    charge(&mut block_bytes, heading.len() + std::mem::size_of::<(String, usize, usize, bool)>(), limit)?;
+                }
+                blocks.push((heading, s, e, code));
             }
         }
+        Ok(())
     };
     if !markdown {
         if !content.trim().is_empty() {
@@ -411,7 +466,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
                 let f = m[1].to_owned();
                 if fence.is_none() {
                     if i > 0 {
-                        flush(i - 1, &mut start, &headings, false, &mut blocks);
+                        flush(i - 1, &mut start, &headings, false, &mut blocks)?;
                     }
                     start = Some(i);
                     fence = Some(f);
@@ -420,7 +475,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
                     .is_some_and(|old| old.starts_with(&f[..1]) && f.len() >= old.len())
                 {
                     fence = None;
-                    flush(i, &mut start, &headings, true, &mut blocks);
+                    flush(i, &mut start, &headings, true, &mut blocks)?;
                 }
                 continue;
             }
@@ -429,9 +484,12 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
             }
             if let Some(h) = heading_re.captures(line) {
                 if i > 0 {
-                    flush(i - 1, &mut start, &headings, false, &mut blocks);
+                    flush(i - 1, &mut start, &headings, false, &mut blocks)?;
                 }
                 let level = h[1].len();
+                if byte_limit.is_some() && h[2].len() > 16 * 1024 {
+                    return Err(ResourceLimit("Markdown 标题不得超过 16 KiB".into()));
+                }
                 headings.resize(level, String::new());
                 headings.truncate(level);
                 headings[level - 1] = h[2].to_owned();
@@ -439,7 +497,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
             }
             if line.trim().is_empty() {
                 if i > 0 {
-                    flush(i - 1, &mut start, &headings, false, &mut blocks);
+                    flush(i - 1, &mut start, &headings, false, &mut blocks)?;
                 }
             } else if start.is_none() {
                 start = Some(i);
@@ -451,16 +509,16 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
             &headings,
             fence.is_some(),
             &mut blocks,
-        );
+        )?;
     }
     let overlap = if max_chars >= 160 { 80 } else { 0 };
     let body_limit = max_chars - if overlap > 0 { overlap + 2 } else { 0 };
     let mut result: Vec<Chunk> = vec![];
     let mut sentences: Vec<Vec<(usize, usize)>> = vec![];
     let mut length = 0;
+    let mut result_bytes = 0usize;
     // Cut out embedded resource data before splitting, retaining original offsets
     // so search snippets and citations can still be read from the source file.
-    let ranges = indexable_ranges(content, path);
     let blocks = blocks.into_iter().flat_map(|(heading, start, end, code)| {
         ranges.iter().filter_map(move |&(allowed_start, allowed_end)| {
             let start = start.max(allowed_start);
@@ -471,6 +529,16 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
     for (heading, start, end, code) in blocks {
         for (s, e) in split_block(content, start, end, body_limit, code) {
             let part = &content[s..e];
+            if byte_limit.is_some() && part.len() > MAX_INDEX_LINE_BYTES {
+                return Err(ResourceLimit("单个完整句子/代码行不得超过 256 KiB".into()));
+            }
+            let sentence_parts = sentence_ranges(content, s, e, code);
+            if let Some(limit) = byte_limit {
+                let metadata = std::mem::size_of::<Chunk>() + std::mem::size_of::<crate::types::SourceSpan>()
+                    + std::mem::size_of::<(usize, usize)>() * (1 + sentence_parts.len());
+                // Charge heading copies too: a long title repeated on thousands of chunks is not free.
+                charge(&mut result_bytes, heading.len() + part.len() + 2 + metadata, limit)?;
+            }
             let n = part.encode_utf16().count();
             let span = lines.span(content, s, e);
             let last_line = if e > 0 && content.as_bytes()[e - 1] == b'\n' {
@@ -485,7 +553,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
                     ranges: vec![(span.start_line, last_line)],
                     spans: vec![span],
                 });
-                sentences.push(sentence_ranges(content, s, e, code));
+                sentences.push(sentence_parts);
                 length = n;
             } else {
                 let c = result.last_mut().unwrap();
@@ -493,7 +561,7 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
                 c.content.push_str(part);
                 c.ranges.push((span.start_line, last_line));
                 c.spans.push(span);
-                sentences.last_mut().unwrap().extend(sentence_ranges(content, s, e, code));
+                sentences.last_mut().unwrap().extend(sentence_parts);
                 length += 2 + n;
             }
         }
@@ -512,10 +580,14 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
             if used >= overlap { break; }
         }
         prefix.reverse();
+        if let Some(limit) = byte_limit {
+            let extra = prefix.iter().map(|(start, end)| end - start + 2 + std::mem::size_of::<crate::types::SourceSpan>() + std::mem::size_of::<(usize, usize)>()).sum();
+            charge(&mut result_bytes, extra, limit)?;
+        }
         prefix.extend(result[i].spans.iter().map(|span| (span.start_byte, span.end_byte)));
         result[i] = chunk_from_ranges(content, &lines, result[i].heading.clone(), &prefix);
     }
-    result
+    Ok(result)
 }
 fn chunk_from_ranges(source: &str, lines: &Lines, heading: String, parts: &[(usize, usize)]) -> Chunk {
     let mut merged: Vec<(usize, usize)> = vec![];
@@ -547,6 +619,32 @@ pub(crate) fn source_content(source: &str, spans: &[crate::types::SourceSpan]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_chunks_reject_heading_amplification_and_metadata_without_truncation() {
+        let source = format!("# {}\n\n{}", "heading".repeat(100), "Evidence sentence.\n\n".repeat(200));
+        assert!(chunks_for_index(&source, 512, std::path::Path::new("test.md"), 4096).is_err());
+        let normal = chunks_for_index("# Policy\n\nComplete evidence.", 512, std::path::Path::new("test.md"), 4096).unwrap();
+        assert_eq!(normal.len(), 1);
+        assert_eq!(normal[0].content, "Complete evidence.");
+    }
+
+    #[test]
+    fn bounded_chunks_still_skip_large_embedded_resource_payloads() {
+        let source = format!("before <img src='data:image/png;base64,{}'> after", "a".repeat(MAX_INDEX_LINE_BYTES + 1));
+        let chunks = chunks_for_index(&source, 512, std::path::Path::new("test.md"), 4096).unwrap();
+        assert_eq!(chunks.len(), 1);
+        assert!(chunks[0].content.contains("before"));
+        assert!(chunks[0].content.contains("after"));
+        assert!(!chunks[0].content.contains("data:image"));
+    }
+
+    #[test]
+    fn bounded_summary_rejects_excess_unique_terms_instead_of_dropping_evidence() {
+        assert!(explore_summary_bounded(std::path::Path::new("test.txt"), [("", "alpha beta gamma")].into_iter(), 64).is_err());
+        let terms = explore_summary_bounded(std::path::Path::new("test.txt"), [("", "alpha alpha")].into_iter(), 256).unwrap();
+        assert_eq!(terms[0].term, "alpha");
+        assert_eq!(terms[0].count, 2);
+    }
     #[test]
     fn embedded_resources_are_excluded_without_removing_ordinary_scripts() {
         let source = concat!(

@@ -272,6 +272,12 @@ impl CliService {
         let (_, roots) = self.indexed_scope(requested)?;
         Ok(!roots.is_empty() && roots.iter().all(|root| root.status == "ready"))
     }
+    fn local_files_ready(&self, requested: &Path) -> Result<bool> {
+        let (_, roots) = self.indexed_scope(requested)?;
+        // Local matching reads authorized files directly. A semantic indexing
+        // resource failure must not make those files unavailable to -F/-E.
+        Ok(!roots.is_empty() && roots.iter().all(|root| matches!(root.status.as_str(), "ready" | "partial")))
+    }
     fn check(&self, requested: &Path) -> Result<CheckOutput> {
         let (path, roots) = self.indexed_scope(requested)?;
         let covering = roots.iter().find(|root| path.starts_with(&root.path));
@@ -405,7 +411,7 @@ impl CliService {
                     bail!("搜索参数超出允许范围")
                 }
                 let (path, scopes) = self.authorized(&request.path)?;
-                if !self.index_ready(&path)? {
+                if !self.local_files_ready(&path)? {
                     bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
                 }
                 self.release_preparation()?;

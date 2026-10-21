@@ -6,18 +6,63 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::{hash_map::Entry as MapEntry, HashMap, HashSet},
     fs,
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Arc, Condvar, Mutex, MutexGuard},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
+
+// This is an application allocation budget, not a promise about exact OS RSS.
+// Leave room for source/decoded strings, chunk metadata, tokenization and vocabulary.
+const TEXT_PREPARATION_BUDGET: usize = 256 * 1024 * 1024;
+const MAX_TEXT_INPUT_BYTES: usize = 16 * 1024 * 1024;
+const MAX_DECODED_TEXT_BYTES: usize = 32 * 1024 * 1024;
+const MAX_PREPARED_TEXT_BYTES: usize = 64 * 1024 * 1024;
+
+struct PreparationBudget {
+    limit: usize,
+    used: Mutex<usize>,
+    released: Condvar,
+}
+struct PreparationPermit {
+    budget: Arc<PreparationBudget>,
+    bytes: usize,
+}
+impl PreparationBudget {
+    fn new(limit: usize) -> Arc<Self> {
+        Arc::new(Self { limit, used: Mutex::new(0), released: Condvar::new() })
+    }
+    fn reserve(self: &Arc<Self>, bytes: usize, cancelled: impl Fn() -> bool) -> Result<PreparationPermit> {
+        anyhow::ensure!(bytes <= self.limit, "文本准备预算不足");
+        let mut used = self.used.lock().expect("text preparation budget poisoned");
+        loop {
+            if cancelled() { bail!("索引已停止") }
+            if *used <= self.limit - bytes {
+                *used += bytes;
+                return Ok(PreparationPermit { budget: self.clone(), bytes });
+            }
+            used = self.released.wait_timeout(used, Duration::from_millis(50)).unwrap().0;
+        }
+    }
+}
+impl Drop for PreparationPermit {
+    fn drop(&mut self) {
+        *self.budget.used.lock().expect("text preparation budget poisoned") -= self.bytes;
+        self.budget.released.notify_all();
+    }
+}
+fn preparation_reservation(path: &Path) -> usize {
+    let bytes = fs::metadata(path).map_or(0, |metadata| metadata.len().min(MAX_TEXT_INPUT_BYTES as u64) as usize);
+    (bytes.saturating_mul(16) + 16 * 1024 * 1024).min(TEXT_PREPARATION_BUDGET)
+}
 struct PreparedChunk {
     chunk: text::Chunk,
     heading: String,
     content: String,
 }
 struct PreparedFile {
+    _permit: Option<PreparationPermit>,
     path: String,
     name: String,
     fingerprint: String,
@@ -34,6 +79,7 @@ pub struct Store {
     db: Mutex<Connection>,
     query_readers: Vec<Mutex<Connection>>,
     query_cache: Mutex<QueryCache>,
+    text_preparation: Arc<PreparationBudget>,
 }
 const QUERY_WORKERS: usize = 8;
 const QUERY_CACHE_ENTRIES: usize = 256;
@@ -304,6 +350,7 @@ impl Store {
             db: Mutex::new(db),
             query_readers,
             query_cache: Mutex::new(QueryCache::default()),
+            text_preparation: PreparationBudget::new(TEXT_PREPARATION_BUDGET),
         };
         if let Some(saved) = saved {
             let previous: Settings = serde_json::from_str(&saved)?;
@@ -967,7 +1014,8 @@ impl Store {
                     completed += files.len().max(1);
                 }
                 Work::File(path) => {
-                    if let Some(file) = self.indexing.file(root, &path, || self.prepare_indexed_file(root, &path, settings.retrieval.chunk_chars, true))? {
+                    let result = self.indexing.file(root, &path, || self.prepare_file(&path, settings.retrieval.chunk_chars, true));
+                    if let Some(file) = self.prepared_or_issue(root, &path, result)? {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
                         Self::write_prepared(&tx, root, file)?;
@@ -1236,42 +1284,45 @@ impl Store {
             self.indexing.phase(root, match converted_only { Some(false) => "indexing_native", Some(true) => "indexing_converted", None => "indexing" }, total);
             progress(IndexProgress { count, total });
         }
-        for batch in files.chunks(256) {
+        let mut next = 0;
+        while next < files.len() {
             self.indexing.checkpoint()?;
-            for path in batch {
-                seen.insert(path_text(path)?);
+            // Reserve the complete window before starting it. Acquiring per-result permits
+            // in workers could deadlock ordered writes behind a later completed result.
+            let mut window = Vec::new();
+            let mut reserved = 0;
+            while next < files.len() && window.len() < settings.index_workers {
+                let bytes = preparation_reservation(&files[next]);
+                if reserved + bytes > TEXT_PREPARATION_BUDGET { break; }
+                window.push((&files[next], bytes));
+                reserved += bytes;
+                next += 1;
             }
+            let _permit = self.text_preparation.reserve(reserved, || self.indexing.stopped())?;
             let max_chars = settings.retrieval.chunk_chars;
-            let prepared = thread::scope(|scope| -> Result<Vec<Option<PreparedFile>>> {
+            thread::scope(|scope| -> Result<()> {
                 let mut handles = Vec::new();
-                for paths in batch.chunks(batch.len().div_ceil(settings.index_workers)) {
+                for (path, bytes) in window {
+                    seen.insert(path_text(path)?);
                     handles.push(scope.spawn(move || {
-                        paths
-                            .iter()
-                            .map(|path| self.indexing.file(root, path, || self.prepare_indexed_file(root, path, max_chars, verify)))
-                            .collect::<Result<Vec<_>>>()
+                        let result = self.indexing.file(root, path, || self.prepare_file_reserved(path, max_chars, verify, bytes));
+                        self.prepared_or_issue(root, path, result)
                     }));
                 }
-                let mut prepared = Vec::with_capacity(batch.len());
                 for handle in handles {
-                    prepared.extend(handle.join().expect("index worker panicked")?);
+                    let prepared = handle.join().expect("index worker panicked")?;
+                    self.indexing.checkpoint()?;
+                    if let Some(file) = prepared {
+                        let mut db = self.connection();
+                        let tx = db.transaction()?;
+                        Self::write_prepared(&tx, root, file)?;
+                        tx.commit()?;
+                    }
+                    count += 1;
+                    if count % 20 == 0 { progress(IndexProgress { count, total }); }
                 }
-                Ok(prepared)
+                Ok(())
             })?;
-            {
-                let mut db = self.connection();
-                let tx = db.transaction()?;
-                for file in prepared.into_iter().flatten() {
-                    Self::write_prepared(&tx, root, file)?;
-                }
-                tx.commit()?;
-            }
-            for _ in batch {
-                count += 1;
-                if count % 20 == 0 {
-                    progress(IndexProgress { count, total });
-                }
-            }
         }
         let indexed = {
             let c = self.connection();
@@ -1313,43 +1364,86 @@ impl Store {
         Ok(changed)
     }
     fn prepare_file(&self, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
+        let reserved = preparation_reservation(path);
+        let permit = self.text_preparation.reserve(reserved, || self.indexing.stopped())?;
+        let mut prepared = self.prepare_file_reserved(path, max_chars, verify, reserved)?;
+        if let Some(file) = &mut prepared { file._permit = Some(permit); }
+        Ok(prepared)
+    }
+    fn prepare_file_reserved(&self, path: &Path, max_chars: usize, verify: bool, reserved: usize) -> Result<Option<PreparedFile>> {
         let path_string = path_text(path)?;
         let metadata = fs::metadata(path)?;
         let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
         let size = metadata.len() as i64;
-        let previous: Option<(i64, i64, String)> = self.connection().query_row(
-            "SELECT mtime,size,hash FROM documents WHERE path=?",
-            [&path_string], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
-        let unchanged = previous.as_ref().is_some_and(|(modified, length, hash)|
-            *modified == mtime && *length == size && !hash.is_empty());
+        let previous: Option<(i64, i64, String, bool)> = self.connection().query_row(
+            "SELECT mtime,size,hash,EXISTS(SELECT 1 FROM index_issues WHERE path=documents.path) FROM documents WHERE path=?",
+            [&path_string], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional()?;
+        let unchanged = previous.as_ref().is_some_and(|(modified, length, hash, issue)|
+            *modified == mtime && *length == size && !hash.is_empty() && !issue);
         if unchanged && !verify {
             return Ok(None);
         }
-        let bytes = fs::read(path)?;
+        if metadata.len() > MAX_TEXT_INPUT_BYTES as u64 {
+            return Err(text::ResourceLimit("原生文本文件不得超过 16 MiB".into()).into());
+        }
+        let admitted_input = (reserved.saturating_sub(16 * 1024 * 1024) / 16).min(MAX_TEXT_INPUT_BYTES);
+        // A growing file must not turn a small reservation into a large allocation.
+        // The largest reservation is capped at the full budget, so keep its explicit input cap.
+        let admitted_input = if reserved == TEXT_PREPARATION_BUDGET { MAX_TEXT_INPUT_BYTES } else { admitted_input };
+        if metadata.len() > admitted_input as u64 {
+            return Err(text::ResourceLimit("文件在准备期间增大，请重新索引以重新分配预算".into()).into());
+        }
+        // Bound the read too: the file may grow after metadata was checked.
+        let mut bytes = Vec::with_capacity(size as usize);
+        fs::File::open(path)?.take(admitted_input as u64 + 1).read_to_end(&mut bytes)?;
+        if bytes.len() > admitted_input {
+            return Err(text::ResourceLimit("文件在准备期间增大，请重新索引以重新分配预算".into()).into());
+        }
         let fingerprint = hash(&bytes);
-        if previous.as_ref().is_some_and(|(_, _, hash)| hash == &fingerprint) {
-            self.connection().execute(
+        if previous.as_ref().is_some_and(|(_, _, hash, _)| hash == &fingerprint) {
+            let mut db = self.connection();
+            let tx = db.transaction()?;
+            tx.execute(
                 "UPDATE documents SET mtime=?,size=? WHERE path=? AND hash=?",
                 params![mtime, size, path_string, fingerprint])?;
+            tx.execute("DELETE FROM index_issues WHERE path=?", [&path_string])?;
+            tx.commit()?;
             return Ok(None);
         }
         let body = body(path, &bytes)?;
+        if body.len() > MAX_DECODED_TEXT_BYTES {
+            return Err(text::ResourceLimit("解码后正文不得超过 32 MiB".into()).into());
+        }
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let title = text::index_text(&name);
-        let chunks: Vec<PreparedChunk> = text::chunks_for_file(&body, max_chars, path)
-            .into_iter()
-            .map(|chunk| PreparedChunk {
+        let prepared_limit = MAX_PREPARED_TEXT_BYTES.min(reserved / 2);
+        let source_chunks = text::chunks_for_index(&body, max_chars, path, prepared_limit / 2)?;
+        let mut used = 0usize;
+        let mut chunks = Vec::with_capacity(source_chunks.len());
+        for chunk in source_chunks {
+            let prepared = PreparedChunk {
                 heading: text::index_text(&chunk.heading),
                 content: text::index_text(&chunk.content),
                 chunk,
-            })
-            .collect();
-        let mut retrieval_terms = crate::sag2_v10::vocabulary(&text::indexable_text(&body, path));
-        for chunk in &chunks {
-            retrieval_terms.extend(crate::sag2_v10::vocabulary(&chunk.chunk.content));
+            };
+            used += prepared.heading.capacity() + prepared.content.capacity() + prepared.chunk.heading.capacity()
+                + prepared.chunk.content.capacity() + std::mem::size_of::<PreparedChunk>() * 2
+                + prepared.chunk.spans.capacity() * std::mem::size_of::<SourceSpan>()
+                + prepared.chunk.ranges.capacity() * std::mem::size_of::<(usize, usize)>();
+            if used > prepared_limit {
+                return Err(text::ResourceLimit("分块和分词结果超过单文件准备预算".into()).into());
+            }
+            chunks.push(prepared);
         }
-        let explore_terms = text::explore_summary(path, chunks.iter().map(|chunk| (chunk.chunk.heading.as_str(), chunk.chunk.content.as_str())));
+        let mut vocabulary = crate::sag2_v10::VocabularyBuilder::new(prepared_limit / 2);
+        vocabulary.extend(&text::indexable_text(&body, path))?;
+        for chunk in &chunks {
+            vocabulary.extend(&chunk.chunk.content)?;
+        }
+        let retrieval_terms = vocabulary.finish();
+        let explore_terms = text::explore_summary_bounded(path, chunks.iter().map(|chunk| (chunk.chunk.heading.as_str(), chunk.chunk.content.as_str())), prepared_limit / 2)?;
         Ok(Some(PreparedFile {
+            _permit: None,
             path: path_string,
             name,
             fingerprint,
@@ -1362,17 +1456,19 @@ impl Store {
         }))
     }
     fn prepare_indexed_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
-        match self.prepare_file(path, max_chars, verify) {
+        self.prepared_or_issue(root, path, self.prepare_file(path, max_chars, verify))
+    }
+    fn prepared_or_issue(&self, root: &str, path: &Path, result: Result<Option<PreparedFile>>) -> Result<Option<PreparedFile>> {
+        match result {
             Ok(file) => Ok(file),
-            Err(error) if error.is::<std::io::Error>() || error.is::<crate::document_text::DecodeError>() => {
+            Err(error) if error.is::<std::io::Error>() || error.is::<crate::document_text::DecodeError>() || error.is::<text::ResourceLimit>() => {
                 let path = path_text(path)?;
                 let reason = error.to_string();
                 let mut db = self.connection();
                 let tx = db.transaction()?;
                 if Self::path_excluded(&tx, &path)? { return Ok(None); }
-                tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.path=?)", [&path])?;
-                let removed = tx.execute("DELETE FROM documents WHERE path=?", [&path])?;
-                if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
+                // A bad update must not erase the previous complete index. Hydration still
+                // verifies the source hash, so stale evidence cannot be returned as current.
                 tx.execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![path,root,reason])?;
                 tx.commit()?;
                 Ok(None)
@@ -2791,6 +2887,171 @@ mod tests {
     }
 
     #[test]
+    fn bounded_text_scan_commits_completed_files_before_preparing_the_whole_batch() {
+        let (_dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.index_workers = 1;
+        store.save_settings(&settings).unwrap();
+        for i in 0..40 {
+            fs::write(root.join(format!("{i:02}.txt")), "incremental evidence.").unwrap();
+        }
+        let observed = std::cell::Cell::new(false);
+        store.scan(root.to_str().unwrap(), |progress| {
+            if progress.total == 40 && progress.count == 20 {
+                let written: usize = store.connection().query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0)).unwrap();
+                assert_eq!(written, 20, "completed files must be published incrementally, not as a 256-file batch");
+                observed.set(true);
+            }
+        }).unwrap();
+        assert!(observed.get());
+    }
+
+    #[test]
+    fn bounded_text_resource_failure_preserves_the_previous_index_and_reports_an_issue() {
+        let (_dir, store, root) = setup();
+        let path = root.join("large.txt");
+        fs::write(&path, "previous evidence marker.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let before: (i64, String, usize) = store.connection().query_row(
+            "SELECT id,hash,(SELECT COUNT(*) FROM chunks WHERE document_id=documents.id) FROM documents WHERE path=?",
+            [path.to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        // A modest synthetic input exercises the long-line/tokenizer limit without an OOM stress test.
+        fs::write(&path, "unbrokenword ".repeat(25_000)).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let state = &store.roots().unwrap()[0];
+        assert_eq!(state.status, "partial");
+        assert!(state.error.as_ref().unwrap().contains("资源上限"));
+        let after: (i64, String, usize) = store.connection().query_row(
+            "SELECT id,hash,(SELECT COUNT(*) FROM chunks WHERE document_id=documents.id) FROM documents WHERE path=?",
+            [path.to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).unwrap();
+        assert_eq!(after, before);
+        fs::write(&path, "recovered bounded evidence.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        assert_eq!(store.search_files("recovered", &[], 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bounded_text_resource_failure_is_recorded_as_failed_in_history() {
+        let (_dir, store, root) = setup();
+        let path = root.join("long.txt");
+        fs::write(&path, "unbrokenword ".repeat(25_000)).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let id = store.index_history().unwrap()[0].id;
+        let raw = store.index_history_log(id).unwrap().raw.unwrap();
+        let logs: Vec<sag_protocol::IndexFileLog> = raw.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].status, "failed");
+        assert!(logs[0].error.as_ref().unwrap().contains("资源上限"));
+    }
+
+    #[test]
+    fn bounded_text_decode_failure_preserves_the_previous_index() {
+        let (_dir, store, root) = setup();
+        let path = root.join("broken.txt");
+        fs::write(&path, "previous evidence marker.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let before: (String, usize) = store.connection().query_row(
+            "SELECT hash,(SELECT COUNT(*) FROM chunks WHERE document_id=documents.id) FROM documents WHERE path=?",
+            [path.to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let after: Option<(String, usize)> = store.connection().query_row(
+            "SELECT hash,(SELECT COUNT(*) FROM chunks WHERE document_id=documents.id) FROM documents WHERE path=?",
+            [path.to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).optional().unwrap();
+        assert_eq!(after, Some(before));
+        assert_eq!(store.roots().unwrap()[0].status, "partial");
+    }
+
+    #[test]
+    fn bounded_text_restoring_the_previous_source_clears_the_failure_issue() {
+        let (_dir, store, root) = setup();
+        let path = root.join("restored.txt");
+        fs::write(&path, "original restore marker.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        fs::write(&path, [0xff, 0xfe, 0x00]).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "partial");
+        fs::write(&path, "original restore marker.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        assert_eq!(store.search_files("restore", &[], 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bounded_text_input_cap_rejects_a_sparse_file_before_reading_it() {
+        let (_dir, store, root) = setup();
+        let path = root.join("too-large.txt");
+        fs::File::create(&path).unwrap().set_len(MAX_TEXT_INPUT_BYTES as u64 + 1).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "partial");
+        assert!(store.roots().unwrap()[0].error.as_ref().unwrap().contains("16 MiB"));
+        assert_eq!(store.chunk_count().unwrap(), 0);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn bounded_text_cancel_releases_the_window_and_keeps_only_committed_files() {
+        let (_dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.index_workers = 1;
+        store.save_settings(&settings).unwrap();
+        for i in 0..40 {
+            fs::write(root.join(format!("{i:02}.txt")), "cancel bounded evidence.").unwrap();
+        }
+        let result = store.scan(root.to_str().unwrap(), |progress| {
+            if progress.total == 40 && progress.count == 20 { store.indexing.stop(); }
+        });
+        assert!(result.unwrap_err().to_string().contains("停止"));
+        let written: usize = store.connection().query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0)).unwrap();
+        assert_eq!(written, 20);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+        let _permit = store.text_preparation.reserve(TEXT_PREPARATION_BUDGET, || false).unwrap();
+    }
+
+    #[test]
+    fn bounded_text_writer_error_rolls_back_a_document_and_releases_the_budget() {
+        let (_dir, store, root) = setup();
+        let path = root.join("old.txt");
+        fs::write(&path, "previous evidence.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let before: (String, i64) = store.connection().query_row(
+            "SELECT hash,(SELECT id FROM chunks WHERE document_id=documents.id LIMIT 1) FROM documents WHERE path=?",
+            [path.to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        fs::write(&path, "replacement evidence.").unwrap();
+        store.connection().execute_batch("CREATE TRIGGER reject_chunk BEFORE INSERT ON chunks BEGIN SELECT RAISE(ABORT,'controlled write failure'); END;").unwrap();
+        assert!(store.scan(root.to_str().unwrap(), |_| {}).is_err());
+        let after: (String, i64) = store.connection().query_row(
+            "SELECT hash,(SELECT id FROM chunks WHERE document_id=documents.id LIMIT 1) FROM documents WHERE path=?",
+            [path.to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(after, before);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+        store.connection().execute_batch("DROP TRIGGER reject_chunk;").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.search_files("replacement", &[], 10).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn bounded_text_budget_wait_is_cancellable_and_permits_release_on_error() {
+        let budget = PreparationBudget::new(10);
+        let first = budget.reserve(7, || false).unwrap();
+        let result = budget.reserve(4, || true);
+        assert!(result.is_err());
+        assert_eq!(*budget.used.lock().unwrap(), 7);
+        drop(first);
+        let second = budget.reserve(10, || false).unwrap();
+        assert_eq!(*budget.used.lock().unwrap(), 10);
+        drop(second);
+        assert_eq!(*budget.used.lock().unwrap(), 0);
+    }
+
+    #[test]
     fn parallel_queries_preserve_every_score_order_and_cache_only_metadata() {
         let (_dir, store, root) = setup();
         for i in 0..32 {
@@ -3281,7 +3542,7 @@ mod tests {
         fs::write(&path, bytes).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path.clone()], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "partial");
-        assert!(store.search_files("recoveredmarker", &[], 10).unwrap().is_empty());
+        assert!(store.search_files("recoveredmarker", &[], 10).unwrap_err().to_string().contains("文件已修改"));
         fs::remove_file(&path).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "ready");

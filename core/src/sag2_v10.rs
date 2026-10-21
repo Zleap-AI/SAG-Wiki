@@ -45,7 +45,45 @@ fn words(text: &str) -> Vec<String> {
 }
 
 pub(crate) fn vocabulary(content: &str) -> HashSet<String> {
-    words(content).into_iter().collect()
+    let mut vocabulary = VocabularyBuilder::new(usize::MAX);
+    vocabulary.extend(content).expect("unlimited vocabulary");
+    vocabulary.finish()
+}
+
+/// Deduplicate while reading case-folded characters. Repeated words never create
+/// an all-occurrences Vec, and the bounded index path rejects excessive unique terms.
+pub(crate) struct VocabularyBuilder {
+    terms: HashSet<String>,
+    bytes: usize,
+    limit: usize,
+}
+impl VocabularyBuilder {
+    pub(crate) fn new(limit: usize) -> Self { Self { terms: HashSet::new(), bytes: 0, limit } }
+    pub(crate) fn extend(&mut self, content: &str) -> Result<(), crate::text::ResourceLimit> {
+        static LETTER_NUMBER: std::sync::LazyLock<regex::Regex> =
+            std::sync::LazyLock::new(|| regex::Regex::new(r"^[\p{L}\p{N}]$").unwrap());
+        let mut word = String::new();
+        let mut encoded = [0; 4];
+        for ch in content.case_fold().chain(std::iter::once(' ')) {
+            if ch.is_ascii_alphanumeric() || !ch.is_ascii() && LETTER_NUMBER.is_match(ch.encode_utf8(&mut encoded)) {
+                if word.len() + ch.len_utf8() > self.limit {
+                    return Err(crate::text::ResourceLimit("单个词超过词表预算".into()));
+                }
+                word.push(ch);
+            } else if !word.is_empty() {
+                if !self.terms.contains(&word) {
+                    // Include String/hash-table allocation overhead and growth slack.
+                    let bytes = 64usize.saturating_add(word.len().saturating_mul(2));
+                    self.bytes = self.bytes.checked_add(bytes).filter(|bytes| *bytes <= self.limit)
+                        .ok_or_else(|| crate::text::ResourceLimit("唯一词表超过单文件准备预算".into()))?;
+                    self.terms.insert(word.clone());
+                }
+                word.clear();
+            }
+        }
+        Ok(())
+    }
+    pub(crate) fn finish(self) -> HashSet<String> { self.terms }
 }
 
 pub struct Corpus {
@@ -257,6 +295,25 @@ impl Corpus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bounded_vocabulary_deduplicates_while_preserving_unicode_word_boundaries() {
+        let mut builder = VocabularyBuilder::new(512);
+        builder.extend(&"Straße İ café Α\u{0345} ".repeat(10_000)).unwrap();
+        let actual = builder.finish();
+        let expected: HashSet<String> = ["strasse", "i", "café", "αι"].into_iter().map(str::to_owned).collect();
+        assert_eq!(actual, expected);
+        let mut builder = VocabularyBuilder::new(100);
+        assert!(builder.extend("alpha beta").is_err());
+    }
+
+    #[test]
+    fn streamed_vocabulary_matches_reference_casefold_token_rules() {
+        for source in ["שָׁלוֹם", "العَرَبِيَّة", "café e\u{0301} ① Ⅻ hello_world", "İ ſ ẞ Α\u{0345} 日本語 中文 𐐀", "alpha\n\nbeta alpha"] {
+            let expected: HashSet<_> = words(source).into_iter().collect();
+            assert_eq!(vocabulary(source), expected, "{source}");
+        }
+    }
     #[test]
     fn unresolved_expansion_terms_preserve_connected_tokens() {
         let dir=tempfile::tempdir().unwrap();
