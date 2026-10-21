@@ -5,6 +5,8 @@
  import Input from "./ui/Input.svelte";
  import Textarea from "./ui/Textarea.svelte";
  import Select from "./ui/Select.svelte";
+ import ThemePicker from './ThemePicker.svelte';
+ import {applyTheme} from '../lib/theme';
  import Switch from "./ui/Switch.svelte";
  import ReasoningControl from "./ReasoningControl.svelte";
  import{Button,Checkbox}from 'bits-ui';
@@ -50,7 +52,8 @@
  }
  function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom')providerChoice[kind]=providerFor(kind,address);status='';error='';}
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id==='custom'||id===current)return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
- onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN')});
+ $:applyTheme(settings.theme);
+ onDestroy(()=>{if(!languageSaved){setLanguage(value.language??'zh-CN');applyTheme(value.theme)}});
  $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
  let descriptions:Record<string,string>; $:descriptions={general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 1 次；加上首次召回，共 2 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段目标字符数"),$t("默认约 512，保留完整句子及相邻上下文；长句可超过目标长度。修改后自动重建索引"),400,12000]];
@@ -94,8 +97,9 @@
      </section>
      {#if onShowGuide}<section class="settings-group"><div class="setting-row"><div><strong>{$t('快速入门')}</strong><p>{$t('重新查看文件接入、搜索与问答教程')}</p></div><Button.Root type="button" class="outline" onclick={onShowGuide}>{$t('查看教程')}</Button.Root></div></section>{/if}
     {:else if page==='appearance'}
+     <h3 class="appearance-section-title">{$t('视觉风格')}</h3>
      <section class="settings-group">
-      <div class="setting-row"><div><strong>{$t("主题")}</strong><p>{$t("设置应用的明暗外观")}</p></div><Select label={$t("主题")} bind:value={settings.theme} items={[{value:"light",label:$t("浅色")},{value:"dark",label:$t("深色")},{value:"system",label:$t("跟随系统")}]}/></div>
+      <div class="setting-row appearance-theme-row"><div><strong>{$t('模式')}</strong><p>{$t("设置应用的明暗外观")}</p></div><ThemePicker bind:value={settings.theme}/></div>
       <div class="setting-row"><div><strong>{$t("文档字号")}</strong><p>{$t("调整正文大小")}</p></div><Select label={$t("文档字号")} value={String(settings.editor_size)} onValueChange={value=>settings.editor_size=Number(value)} items={[14,15,16,18].map(n=>({value:String(n),label:`${n} px`}))}/></div>
      </section>
      <section class="settings-type-preview"><span>{$t("正文预览")}</span><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
