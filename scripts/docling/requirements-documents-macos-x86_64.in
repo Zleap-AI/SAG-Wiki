@@ -1,0 +1,7 @@
+# macOS resolver generation requires MACOSX_DEPLOYMENT_TARGET=14.0 (CPython 3.12).
+# Intel Mac: official PDFium wheels retain the standard OCR/layout/table pipeline.
+docling-slim[convert-core,extract-core,format-office,format-web,format-email,format-pdf-pypdfium2,models-local,cli,feat-chunking,feat-ocr-rapidocr-onnx,format-opendocument,format-iwork,format-xml-xbrl,format-xml-jats,format-xml-uspto]==2.140.0
+torch==2.2.2
+torchvision==0.17.2
+numpy==1.26.4
+transformers==4.53.3

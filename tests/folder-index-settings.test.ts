@@ -102,7 +102,9 @@ it('已安装后可选择具体扩展名，保存后重新打开保留选择',as
  await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
  button('选择其他格式').click();await tick();
  expect(button('转换 .pdf').getAttribute('aria-checked')).toBe('true');
- for(const extension of ['docx','doc','mp3','wav'])button('转换 .'+extension).click();
+ expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('true');
+ [...document.querySelectorAll<HTMLButtonElement>('.format-selection-actions button')].find(button=>button.textContent==='清空选择')!.click();await tick();
+ button('转换 .pdf').click();
  await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.docling-dialog .dialog-footer button')].find(button=>button.textContent==='应用')!.click();await tick();
  document.querySelector<HTMLButtonElement>('.folder-index-settings>.dialog-footer .primary')!.click();

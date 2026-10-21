@@ -305,7 +305,7 @@ impl Default for Settings {
             show_hidden: false,
             watch: true,
             index_workers: 8,
-            conversion_workers: 4,
+            conversion_workers: 1,
             file_types: FileTypes::default(),
             excluded: [
                 ".git",

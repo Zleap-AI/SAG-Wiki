@@ -490,6 +490,12 @@ impl Store {
     pub fn save_folder_index_options(&self, path: &Path, options: &FolderIndexOptions, rebuild: bool) -> Result<String> {
         let path = self.authorize(path)?;
         if !path.is_dir() { bail!("请选择文件夹") }
+        let previous = self.folder_index_options(&path)?;
+        if options.convert_other_formats
+            && (!previous.convert_other_formats || previous.conversion_formats != options.conversion_formats)
+        {
+            self.docling.require_formats(&options.conversion_formats)?;
+        }
         let root = self.roots()?.into_iter().find(|root| path.starts_with(&root.path)).unwrap().path;
         let mut db = self.connection();
         let tx = db.transaction()?;
@@ -1134,8 +1140,10 @@ impl Store {
                 .context("无法读取 .sag-converted 转换记录")?;
             for (relative, (source_hash, output_hash)) in records {
                 let source = Path::new(root).join(relative);
-                if !crate::docling::is_source(&source) { bail!("转换记录包含无效的原文件路径") }
                 let output = crate::docling::output_path(Path::new(root), &source)?;
+                if !crate::docling::is_source(&source) {
+                    bail!("转换记录包含无效的原文件路径")
+                }
                 self.connection().execute("INSERT OR IGNORE INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?)",
                     params![path_text(&source)?,root,source_hash,path_text(&output)?,output_hash])?;
             }
@@ -1178,7 +1186,8 @@ impl Store {
                         if index >= sources.len() { break; }
                         let source = &sources[index];
                         let source_text = path_text(source)?;
-                        let result = (|| -> Result<()> {
+                        let mut converted = false;
+                        let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
                             let source_hash = crate::docling::fingerprint(source)?;
                             let previous: Option<(String,String)> = self.connection().query_row(
@@ -1188,33 +1197,47 @@ impl Store {
                                 if output.exists() {
                                     if previous_source == &source_hash {
                                         self.connection().execute("UPDATE conversions SET valid=1 WHERE source=?", [&source_text])?;
-                                        return Ok(());
+                                        return Ok(true);
                                     }
                                     if crate::docling::fingerprint(&output)? != *previous_output {
                                         bail!("转换文件已被手动修改，未覆盖：{}", output.display())
                                     }
                                 }
                             } else if output.exists() { bail!("转换位置已有文件，未覆盖：{}", output.display()) }
-                            self.indexing.file(root, source, || self.docling.convert(source, &output))?;
-                            if crate::docling::fingerprint(source)? != source_hash {
-                                fs::remove_file(&output)?;
-                                bail!("转换期间原文件发生变化，请重新索引")
+                            fs::create_dir_all(output.parent().unwrap())?;
+                            // Keep the same parent as the final Markdown: Docling derives
+                            // relative source links from directory depth, not the file name.
+                            let staged = tempfile::Builder::new().prefix(".sag-pending-").suffix(".md")
+                                .tempfile_in(output.parent().unwrap())?.into_temp_path();
+                            self.indexing.file(root, source, || self.docling.convert_cancellable(source, &staged, || self.indexing.stopped()))?;
+                            converted = true;
+                            // Pause between conversion and acceptance without retaining an
+                            // "active file" entry or a database lock.
+                            self.indexing.checkpoint()?;
+                            if let Err(error) = self.publish_converted_file(root, source, &source_hash, &output, staged,
+                                previous.as_ref().map(|(_, hash)| hash.as_str()), settings.retrieval.chunk_chars) {
+                                // Keep successful history stages stable; add a failed entry
+                                // only when acceptance rejects an otherwise converted file.
+                                self.indexing.file(root, source, || Err::<(), _>(error))?;
                             }
-                            let output_hash = crate::docling::fingerprint(&output)?;
-                            self.connection().execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1", params![source_text,root,source_hash,path_text(&output)?,output_hash])?;
-                            Ok(())
+                            Ok(false)
                         })();
-                        tx.send((source_text, result))?;
+                        let preserve_previous = converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
+                        tx.send((source_text, result, preserve_previous))?;
                     }
                     Ok(())
                 }));
             }
             drop(tx);
-            for (index, (source, result)) in rx.into_iter().enumerate() {
+            for (index, (source, result, preserve_previous)) in rx.into_iter().enumerate() {
                 if let Err(error) = result {
-                    self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
+                    if preserve_previous && error.is::<rusqlite::Error>() { return Err(error); }
+                    if !preserve_previous {
+                        // Backend failure still invalidates evidence for the changed source.
+                        self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
+                    }
                     issues.push((source, error.to_string()));
-                } else {
+                } else if result.unwrap() {
                     let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
                     if let Some(file) = self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false)? {
                         let mut db = self.connection();
@@ -1240,6 +1263,57 @@ impl Store {
             file.persist(&metadata_path).map_err(|error| error.error)?;
         }
         Ok(issues)
+    }
+    fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, output: &Path,
+        staged: tempfile::TempPath, previous_hash: Option<&str>, max_chars: usize) -> Result<()> {
+        let reserved = preparation_reservation(&staged);
+        let permit = self.text_preparation.reserve(reserved, || self.indexing.stopped())?;
+        let mut prepared = self.prepare_file_at(output, &staged, max_chars, true, reserved)?
+            .context("转换文件准备未生成完整索引")?;
+        prepared._permit = Some(permit);
+        self.indexing.checkpoint()?;
+        if crate::docling::fingerprint(source)? != source_hash {
+            bail!("转换期间原文件发生变化，请重新索引")
+        }
+        let backup = if output.exists() {
+            if previous_hash != Some(crate::docling::fingerprint(output)?.as_str()) {
+                self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [path_text(source)?])?;
+                bail!("转换文件已被手动修改，未覆盖：{}", output.display())
+            }
+            let backup = tempfile::Builder::new().prefix(".sag-previous-").suffix(".md")
+                .tempfile_in(output.parent().unwrap())?.into_temp_path();
+            fs::copy(output, &backup)?;
+            Some(backup)
+        } else { None };
+        let output_hash = prepared.fingerprint.clone();
+        let mut published = false;
+        let outcome = (|| -> Result<()> {
+            let mut db = self.connection();
+            let tx = db.transaction()?;
+            Self::write_prepared(&tx, root, prepared)?;
+            tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1",
+                params![path_text(source)?,root,source_hash,path_text(output)?,output_hash])?;
+            tx.execute("DELETE FROM index_issues WHERE path=?", [path_text(source)?])?;
+            if self.indexing.stopped() { bail!("索引已停止") }
+            fs::rename(&staged, output)?;
+            published = true;
+            tx.commit()?;
+            Ok(())
+        })();
+        if let Err(error) = outcome {
+            if published {
+                if let Some(backup) = backup {
+                    if let Err(restore_error) = fs::rename(&backup, output) {
+                        let recovery = backup.keep().map_err(|keep| keep.error)?;
+                        return Err(error.context(format!("旧转换文件恢复失败：{restore_error}；备份保留于 {}", recovery.display())));
+                    }
+                } else {
+                    fs::remove_file(output).context("未提交的转换文件清理失败")?;
+                }
+            }
+            return Err(error);
+        }
+        Ok(())
     }
     fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<Vec<PathBuf>> {
         let converted = if converted_only == Some(false) { HashSet::new() } else { self.conversion_outputs()? };
@@ -1371,8 +1445,11 @@ impl Store {
         Ok(prepared)
     }
     fn prepare_file_reserved(&self, path: &Path, max_chars: usize, verify: bool, reserved: usize) -> Result<Option<PreparedFile>> {
+        self.prepare_file_at(path, path, max_chars, verify, reserved)
+    }
+    fn prepare_file_at(&self, path: &Path, read_path: &Path, max_chars: usize, verify: bool, reserved: usize) -> Result<Option<PreparedFile>> {
         let path_string = path_text(path)?;
-        let metadata = fs::metadata(path)?;
+        let metadata = fs::metadata(read_path)?;
         let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
         let size = metadata.len() as i64;
         let previous: Option<(i64, i64, String, bool)> = self.connection().query_row(
@@ -1380,7 +1457,7 @@ impl Store {
             [&path_string], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).optional()?;
         let unchanged = previous.as_ref().is_some_and(|(modified, length, hash, issue)|
             *modified == mtime && *length == size && !hash.is_empty() && !issue);
-        if unchanged && !verify {
+        if path == read_path && unchanged && !verify {
             return Ok(None);
         }
         if metadata.len() > MAX_TEXT_INPUT_BYTES as u64 {
@@ -1395,12 +1472,12 @@ impl Store {
         }
         // Bound the read too: the file may grow after metadata was checked.
         let mut bytes = Vec::with_capacity(size as usize);
-        fs::File::open(path)?.take(admitted_input as u64 + 1).read_to_end(&mut bytes)?;
+        fs::File::open(read_path)?.take(admitted_input as u64 + 1).read_to_end(&mut bytes)?;
         if bytes.len() > admitted_input {
             return Err(text::ResourceLimit("文件在准备期间增大，请重新索引以重新分配预算".into()).into());
         }
         let fingerprint = hash(&bytes);
-        if previous.as_ref().is_some_and(|(_, _, hash, _)| hash == &fingerprint) {
+        if path == read_path && previous.as_ref().is_some_and(|(_, _, hash, _)| hash == &fingerprint) {
             let mut db = self.connection();
             let tx = db.transaction()?;
             tx.execute(
@@ -1414,6 +1491,7 @@ impl Store {
         if body.len() > MAX_DECODED_TEXT_BYTES {
             return Err(text::ResourceLimit("解码后正文不得超过 32 MiB".into()).into());
         }
+        self.indexing.checkpoint()?;
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let title = text::index_text(&name);
         let prepared_limit = MAX_PREPARED_TEXT_BYTES.min(reserved / 2);
@@ -1421,6 +1499,7 @@ impl Store {
         let mut used = 0usize;
         let mut chunks = Vec::with_capacity(source_chunks.len());
         for chunk in source_chunks {
+            self.indexing.checkpoint()?;
             let prepared = PreparedChunk {
                 heading: text::index_text(&chunk.heading),
                 content: text::index_text(&chunk.content),
@@ -1438,6 +1517,7 @@ impl Store {
         let mut vocabulary = crate::sag2_v10::VocabularyBuilder::new(prepared_limit / 2);
         vocabulary.extend(&text::indexable_text(&body, path))?;
         for chunk in &chunks {
+            self.indexing.checkpoint()?;
             vocabulary.extend(&chunk.chunk.content)?;
         }
         let retrieval_terms = vocabulary.finish();
@@ -2073,6 +2153,203 @@ mod tests {
         let notes = notes.canonicalize().unwrap();
         (dir, db, notes)
     }
+    #[cfg(unix)]
+    fn converted_text_fixture() -> (tempfile::TempDir, Store, PathBuf) {
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, store, root) = setup();
+        let home = dir.path().join("app/docling");
+        fs::create_dir_all(home.join("bin")).unwrap();
+        let binary = home.join("bin/docling");
+        fs::write(&binary, r#"#!/bin/sh
+set -eu
+source="$1"
+shift
+output=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--output-file' ]; then shift; output="$1"; fi
+  shift
+done
+cat "$source" > "$output"
+"#).unwrap();
+        fs::set_permissions(binary, fs::Permissions::from_mode(0o755)).unwrap();
+        fs::write(home.join("ready"), "2.140.0").unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.convert_other_formats = true;
+        store.save_settings(&settings).unwrap();
+        (dir, store, root)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn converted_text_resource_failure_preserves_readable_previous_markdown_and_index() {
+        let (_dir, store, root) = converted_text_fixture();
+        fs::create_dir(root.join("nested")).unwrap();
+        let source = root.join("nested/report.docx");
+        fs::write(&source, "previousconvertedevidence.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        let previous = fs::read(&output).unwrap();
+        assert!(std::str::from_utf8(&previous).unwrap().contains("../../nested/report.docx"));
+        let previous_hash = hash(&previous);
+        fs::write(&source, "unbrokenword ".repeat(25_000)).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "partial");
+        assert!(fs::read(&output).unwrap() == previous, "a rejected replacement must not overwrite the source of the usable index");
+        let saved: String = store.connection().query_row("SELECT hash FROM documents WHERE path=?", [output.to_str().unwrap()], |row| row.get(0)).unwrap();
+        assert_eq!(saved, previous_hash);
+        let candidates = store.search_files("previousconvertedevidence", &[source.to_str().unwrap().to_owned()], 10).unwrap();
+        assert_eq!(candidates.len(), 1);
+        assert!(candidates[0].content.contains("previousconvertedevidence"));
+        assert_eq!(candidates[0].path, output.to_str().unwrap());
+        assert_eq!(store.document(&source).unwrap().body.as_bytes(), previous);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+        let names: Vec<_> = fs::read_dir(output.parent().unwrap()).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert_eq!(names, vec!["report.docx.md"]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn converted_text_database_failure_rolls_back_markdown_and_index_together() {
+        let (_dir, store, root) = converted_text_fixture();
+        let source = root.join("report.docx");
+        fs::write(&source, "previousconvertedevidence.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        let previous = fs::read(&output).unwrap();
+        let previous_hash = hash(&previous);
+        fs::write(&source, "replacementconvertedevidence.").unwrap();
+        store.connection().execute_batch("CREATE TRIGGER reject_converted BEFORE INSERT ON chunks BEGIN SELECT RAISE(ABORT,'controlled converted write failure'); END;").unwrap();
+        assert!(store.scan(root.to_str().unwrap(), |_| {}).is_err());
+        assert_eq!(fs::read(&output).unwrap(), previous);
+        let saved: String = store.connection().query_row("SELECT hash FROM documents WHERE path=?", [output.to_str().unwrap()], |row| row.get(0)).unwrap();
+        assert_eq!(saved, previous_hash);
+        assert_eq!(store.search_files("previousconvertedevidence", &[], 10).unwrap().len(), 1);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+        store.connection().execute_batch("DROP TRIGGER reject_converted;").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.search_files("replacementconvertedevidence", &[], 10).unwrap().len(), 1);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn converted_text_commit_failure_restores_the_published_markdown() {
+        let (_dir, store, root) = converted_text_fixture();
+        let source = root.join("report.docx");
+        fs::write(&source, "previousconvertedevidence.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        let previous = fs::read(&output).unwrap();
+        let previous_hash = hash(&previous);
+        fs::write(&source, "replacementconvertedevidence.").unwrap();
+        store.connection().execute_batch("CREATE TABLE deferred_gate(value TEXT REFERENCES roots(path) DEFERRABLE INITIALLY DEFERRED);
+            CREATE TRIGGER reject_conversion_commit AFTER UPDATE ON conversions BEGIN INSERT INTO deferred_gate VALUES('controlled-missing-root'); END;").unwrap();
+        assert!(store.scan(root.to_str().unwrap(), |_| {}).is_err());
+        assert!(fs::read(&output).unwrap() == previous);
+        let saved: String = store.connection().query_row("SELECT hash FROM documents WHERE path=?", [output.to_str().unwrap()], |row| row.get(0)).unwrap();
+        assert_eq!(saved, previous_hash);
+        assert_eq!(store.search_files("previousconvertedevidence", &[source.to_str().unwrap().to_owned()], 10).unwrap().len(), 1);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+        assert!(fs::read_dir(output.parent().unwrap()).unwrap().all(|entry| !entry.unwrap().file_name().to_string_lossy().starts_with(".sag-p")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn converted_text_cancel_during_paused_acceptance_removes_staging_and_keeps_old_markdown() {
+        let (dir, store, root) = converted_text_fixture();
+        let source = root.join("report.docx");
+        fs::write(&source, "previousconvertedevidence.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        let previous = fs::read(&output).unwrap();
+        let bin = dir.path().join("app/docling/bin");
+        fs::write(bin.join("docling"), r#"#!/bin/sh
+set -eu
+source="$1"
+shift
+output=''
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = '--output-file' ]; then shift; output="$1"; fi
+  shift
+done
+cat "$source" > "$output"
+touch "$(dirname "$0")/started"
+while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
+"#).unwrap();
+        fs::write(&source, "replacementconvertedevidence.").unwrap();
+        thread::scope(|scope| {
+            let task = scope.spawn(|| store.scan(root.to_str().unwrap(), |_| {}));
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            while !bin.join("started").exists() {
+                assert!(std::time::Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(10));
+            }
+            store.indexing.set_paused(true);
+            fs::write(bin.join("release"), "").unwrap();
+            loop {
+                let staged = fs::read_dir(output.parent().unwrap()).unwrap().filter_map(|entry| {
+                    let path = entry.ok()?.path();
+                    path.file_name()?.to_string_lossy().starts_with(".sag-pending-").then_some(path)
+                }).any(|path| fs::read_to_string(path).is_ok_and(|text| text.contains("replacementconvertedevidence")));
+                if staged { break; }
+                assert!(std::time::Instant::now() < deadline);
+                thread::sleep(Duration::from_millis(10));
+            }
+            assert!(fs::read(&output).unwrap() == previous);
+            assert_eq!(store.search_files("previousconvertedevidence", &[], 10).unwrap().len(), 1);
+            store.indexing.stop();
+            assert!(task.join().unwrap().is_err());
+        });
+        assert!(fs::read(&output).unwrap() == previous);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+        assert!(fs::read_dir(output.parent().unwrap()).unwrap().all(|entry| !entry.unwrap().file_name().to_string_lossy().starts_with(".sag-p")));
+    }
+
+    #[test]
+    fn converted_text_legacy_media_manifest_reuses_transcripts_without_a_media_runtime() {
+        let (dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.convert_other_formats = true;
+        store.save_settings(&settings).unwrap();
+        let mut records = std::collections::BTreeMap::new();
+        for (relative, evidence) in [("recording.mp3", "audiocachedevidence."), ("recording.mp4", "videocachedevidence.")] {
+            let source = root.join(relative);
+            fs::write(&source, "old media original").unwrap();
+            let output = crate::docling::output_path(&root, &source).unwrap();
+            fs::create_dir_all(output.parent().unwrap()).unwrap();
+            fs::write(&output, evidence).unwrap();
+            records.insert(relative, (crate::docling::fingerprint(&source).unwrap(), crate::docling::fingerprint(&output).unwrap()));
+        }
+        let metadata = root.join(".sag-converted/.sag-converted.json");
+        fs::write(&metadata, serde_json::to_vec(&records).unwrap()).unwrap();
+        let root_text = root.to_str().unwrap();
+        // Both first import and remove/re-add must reuse owned transcripts without a converter.
+        for _ in 0..2 {
+            store.scan(root_text, |_| {}).unwrap();
+            assert_eq!(store.connection().query_row("SELECT COUNT(*) FROM conversions WHERE valid=1", [], |row| row.get::<_, usize>(0)).unwrap(), 2);
+            let saved: std::collections::BTreeMap<String, (String, String)> = serde_json::from_slice(&fs::read(&metadata).unwrap()).unwrap();
+            for (relative, evidence) in [("recording.mp3", "audiocachedevidence"), ("recording.mp4", "videocachedevidence")] {
+                let source = root.join(relative);
+                let output = crate::docling::output_path(&root, &source).unwrap();
+                assert_eq!(fs::read_to_string(&source).unwrap(), "old media original");
+                assert_eq!(fs::read_to_string(&output).unwrap(), format!("{evidence}."));
+                assert_eq!(&saved[relative], &records[relative]);
+                let candidates = store.search_files(evidence, &[source.to_string_lossy().into_owned()], 5).unwrap();
+                assert_eq!(candidates.len(), 1);
+                assert!(candidates[0].content.contains(evidence));
+            }
+            store.remove_root(root_text).unwrap();
+            store.add_root(&root).unwrap();
+        }
+        assert!(!dir.path().join("app/docling").exists(), "scanning cached media must never install a component");
+        // Media support must never bypass traversal or unknown-extension validation.
+        for relative in ["../outside.mp3", "unsupported.xyz"] {
+            let invalid = std::collections::BTreeMap::from([(relative, ("source", "output"))]);
+            fs::write(&metadata, serde_json::to_vec(&invalid).unwrap()).unwrap();
+            assert!(store.scan(root_text, |_| {}).is_err());
+            assert_eq!(fs::read_to_string(root.join(".sag-converted/recording.mp3.md")).unwrap(), "audiocachedevidence.");
+        }
+    }
+
     #[test]
     fn removed_file_stays_excluded_and_can_be_restored_without_changing_local_data() {
         let (dir, store, root) = setup();
@@ -2195,6 +2472,37 @@ mod tests {
             assert!(!store.search_files("evidence42", &[], 5).unwrap().is_empty());
         }
     }
+
+    #[test]
+    fn converted_media_missing_profile_preserves_owned_and_hand_edited_markdown() {
+        let (dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.convert_other_formats = true;
+        store.save_settings(&settings).unwrap();
+        let source = root.join("recording.mp3");
+        fs::write(&source, "original media").unwrap();
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(&output, "ownedtranscriptevidence.").unwrap();
+        let records = std::collections::BTreeMap::from([("recording.mp3", (crate::docling::fingerprint(&source).unwrap(), crate::docling::fingerprint(&output).unwrap()))]);
+        let ownership = output.parent().unwrap().join(".sag-converted.json");
+        let previous_records = serde_json::to_vec(&records).unwrap();
+        fs::write(&ownership, &previous_records).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.search_files("ownedtranscriptevidence", &[], 5).unwrap().len(), 1);
+        fs::write(&source, "changed media").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(fs::read_to_string(&output).unwrap(), "ownedtranscriptevidence.");
+        assert_eq!(fs::read(&ownership).unwrap(), previous_records);
+        assert!(store.search_files("ownedtranscriptevidence", &[], 5).unwrap().is_empty(), "a previous transcript must not stand in for a changed source");
+        fs::write(&output, "my hand edited transcript").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(fs::read_to_string(&output).unwrap(), "my hand edited transcript");
+        assert_eq!(fs::read(&ownership).unwrap(), previous_records);
+        assert!(store.search_files("hand edited transcript", &[], 5).unwrap().is_empty());
+        assert!(!dir.path().join("app/docling").exists(), "failed media scans must never install a component");
+    }
+
     #[test]
     fn new_settings_use_302_jev_and_keep_saved_provider() {
         let dir = tempfile::tempdir().unwrap();

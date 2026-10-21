@@ -1,0 +1,2 @@
+# Document conversion capability; audio/video are separate optional components.
+docling-slim[standard,format-opendocument,format-iwork,format-xml-xbrl,format-xml-jats,format-xml-uspto,feat-ocr-rapidocr-onnx]==2.140.0

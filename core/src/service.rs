@@ -288,8 +288,10 @@ fn save_settings(
     _app: &EventSink,
 ) -> CommandResult<()> {
     let old = state.store.settings().map_err(error)?;
-    if settings.convert_other_formats && !state.store.docling.installed() {
-        return Err("请先下载 Docling，再启用其他格式".into());
+    if settings.convert_other_formats
+        && (!old.convert_other_formats || old.conversion_formats != settings.conversion_formats)
+    {
+        state.store.docling.require_formats(&settings.conversion_formats).map_err(error)?;
     }
     let mcp_credentials = mcp_credentials.unwrap_or_default();
     for (kind, previous, next, key) in [
@@ -338,7 +340,7 @@ fn save_settings(
                 })
                 .map_err(error)?
         }
-    } else if old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || !old.watch && settings.watch {
+    } else if old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
         for root in state.store.roots().map_err(error)? {
             state
                 .scan
@@ -1144,6 +1146,9 @@ impl Service {
                 if self.store.roots().map_err(error)?.iter().any(|root| directory.starts_with(&root.path)) {
                     return Err("此文件夹已被添加，请使用文件夹菜单中的索引设置".into());
                 }
+                if options.convert_other_formats {
+                    self.store.docling.require_formats(&options.conversion_formats).map_err(error)?;
+                }
                 crate::folder_index::write(&directory, &options).map_err(error)?;
                 Out::Text(add_root(path, self)?)
             }
@@ -1200,9 +1205,17 @@ impl Service {
                 Out::Unit
             }
             Op::GetSettings => Out::Settings(get_settings(self)?),
+            Op::RegisterDoclingComponent { path } => {
+                self.store.docling.set_component_source(std::path::PathBuf::from(path)).map_err(error)?;
+                Out::Unit
+            }
             Op::DoclingStatus => Out::Docling(self.store.docling.status()),
             Op::InstallDocling => {
                 self.store.docling.start().map_err(error)?;
+                Out::Docling(self.store.docling.status())
+            }
+            Op::InstallDoclingProfiles { profiles } => {
+                self.store.docling.start_profiles(profiles).map_err(error)?;
                 Out::Docling(self.store.docling.status())
             }
             Op::CancelDoclingInstall => {

@@ -7,7 +7,7 @@ mod windows_icon;
 mod cli_install;
 use sag_client::Client;
 use sag_protocol as cli_protocol;
-use sag_protocol::{self as protocol, types::*, Operation, Output, Query, ServiceEvent};
+use sag_protocol::{self as protocol, types::*, DoclingProfile, Operation, Output, Query, ServiceEvent};
 use std::{
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
@@ -252,6 +252,7 @@ remote!(delete_draft(path:String) => DeleteDraft);
 remote!(get_settings() => GetSettings);
 remote!(get_docling_status() => DoclingStatus);
 remote!(install_docling() => InstallDocling);
+remote!(install_docling_profiles(profiles:Vec<DoclingProfile>) => InstallDoclingProfiles);
 remote!(cancel_docling_install() => CancelDoclingInstall);
 remote!(uninstall_docling() => UninstallDocling);
 remote!(clear_model_key(kind:String) => ClearModelKey);
@@ -510,6 +511,7 @@ pub fn run() {
             get_settings,
             get_docling_status,
             install_docling,
+            install_docling_profiles,
             cancel_docling_install,
             uninstall_docling,
             save_settings,

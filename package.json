@@ -12,7 +12,10 @@
     "build:cli": "node scripts/build-cli.mjs",
     "package:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
     "build:cli:dev": "node scripts/build-cli.mjs --debug",
-    "package:updates": "node scripts/package-updates.mjs"
+    "package:updates": "node scripts/package-updates.mjs",
+    "test:component": "python3 -m unittest discover -s tests -p package_docling_component_test.py",
+    "package:macos": "tauri build && npm run test:desktop-package",
+    "test:desktop-package": "python3 -m unittest discover -s tests -p desktop_bundle_test.py"
   },
   "dependencies": {
     "@lucide/icons": "1.56.0",
