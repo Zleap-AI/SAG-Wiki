@@ -12,6 +12,8 @@ name = "sag-fnos-worker"
 path = "src/worker.rs"
 
 [dependencies]
+sag-client = { path = "../client" }
+shlex = "1"
 sag-core = { path = "../core" }
 sag-protocol = { path = "../protocol" }
 anyhow = "1"

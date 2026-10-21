@@ -1,4 +1,5 @@
 mod file_permissions;
+mod cli;
 mod fnos;
 
 use anyhow::{bail, Context, Result};
@@ -136,7 +137,7 @@ fn operation(request: &Rpc) -> Result<Operation> {
         "clear_model_key" | "test_model" | "test_mcp" | "list_conversations" | "clear_conversations" |
         "clear_all_data" | "edit_conversation" | "replace_messages" | "run_query" | "summarize_search" |
         "cancel_query" | "resolve_tool_approval" | "explore_overview" | "explore_graph" |
-        "explore_neighbors" | "explore_evidence" | "load_image" | "authorize_path" => &request.command,
+        "get_access" | "set_access" | "explore_neighbors" | "explore_evidence" | "load_image" | "authorize_path" => &request.command,
         _ => bail!("飞牛版不支持此操作：{}", request.command),
     };
     let args: serde_json::Map<String, Value> = request.args.iter().map(|(key, value)| {
@@ -151,6 +152,9 @@ fn operation(request: &Rpc) -> Result<Operation> {
 async fn rpc(State(app): State<App>, headers: HeaderMap, Json(request): Json<Rpc>) -> Result<Json<Value>, ApiError> {
     let uid = user(&headers)?;
     same_origin(&headers)?;
+    if request.command == "fnos_cli_run" {
+        return Ok(Json(cli::run_command(&app, uid, &request.args).await?));
+    }
     if request.command == "fnos_accessible_folders" {
         let paths = app.fnos.folders(uid).await?;
         let mut visible = Vec::new();
@@ -256,14 +260,20 @@ async fn main() -> Result<()> {
     if !assets.join("index.html").is_file() { bail!("缺少前端构建文件 www/index.html"); }
     // The lifecycle script removes only this application's stale socket before start.
     let listener = tokio::net::UnixListener::bind(&socket)?;
+    let stop = CancellationToken::new();
+    let cli_app = app.clone();
+    let cli_stop = stop.clone();
+    let cli_task = tokio::spawn(cli::run(cli_app, destination.join("cli.sock"), cli_stop));
     let shutdown_app = app.clone();
     axum::serve(listener, router(app, assets)).with_graceful_shutdown(async move {
         let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).expect("register SIGTERM");
         tokio::select! { _ = terminate.recv() => {}, _ = tokio::signal::ctrl_c() => {} }
+        stop.cancel();
         for service in shutdown_app.users.lock().await.values() {
             if let Err(error) = service.finish().await { eprintln!("停止索引失败：{error}"); }
         }
     }).await?;
+    cli_task.await??;
     std::fs::remove_file(socket)?;
     Ok(())
 }

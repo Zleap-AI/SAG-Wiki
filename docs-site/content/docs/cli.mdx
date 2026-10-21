@@ -1,0 +1,63 @@
+---
+title: CLI
+description: Use SAG from a NAS terminal or the fnOS web app.
+---
+
+The CLI shares the signed-in fnOS user's index, Jev configuration and ignore rules with the web app. Closing the browser does not stop the CLI; keep the SAG Wiki application running. Native fnOS authorization is checked for file access. Each user has a separate index and credentials.
+
+## Install
+
+Enable SSH for an administrator account, sign in to the NAS, then run:
+
+```sh
+/var/apps/sag-desktop-fnos/target/bin/sag install cli
+```
+
+Open a new terminal and run `sag --version`. The user-owned launcher in `~/.local/bin` runs the packaged CLI and follows application updates. `sag uninstall cli` removes only that user's CLI entry, preserving the app and index.
+
+You can also run `sag install cli` in the browser test below. If fnOS has not created the account's assigned home directory, the app creates it during installation. Existing home directories and their permissions remain unchanged. Then open a new SSH session to use `sag`.
+
+## Test in the browser
+
+Open **Settings → CLI**, select an authorized working directory, enter a command beginning with `sag`, and click **Run command**. The page displays the actual executable's stdout, stderr and exit code. Quoted arguments are supported; shell pipelines, redirections and other programs are not executed. Use an SSH terminal for interactive credential entry.
+
+
+![CLI settings and command testing on fnOS](/images/fnos-cli.png)
+
+## Commands
+
+| Command | Purpose |
+| --- | --- |
+| `sag status` | Show service, CLI access and Jev status |
+| `sag list --json` | List the current user's indexed roots |
+| `sag check [DIRECTORY] --json` | Inspect coverage, readiness and indexed file count |
+| `sag add [DIRECTORY] --types md,txt,html,py,ts,json,yaml` | Add a directory and select native text formats |
+| `sag remove [DIRECTORY] --json` | Remove an indexed scope, preserving source files |
+| `sag config --if-needed` | Reuse existing Jev settings or prompt for missing configuration |
+| `sag config --enable` | Enable this user's CLI access |
+| `sag service status` | Inspect this user's shared service |
+| `sag service stop` | Stop this user's service without affecting other users |
+| `sag service restart` | Restart this user's shared service |
+| `sag install codex` | Install the Codex Skill |
+| `sag install claude-code` | Install the Claude Code Skill |
+| `sag install opencode` | Install the OpenCode Skill |
+
+Corresponding `sag uninstall` commands remove managed entries and Skills while preserving user-edited files. The next search, management command or browser operation starts a stopped user service. The internal `sag service serve` diagnostic runs in the foreground until Ctrl+C.
+
+Authorize directories for SAG Wiki in fnOS before adding them. `--types` selects native text/code formats; PDF and Office conversion uses the folder settings configured in the web app. Omitting `--types` preserves existing settings.
+
+## Search and matching
+
+```sh
+sag "What acceptance deadlines do these documents specify?" /vol1/1000/File -m 5 --json
+sag -F "fnosnativeverification20261021" /vol1/1000/File --json
+sag -E "fnosnativeverification[0-9]+" /vol1/1000/File -i
+```
+
+Semantic search uses Jev and includes PDF/Office conversion output. Regex (`-E`) and fixed-string (`-F`) matching operate on original text files, follow ignore rules, and do not call a model. Semantic results include full source passages. `-m` accepts 1–100 results; `--timeout` sets the request timeout.
+
+Matching supports case folding (`-i`), whole words (`-w`), whole lines (`-x`), inversion (`-v`), context (`-A/-B/-C`), file lists (`-l`), counts (`--count`), matching substrings (`-o`), quiet mode (`-q`), repeated patterns (`-e/-f`), and file filters (`--include/--exclude`). Run `sag --help` for all options.
+
+`check` exits 0 for a ready nonempty index, 1 when not ready, and 2 on errors. Quiet matching exits 0 for a match, 1 for no match, and 2 on errors. Ctrl+C exits 130.
+
+Use hidden terminal input or `sag config --key-stdin` for credentials. Configuration and status responses do not expose the key.

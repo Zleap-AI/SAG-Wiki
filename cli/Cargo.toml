@@ -1,0 +1,32 @@
+[package]
+name = "sag-cli"
+version = "0.1.9"
+edition = "2021"
+
+[[bin]]
+name = "sag"
+path = "src/main.rs"
+
+[dependencies]
+sag-core = { path = "../core" }
+sag-client = { path = "../client" }
+sag-protocol = { path = "../protocol" }
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio-util = "0.7"
+rpassword = "7"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+ctrlc = { version = "3", features = ["termination"] }
+dirs = "6"
+pathdiff = "0.2"
+sha2 = "0.10"
+tempfile = "3"
+
+[dev-dependencies]
+libc = "0.2"
+
+
+[features]
+fnos = []

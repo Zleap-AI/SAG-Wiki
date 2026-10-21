@@ -189,7 +189,7 @@
   ];
   if(!file)items.push({label:$t("索引设置"),glyph:'settings',run:()=>folderIndexPath=path});
   if(!file||indexedPaths.has(path))items.push({label:$t(isRoot?"移除":"从知识库移除"),glyph:'close',run:()=>{if(file)void remove(path,true).catch(e=>notify($t(String(e))));else{removeFolderError='';removeFolderPath=path;}}});
-  items.push({label:mac?$t("在 Finder 中打开"):$t("在文件资源管理器中打开"),glyph:'folder',run:()=>api('reveal_path',{path}).catch(e=>notify($t(String(e))))});
+  items.push({label:$t("在文件管理器中打开"),glyph:'folder',run:()=>api('reveal_path',{path}).catch(e=>notify($t(String(e))))});
   const trigger=(e.target as Element).closest<HTMLElement>('button')||(e.currentTarget as HTMLElement).querySelector<HTMLElement>('button')!;const rect=trigger.getBoundingClientRect();menu={x:Math.min(e.clientX||rect.left,innerWidth-240),y:Math.min((e.clientY||rect.bottom)+8,innerHeight-items.length*38-12),trigger,items};
  }
  async function folderQuery(path:string,next:string,file=false){if(!await protect())return;await stop(next==='ask'?'ask':'search');if(next==='ask'){editingMessage=null;conversation=null;pending=null;ask='';references=file?[path]:[];draft=null;error='';}scope=[path];searched=false;view=next;menu=null;await tick();if(next==='ask')askInput?.focus();else searchInput?.focus();}

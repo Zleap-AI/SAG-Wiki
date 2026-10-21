@@ -1094,6 +1094,7 @@ impl Service {
                 | Op::RemoveAllRoots
                 | Op::ClearAllData
                 | Op::SaveSettings { .. }
+                | Op::Cli { command: sag_protocol::Command::Add | sag_protocol::Command::AddWithTypes { .. } | sag_protocol::Command::Remove, .. }
         );
         let history_changed = matches!(
             &operation,

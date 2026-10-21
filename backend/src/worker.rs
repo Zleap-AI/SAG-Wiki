@@ -22,6 +22,7 @@ mod linux {
         name: String,
         gid: u32,
         groups: Vec<u32>,
+        home: PathBuf,
     }
 
     fn account(uid: u32, app_uid: u32) -> Result<User> {
@@ -76,6 +77,7 @@ mod linux {
         Ok(User {
             name,
             gid: record.pw_gid,
+            home: PathBuf::from(unsafe { CStr::from_ptr(record.pw_dir) }.to_str()?),
             groups,
         })
     }
@@ -108,6 +110,8 @@ mod linux {
         if line.len() > 65536 || !line.ends_with('\n') {
             bail!("本地命令请求超过大小限制");
         }
+        let value: serde_json::Value = serde_json::from_str(&line)?;
+        if value.get("cli_args").is_some() { return cli_command(reader, value, app_uid, stop).await; }
         let request: McpProcessRequest = serde_json::from_str(&line).context("本地命令请求无效")?;
         let user = match account(request.uid, app_uid) {
             Ok(user) => user,
@@ -225,6 +229,71 @@ mod linux {
         result
     }
 
+    async fn cli_command(mut connection: BufReader<UnixStream>, value: serde_json::Value, app_uid: u32, stop: CancellationToken) -> Result<()> {
+        #[derive(serde::Deserialize)]
+        struct Request { uid: u32, cli_args: Vec<String>, directory: PathBuf }
+        let request: Request = serde_json::from_value(value)?;
+        let result: Result<serde_json::Value> = async {
+            let user = account(request.uid, app_uid)?;
+            // fnOS accounts can have an assigned home which SSH has not created yet.
+            if request.cli_args.first().is_some_and(|arg| arg == "install") && !user.home.try_exists()? {
+                fs::create_dir_all(&user.home).with_context(|| format!("无法创建用户主目录：{}", user.home.display()))?;
+                fs::set_permissions(&user.home, fs::Permissions::from_mode(0o700))?;
+                let home = CString::new(user.home.as_os_str().as_encoded_bytes())?;
+                if unsafe { libc::chown(home.as_ptr(), request.uid, user.gid) } != 0 {
+                    return Err(std::io::Error::last_os_error().into());
+                }
+            }
+            let executable = std::env::current_exe()?.parent().unwrap().join("sag");
+            let socket = executable.parent().unwrap().parent().unwrap().join("cli.sock");
+            let cwd = CString::new(request.directory.as_os_str().as_encoded_bytes())?;
+            let uid = request.uid;
+            let mut command = std::process::Command::new(executable);
+            command.args(request.cli_args).env_clear()
+                .env("HOME", &user.home).env("USER", &user.name).env("LOGNAME", &user.name)
+                .env("PATH", "/usr/local/bin:/usr/bin:/bin").env("LANG", "C.UTF-8")
+                .env("SAG_FNOS_CLI_SOCKET", socket)
+                .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+            unsafe { command.pre_exec(move || {
+                if libc::setgroups(user.groups.len(), user.groups.as_ptr()) != 0
+                    || libc::setgid(user.gid) != 0 || libc::setuid(uid) != 0
+                    || libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0
+                    || libc::setsid() < 0 || libc::chdir(cwd.as_ptr()) != 0 {
+                    return Err(std::io::Error::last_os_error());
+                }
+                libc::umask(0o077);
+                Ok(())
+            }); }
+            let mut command = tokio::process::Command::from(command);
+            command.kill_on_drop(true);
+            let mut child = command.spawn()?;
+            let pid = child.id().context("无法读取 CLI 进程编号")?;
+            let mut stdout = child.stdout.take().unwrap();
+            let mut stderr = child.stderr.take().unwrap();
+            let output = async {
+                let (mut out, mut err) = (Vec::new(), Vec::new());
+                let mut stdout = (&mut stdout).take(512*1024+1);
+                let mut stderr = (&mut stderr).take(512*1024+1);
+                tokio::try_join!(stdout.read_to_end(&mut out), stderr.read_to_end(&mut err))?;
+                if out.len() > 512*1024 || err.len() > 512*1024 { bail!("CLI 输出超过大小限制"); }
+                let status = child.wait().await?;
+                Ok::<_, anyhow::Error>(serde_json::json!({"code":status.code().unwrap_or(1),"stdout":String::from_utf8(out)?,"stderr":String::from_utf8(err)?}))
+            };
+            let result = tokio::select! {
+                _ = stop.cancelled() => Err(anyhow::anyhow!("CLI 服务已停止")),
+                disconnected = connection.read_u8() => { disconnected.err(); Err(anyhow::anyhow!("CLI 请求连接已关闭")) },
+                result = tokio::time::timeout(std::time::Duration::from_secs(600), output) => result.context("CLI 命令超时")?,
+            };
+            let killed = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+            if killed != 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) { return Err(std::io::Error::last_os_error().into()); }
+            result
+        }.await;
+        let value = match result { Ok(value) => value, Err(error) => serde_json::json!({"error":format!("{error:#}")}) };
+        connection.get_mut().write_all(&serde_json::to_vec(&value)?).await?;
+        connection.get_mut().write_all(b"\n").await?;
+        Ok(())
+    }
+
     pub async fn run() -> Result<()> {
         if unsafe { libc::geteuid() } != 0 {
             bail!("MCP 进程服务需要由飞牛启动脚本初始化");
@@ -239,6 +308,12 @@ mod linux {
             bail!("应用服务必须使用非 root 账户");
         }
         let state = PathBuf::from(&args[2]);
+        // fnOS can retain user data as root after uninstall. Repair ownership
+        // before publishing the worker socket; no document paths are traversed.
+        let users = state.parent().context("缺少应用数据目录")?.join("users");
+        let repaired = std::process::Command::new("chown")
+            .args(["-R", "-h"]).arg(app_uid.to_string()).arg(&users).status()?;
+        if !repaired.success() { bail!("无法恢复应用私有数据的账户归属"); }
         fs::create_dir_all(&state)?;
         fs::set_permissions(&state, fs::Permissions::from_mode(0o711))?;
         let listener = UnixListener::bind(&socket)?;

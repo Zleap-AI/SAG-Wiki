@@ -39,6 +39,9 @@ fn main() {
         "core/native",
         "core/build.rs",
         "backend/src",
+        "cli/src",
+        "cli/skills",
+        "cli/Cargo.toml",
         
         
         

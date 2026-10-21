@@ -13,12 +13,14 @@ import signal
 import socket
 import socketserver
 import subprocess
+import sys
 import threading
 import time
 import uuid
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--docling', action='store_true')
+parser.add_argument('--serve', action='store_true')
 args = parser.parse_args()
 assert os.getuid() == 0
 base = Path('/srv/sag-test')
@@ -26,7 +28,7 @@ app = base / 'app'
 data = base / 'data'
 for directory in [app / 'bin', data, base / 'alice', base / 'bob']:
     directory.mkdir(parents=True, exist_ok=True)
-for name in ['sag-desktop-fnos', 'sag-fnos-worker']:
+for name in ['sag-desktop-fnos', 'sag-fnos-worker', 'sag']:
     shutil.copy2('/binaries/' + name, app / 'bin' / name)
 shutil.copytree('/source/dist', app / 'www', dirs_exist_ok=True)
 os.chown(data, 1500, 1500)
@@ -55,7 +57,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         assert self.headers['Authorization'] == 'Bearer local-test-only'
         payload = json.loads(self.rfile.read(int(self.headers['Content-Length'])))
-        uid = payload['data']['uid']
+        uid = payload['data'].get('uid',1501)
         root = base / ('alice' if uid == 1501 else 'bob')
         if payload['req'] == 'trim.file.getUserAccessibleFolders':
             result = {'paths': [str(root)] if uid in [1501, 1502] else []}
@@ -63,6 +65,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             result = [{'path': path, 'readable': path not in revoked and Path(path).is_relative_to(root),
                        'writable': path not in revoked, 'deletable': path not in revoked}
                       for path in payload['data']['path']]
+        elif payload['req'] == 'trim.file.convertPath':
+            result = [{'path':path,'semanticPath':path.replace(str(root),'我的文件/CLI 测试')} for path in payload['data']['path']]
         else:
             raise AssertionError(payload['req'])
         content = json.dumps({'code': 0, 'msg': '', 'data': result}).encode()
@@ -122,8 +126,16 @@ print(f.read().decode(),end='',flush=True)
 '''
     return subprocess.run(['python3', '-c', code, str(app / 'worker.sock'), json.dumps(values)],
                           preexec_fn=identity, capture_output=True, text=True, timeout=15)
+# Reinstallation can retain root-owned private data. Startup must recover it.
+retained = data/'users/1501'
+retained.mkdir(parents=True,exist_ok=True)
+retained.chmod(0o700)
+(retained/'cli-access.json').write_text('{"enabled":true}')
+os.chown(retained,0,0)
+os.chown(retained/'cli-access.json',0,0)
 try:
     lifecycle('start')
+    assert retained.stat().st_uid == 1500 and (retained/'cli-access.json').stat().st_uid == 1500
     lifecycle('status')
     assert Path(f"/proc/{(data / 'app.pid').read_text().strip()}/status").read_text().split('Uid:')[1].split()[0] == '1500'
     assert Path(f"/proc/{(data / 'worker.pid').read_text().strip()}/status").read_text().split('Uid:')[1].split()[0] == '0'
@@ -197,6 +209,89 @@ s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1]);s.sendall((json.dumps({'u
     peer.communicate('\n',timeout=5)
     wait_for(lambda: not running(parent_pid) and not running(descendant))
     print('PASS Linux lifecycle, non-root HTTP service, stdio initialization, credentials, peer UID, two users, descendant cleanup', flush=True)
+    # Run the packaged CLI through both real Unix peer credentials and the web gateway.
+    def sag(arguments, uid=1501):
+        who = 'alice' if uid == 1501 else 'bob' if uid == 1502 else 'sagapp' if uid == 1500 else 'root'
+        result = subprocess.run(['runuser','-u',who,'--','env',
+            'SAG_FNOS_CLI_SOCKET='+str(app/'cli.sock'),str(app/'bin/sag'),*arguments],
+            capture_output=True,text=True,timeout=40)
+        return result
+    root = str(base/'alice')
+    assert sag(['--help']).returncode == 0
+    assert sag(['config','--enable']).returncode == 0
+    added = sag(['add',root,'--json'])
+    assert added.returncode == 0, added.stderr
+    checked = sag(['check',root,'--json'])
+    assert checked.returncode == 0, checked.stderr
+    assert json.loads(checked.stdout)['indexed_files'] == 1
+    assert json.loads(sag(['list','--json']).stdout)[0]['path'] == root
+    matched = sag(['-F','alice-private-marker',root,'--json'])
+    assert matched.returncode == 0 and json.loads(matched.stdout)['matched'], matched.stderr
+    assert sag(['-F','alice-private-marker',root,'-q']).returncode == 0
+    assert sag(['-F','missing-marker',root,'-q']).returncode == 1
+    assert sag(['-F','alice-private-marker',root,'-q'],1502).returncode == 2
+    assert sag(['status'],1500).returncode != 0
+    assert sag(['status'],0).returncode != 0
+    revoked.add(str(base/'alice/private.txt'))
+    assert sag(['-F','alice-private-marker',root,'-q']).returncode == 2
+    revoked.clear()
+    web = rpc('fnos_cli_run',{'command':'sag -F "alice-private-marker" --json','directory':root})
+    assert web['code'] == 0 and json.loads(web['stdout'])['matched'], web
+    web = rpc('fnos_cli_run',{'command':'sag --version','directory':root})
+    assert web['code'] == 0 and '0.1.9' in web['stdout'], web
+    stopped = sag(['service','stop'])
+    assert stopped.returncode == 0, stopped.stderr
+    assert '未运行' in sag(['service','status']).stdout
+    restarted = sag(['service','restart'])
+    assert restarted.returncode == 0, restarted.stderr
+    assert json.loads(restarted.stdout)['version'] == '0.1.9'
+    assert rpc('list_roots')[0]['path'] == root
+    # fnOS can assign a home path without creating it before the first SSH login.
+    home = Path('/home/alice')
+    shutil.rmtree(home)
+    installed = rpc('fnos_cli_run', {'command':'sag install cli','directory':root})
+    assert installed['code'] == 0, installed
+    assert home.stat().st_uid == 1501 and home.stat().st_gid == 1501
+    assert home.stat().st_mode & 0o777 == 0o700
+    home.chmod(0o750)
+    installed = rpc('fnos_cli_run', {'command':'sag install codex','directory':root})
+    assert installed['code'] == 0 and home.stat().st_mode & 0o777 == 0o750, installed
+    for target in ['cli','codex','claude-code','opencode']:
+        result = sag(['install',target])
+        assert result.returncode == 0, result.stderr
+        if target == 'cli':
+            installed = subprocess.run(['runuser','-u','alice','--','/home/alice/.local/bin/sag','--version'],capture_output=True,text=True,timeout=10)
+            assert installed.returncode == 0 and '0.1.9' in installed.stdout, installed.stderr
+        result = sag(['uninstall',target])
+        assert result.returncode == 0, result.stderr
+    removed = sag(['remove',root,'--json'])
+    assert removed.returncode == 0 and (base/'alice/private.txt').exists(), removed.stderr
+    print('PASS packaged CLI, web CLI, shared index, search, exits, native ACL, users, lifecycle and all installations',flush=True)
+
+    if args.serve:
+        assert sag(['add',root,'--json']).returncode == 0
+        class Proxy(http.server.BaseHTTPRequestHandler):
+            def log_message(self,*args): pass
+            def do_GET(self): self.forward()
+            def do_POST(self): self.forward()
+            def forward(self):
+                connection = Connection('localhost')
+                body = self.rfile.read(int(self.headers.get('Content-Length',0)))
+                headers = dict(self.headers)
+                headers['X-Trim-Userid'] = '1501'
+                connection.request(self.command,self.path,body,headers)
+                response = connection.getresponse()
+                self.send_response(response.status)
+                for key,value in response.getheaders():
+                    if key.lower() not in ('transfer-encoding','connection'): self.send_header(key,value)
+                self.end_headers()
+                try:
+                    while chunk := response.read1(65536):
+                        self.wfile.write(chunk);self.wfile.flush()
+                except (BrokenPipeError,ConnectionResetError): pass
+                finally: connection.close()
+        print('CLI UI fixture listening on 1427',flush=True)
+        http.server.ThreadingHTTPServer(('0.0.0.0',1427),Proxy).serve_forever()
     if args.docling:
         converted = base / 'alice/.sag-converted'
         converted.mkdir(exist_ok=True)
@@ -268,6 +363,10 @@ xref=len(pdf);pdf+=b'xref\\n0 6\\n0000000000 65535 f \\n'+b''.join(f'{offset:010
         assert not rpc('get_docling_status', uid=1502)['installed']
         print('PASS real Docling download/install; PDF, Word, Excel, PowerPoint conversion and indexing; originals preserved; source revocation; per-user component state',flush=True)
 finally:
+    if sys.exc_info()[0]:
+        for log in ['app.log','worker.log']:
+            path=data/log
+            if path.exists(): print(log,path.read_text()[-5000:],flush=True)
     lifecycle('stop')
     assert not (app / 'worker.sock').exists() and not (app / 'app.sock').exists()
     gateway.shutdown()

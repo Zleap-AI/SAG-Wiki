@@ -70,3 +70,14 @@ App-created conversion output and directories receive a POSIX ACL for the curren
 Docling subprocesses use the component directory as their working directory, so an application account does not need a home directory. Installation errors include the executable path and underlying error. Regression tests cover this behavior, and 0.2.6 successfully launches the component and installs Python and format dependencies on the NAS. This device reports a network-unreachable error when accessing Hugging Face. For this verification, checksum-verified official models were transferred through the native file manager, and the installer completed its checks. Automatic text and scanned PDF conversion, indexing, and search passed; direct online model downloads have not succeeded on this device.
 
 The on-device OCR test uses a one-page Chinese PDF containing one image and no text layer. Verification checks seven recognized fields, a unique search marker, the Q&A tool call, and an accessible citation. The original PDF SHA-256 remains unchanged. The verification record retains the fixture and results; expected answers were not added to the Q&A context.
+
+## CLI
+
+The CLI retains the original argument parser, output, and installation behavior. Build feature `sag-cli/fnos` selects the application's `cli.sock`. The server reads the connecting process UID from the operating system instead of accepting a client-supplied identity. Requests use the same native file policy as the web app. Browser tests launch the packaged executable through the private process service as the current user, without a shell.
+
+```sh
+cargo test --workspace
+cargo zigbuild -p sag-desktop-fnos -p sag-cli --features sag-cli/fnos --release --target x86_64-unknown-linux-gnu.2.35
+```
+
+Linux integration tests cover command compatibility, the installed launcher, shared indexes, revoked permissions, user isolation, service lifecycle, and Agent Skill installation. Inside the test container, `python3 tests/fnos-linux.py --serve` exposes a local page on port 1427 using simulated user 1501; this mode exists only in the test fixture.

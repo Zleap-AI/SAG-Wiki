@@ -1207,5 +1207,21 @@
   "授权 NAS 文件夹": "Authorize a NAS folder",
   "点击侧边栏的 +，通过飞牛选择并授权资料目录。": "Click + in the sidebar, then choose and authorize a folder in fnOS.",
   "密钥按飞牛用户分别保存在应用数据目录中。留空保持已保存的密钥。": "Credentials are stored separately for each fnOS user in the application data directory. Leave blank to keep saved credentials.",
-  "上例路径相对于已添加的文件夹；可在文件设置中显示隐藏文件夹。": "Paths above are relative to the added folder. Enable hidden folders in file settings to see the output folder."
+  "上例路径相对于已添加的文件夹；可在文件设置中显示隐藏文件夹。": "Paths above are relative to the added folder. Enable hidden folders in file settings to see the output folder.",
+  "CLI 与网页共用当前飞牛用户的索引和模型配置，文件访问仍需飞牛授权。": "CLI and the web app share the current fnOS user’s index and model settings. File access requires fnOS authorization.",
+  "SSH 登录后，首次运行以下命令安装到当前用户的终端路径：": "After signing in over SSH, run this command once to install the CLI in your user PATH:",
+  "重新打开终端后使用 sag；关闭网页不影响 CLI，应用需保持运行。": "Open a new terminal to use sag. The CLI works while the page is closed; keep the app running.",
+  "测试 CLI": "Test CLI",
+  "以当前飞牛用户运行实际 sag 程序。支持带引号的参数，不执行 Shell 命令。": "Run the actual sag executable as the current fnOS user. Quoted arguments are supported; shell commands are not executed.",
+  "工作目录": "Working directory",
+  "命令": "Command",
+  "执行中…": "Running…",
+  "执行命令": "Run command",
+  "退出码": "Exit code",
+  "常用命令": "Common commands",
+  "目录需先在飞牛中授权给 SAG Wiki。": "First authorize these directories for SAG Wiki in fnOS.",
+  "这些资料如何说明项目的验收要求？": "What do these documents say about the project acceptance criteria?",
+  "service stop 和 restart 只影响当前用户的共享服务；下一次操作会自动启动服务。": "service stop and restart affect only the current user’s shared service. The next operation starts it automatically.",
+  "管理命令行接入并测试实际 sag 命令。": "Manage CLI access and test actual sag commands.",
+  "终端安装": "Terminal installation"
 }

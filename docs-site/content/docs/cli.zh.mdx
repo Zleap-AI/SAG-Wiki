@@ -1,0 +1,62 @@
+---
+title: CLI
+description: 在飞牛终端和网页中使用 SAG 命令行。
+---
+
+CLI 与网页共用当前飞牛用户的索引、Jev 配置和目录排除规则。关闭网页后仍可使用；SAG Wiki 应用需要保持运行。每次文件访问都检查飞牛授权，其他用户的索引和密钥不会共用。
+
+## 安装
+
+管理员开启 SSH 并为登录账号启用 SSH 权限后，在 NAS 终端执行：
+
+```sh
+/var/apps/sag-desktop-fnos/target/bin/sag install cli
+```
+
+重新打开终端，执行 `sag --version`。命令安装在当前用户的 `~/.local/bin`，启动器使用应用包内的 CLI，随应用一起更新。`sag uninstall cli` 只移除本用户的命令入口，应用与索引保留。
+
+也可以先在下方网页测试中执行 `sag install cli`。如果飞牛尚未创建当前账号的主目录，应用会在安装时创建该目录；已有主目录及其权限保持不变。之后新开 SSH 会话即可使用 `sag`。
+
+## 网页测试
+
+打开 **设置 → CLI**。选择已授权的工作目录，输入以 `sag` 开头的命令，点击 **执行命令**。页面显示实际 CLI 的标准输出、错误输出和退出码。参数支持引号，不执行 Shell 管道、重定向或其他程序。需要交互输入密钥的配置命令请在 SSH 终端执行。
+
+![飞牛实机的 CLI 设置与命令测试](/images/fnos-cli.png)
+
+## 命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `sag status` | 查看服务、CLI 开关与 Jev 配置状态 |
+| `sag list --json` | 列出当前用户的索引目录 |
+| `sag check [目录] --json` | 检查索引覆盖、就绪状态和文件数 |
+| `sag add [目录] --types md,txt,html,py,ts,json,yaml` | 添加目录并指定原生文本格式 |
+| `sag remove [目录] --json` | 移除索引范围，保留原文件 |
+| `sag config --if-needed` | 复用现有 Jev 配置；缺少配置时引导填写 |
+| `sag config --enable` | 开启当前用户的 CLI 接入 |
+| `sag service status` | 查看本用户服务状态 |
+| `sag service stop` | 停止本用户共享服务；其他用户不受影响 |
+| `sag service restart` | 重启本用户共享服务 |
+| `sag install codex` | 安装 Codex Skill |
+| `sag install claude-code` | 安装 Claude Code Skill |
+| `sag install opencode` | 安装 OpenCode Skill |
+
+安装命令对应的 `sag uninstall` 可移除由 SAG 管理的入口或 Skill，用户修改过的文件不会被覆盖或删除。停止服务后，下一次搜索、目录管理或网页操作会重新启动本用户服务。内部诊断命令 `sag service serve` 在前台等待，按 Ctrl+C 停止。
+
+添加目录前，先在飞牛中把该目录授权给 SAG Wiki。`--types` 只用于原生文本和代码；PDF/Office 自动转换沿用网页的文件夹配置。省略 `--types` 会保留已有设置。
+
+## 搜索与匹配
+
+```sh
+sag "这些资料对验收时间有什么要求？" /vol1/1000/File -m 5 --json
+sag -F "fnosnativeverification20261021" /vol1/1000/File --json
+sag -E "fnosnativeverification[0-9]+" /vol1/1000/File -i
+```
+
+语义搜索使用已配置的 Jev，也能检索 PDF/Office 转换结果；`-E` 正则匹配和 `-F` 固定字符串匹配处理原始文本文件，遵循忽略规则，不调用模型。默认返回完整原文片段。`-m` 控制结果数，范围 1–100；`--timeout` 控制等待时间。
+
+匹配支持 `-i` 忽略大小写、`-w` 完整单词、`-x` 完整行、`-v` 反向匹配、`-A/-B/-C` 上下文、`-l` 文件列表、`--count` 计数、`-o` 匹配部分、`-q` 静默判断、重复 `-e/-f` 模式和 `--include/--exclude` 文件过滤。使用 `sag --help` 查看完整参数。
+
+`check` 就绪并有内容时退出码为 0，未就绪为 1，错误为 2。`-q` 匹配时为 0，无匹配为 1，错误为 2。Ctrl+C 返回 130。
+
+密钥优先通过终端隐藏输入或 `sag config --key-stdin` 配置。配置与状态输出不包含密钥。

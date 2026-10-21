@@ -10,6 +10,7 @@ PID_FILE="$TRIM_PKGVAR/app.pid"
 WORKER_PID="$TRIM_PKGVAR/worker.pid"
 SOCKET="$TRIM_APPDEST/app.sock"
 WORKER_SOCKET="$TRIM_APPDEST/worker.sock"
+CLI_SOCKET="$TRIM_APPDEST/cli.sock"
 
 running() {
   local file="$1" binary="$2" pid
@@ -42,7 +43,7 @@ stop_process() {
 
 case "${1:-}" in
   start)
-    if running "$PID_FILE" "$BINARY" && running "$WORKER_PID" "$WORKER" && [ -S "$SOCKET" ] && [ -S "$WORKER_SOCKET" ]; then exit 0; fi
+    if running "$PID_FILE" "$BINARY" && running "$WORKER_PID" "$WORKER" && [ -S "$SOCKET" ] && [ -S "$WORKER_SOCKET" ] && [ -S "$CLI_SOCKET" ]; then exit 0; fi
     : "${TRIM_API_TOKEN:?飞牛未提供原生 API 令牌}"
     app_uid=$(id -u "$TRIM_USERNAME")
     app_gid=$(id -g "$TRIM_USERNAME")
@@ -56,28 +57,28 @@ case "${1:-}" in
     chmod 700 "$TRIM_PKGVAR/users"
     chown root:root "$TRIM_PKGVAR/mcp-workers"
     chmod 711 "$TRIM_PKGVAR/mcp-workers"
-    rm -f "$SOCKET" "$WORKER_SOCKET"
+    rm -f "$SOCKET" "$WORKER_SOCKET" "$CLI_SOCKET"
     env -i PATH=/usr/bin:/bin "$WORKER" "$WORKER_SOCKET" "$app_uid" "$TRIM_PKGVAR/mcp-workers" >> "$TRIM_PKGVAR/worker.log" 2>&1 &
     echo "$!" > "$WORKER_PID"
     # Write the actual service PID, rather than the runuser supervisor's PID.
     runuser -u "$TRIM_USERNAME" -- /bin/sh -c 'echo "$$" > "$1"; exec "$2"' sh "$PID_FILE" "$BINARY" >> "$TRIM_PKGVAR/app.log" 2>&1 &
     for ((i=0; i<100; i++)); do
-      if running "$PID_FILE" "$BINARY" && running "$WORKER_PID" "$WORKER" && [ -S "$SOCKET" ] && [ -S "$WORKER_SOCKET" ]; then exit 0; fi
+      if running "$PID_FILE" "$BINARY" && running "$WORKER_PID" "$WORKER" && [ -S "$SOCKET" ] && [ -S "$WORKER_SOCKET" ] && [ -S "$CLI_SOCKET" ]; then exit 0; fi
       sleep 0.1
     done
     stop_process "$PID_FILE" "$BINARY"
     stop_process "$WORKER_PID" "$WORKER"
-    rm -f "$SOCKET" "$WORKER_SOCKET"
+    rm -f "$SOCKET" "$WORKER_SOCKET" "$CLI_SOCKET"
     printf '%s\n' 'SAG Wiki 启动失败，请检查应用日志。' > "${TRIM_TEMP_LOGFILE:-$TRIM_PKGVAR/start-error.log}"
     exit 1
     ;;
   stop)
     stop_process "$PID_FILE" "$BINARY"
     stop_process "$WORKER_PID" "$WORKER"
-    rm -f "$SOCKET" "$WORKER_SOCKET"
+    rm -f "$SOCKET" "$WORKER_SOCKET" "$CLI_SOCKET"
     ;;
   status)
-    if running "$PID_FILE" "$BINARY" && running "$WORKER_PID" "$WORKER" && [ -S "$SOCKET" ] && [ -S "$WORKER_SOCKET" ]; then exit 0; fi
+    if running "$PID_FILE" "$BINARY" && running "$WORKER_PID" "$WORKER" && [ -S "$SOCKET" ] && [ -S "$WORKER_SOCKET" ] && [ -S "$CLI_SOCKET" ]; then exit 0; fi
     exit 3
     ;;
   *) exit 1 ;;

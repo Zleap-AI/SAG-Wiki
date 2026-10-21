@@ -213,3 +213,49 @@ async fn derived_files_require_source_access_even_through_aliases() {
     assert!(output.exists());
     f.finish().await;
 }
+
+#[tokio::test(flavor="multi_thread")]
+async fn cli_uses_web_index_permissions_access_switch_and_user_lifecycle() {
+    use sag_protocol::{Command, MatchMode, MatchOptions, MatchRequest, Output, Response};
+    let f = Fixture::new().await;
+    assert_eq!(f.rpc(Some(1000), "add_root", json!({"path":f.a})).await.0, StatusCode::OK);
+    let service = f.app.service(1000).await.unwrap();
+    for _ in 0..200 {
+        if service.store.roots().unwrap().iter().all(|root| root.status == "ready") { break; }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    let call = |uid, path: PathBuf, command| cli::execute(&f.app, uid, Operation::Cli {path,command}, CancellationToken::new());
+    let result = call(1000, f.a.clone(), Command::List).await.unwrap();
+    assert!(matches!(result, Output::Cli(Response::Roots(roots)) if roots.len()==1 && roots[0].path==f.a.to_str().unwrap()));
+    let matching = || Command::Match(MatchRequest { patterns: vec!["nativefnosmarker".into()], mode: MatchMode::Fixed,
+        max_results: Some(5), content: true, timeout: 10, options: MatchOptions::default() });
+    assert!(matches!(call(1000, f.a.clone(), matching()).await.unwrap(), Output::Cli(Response::Matches(output)) if output.matched));
+    assert!(call(1001, f.a.clone(), matching()).await.is_err());
+    f.denied.lock().unwrap().insert(f.a.join("hello.md").display().to_string());
+    assert!(call(1000, f.a.clone(), matching()).await.is_err());
+    f.denied.lock().unwrap().clear();
+    service.cli.configure(sag_protocol::Access {enabled:false}).unwrap();
+    assert!(call(1000, f.a.clone(), matching()).await.is_err());
+    call(1000, f.a.clone(), Command::Configure {enable:true,url:None,model:None,key:None}).await.unwrap();
+    assert!(service.cli.access().enabled);
+    std::fs::write(f.a.join(".sagignore"), "# retained rules\n").unwrap();
+    f.denied.lock().unwrap().insert(f.a.join(".sagignore").display().to_string());
+    assert!(call(1000, f.a.clone(), Command::AddWithTypes {extensions:vec!["md".into()]}).await.is_err());
+    assert_eq!(std::fs::read_to_string(f.a.join(".sagignore")).unwrap(), "# retained rules\n");
+    f.app.service(1001).await.unwrap();
+    assert!(cli::execute(&f.app,1000,Operation::Snapshot,CancellationToken::new()).await.is_err());
+    cli::execute(&f.app,1000,Operation::Shutdown,CancellationToken::new()).await.unwrap();
+    assert!(!f.app.users.lock().await.contains_key(&1000));
+    assert!(f.app.users.lock().await.contains_key(&1001));
+    f.finish().await;
+}
+
+#[tokio::test(flavor="multi_thread")]
+async fn browser_cli_only_accepts_sag_and_authorized_working_directories() {
+    let f = Fixture::new().await;
+    for (directory, command) in [(f.b.clone(),"sag status"),(f.a.clone(),"sh -c id"),(f.a.clone(),"sag \"unterminated")] {
+        let args = json!({"directory":directory,"command":command}).as_object().unwrap().clone();
+        assert!(cli::run_command(&f.app,1000,&args).await.is_err());
+    }
+    f.finish().await;
+}

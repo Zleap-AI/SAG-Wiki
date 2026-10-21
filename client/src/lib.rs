@@ -85,6 +85,25 @@ impl Client {
         if info.protocol_version != VERSION || info.pid != endpoint.pid {
             bail!("SAG 服务身份不匹配，请重新连接")
         }
+        Self::from_stream(read, write, info).await.map(Some)
+    }
+    #[cfg(unix)]
+    pub async fn connect_unix(path: &Path) -> Result<Self> {
+        let stream = tokio::net::UnixStream::connect(path).await
+            .context("无法连接飞牛 CLI 服务，请在飞牛应用中心启动 SAG Wiki")?;
+        let (read, mut write) = stream.into_split();
+        let mut read = BufReader::new(read);
+        wire::write(&mut write, &Frame::Hello { protocol_version: VERSION, token: String::new() }).await?;
+        let frame = tokio::time::timeout(Duration::from_secs(10), wire::read(&mut read)).await.context("飞牛 CLI 握手超时")??;
+        let info = match frame {
+            Some(Frame::Welcome { info }) if info.protocol_version == VERSION => info,
+            _ => bail!("飞牛 CLI 握手失败，请检查当前账号的访问权限"),
+        };
+        Self::from_stream(read, write, info).await
+    }
+    async fn from_stream<R, W>(mut read: R, mut write: W, info: ServiceInfo) -> Result<Self>
+    where R: tokio::io::AsyncBufRead + Unpin + Send + 'static,
+          W: tokio::io::AsyncWrite + Unpin + Send + 'static {
         let (outgoing, mut incoming) = mpsc::channel(32);
         let (events, _) = broadcast::channel(256);
         let inner = Arc::new(Inner {
@@ -134,7 +153,7 @@ impl Client {
                 });
             }
         });
-        Ok(Some(Self(inner)))
+        Ok(Self(inner))
     }
     pub async fn call(&self, operation: Operation, timeout: Duration) -> Result<Output> {
         if !self.is_connected() {
