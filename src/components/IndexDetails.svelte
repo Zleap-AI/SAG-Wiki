@@ -4,6 +4,8 @@
  import Modal from './ui/Modal.svelte';
  import IndexHistoryEntry from './IndexHistoryEntry.svelte';
  import {api} from '../lib/api';
+ import {subscribeDataChanges} from '../lib/data-changes';
+ import {sameIndexStatus,stableRows} from '../lib/stable-snapshot';
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import {indexStages} from '../lib/index-stages';
@@ -13,37 +15,70 @@
  export let onClose:()=>void;
  export let onPauseChange:(paused:boolean)=>void;
  let status:IndexStatus={paused:false,tasks:[]},loading=true,changing=false,error='';
- let history:IndexHistory[]=[],historyKey:string|undefined,clearing=false,historyRevision=0;
+ let history:IndexHistory[]=[],historyKey:string|undefined,clearing=false;
  let disposed=false,timer:ReturnType<typeof setTimeout>;
+ let running:Promise<void>|null=null,requested=false,historyDirty=true,generation=0,lastPaused:boolean|undefined;
  const stageLabel=(stage:string)=>$t(indexStages.find(item=>item.stage===stage)?.progress??(stage==='indexing'?'正在索引文件':'正在扫描文件'));
- async function refresh(){
-  try{
-   const next=await api<IndexStatus>('get_index_status');
-   if(disposed)return;
-   status=next;onPauseChange(next.paused);
-   const key=next.tasks.map(task=>task.path).join('\n');
-   if(key!==historyKey&&!clearing){const revision=historyRevision;const records=await api<IndexHistory[]>('get_index_history');if(disposed||revision!==historyRevision)return;history=records;historyKey=key;}
-   error='';
-  }
-  catch(e){if(!disposed)error=$t(String(e));}
-  finally{if(!disposed){loading=false;timer=setTimeout(refresh,600);}}
+ // Task state is authoritative; a parent root can lag a completion event.
+ const active=()=>status.tasks.length>0;
+ function acceptStatus(next:IndexStatus){
+  if(!sameIndexStatus(status,next))status=next;
+  if(lastPaused!==next.paused){lastPaused=next.paused;onPauseChange(next.paused);}
  }
- onMount(()=>{void refresh();return()=>{disposed=true;clearTimeout(timer);};});
+ function refresh(includeHistory=false):Promise<void>{
+  if(disposed)return Promise.resolve();
+  clearTimeout(timer);requested=true;historyDirty||=includeHistory;generation++;
+  if(!running&&!changing){
+   running=refreshSnapshots().finally(()=>{
+    running=null;
+    if(requested&&!disposed&&!changing)return refresh();
+    if(!disposed&&!changing){loading=false;timer=setTimeout(()=>void refresh(!active()),active()?600:5000);}
+   });
+  }
+  return running??Promise.resolve();
+ }
+ async function refreshSnapshots(){
+  while(requested&&!disposed&&!changing){
+   requested=false;const current=generation,includeHistory=historyDirty;
+   try{
+    const next=await api<IndexStatus>('get_index_status');
+    if(disposed||current!==generation)continue;
+    acceptStatus(next);
+    const key=JSON.stringify(next.tasks.map(task=>task.path));
+    const readHistory=includeHistory||key!==historyKey;
+    let records:IndexHistory[]|undefined;
+    if(readHistory&&!clearing)records=await api<IndexHistory[]>('get_index_history');
+    else if(readHistory)historyDirty=true;
+    if(disposed||current!==generation)continue;
+    if(records){const stable=stableRows(history,records,record=>record.id);if(stable!==history)history=stable;historyKey=key;historyDirty=false;}
+    error='';
+   }catch(e){if(!disposed&&current===generation){error=$t(String(e));historyDirty=true;}}
+  }
+ }
+ onMount(()=>{
+  let unsubscribe=()=>{};
+  void(async()=>{
+   try{const stop=await subscribeDataChanges(()=>void refresh(true));if(disposed){stop();return;}unsubscribe=stop;}
+   catch(e){if(!disposed)error=$t(String(e));}
+   if(!disposed)void refresh(true);
+  })();
+  return()=>{disposed=true;generation++;clearTimeout(timer);unsubscribe();};
+ });
  async function togglePause(){
-  changing=true;error='';
-  try{status=await api<IndexStatus>('set_index_paused',{paused:!status.paused});onPauseChange(status.paused);}
+  changing=true;error='';generation++;clearTimeout(timer);
+  try{const next=await api<IndexStatus>('set_index_paused',{paused:!status.paused});if(!disposed)acceptStatus(next);}
   catch(e){error=$t(String(e));}
-  finally{changing=false;}
+  finally{changing=false;if(!disposed)void refresh();}
  }
  async function clearHistory(){
-  clearing=true;error='';historyRevision++;
-  try{await api('clear_index_history');if(!disposed){history=[];historyKey=undefined;}}
+  clearing=true;error='';generation++;let cleared=false;
+  try{await api('clear_index_history');if(!disposed){history=[];cleared=true;}}
   catch(e){if(!disposed)error=$t(String(e));}
-  finally{if(!disposed)clearing=false;}
+  finally{if(!disposed){clearing=false;if(cleared)void refresh(true);}}
  }
- $:working=roots.some(root=>root.status==='pending'||root.status==='indexing')||status.tasks.length>0;
+ $:working=roots.some(root=>root.status==='pending')||status.tasks.length>0;
  $:finishing=status.paused&&status.tasks.some(task=>task.files.length>0);
- $:activeRoots=roots.filter(root=>root.status==='pending'||root.status==='indexing'||status.tasks.some(task=>task.path===root.path));
+ $:activeRoots=roots.filter(root=>root.status==='pending'||status.tasks.some(task=>task.path===root.path));
  $:issueRoots=roots.filter(root=>(root.status==='partial'||root.status==='error')&&!activeRoots.includes(root)&&!history.some(record=>record.path===root.path));
 </script>
 
