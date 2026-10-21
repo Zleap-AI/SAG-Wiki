@@ -18,6 +18,7 @@
   "SAG 正在索引（部分失败）": "SAG indexing (partial failure)",
   "SAG 正在索引…": "SAG indexing…",
   "SAG · 读取失败": "SAG · Indexing failed",
+  "SAG · 索引已结束": "SAG · Indexing finished",
   "SAG · 部分失败": "SAG · Partial failure",
   "导入 {value0}": "Import {value0}",
   "Python、JavaScript、TypeScript、Rust、HTML、CSS 等": "Python, JavaScript, TypeScript, Rust, HTML, CSS, and more",

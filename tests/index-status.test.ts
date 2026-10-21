@@ -60,7 +60,9 @@ it('部分文件索引失败时可查看具体路径，同时显示已索引文�
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toContain('SAG · 部分失败'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG · 索引已结束'));
+ expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败');
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('已索引 270 个文件');
  expect(document.querySelector('.index-status')?.textContent).not.toContain('读取失败');
  expect(document.querySelector('.index-status')?.textContent).not.toContain('Notes');
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
@@ -70,7 +72,7 @@ it('部分文件索引失败时可查看具体路径，同时显示已索引文�
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('其他文件可正常检索');
 });
 
-it('索引百分比与部分失败在同一行，完成后隐藏进度',async()=>{
+it('索引阶段与百分比放主行，已处理数量和部分失败独立可见，完成后隐藏',async()=>{
  let ready=false;
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
@@ -83,8 +85,11 @@ it('索引百分比与部分失败在同一行，完成后隐藏进度',async()=
  });
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(listeners.has('data-changed')).toBe(true));
- listeners.get('index-progress')!({payload:{path:'/other',count:27,total:100}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toBe('SAG 正在索引（27% 部分失败）'));
+ listeners.get('index-progress')!({payload:{path:'/other',count:27,total:100,stage:'converting'}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在转换文件（27%）'));
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('已处理 27 / 100 个文件');
+ expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败');
+ expect(document.querySelector('.index-status-primary')?.textContent).not.toContain('部分失败');
  expect(document.querySelector('.index-status')?.children).toHaveLength(1);
  expect(document.querySelector('.index-status-row')?.children).toHaveLength(2);
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
@@ -97,10 +102,46 @@ it('索引百分比与部分失败在同一行，完成后隐藏进度',async()=
  await new Promise(resolve=>setTimeout(resolve,0));
  expect(document.querySelector('.index-status')?.textContent).toBe('');
  listeners.get('index-progress')!({payload:{path:'/other',count:0,total:50}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toBe('SAG 正在索引（0% 部分失败）'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引（0%）'));
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('已处理 0 / 50 个文件');
+ expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败');
  ready=true;
  listeners.get('data-changed')!({payload:null});
  await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toBe(''));
+});
+
+it('英文转换从0%开始时，失败与处理数量仍作为独立次信息显示',async()=>{
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {language:'en',theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='list_roots')return [{path:'/active',name:'Active',status:'indexing',count:0,error:null},{path:'/failed',name:'Failed',status:'partial',count:270,error:'read failed'}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(listeners.has('data-changed')).toBe(true));
+ listeners.get('index-progress')!({payload:{path:'/active',count:0,total:40,stage:'converting'}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('0%'));
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('Converting files');
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('Processed 0 / 40 files');
+ expect(document.querySelector('.index-status-failure')?.textContent).toBe('Partial failure');
+ expect(document.querySelector('.index-status-primary')?.textContent).not.toContain('failure');
+ document.querySelector<HTMLButtonElement>('.index-status-link')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')).not.toBeNull());
+});
+
+it('仅有失败文件夹时仍显示结束状态、已索引数量和明确失败信息',async()=>{
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='list_roots')return [{path:'/failed',name:'Failed',status:'error',count:0,error:'read failed'}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG · 索引已结束'));
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('已索引 0 个文件');
+ expect(document.querySelector('.index-status-failure')?.textContent).toBe('读取失败');
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();await tick();
+ expect(document.querySelector('.index-status-link')).toBeNull();
 });
 
 it('运行中的索引可查看当前文件并暂停、继续，暂停状态显示在侧栏',async()=>{
@@ -121,6 +162,7 @@ it('运行中的索引可查看当前文件并暂停、继续，暂停状态显�
  document.querySelector<HTMLButtonElement>('[aria-label="暂停索引"]')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('set_index_paused',{paused:true}));
  await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toContain('索引已暂停'));
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('已索引 12 个文件');
  expect(document.querySelector('.index-active .index-root-title span')?.textContent).toBe('索引已暂停');
  expect(document.querySelector('.index-active')?.textContent).not.toContain('正在索引文件');
  document.querySelector<HTMLButtonElement>('[aria-label="继续索引"]')!.click();
@@ -341,17 +383,17 @@ it('三阶段显示当前步骤及说明，侧栏百分比明确属于当前阶�
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(listeners.has('index-progress')).toBe(true));
  listeners.get('index-progress')!({payload:{path:'/notes',stage,count:1,total:4}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toBe('SAG 正在索引文本（25%）'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引文本（25%）'));
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-pipeline [aria-current="step"]')?.textContent).toContain('文本索引'));
  expect(document.querySelector('.index-stage-description')?.textContent).toContain('完成后即可搜索');
  stage='converting';listeners.get('index-progress')!({payload:{path:'/notes',stage,count:2,total:4}});
  await vi.waitFor(()=>expect(document.querySelector('.index-pipeline [aria-current="step"]')?.textContent).toContain('文件转换'),{timeout:2000});
- expect(document.querySelector('.index-status')?.textContent).toBe('SAG 正在转换文件（50%）');
+ expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在转换文件（50%）');
  expect(document.querySelector('.index-pipeline .done')?.textContent).toContain('文本索引');
  expect(document.querySelector('.index-stage-description')?.textContent).toContain('仍可搜索');
  stage='indexing_converted';listeners.get('index-progress')!({payload:{path:'/notes',stage,count:1,total:4}});
  await vi.waitFor(()=>expect(document.querySelector('.index-pipeline [aria-current="step"]')?.textContent).toContain('转换结果索引'),{timeout:2000});
  expect(document.querySelectorAll('.index-pipeline .done')).toHaveLength(2);
- expect(document.querySelector('.index-status')?.textContent).toBe('SAG 正在索引转换结果（25%）');
+ expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引转换结果（25%）');
 });

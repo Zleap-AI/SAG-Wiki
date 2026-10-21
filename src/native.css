@@ -21,9 +21,9 @@ input,select,textarea{font-size:var(--text-ui)}
 .primary:hover{opacity:1;box-shadow:0 2px 5px var(--color-control-shadow)}
 .outline{min-height:30px;padding:5px 12px;border-radius:7px;font-size:var(--text-ui);background:var(--color-paper);box-shadow:0 1px 2px var(--color-shadow)}
 .outline:hover{background:var(--color-panel)}
-.real-client .sidebar-titlebar{position:relative;height:36px;flex-shrink:0;margin:-14px -12px 14px;padding-inline:12px;display:flex;align-items:center;user-select:none;overflow-y:hidden;scrollbar-gutter:stable}
+.real-client .sidebar-titlebar{position:relative;height:36px;flex-shrink:0;margin:-14px 0 14px;padding:0;display:flex;align-items:center;user-select:none}
 .real-client.compact-sidebar .sidebar-titlebar{height:68px;margin-inline:-9px;padding:0;overflow:visible;scrollbar-gutter:auto}
-.real-client .sidebar-titlebar>.icon-button{margin-left:auto;width:28px;height:28px;color:var(--color-secondary)}
+.real-client .sidebar-titlebar>.icon-button{margin-left:auto;width:28px;height:28px;flex-shrink:0;color:var(--color-secondary)}
 .real-client.compact-sidebar .sidebar-titlebar>.icon-button{margin:32px auto 0}
 .real-client.compact-sidebar .sidebar-titlebar .window-controls{position:absolute;top:0;left:0}
 .real-client .sidebar-titlebar .window-controls{margin:0;gap:0}
@@ -51,10 +51,12 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .conversation-item>.icon,.real-client .tree-name>.icon{width:17px;height:17px;color:var(--color-secondary)}
 .real-client .history-more,.real-client .tree-more{width:26px;height:28px;margin:0 3px 0 0;border-radius:6px;color:var(--color-secondary)}
 .real-client .history-more .icon,.real-client .tree-more .icon{width:16px;height:16px}
-.real-client .tree-row{min-height:38px;margin:1px 0;border-radius:7px}
-.real-client .tree-toggle{width:24px;height:30px;color:var(--color-secondary)}
+.real-client .tree-row{min-width:0;min-height:38px;margin:1px 0;border-radius:7px}
+.real-client .tree-toggle{width:28px;min-width:28px;height:28px;color:var(--color-secondary)}
 .real-client .tree-toggle>.icon{width:12px;height:12px}
 .real-client .tree-name{font-size:var(--text-reading);line-height:1.4;padding:8px 4px;gap:8px}
+.real-client .tree-name>span{white-space:nowrap}
+.real-client .tree-name>.icon{flex-shrink:0}
 .real-client .history-row.active,.real-client .tree-row.selected{background:var(--color-selected)}
 .real-client .history-empty,.real-client .tree-empty{font-size:var(--text-caption);line-height:1.6;padding:8px;color:var(--color-muted)}
 .real-client .sidebar-bottom{margin-top:12px;padding:12px 4px 0;border-top:1px solid var(--color-window-border)}
@@ -333,15 +335,17 @@ input,select,textarea{font-size:var(--text-ui)}
 @keyframes search-progress-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.real-client .search-loading-icon{animation:none}}
 
-.real-client .index-status-link{display:block;text-align:left;white-space:normal;padding:3px 0;font:inherit;color:inherit}
+.real-client .index-status-link{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;text-align:left;white-space:normal;overflow-wrap:anywhere;min-height:44px;padding:4px 0;font:inherit;color:inherit}
 .real-client .index-status-link:hover{color:var(--color-ink);background:transparent;text-decoration:underline;text-underline-offset:3px}
 .index-issues-dialog .dialog-body{display:flex;flex-direction:column;gap:12px}
 .index-issue-details{max-height:50vh;margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:400 var(--text-ui)/1.7 var(--font-body);color:var(--color-secondary)}
 
-.real-client .index-status:not(:empty){padding:8px 0 8px 12px}
-.real-client .index-status-row{display:flex;align-items:center;gap:12px;white-space:nowrap}
-.real-client .index-status-row>.index-status-link{min-width:0;white-space:nowrap}
-.real-client .index-status-dismiss{margin-left:auto;flex-shrink:0;width:18px;height:18px;min-height:0;padding:2px;border-radius:4px;color:var(--color-muted);display:flex;align-items:center;justify-content:center}
+.real-client .index-status:not(:empty){padding:8px 0}
+.real-client .index-status-row{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.real-client .index-status-primary{font-weight:500;color:var(--color-secondary)}
+.real-client .index-status-meta{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:var(--text-caption);color:var(--color-muted)}
+.real-client .index-status-failure{color:var(--color-ink);font-weight:500}
+.real-client .index-status-dismiss{flex-shrink:0;width:28px;height:28px;min-height:28px;margin-top:0;padding:6px;border-radius:6px;color:var(--color-muted);display:flex;align-items:center;justify-content:center}
 .real-client .index-status-dismiss .icon{width:12px;height:12px}
 .real-client .index-status-dismiss:hover{color:var(--color-ink);background:var(--color-selected)}
 
@@ -394,9 +398,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client.windows-client.compact-sidebar .sidebar-titlebar>.icon-button{margin:0 auto}
 :root:has(.windows-client){--window-bar-height:32px}
 
-.real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
-.real-client:not(.compact-sidebar) .sidebar-titlebar{margin-right:-32px}
-.real-client:not(.compact-sidebar) .sidebar>.tree-heading,.real-client:not(.compact-sidebar) .sidebar>.tree{margin-right:-20px}
+.real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:0}
 .real-client .sidebar .tree-more{width:28px;min-width:28px;height:28px;margin:0}
 
 .real-client .sidebar .tree-row{padding-right:0}
