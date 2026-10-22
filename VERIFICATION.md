@@ -1,6 +1,16 @@
 # 飞牛版验证记录
 
-版本：0.1.9。验证日期：2026-10-22。
+版本：0.1.13。验证日期：2026-10-23。
+
+## 2026-10-23 同步桌面端 main 分支
+
+对照 GitHub Zleap-AI/SAG-Wiki `main`（6153cab..02f01ec，8 个合并请求、25 个提交）逐文件比对。飞牛版源码源自该仓库根提交之前的工作区，`core`、`client`、`protocol`、`cli`、`src` 已有飞牛专属改动（原生权限策略、Unix Socket、文档发布、远程 MCP），因此无法直接 cherry-pick；与根提交一致的 10 个文件直接应用上游补丁，其余按飞牛架构手工移植。上游仅针对 Tauri 桌面、Windows 发布流水线、自动更新和预构建组件清单的改动未移植；fnOS 组件安装仍沿用现有 uv/docling-slim 在线安装流程。
+
+移植内容：内置 anydoc 转换（PDF、Word、PowerPoint、Excel/CSV、OpenDocument、EPUB），扫描件未安装组件时记为索引问题，PEM 私钥不送入转换器；检索跳过已变更、已删除或无法解码的原文件并修正总数，超预算候选跳过；不可读子目录记为索引问题并继续，`.sagignore` 不可读时失败关闭；本地 Jev 基础地址/完整接口地址与无鉴权模式，`sag config --auth`；Docling 安装的按包进度、模型服务连通性探测、安装日志、UTF-8；客户端识别崩溃残留的服务记录；启动失败显示错误与重试。飞牛原生权限拒绝仍使整次查询失败，与上游“跳过不可读文件”区分。
+
+本地验证：Rust 工作区 402 项通过、3 项原有忽略，新增内置转换、扫描件索引问题、PEM 跳过、管道模式进度、不可读子目录、`.sagignore` 失败关闭、Jev 鉴权模式、组件格式校验、后台服务管道释放等用例；前端 17 项通过，Svelte 检查 0 错误 0 警告；浏览器 E2E 新增内置 Word/CSV 转换（未安装 Docling）、已变更文件跳过、本地 Jev 无鉴权保存与问答模型拒绝、安装日志缺失提示、组件格式安装提示与内置格式列表；FPK CI 契约测试 13 项通过；文档站构建通过。
+
+Linux 容器（Debian 12 ARM64，真实 Rust 服务）：文档发布 15 项场景通过；生命周期、stdio MCP、远程 MCP、CLI 与全部安装目标通过；新增内置 Word 转换在未安装 Docling 时完成转换、索引、普通用户可读输出、检索命中与原文件保持不变。x86 与 ARM FPK 本地构建，`scripts/ci/fpk.py verify` 核对 manifest 版本、架构、三个 ELF 程序与 SHA-256。未在 fnOS 实机安装；Docling 真实在线安装（`--docling`）本次未运行。证据：`.local/port-cargo-test.log`、`.local/port-e2e.log`、`.local/port-linux.log`、`.local/port-linux-publish.log`、`.local/qa/fnos-docling-formats.png`、`.local/qa/fnos-docling-download.png`。
 
 ## 2026-10-22 接入指引与 Skill
 
