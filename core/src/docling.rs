@@ -91,6 +91,11 @@ pub fn is_source(path: &Path) -> bool {
     })
 }
 
+fn is_image(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {
+        matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png" | "tif" | "tiff" | "bmp" | "webp" | "gif")
+    })
+}
 pub fn is_pem_key(path: &Path) -> Result<bool> {
     if !path
         .extension()
@@ -1022,7 +1027,10 @@ impl Docling {
             if profile == DoclingProfile::Media {
                 bail!("请在文件设置中安装音视频组件后重试")
             }
-            bail!("请在文件设置中安装图片识别组件后重试")
+            if handoff.is_some() || is_image(source) {
+                bail!("请在文件设置中安装图片识别组件后重试")
+            }
+            bail!("此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试")
         }
         let component_home = if profile == DoclingProfile::Media {
             self.home.join("media")

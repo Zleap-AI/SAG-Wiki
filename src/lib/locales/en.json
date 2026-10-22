@@ -597,7 +597,6 @@
   "模型绑定了未知的 SAG 工具": "The model has an unknown SAG tool enabled",
   "文本与 RTF": "Text and RTF",
   "RTF 正文": "RTF text",
-  "支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件。首次加入无需模型预处理。": "Supports Markdown, plain text, RTF, common code files, and JSON / YAML / TOML configuration files. No model preprocessing is needed when files are first added.",
   "RTF 格式无效，无法读取正文": "Invalid RTF format. Could not read the document text.",
   "RTF 正文读取目前仅支持 macOS": "RTF text extraction is currently supported on macOS only.",
   "默认扩展 1 次；加上首次召回，共 2 轮检索": "One expansion round by default, for two retrieval rounds in total.",
@@ -1113,7 +1112,6 @@
   "正在读取下载状态…": "Loading download status…",
   "选择": "Select",
   "安装 Docling": "Install Docling",
-  "本地转换为 Markdown，原文件保留。": "Convert locally to Markdown. Original files are kept.",
   "本地文档转换组件": "Local document conversion component",
   "卸载相关组件": "Uninstall components",
   "转换与保存方式": "Conversion and storage",
@@ -1263,5 +1261,9 @@
   "文档超过安全限制：{value0}": "The document exceeds a safety limit: {value0}",
   "内置转换未提取到正文": "Built-in conversion extracted no text",
   "内置转换超过 120 秒时间限制": "Built-in conversion exceeded the 120 second limit",
-  "内置转换线程异常退出": "The built-in conversion thread exited unexpectedly"
+  "内置转换线程异常退出": "The built-in conversion thread exited unexpectedly",
+  "已停止转换，未发布输出": "Conversion stopped; nothing was published",
+  "文档超过 512 MiB 转换输入限制": "The document exceeds the 512 MiB conversion input limit",
+  "转换输出超过 64 MiB 限制": "The converted output exceeds the 64 MiB limit",
+  "此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试": "This format needs the Docling document component. Install the image recognition component in File settings and retry"
 }

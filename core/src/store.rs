@@ -1001,9 +1001,11 @@ impl Store {
                 return self.scan_inner(root, Path::new(root), progress);
             }
             // Built-in formats are always converted, so a new or moved directory that
-            // holds any convertible source also needs the conversion pass.
-            if path.is_dir() && !self.conversion_files(Path::new(root), path, &settings, &excluded)?.0.is_empty() {
-                return self.scan_inner(root, Path::new(root), progress);
+            // holds a convertible source needs the conversion pass for that subtree.
+            if path.is_dir() && walkdir::WalkDir::new(path).follow_links(false).into_iter()
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_type().is_file() && crate::anydoc::handles(entry.path()) && !crate::docling::in_output(entry.path())) {
+                return self.scan_inner(root, path, progress);
             }
         }
         let mut ignore = ignore_rules::matcher(Path::new(root));

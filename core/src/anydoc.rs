@@ -1,6 +1,6 @@
 //! Built-in document conversion with the anydoc crate (MIT).
 //!
-//! Handles PDF, Word, PowerPoint, Excel/CSV, OpenDocument, RTF and EPUB in
+//! Handles PDF, Word, PowerPoint, Excel/CSV, OpenDocument and EPUB in
 //! process without any downloaded component. It does not do OCR: a scanned
 //! PDF is reported as [`Outcome::NeedsOcr`] so the caller can hand it to the
 //! Docling component when that is installed.
@@ -111,7 +111,8 @@ fn map_error(error: anydoc::ConvertError) -> Failure {
     match error {
         Unsupported(detail) => Failure::new(FailureKind::Compatibility, format!("内置转换不支持该文件：{detail}")),
         Malformed { .. } | MissingPart { .. } => Failure::new(FailureKind::Compatibility, format!("文档结构无法读取：{error}")),
-        Encrypted => Failure::new(FailureKind::Compatibility, "文档已加密，无法转换"),
+        // Docling cannot open it either; do not hand off.
+        Encrypted => Failure::new(FailureKind::Exit, "文档已加密，无法转换"),
         ResourceLimit { .. } => Failure::new(FailureKind::Memory, format!("文档超过安全限制：{error}")),
         Io(inner) => Failure::new(FailureKind::Io, inner.to_string()),
         _ => Failure::new(FailureKind::Compatibility, error.to_string()),

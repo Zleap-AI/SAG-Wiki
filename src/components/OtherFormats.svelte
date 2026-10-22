@@ -31,8 +31,9 @@
  $:needsInstall=!preserveLegacyAll&&missingProfiles.length>0;
  async function showDetails(){
   selectionVersion++;revokeInstall();legacyAll=enabled&&formats==null;selectionChanged=false;
-  // First-time users choose explicitly; a preselected set would silently install every component.
-  selected=formats==null?(legacyAll?status.formats.flatMap(([,extensions])=>extensions):[]):[...formats];
+  // Nothing is preselected: a ticked component format would install gigabytes on one click.
+  // A legacy "all formats" preference stays in force until the user changes the selection.
+  selected=formats==null?[]:[...formats];
   selectionError='';draftWorkers=workers??1;savedWorkers=draftWorkers;workersReady=workers!==undefined;details=true;
   if(workers===undefined){
    workersLoading=true;

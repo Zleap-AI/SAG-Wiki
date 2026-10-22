@@ -145,3 +145,12 @@ it('旧状态读取晚于卸载结果返回时，不能把组件重新显示为�
  find('选择其他格式').click();await tick();expect(document.querySelector<HTMLButtonElement>('.uninstall-docling')?.disabled).toBe(true);
  expect(applied().enabled).toBe(false);
 });
+
+it('旧版全部格式偏好打开对话框时不预选任何组件格式',async()=>{
+ invoke.mockResolvedValue({...initial,installed:true});
+ app=mount(Harness,{target:document.body,props:{enabled:true,formats:null}});
+ await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();
+ expect(find('转换 .mp3').getAttribute('aria-checked')).toBe('false');
+ expect(find('转换 .mp4').getAttribute('aria-checked')).toBe('false');
+ expect(document.body.textContent).toContain('沿用原有全部格式范围');
+});
