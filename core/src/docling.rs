@@ -502,6 +502,7 @@ impl Docling {
                 .arg(staging.path());
         } else {
             self.progress("models", "正在下载文档识别模型…");
+            self.check_model_host()?;
             command
                 .args([
                     "-m",
@@ -531,6 +532,39 @@ impl Docling {
             |runtime| self.probe_component(runtime, &cancel),
             self.profile,
         )
+    }
+    /// Fails fast when the model host is unreachable. Without this the
+    /// Hugging Face client retries silently and the user watches a frozen
+    /// 0% for up to half an hour before any error appears.
+    fn check_model_host(&self) -> Result<()> {
+        let endpoint = std::env::var("HF_ENDPOINT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "https://huggingface.co".into());
+        let url = format!("{}/api/models/docling-project/docling-layout-heron", endpoint.trim_end_matches('/'));
+        self.status.lock().unwrap().message = format!("正在连接模型服务 {endpoint}…");
+        let probe: Result<std::result::Result<(), reqwest::Error>> = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let client = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(15))
+                .build()?;
+            let request = client.head(&url).send();
+            tokio::pin!(request);
+            loop {
+                tokio::select! {
+                    result = &mut request => break Ok(result.map(|_| ())),
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        if self.cancel.load(Ordering::Relaxed) { bail!("已取消下载，可稍后重试") }
+                    }
+                }
+            }
+        });
+        match probe? {
+            Ok(()) => Ok(()),
+            Err(error) => bail!(
+                "无法连接模型服务 {endpoint}：{error}。请检查网络或代理；如需镜像，可在启动前设置 HF_ENDPOINT 环境变量（例如 https://hf-mirror.com）。"
+            ),
+        }
     }
     fn run_install(&self, command: &mut Command, timeout: Duration) -> Result<()> {
         let cancel = || self.cancel.load(Ordering::Relaxed);
