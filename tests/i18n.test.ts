@@ -19,6 +19,7 @@ describe('interface translations',()=>{
   expect(translate('无法读取原文件：/资料/会议.md','en')).toBe('Could not read the source file: /资料/会议.md');
   expect(translate('文件已修改，请刷新索引：/资料/会议.md','en')).toBe('The source file has changed. Refresh the index: /资料/会议.md');
   expect(translate('Error: MCP 工具调用超时','en')).toBe('Error: MCP tool call timed out');
+  expect(translate('不支持的转换格式：unknown','en')).toBe('Unsupported conversion format: unknown');
   expect(translate('Returned by provider: example error','en')).toBe('Returned by provider: example error');
  });
  it('updates the active translator and formats original source locations',()=>{

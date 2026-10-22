@@ -138,6 +138,9 @@ pub struct EventEnvelope {
 pub enum Operation {
     DoclingStatus,
     InstallDocling,
+    InstallDoclingProfiles {
+        profiles: Vec<DoclingProfile>,
+    },
     CancelDoclingInstall,
     UninstallDocling,
     Info,
@@ -188,11 +191,20 @@ pub enum Operation {
     ReindexAll,
     GetIndexStatus,
     GetIndexHistory,
-    GetIndexHistoryLog { id: i64 },
-    SetConversionWorkers { workers: usize },
-    AuthorizeIndexHistoryFile { id: i64, path: String },
+    GetIndexHistoryLog {
+        id: i64,
+    },
+    SetConversionWorkers {
+        workers: usize,
+    },
+    AuthorizeIndexHistoryFile {
+        id: i64,
+        path: String,
+    },
     ClearIndexHistory,
-    SetIndexPaused { paused: bool },
+    SetIndexPaused {
+        paused: bool,
+    },
     RemoveAllRoots,
     PutDraft {
         draft: Draft,
@@ -202,6 +214,9 @@ pub enum Operation {
         path: String,
     },
     GetSettings,
+    RegisterDoclingComponent {
+        path: String,
+    },
     SaveSettings {
         settings: Settings,
         answer_key: String,
@@ -309,6 +324,20 @@ pub enum Output {
     Evidence(ExploreEvidence),
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DoclingProfile {
+    Documents,
+    Media,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DoclingProfileStatus {
+    pub id: DoclingProfile,
+    pub installed: bool,
+    pub extensions: Vec<String>,
+}
+
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct DoclingStatus {
     pub installed: bool,
@@ -321,6 +350,10 @@ pub struct DoclingStatus {
     pub percent: Option<f64>,
     pub error: Option<String>,
     pub formats: Vec<(String, Vec<String>)>,
+    #[serde(default)]
+    pub profiles: Vec<DoclingProfileStatus>,
+    #[serde(default)]
+    pub requested_profiles: Vec<DoclingProfile>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "frame", rename_all = "snake_case")]
@@ -346,4 +379,43 @@ pub enum Frame {
     Event {
         envelope: EventEnvelope,
     },
+}
+
+#[cfg(test)]
+mod docling_profile_tests {
+    use super::*;
+
+    #[test]
+    fn profile_status_preserves_readiness_without_breaking_legacy_payloads() {
+        let old = serde_json::json!({"installed":true,"running":false,"stage":"done","message":"","downloaded":0,"total":null,"error":null,"formats":[["PDF",["pdf"]]]});
+        let legacy: DoclingStatus = serde_json::from_value(old.clone()).unwrap();
+        assert!(legacy.installed);
+        let mut next = old;
+        next["profiles"] = serde_json::json!([
+            {"id":"documents","installed":true,"extensions":["pdf"]},
+            {"id":"media","installed":false,"extensions":["mp3","mp4"]}
+        ]);
+        next["requested_profiles"] = serde_json::json!(["media"]);
+        let status: DoclingStatus = serde_json::from_value(next.clone()).unwrap();
+        let encoded = serde_json::to_value(status).unwrap();
+        assert_eq!(encoded["profiles"], next["profiles"]);
+        assert_eq!(encoded["requested_profiles"], next["requested_profiles"]);
+    }
+
+    #[test]
+    fn explicit_profile_install_is_additive_to_the_legacy_document_operation() {
+        let old: Operation =
+            serde_json::from_value(serde_json::json!({"operation":"install_docling"})).unwrap();
+        assert_eq!(
+            serde_json::to_value(old).unwrap(),
+            serde_json::json!({"operation":"install_docling"})
+        );
+        let request = serde_json::json!({"operation":"install_docling_profiles","args":{"profiles":["media"]}});
+        let operation = serde_json::from_value::<Operation>(request.clone());
+        assert!(
+            operation.is_ok(),
+            "explicit media installation must have its own operation"
+        );
+        assert_eq!(serde_json::to_value(operation.unwrap()).unwrap(), request);
+    }
 }

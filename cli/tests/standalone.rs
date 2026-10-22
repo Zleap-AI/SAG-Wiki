@@ -22,14 +22,20 @@ fn twenty_standalone_processes_search_the_same_index_concurrently() {
     listener.set_nonblocking(true).unwrap();
     fs::create_dir(&data).unwrap();
     let store = sag_core::store::Store::open(&data.join("sag.sqlite")).unwrap();
-    let registered = store.add_root(&root).unwrap();
-    store.scan(&registered, |_| {}).unwrap();
     let mut settings = store.settings().unwrap();
     settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
     settings.retrieval.max_hops = 0;
     store.save_settings(&settings).unwrap();
     sag_core::models::save_secret(&data, "jev", "test-only").unwrap();
     drop(store);
+    // Establish a ready shared index through the actual service before testing
+    // search concurrency. A pre-scanned database is scanned again on startup.
+    let added = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", &data).current_dir(&root)
+        .args(["add", "--json"]).output().unwrap();
+    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    let added: serde_json::Value = serde_json::from_slice(&added.stdout).unwrap();
+    assert_eq!(added["index_status"], "ready");
     let server = std::thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(8);
         let mut requests = vec![];
@@ -69,7 +75,9 @@ fn twenty_standalone_processes_search_the_same_index_concurrently() {
         .stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap()).collect();
     let concurrent = server.join().unwrap();
     let outputs: Vec<_> = children.into_iter().map(|child| child.wait_with_output().unwrap()).collect();
-    assert_eq!(concurrent, 20, "twenty searches must reach the model before any receives a response");
+    let failures: Vec<_> = outputs.iter().enumerate().filter(|(_, output)| !output.status.success())
+        .map(|(index, output)| format!("CLI {index} ({}): {}", output.status, String::from_utf8_lossy(&output.stderr))).collect();
+    assert_eq!(concurrent, 20, "twenty searches must reach the model before any receives a response; failed children: {failures:?}");
     for output in outputs {
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();

@@ -16,9 +16,9 @@ sag
 
 已发布的 `@zleap-ai/sag` 包含这两个平台的原生程序，无需 Rust、源码编译或桌面端。npm 负责注册 `sag` 命令；已有可用的 `sag` 时直接复用。
 
-首次在交互终端运行 `sag` 会引导配置 JEV 检索服务。接口地址和模型名显示当前值，直接回车即可保留；首次使用必须填写密钥，输入隐藏。默认地址为 `https://api.302ai.cn/typesafeai/v1`，模型为 `jev-latest`。纯 CLI 搜索只需要这一项检索配置，问答模型在桌面端另行设置。
+首次在交互终端运行 `sag` 会引导配置 JEV 检索服务。接口地址和模型名显示当前值，直接回车即可保留；默认使用 API Key 鉴权，首次配置此模式时填写密钥，输入隐藏。默认地址为 `https://api.302ai.cn/typesafeai/v1`，模型为 `jev-latest`。纯 CLI 搜索只需要这一项检索配置，问答模型在桌面端另行设置。
 
-如果安装时没有终端，首次在终端运行 `sag` 或 `sag "搜索内容"` 会自动进入同一引导；从搜索进入时，保存后继续原来的查询。已有密钥时自动使用现有配置。Ctrl+C 可取消，填写完成前不会保存。`sag config` 可以随时重新配置。
+如果安装时没有终端，首次在终端运行 `sag` 或 `sag "搜索内容"` 会自动进入同一引导；从搜索进入时，保存后继续原来的查询。已有可用的 API Key 或无需鉴权配置时自动复用。Ctrl+C 可取消，填写完成前不会保存。`sag config` 可以随时重新配置。
 
 已有本机密钥文件时，可通过标准输入配置，并按需指定接口和模型：
 
@@ -28,9 +28,17 @@ sag config --url "$JEV_URL" --model "$JEV_MODEL" --key-stdin < "$JEV_KEY_FILE"
 
 通常直接运行 `sag`，在隐藏输入提示中填写密钥即可。不要将密钥粘贴到聊天中或写进命令参数。
 
+本地 Jev 服务不需要鉴权时，显式配置以下选项。地址可以是基础 URL，或完整的 `/systemone`、`/decisions` 接口；模型名使用服务提供的名称。
+
+```sh
+sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none
+```
+
+`--auth none` 会移除已保存的 Jev 密钥，并省略鉴权头。切回需要密钥的服务时，使用 `--auth bearer --key-stdin` 并提供该服务的密钥。`sag config --if-needed` 会复用无需鉴权配置。
+
 密钥存入当前用户私有配置，不显示在配置结果或安装日志中。非交互环境不会等待输入；Agent 可读取明确错误并提示用户在终端运行 `sag`。`sag config --if-needed` 仅在缺少配置时引导，已有配置则保留；普通管道环境运行 `sag config` 只输出脱敏配置和是否已有密钥。
 
-把 [GitHub 上的 SAG Skill 链接](https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md) 发给 Agent，并要求按其中的 setup 流程配置当前项目，Agent 会获取同一目录的配套文件，完成 CLI 安装、Skill 安装、配置检查、项目索引和检索验证。首次密钥输入由用户在终端中完成。源代码构建仅用于开发，见[开发指南](开发指南.md)。
+把 [GitHub 上的 SAG Skill 链接](https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md) 发给 Agent，并要求按其中的 setup 流程配置当前项目，Agent 会获取同一目录的配套文件，完成 CLI 安装、Skill 安装、配置检查、项目索引和检索验证。使用 API Key 鉴权时，首次密钥输入由用户在终端中完成。源代码构建仅用于开发，见[开发指南](开发指南.md)。
 
 ## 与桌面端共用
 

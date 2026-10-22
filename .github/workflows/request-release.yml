@@ -1,0 +1,40 @@
+name: Request desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing reviewed version tag (vX.Y.Z)
+        required: true
+        default: v0.1.9
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: request-release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  request:
+    if: github.repository == 'Zleap-AI/SAG-Wiki' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      # No checkout or signing secrets. The bot starts the tag workflow so the
+      # single human maintainer can approve its protected signing deployment.
+      - name: Dispatch the existing tag as the Actions bot
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected vX.Y.Z'; exit 1; }
+          target=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          relation=$(gh api "repos/$GITHUB_REPOSITORY/compare/$target...main" --jq .status)
+          [[ "$relation" == ahead || "$relation" == identical ]] || { echo 'Tag must belong to main'; exit 1; }
+          gh workflow run desktop-release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
+          echo "Requested $RELEASE_TAG ($target). Approve the release environment after both platform checks pass." >> "$GITHUB_STEP_SUMMARY"

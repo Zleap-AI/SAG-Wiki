@@ -1,0 +1,8 @@
+# Only the audited pure Python Whisper sdist may build; no audio/video extras.
+docling-slim[standard]==2.140.0
+openai-whisper==20250625
+numba==0.68.0
+llvmlite==0.50.0
+tiktoken==0.14.0
+more-itertools==11.2.1
+imageio-ffmpeg==0.6.0

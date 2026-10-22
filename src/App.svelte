@@ -1,6 +1,8 @@
 <script lang="ts">
  import {t,setLanguage} from './lib/i18n';
  import {externalLinkClick} from './lib/external-links';
+ import {applyTheme,watchSystemTheme} from './lib/theme';
+ import DesktopTitlebar from './components/DesktopTitlebar.svelte';
  import {indexStages} from './lib/index-stages';
  import LibraryWorkspace from './components/LibraryWorkspace.svelte';
  import IndexDetails from './components/IndexDetails.svelte';
@@ -14,7 +16,7 @@
  import Select from "./components/ui/Select.svelte";
  import{Button,Pagination,Popover}from 'bits-ui';
  import type {SearchPagination} from './lib/types';
- import{onMount,tick}from 'svelte';import{listen}from '@tauri-apps/api/event';import{getCurrentWindow}from '@tauri-apps/api/window';
+ import{onMount,tick}from 'svelte';import{listen}from '@tauri-apps/api/event';
  import Modal from './components/ui/Modal.svelte';
  import HistorySearch from './components/HistorySearch.svelte';
  import Timestamp from './components/Timestamp.svelte';
@@ -34,6 +36,8 @@
  import {followChat} from './lib/chat-scroll';
  import {answerHtml} from './lib/answer-html';
  import {answerEvents} from './lib/answer-events';
+ import {subscribeDataChanges} from './lib/data-changes';
+ import {stableRows} from './lib/stable-snapshot';
  import HighlightedDocument from './components/HighlightedDocument.svelte';import HtmlDocument from './components/HtmlDocument.svelte';import{highlightedText,searchSnippet,searchText,documentMatchIndex}from './lib/search-highlights';
  import Tree from './components/Tree.svelte';import SettingsPanel from './components/Settings.svelte';import UpdateNotification from './components/UpdateNotification.svelte';import{api}from './lib/api';import{icon,logo}from './lib/icons';import{basename,dirname,normalizeScope,documentResults,escaped,fileName,inside,indexedSourcePath,isMarkdown,isRtf,isHtml,readonlyHtml,compactNumber,durationLabel}from './lib/domain';import type{Root,Entry,FileInfo,Document,Draft,Settings,Conversation,Candidate,Progress,QueryOutput,Message,McpCredentials,ToolApproval}from './lib/types';
  let librarySessions:Record<string,LibrarySession>={'':createLibrarySession()};let libraryRevision=0;let exploreReturn='';let documentFromSearch=false,documentFromConversation=false,documentSearchScroll=0,documentConversationScroll=0,documentInitialMatch=0;let chatLog:HTMLDivElement;
@@ -65,7 +69,9 @@
  $:indexing=roots.some(r=>r.status!=='ready'&&r.status!=='error'&&r.status!=='partial');
  $:indexFailed=roots.some(r=>r.status==='error'||r.status==='partial');
  $:indexStage=indexStages.find(item=>item.stage===indexProgress?.stage);
- $:indexStatusText=indexPaused?$t("SAG 索引已暂停"):indexing?indexStage?$t("SAG {value0}{value1}{value2}",{value0:$t(indexStage.progress),value1:indexPercent===null?'':`（${indexPercent}%）`,value2:indexFailed?$t(' · 部分失败'):''}):(indexPercent===null?(indexFailed?$t("SAG 正在索引（部分失败）"):$t("SAG 正在索引…")):(indexFailed?$t("SAG 正在索引（{value0}% 部分失败）",{value0:indexPercent}):$t("SAG 正在索引（{value0}%）",{value0:indexPercent}))):(roots.every(r=>r.status==='error')?$t("SAG · 读取失败"):$t("SAG · 部分失败"));
+ $:indexStatusText=indexPaused?$t("SAG 索引已暂停"):indexing?indexStage?$t("SAG {value0}{value1}{value2}",{value0:$t(indexStage.progress),value1:indexPercent===null?'':`（${indexPercent}%）`,value2:''}):(indexPercent===null?$t("SAG 正在索引…"):$t("SAG 正在索引（{value0}%）",{value0:indexPercent})):$t("SAG · 索引已结束");
+ $:indexStatusCount=indexProgress?$t("已处理 {value0} / {value1} 个文件",{value0:indexProgress.count,value1:indexProgress.total}):$t("已索引 {value0} 个文件",{value0:roots.reduce((count,root)=>count+root.count,0)});
+ $:indexFailureText=roots.length>0&&roots.every(root=>root.status==='error')?$t('读取失败'):$t('部分失败');
  let onboardingOpen=false;
  function closeOnboarding(){localStorage.setItem('sag.onboarding.seen','1');onboardingOpen=false;}
  let historySearchOpen=false,folderPickerOpen=false,newDocumentOpen=false,newDocumentFolder='';
@@ -95,28 +101,49 @@
  $:groups=searchRanked?rankedGroups.slice((searchPage-1)*20,searchPage*20):rankedGroups;
  $:searchStageText=stage==='SAG2 正在分析'?$t("正在准备搜索"):stage==='正在检索原文'?$t("正在查找相关文件"):stage==='正在扩展检索'?$t("正在扩展搜索范围"):stage==='Jev 正在判断相关原文'?$t("正在按相关性排序"):$t(stage);
  $:mentions=files.filter(f=>!references.includes(f.path)&&(f.name.toLowerCase().includes(mentionTerm.toLowerCase())||f.path.toLowerCase().includes(mentionTerm.toLowerCase()))).slice(0,20);
- $:if(settings){document.documentElement.dataset.theme=settings.theme==='system'?(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light'):settings.theme;document.documentElement.style.setProperty('--editor-font-size',`${settings.editor_size}px`)}
+ $:if(settings){applyTheme(settings.theme);document.documentElement.style.setProperty('--editor-font-size',`${settings.editor_size}px`)}
+ onMount(watchSystemTheme);
  async function answerApproval(allow:boolean){if(!toolApproval)return;const id=toolApproval.id;toolApproval=null;try{await api('resolve_tool_approval',{id,allow})}catch(e){notify($t(String(e)))}}
  function clearConversationState(){closeNotice();conversations=[];conversation=null;pending=null;renderedAnswers={};ask='';references=[];source=null;historySearchOpen=false;editingMessage=null;retryIndex=null;askJob='';askBusy=false;askStage='';activeToolId='';error='';toolApproval=null;localStorage.removeItem('sag.history.scroll');}
  function closeNotice(){clearTimeout(noticeTimer);toast='';undo=null;}
- function clearFoldersState(){roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;if(view==='files')view='ask';}
+ function clearFoldersState(){refreshGeneration++;refreshPending=false;roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;if(view==='files')view='ask';}
  function scheduleNotice(){clearTimeout(noticeTimer);if(!toast||document.hidden||document.querySelector('#notice:hover, #notice:focus-within'))return;noticeTimer=setTimeout(closeNotice,undo?8000:3000);}
  function notify(message:string,action:(()=>Promise<void>)|null=null){toast=message;undo=action;scheduleNotice();}
- async function refresh(){
-  roots=await api<Root[]>('list_roots');
-  indexPaused=(await api<IndexStatus>('get_index_status')).paused;
-  if(indexProgress&&!roots.some(r=>r.path===indexProgress?.path&&r.status==='indexing'))indexProgress=null;
-  files=await api<FileInfo[]>('list_files');
-  const removed=await api<string[]>('list_removed_directories');
-  const included=(path:string)=>!removed.some(directory=>inside(path,directory));
-  expanded=new Set([...expanded].filter(path=>included(path)&&roots.some(root=>inside(path,root.path))));scopeExpanded=new Set([...scopeExpanded].filter(included));
-  scope=scope.filter(included);references=references.filter(included);
-  cache=Object.fromEntries(Object.entries(cache).filter(([path])=>included(path)));
-  if(selected&&!included(selected)&&!draft){selected=roots.find(root=>inside(selected,root.path))?.path||'';}
-  for(const path of [...expanded,...scopeExpanded,selected].filter(Boolean)){
-   if(included(path)&&roots.some(r=>inside(path,r.path)))cache={...cache,[path]:await api<Entry[]>('list_entries',{path})};
+ let refreshGeneration=0,refreshPending=false,refreshRunning:Promise<void>|null=null,appDisposed=false;
+ function refresh():Promise<void>{
+  if(appDisposed)return Promise.resolve();
+  refreshGeneration++;refreshPending=true;
+  if(!refreshRunning)refreshRunning=refreshSnapshots().finally(()=>{refreshRunning=null;if(refreshPending&&!appDisposed)return refresh();});
+  return refreshRunning;
+ }
+ function indexPauseChanged(paused:boolean){if(indexPaused===paused)return;indexPaused=paused;void refresh().catch(e=>notify($t(String(e))));}
+ async function refreshSnapshots(){
+  while(refreshPending&&!appDisposed){
+   refreshPending=false;const generation=refreshGeneration;
+   try{
+    const paths=[...new Set([...expanded,...scopeExpanded,selected].filter(Boolean))];
+    const [nextRoots,nextStatus,nextFiles,removed]=await Promise.all([
+     api<Root[]>('list_roots'),api<IndexStatus>('get_index_status'),api<FileInfo[]>('list_files'),api<string[]>('list_removed_directories')
+    ]);
+    if(appDisposed||generation!==refreshGeneration)continue;
+    const included=(path:string)=>!removed.some(directory=>inside(path,directory));
+    const entries=await Promise.all(paths.filter(path=>included(path)&&nextRoots.some(root=>inside(path,root.path))).map(async path=>[path,await api<Entry[]>('list_entries',{path})] as const));
+    if(appDisposed||generation!==refreshGeneration)continue;
+    const stableRoots=stableRows(roots,nextRoots,root=>root.path),stableFiles=stableRows(files,nextFiles,file=>file.id);
+    if(stableRoots!==roots)roots=stableRoots;
+    if(stableFiles!==files)files=stableFiles;
+    if(indexPaused!==nextStatus.paused)indexPaused=nextStatus.paused;
+    if(indexProgress&&!nextRoots.some(root=>root.path===indexProgress?.path&&root.status==='indexing'))indexProgress=null;
+    expanded=new Set([...expanded].filter(path=>included(path)&&nextRoots.some(root=>inside(path,root.path))));scopeExpanded=new Set([...scopeExpanded].filter(included));
+    scope=scope.filter(included);references=references.filter(included);
+    const nextCache=Object.fromEntries(Object.entries(cache).filter(([path])=>included(path)));
+    let cacheChanged=Object.keys(nextCache).length!==Object.keys(cache).length;
+    for(const [path,rows] of entries){const stable=stableRows(cache[path]??[],rows,entry=>entry.path);if(stable!==cache[path]){nextCache[path]=stable;cacheChanged=true;}}
+    if(cacheChanged)cache=nextCache;
+    if(selected&&!included(selected)&&!draft)selected=nextRoots.find(root=>inside(selected,root.path))?.path||'';
+    libraryRevision++;
+   }catch(error){if(appDisposed)return;if(!refreshPending)throw error;}
   }
-  libraryRevision++;
  }
 
  async function history(){conversations=await api<Conversation[]>('list_conversations');if(conversation){conversation=conversations.find(c=>c.id===conversation!.id)||null}}
@@ -307,15 +334,15 @@
   window.addEventListener('open-external-link',openLink);
   return()=>window.removeEventListener('open-external-link',openLink);
  });
- onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;void(async()=>{try{cleanup.push(await listen('quit-requested',requestQuit));cleanup.push(await listen<{path:string;count:number;total:number;stage?:string}>('index-progress',e=>{if(e.payload.count===0)indexStatusHidden=false;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.credential_error)notify(settings.credential_error);searchHistory=JSON.parse(localStorage.getItem('sag.search.history')??'[]');view=settings.start_page;await Promise.all([refresh(),history()]);const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=dirname(draft.path);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}cleanup.push(await listen('data-changed',()=>refresh().catch(e=>notify($t(String(e))))));cleanup.push(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));cleanup.push(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));cleanup.push(await listen<string>('app-error',e=>notify(e.payload)));cleanup.push(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob)toolApproval=e.payload}));cleanup.push(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));onboardingOpen=localStorage.getItem('sag.onboarding.seen')!=='1';}catch(e){error=$t(String(e))}finally{if(active)loading=false}})();return()=>{active=false;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
+ onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<{path:string;count:number;total:number;stage?:string}>('index-progress',e=>{if(e.payload.count===0)indexStatusHidden=false;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.credential_error)notify(settings.credential_error);searchHistory=JSON.parse(localStorage.getItem('sag.search.history')??'[]');view=settings.start_page;await Promise.all([refresh(),history()]);const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=dirname(draft.path);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<string>('app-error',e=>notify(e.payload)));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));onboardingOpen=localStorage.getItem('sag.onboarding.seen')!=='1';}catch(e){error=$t(String(e))}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
 </script>
 <svelte:window on:keydown={keys} on:contextmenu|preventDefault/>
-<div class="desktop-window real-client" class:compact-sidebar={collapsed} data-sidebar-motion={sidebarMotion}>
-
+<div class="desktop-window real-client" class:windows-client={!mac} class:compact-sidebar={collapsed} data-sidebar-motion={sidebarMotion}>
+ {#if !mac}<DesktopTitlebar/>{/if}
  <div class="shell">
- <aside class="sidebar"><div class="sidebar-titlebar" data-tauri-drag-region>{#if !mac}<div class="window-controls windows"><Button.Root aria-label={$t("最小化")} onclick={()=>getCurrentWindow().minimize()}>{@html icon('minimize')}</Button.Root><Button.Root aria-label={$t("最大化")} onclick={()=>getCurrentWindow().toggleMaximize()}>{@html icon('maximize')}</Button.Root><Button.Root aria-label={$t("关闭")} onclick={()=>getCurrentWindow().close()}>{@html icon('close')}</Button.Root></div>{/if}<Button.Root class="icon-button" aria-label={collapsed?$t("展开侧边栏"):$t("收起侧边栏")} title={collapsed?$t("展开侧边栏"):$t("收起侧边栏")} aria-expanded={!collapsed} onclick={toggleSidebar}>{@html icon('panel')}</Button.Root></div><div class="brand-row">{@html logo}<span class="brand">{'SAG Wiki'}</span></div>
+ <aside class="sidebar"><div class="sidebar-titlebar" data-tauri-drag-region><Button.Root class="icon-button" aria-label={collapsed?$t("展开侧边栏"):$t("收起侧边栏")} title={collapsed?$t("展开侧边栏"):$t("收起侧边栏")} aria-expanded={!collapsed} onclick={toggleSidebar}>{@html icon('panel')}</Button.Root></div><div class="brand-row">{@html logo}<span class="brand">{'SAG Wiki'}</span></div>
  <div class="tree-heading"><Button.Root class="folder-management-link" onclick={()=>libraryBrowse('').catch(e=>notify($t(String(e))))}>{$t("文件夹管理")}</Button.Root><Button.Root class="icon-button" title={$t("添加文件夹")} aria-label={$t("添加文件夹")} onclick={add}>{@html icon('plus')}</Button.Root></div><div class="tree" use:rememberScroll={{key:'sag.sidebar.library.scroll',enabled:!loading&&!collapsed}}><Tree nodes={roots} {expanded} cache={indexedCache} selected={view==='files'?selected:view==='editor'&&draft?indexedSourcePath(draft.path):view==='document'&&readOnlyDoc?indexedSourcePath(readOnlyDoc.path):''} onbrowse={(path)=>browse(path).catch(e=>notify($t(String(e))))} ontoggle={(path)=>toggle(path).catch(e=>notify($t(String(e))))} onmenu={showMenu}/>{#if !loading&&!roots.length}<div class="folder-empty-state"><p>{$t("添加文件夹后，即可对其中的文件提问和搜索。")}</p><Button.Root class="outline" onclick={add}>{@html icon('plus')}<span>{$t("添加文件夹")}</span></Button.Root></div>{/if}</div>
- <div class="index-status">{#if !indexStatusHidden&&(indexFailed||indexing||indexPaused)}<div class="index-status-row"><Button.Root class="index-status-link" aria-label={$t("查看索引详情")} title={indexProgress?$t("已处理 {value0} / {value1} 个文件",{value0:indexProgress.count,value1:indexProgress.total}):undefined} onclick={()=>indexDetailsOpen=true}>{indexStatusText}</Button.Root><Button.Root class="index-status-dismiss" aria-label={$t("隐藏索引状态")} onclick={()=>indexStatusHidden=true}>{@html icon('close')}</Button.Root></div>{/if}</div><div class="sidebar-bottom"><div class="sidebar-tools"><Button.Root onclick={()=>{settingsPage='general';settingsOpen=true}}>{@html icon('settings')}<span>{$t("设置")}</span></Button.Root><DoclingDownload/><Button.Root class="sidebar-help" aria-label={$t("打开帮助文档")} title={$t("帮助文档")} onclick={()=>{void api('open_external_link',{url:'http://sag-wiki.zleap.com'}).catch(e=>notify($t(String(e))))}}>{@html icon('help')}</Button.Root><Button.Root aria-label={$t("切换明暗主题")} onclick={()=>{if(settings)saveSettings({...settings,theme:settings.theme==='dark'?'light':'dark'},'','').then(()=>notify($t('设置已保存'))).catch(e=>notify($t(String(e))))}}>{@html icon(settings?.theme==='dark'?'sun':'moon')}</Button.Root></div></div></aside>
+ <div class="index-status">{#if !indexStatusHidden&&(indexFailed||indexing||indexPaused)}<div class="index-status-row"><Button.Root class="index-status-link" aria-label={$t("查看索引详情")} onclick={()=>indexDetailsOpen=true}><span class="index-status-primary">{indexStatusText}</span><span class="index-status-meta"><span>{indexStatusCount}</span>{#if indexFailed}<span class="index-status-failure">{indexFailureText}</span>{/if}</span></Button.Root><Button.Root class="index-status-dismiss" aria-label={$t("隐藏索引状态")} onclick={()=>indexStatusHidden=true}>{@html icon('close')}</Button.Root></div>{/if}</div><div class="sidebar-bottom"><div class="sidebar-tools"><Button.Root class="sidebar-settings" aria-label={$t("设置")} title={$t("设置")} onclick={()=>{settingsPage='general';settingsOpen=true}}>{@html icon('settings')}<span>{$t("设置")}</span></Button.Root><DoclingDownload/><Button.Root class="sidebar-help" aria-label={$t("打开帮助文档")} title={$t("帮助文档")} onclick={()=>{void api('open_external_link',{url:'http://sag-wiki.zleap.com'}).catch(e=>notify($t(String(e))))}}>{@html icon('help')}</Button.Root><Button.Root aria-label={$t("切换明暗主题")} onclick={()=>{if(settings)saveSettings({...settings,theme:settings.theme==='dark'?'light':'dark'},'','').then(()=>notify($t('设置已保存'))).catch(e=>notify($t(String(e))))}}>{@html icon(settings?.theme==='dark'?'sun':'moon')}</Button.Root></div></div></aside>
  <main class="workspace"><div class="workspace-header" data-tauri-drag-region>{#if view==='ask'&&(shownMessages.length||pending)}<Button.Root class="icon-button workspace-back" title={$t("返回会话列表")} aria-label={$t("返回会话列表")} onclick={newChat}>{@html icon('back')}</Button.Root>{:else if view==='search'&&searched}<Button.Root class="icon-button workspace-back" title={$t("返回搜索")} aria-label={$t("返回搜索")} onclick={()=>resetSearch().catch(e=>notify($t(String(e))))}>{@html icon('back')}</Button.Root>{/if}<nav class="workspace-switch" aria-label={$t("问答、搜索与文件")}><Button.Root class={`nav-item ${view==='ask'?'active':''}`} aria-current={view==='ask'?'page':undefined} title={$t("问答")} onclick={()=>navigate('ask')}>{@html icon('chat')}<span>{$t("问答")}</span></Button.Root><Button.Root class={`nav-item ${view==='search'?'active':''}`} aria-current={view==='search'?'page':undefined} title={$t("搜索（⌘ / Ctrl + K）")} onclick={()=>navigate('search')}>{@html icon('search')}<span>{$t("搜索")}</span></Button.Root><Button.Root class={`nav-item ${fileView?'active':''}`} aria-current={fileView?'page':undefined} title={$t("文件")} onclick={()=>navigate('files')}>{@html icon('folder')}<span>{$t("文件")}</span></Button.Root></nav><Button.Root type="button" class="outline agent-connect-entry" title={$t("接入 Agent")} aria-label={$t("接入 Agent")} onclick={openAgentSetup}>{@html icon('plug')}<span>{$t("接入 Agent")}</span></Button.Root></div>
  <div class="content">
  {#if loading}<div class="empty">{$t("正在打开本地知识库…")}</div>
@@ -363,7 +390,7 @@
 {#if menu}<ActionMenu {menu} onClose={()=>menu=null}/>{/if}
 {#if removeFolderPath}<Modal label={$t("移除文件夹")} onClose={()=>{if(!removingFolder)removeFolderPath=''}}><div class="dialog-head"><h2>{$t("移除文件夹")}</h2></div><div class="dialog-body"><p>{$t("确定移除「{value0}」及其索引吗？",{value0:basename(removeFolderPath)})}</p><p class="small muted" style="overflow-wrap:anywhere">{removeFolderPath}</p><p>{$t("本地原文件和会话记录会保留，之后可重新添加文件夹。")}</p>{#if removeFolderError}<p class="form-error" role="alert">{removeFolderError}</p>{/if}</div><div class="dialog-footer"><Button.Root type="button" aria-label={$t("取消移除文件夹")} disabled={removingFolder} onclick={()=>removeFolderPath=''}>{$t("取消")}</Button.Root><Button.Root type="button" class="primary" aria-label={$t("确认移除文件夹")} disabled={removingFolder} onclick={confirmRemoveFolder}>{$t(removingFolder?"正在移除…":"确认移除")}</Button.Root></div></Modal>{/if}
 {#if scopeOpen}<Modal label={$t("选择查询范围")} class="scope-dialog" onClose={()=>scopeOpen=false}><div class="dialog-head"><h2>{$t("选择查询范围")}</h2><Button.Root class="icon-button" aria-label={$t("关闭")} onclick={()=>scopeOpen=false}>{@html icon('close')}</Button.Root></div><div class="dialog-body"><p>{$t("选中的文件夹包含全部子文件夹。")}</p><Button.Root class="scope-all" aria-pressed={!scopeDraft.length} onclick={()=>scopeDraft=[]}>{@html icon('globe')}<span>{$t("全部文件")}</span>{#if !scopeDraft.length}{@html icon('check')}{/if}</Button.Root><div class="scope-tree"><Tree nodes={roots} expanded={scopeExpanded} {cache} mode="scope" checked={scopeDraft} ontoggle={(path)=>toggle(path,true).catch(e=>notify($t(String(e))))} oncheck={scopeCheck}/></div></div><div class="dialog-footer"><Button.Root onclick={()=>scopeOpen=false}>{$t("取消")}</Button.Root><Button.Root class="primary" onclick={applyScope}>{$t("应用")}</Button.Root></div></Modal>{/if}
-{#if indexDetailsOpen}<IndexDetails {roots} onClose={()=>indexDetailsOpen=false} onPauseChange={paused=>indexPaused=paused}/>{/if}
+{#if indexDetailsOpen}<IndexDetails {roots} onClose={()=>indexDetailsOpen=false} onPauseChange={indexPauseChanged}/>{/if}
 {#if settingsOpen&&settings}<SettingsPanel onBeforeUpdate={protect} onIndexHistory={()=>indexDetailsOpen=true} onDataCleared={clearAllDataState} onFoldersRemoved={clearFoldersState} onConversationsCleared={clearConversationState} value={settings} initial={settingsPage} onClose={()=>settingsOpen=false} onSave={saveSettings} onSaved={()=>notify($t("设置已保存"))} onShowGuide={()=>{settingsOpen=false;onboardingOpen=true}}/>{/if}
 {#if renameId}<Modal label={$t("重命名问答")} onClose={()=>renameId=''}><form on:submit|preventDefault={rename}><div class="dialog-head"><h2>{$t("重命名问答")}</h2></div><div class="dialog-body"><Input data-autofocus aria-label={$t("问答名称")} bind:value={renameTitle} required/></div><div class="dialog-footer"><Button.Root type="button" onclick={()=>renameId=''}>{$t("取消")}</Button.Root><Button.Root class="primary">{$t("保存")}</Button.Root></div></form></Modal>{/if}
 {#if leave}<Modal label={$t("保存文档")} onClose={()=>{void leaveChoice('cancel')}}><div class="dialog-head"><h2>{$t("保存文档？")}</h2></div><div class="dialog-body"><p>{$t("「{value0}」还有未保存内容。",{value0:draft?.name})}</p></div><div class="dialog-footer"><Button.Root onclick={()=>leaveChoice('cancel')}>{$t("取消")}</Button.Root><Button.Root onclick={()=>leaveChoice('discard')}>{$t("不保存")}</Button.Root><Button.Root class="primary" onclick={()=>leaveChoice('save')}>{$t("保存")}</Button.Root></div></Modal>{/if}

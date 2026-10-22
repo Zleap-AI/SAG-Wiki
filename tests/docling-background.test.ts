@@ -33,12 +33,14 @@ it('从设置开始安装后可关闭详情和设置，进度继续更新，再�
  });
  [...document.querySelectorAll<HTMLButtonElement>('.sidebar-tools button')].find(node=>node.textContent==='设置')!.click();await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(node=>node.textContent==='文件设置')!.click();await tick();
- await vi.waitFor(()=>expect(button('安装 Docling')?.disabled).toBe(false));
- button('安装 Docling').click();await tick();
- [...document.querySelectorAll<HTMLButtonElement>('.docling-dialog button')].find(node=>node.textContent==='下载并启用')!.click();
+ await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
+ button('选择其他格式').click();await tick();
+ await vi.waitFor(()=>expect([...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(node=>node.textContent==='安装并应用')?.disabled).toBe(false));
+ [...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(node=>node.textContent==='安装并应用')!.click();await tick();
+ [...document.querySelectorAll<HTMLButtonElement>('.docling-dialog:not(.docling-formats-dialog) button')].find(node=>node.textContent==='安装')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.docling-progress')?.textContent).toContain('38%'));
  [...document.querySelectorAll<HTMLButtonElement>('.docling-dialog button')].find(node=>node.textContent==='后台下载')!.click();await tick();
- expect(document.querySelector('.docling-dialog')).toBeNull();
+ expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
  button('关闭设置').click();await tick();
  expect(document.querySelector('.settings-dialog')).toBeNull();
  current={...current,downloaded:72};
@@ -46,9 +48,9 @@ it('从设置开始安装后可关闭详情和设置，进度继续更新，再�
  button('查看 Docling 安装进度').click();await tick();
  expect(document.querySelector('.docling-dialog progress')?.getAttribute('value')).toBe('72');
  button('关闭下载详情').click();await tick();
- expect(document.querySelector('.docling-dialog')).toBeNull();
+ expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
  await new Promise(resolve=>setTimeout(resolve,850));
- expect(document.querySelector('.docling-dialog')).toBeNull();
+ expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
  expect(invoke.mock.calls.filter(([command])=>command==='install_docling')).toHaveLength(1);
  expect(invoke.mock.calls.some(([command])=>command==='cancel_docling_install')).toBe(false);
  current={...initial,installed:true,stage:'done'};
@@ -57,12 +59,12 @@ it('从设置开始安装后可关闭详情和设置，进度继续更新，再�
 it('已有后台下载不会自动弹窗，无百分比时显示安装中，失败后可查看原因与重试',async()=>{
  let current:DoclingStatus={...initial,running:true,stage:'models',percent:38};await start(()=>current);
  await vi.waitFor(()=>expect(document.querySelector('.docling-progress')?.textContent).toContain('38%'));
- expect(document.querySelector('.docling-dialog')).toBeNull();
+ expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
  current={...current,percent:null};
- await vi.waitFor(()=>expect(document.querySelector('.docling-progress')?.textContent).toBe('Docling 安装中'),{timeout:1800});
+ await vi.waitFor(()=>expect(document.querySelector('.docling-progress')?.textContent).toBe('文件解析支持安装中'),{timeout:1800});
  current={...current,running:false,error:'下载连接失败'};
- await vi.waitFor(()=>expect(document.querySelector('.docling-progress')?.textContent).toBe('Docling 安装失败'),{timeout:1800});
+ await vi.waitFor(()=>expect(document.querySelector('.docling-progress')?.textContent).toBe('文件解析支持安装失败'),{timeout:1800});
  button('查看 Docling 安装进度').click();await tick();
  expect(document.querySelector('.docling-dialog [role="alert"]')?.textContent).toContain('下载连接失败');
- expect(document.querySelector('.docling-dialog')?.textContent).toContain('重试下载');
+ expect(document.querySelector('.docling-dialog')?.textContent).toContain('重试安装');
 });

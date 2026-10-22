@@ -28,8 +28,8 @@ fn folders_keep_independent_types_and_manual_ignore_rules_across_scans() {
     store.scan(&b_root, |_| {}).unwrap();
     let files = store.files().unwrap();
     assert_eq!(files.len(), 2);
-    assert!(files.iter().any(|file| file.path == format!("{a_root}/readme.MD")));
-    assert!(files.iter().any(|file| file.path == format!("{b_root}/main.py")));
+    assert!(files.iter().any(|file| Path::new(&file.path) == Path::new(&a_root).join("readme.MD").as_path()));
+    assert!(files.iter().any(|file| Path::new(&file.path) == Path::new(&b_root).join("main.py").as_path()));
     fs::write(a.join("added.py"), "incremental code").unwrap();
     store.update_paths(&a_root, &[Path::new(&a_root).join("added.py")], |_| {}).unwrap();
     assert_eq!(store.files().unwrap().len(), 2);
@@ -67,7 +67,7 @@ fn active_folders_and_files_cannot_erase_indexes_or_rewrite_rules() {
     fs::write(root.join("note.md"), "source file").unwrap();
     assert!(store.save_folder_index_options(&root.join("note.md"), &options(true, false), true).is_err());
     assert_eq!(fs::read_to_string(root.join(".sagignore")).unwrap(), "untouched.md\n");
-    assert!(!root.join("child/.sagignore").exists());
+    assert!(!root.join("child").join(".sagignore").exists());
 }
 
 #[test]
@@ -90,9 +90,9 @@ fn nested_options_inherit_and_override_without_reindexing_siblings() {
         fs::write(folder.join(relative).join("main.py"), "print('code evidence')").unwrap();
     }
     folder_index::write(&folder, &options(true, false)).unwrap();
-    folder_index::write(&folder.join("child/deeper"), &options(true, false)).unwrap();
-    fs::write(folder.join("child/.sagignore"), "# handwritten rule\nignored.py\n").unwrap();
-    fs::write(folder.join("child/ignored.py"), "ignored content").unwrap();
+    folder_index::write(&folder.join("child").join("deeper"), &options(true, false)).unwrap();
+    fs::write(folder.join("child").join(".sagignore"), "# handwritten rule\nignored.py\n").unwrap();
+    fs::write(folder.join("child").join("ignored.py"), "ignored content").unwrap();
     let database = temp.path().join("index.sqlite");
     let store = Store::open(&database).unwrap();
     let root = store.add_root(&folder).unwrap();
@@ -100,7 +100,7 @@ fn nested_options_inherit_and_override_without_reindexing_siblings() {
     store.scan(&root, |_| {}).unwrap();
     assert_eq!(store.folder_index_options(&child).unwrap(), options(true, false));
     assert_eq!(store.files().unwrap().len(), 4);
-    let sibling = Path::new(&root).join("sibling/note.md");
+    let sibling = Path::new(&root).join("sibling").join("note.md");
     // A sibling read would now fail; a scoped reindex must not inspect it.
     fs::write(&sibling, [0xff, 0xfe, 0x00]).unwrap();
     let returned_root = store.save_folder_index_options(&child, &options(false, true), true).unwrap();
@@ -113,10 +113,10 @@ fn nested_options_inherit_and_override_without_reindexing_siblings() {
     assert_eq!(store.roots().unwrap()[0].status, "ready");
     let files = store.files().unwrap();
     assert_eq!(files.len(), 4);
-    assert!(files.iter().any(|file| file.path.ends_with("/child/main.py")));
-    assert!(!files.iter().any(|file| file.path.ends_with("/child/note.md") || file.path.ends_with("ignored.py")));
-    assert!(files.iter().any(|file| file.path.ends_with("/child/deeper/note.md")));
-    assert!(files.iter().any(|file| file.path.ends_with("/child-other/note.md")));
+    assert!(files.iter().any(|file| Path::new(&file.path).ends_with(Path::new("child").join("main.py"))));
+    assert!(!files.iter().any(|file| Path::new(&file.path).ends_with(Path::new("child").join("note.md")) || Path::new(&file.path).ends_with("ignored.py")));
+    assert!(files.iter().any(|file| Path::new(&file.path).ends_with(Path::new("child").join("deeper").join("note.md"))));
+    assert!(files.iter().any(|file| Path::new(&file.path).ends_with(Path::new("child-other").join("note.md"))));
     assert!(fs::read_to_string(child.join(".sagignore")).unwrap().starts_with("# handwritten rule\nignored.py\n"));
     assert_eq!(store.folder_index_options(&child.join("deeper")).unwrap(), options(true, false));
     fs::write(child.join("added.py"), "incremental evidence").unwrap();

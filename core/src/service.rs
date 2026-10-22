@@ -288,14 +288,18 @@ fn save_settings(
     _app: &EventSink,
 ) -> CommandResult<()> {
     let old = state.store.settings().map_err(error)?;
-    if settings.convert_other_formats && !state.store.docling.installed() {
-        return Err("请先下载 Docling，再启用其他格式".into());
+    Store::validate_settings(&settings).map_err(error)?;
+    if settings.convert_other_formats
+        && (!old.convert_other_formats || old.conversion_formats != settings.conversion_formats)
+    {
+        state.store.docling.require_formats(&settings.conversion_formats).map_err(error)?;
     }
     let mcp_credentials = mcp_credentials.unwrap_or_default();
     for (kind, previous, next, key) in [
         ("answer", &old.answer, &settings.answer, &answer_key),
         ("jev", &old.jev, &settings.jev, &jev_key),
     ] {
+        if kind == "jev" && next.auth_mode == ModelAuthMode::None { continue; }
         models::check_key_provider(
             previous,
             next,
@@ -310,9 +314,18 @@ fn save_settings(
     {
         return Err("MCP 服务不存在".into());
     }
+    // Never persist a new Jev address while its previous provider's key is active.
+    if settings.jev.auth_mode == ModelAuthMode::None
+        || reqwest::Url::parse(&old.jev.url).map_err(error)?.origin()
+            != reqwest::Url::parse(&settings.jev.url).map_err(error)?.origin()
+    {
+        models::clear_secret(&state.data_dir, "jev").map_err(error)?;
+    }
     state.store.save_settings(&settings).map_err(error)?;
     models::save_secret(&state.data_dir, "answer", &answer_key).map_err(error)?;
-    models::save_secret(&state.data_dir, "jev", &jev_key).map_err(error)?;
+    if settings.jev.auth_mode == ModelAuthMode::Bearer {
+        models::save_secret(&state.data_dir, "jev", &jev_key).map_err(error)?;
+    }
     for (id, credentials) in mcp_credentials {
         models::save_mcp_credentials(&state.data_dir, &id, &credentials).map_err(error)?;
     }
@@ -338,7 +351,7 @@ fn save_settings(
                 })
                 .map_err(error)?
         }
-    } else if old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || !old.watch && settings.watch {
+    } else if old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
         for root in state.store.roots().map_err(error)? {
             state
                 .scan
@@ -429,7 +442,12 @@ async fn test_model(
     if kind != "answer" && kind != "jev" {
         return Err("模型类型不正确".into());
     }
-    let key = if key.trim().is_empty() {
+    if kind == "answer" && config.auth_mode != ModelAuthMode::Bearer {
+        return Err("问答模型需要 API Key 鉴权；无需鉴权选项仅适用于 Jev".into());
+    }
+    let key = if kind == "jev" && config.auth_mode == ModelAuthMode::None {
+        String::new()
+    } else if key.trim().is_empty() {
         let saved = state.store.settings().map_err(error)?;
         let previous = if kind == "answer" {
             &saved.answer
@@ -824,7 +842,7 @@ async fn execute_query(
             emit(app, "history-changed", ());
             Ok(retrieval::SearchOutput { results, trace })
         } else {
-            let jev_key = models::secret(&state.data_dir, "jev")?;
+            let jev_key = models::jev_secret(&state.data_dir, &settings.jev)?;
             retrieval::search(
                 &state.store,
                 &q.question,
@@ -1139,6 +1157,9 @@ impl Service {
                 if self.store.roots().map_err(error)?.iter().any(|root| directory.starts_with(&root.path)) {
                     return Err("此文件夹已被添加，请使用文件夹菜单中的索引设置".into());
                 }
+                if options.convert_other_formats {
+                    self.store.docling.require_formats(&options.conversion_formats).map_err(error)?;
+                }
                 crate::folder_index::write(&directory, &options).map_err(error)?;
                 Out::Text(add_root(path, self)?)
             }
@@ -1195,9 +1216,17 @@ impl Service {
                 Out::Unit
             }
             Op::GetSettings => Out::Settings(get_settings(self)?),
+            Op::RegisterDoclingComponent { path } => {
+                self.store.docling.set_component_source(std::path::PathBuf::from(path)).map_err(error)?;
+                Out::Unit
+            }
             Op::DoclingStatus => Out::Docling(self.store.docling.status()),
             Op::InstallDocling => {
                 self.store.docling.start().map_err(error)?;
+                Out::Docling(self.store.docling.status())
+            }
+            Op::InstallDoclingProfiles { profiles } => {
+                self.store.docling.start_profiles(profiles).map_err(error)?;
                 Out::Docling(self.store.docling.status())
             }
             Op::CancelDoclingInstall => {

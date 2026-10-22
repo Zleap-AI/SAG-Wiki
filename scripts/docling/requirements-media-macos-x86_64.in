@@ -1,0 +1,15 @@
+# macOS resolver generation requires MACOSX_DEPLOYMENT_TARGET=14.0 (CPython 3.12).
+# Only the audited pure Python Whisper sdist may build; no audio/video extras.
+docling-slim[convert-core,format-office,format-web,format-email,format-pdf-pypdfium2,models-local,cli]==2.140.0
+openai-whisper==20250625
+numba==0.61.2
+llvmlite==0.44.0
+tiktoken==0.14.0
+more-itertools==11.2.1
+imageio-ffmpeg==0.6.0
+
+# Last official CPython 3.12 Intel macOS Torch/Numba wheels; Torch 2.2 needs NumPy 1.x.
+torch==2.2.2
+numpy==1.26.4
+torchvision==0.17.2
+transformers==4.53.3

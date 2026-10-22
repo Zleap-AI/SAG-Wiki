@@ -5,6 +5,8 @@
  import Input from "./ui/Input.svelte";
  import Textarea from "./ui/Textarea.svelte";
  import Select from "./ui/Select.svelte";
+ import ThemePicker from './ThemePicker.svelte';
+ import {applyTheme} from '../lib/theme';
  import Switch from "./ui/Switch.svelte";
  import ReasoningControl from "./ReasoningControl.svelte";
  import{Button,Checkbox}from 'bits-ui';
@@ -32,26 +34,28 @@
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
- let settings={...structuredClone(value),updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??10,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??4,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??10,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false;
  async function openAboutLink(event:MouseEvent,target:'project'|'company'|'302-api-keys'){event.preventDefault();error='';try{await api('open_about_link',{target})}catch(e){error=String(e)}}
  let languageSaved=false;
  let providerChoice={answer:providerFor('answer',value.answer.url),jev:providerFor('jev',value.jev.url)};
  let autoFilledKey:ModelKind|null=null;
- $: savedKeys={answer:settings.answer.has_key&&sameProviderOrigin(value.answer.url,settings.answer.url),jev:settings.jev.has_key&&sameProviderOrigin(value.jev.url,settings.jev.url)};
- function checkProviderKey(kind:ModelKind){if(settings[kind].has_key&&!savedKeys[kind]&&!(kind==='answer'?answerKey:jevKey).trim())throw new Error($t('切换供应商后，请填写对应的 API 密钥。'))}
+ $: savedKeys={answer:settings.answer.has_key&&sameProviderOrigin(value.answer.url,settings.answer.url),jev:settings.jev.auth_mode!=='none'&&value.jev.auth_mode!=='none'&&settings.jev.has_key&&sameProviderOrigin(value.jev.url,settings.jev.url)};
+ function checkProviderKey(kind:ModelKind){if(kind==='jev'&&settings.jev.auth_mode==='none')return;if(settings[kind].has_key&&!savedKeys[kind]&&!(kind==='answer'?answerKey:jevKey).trim())throw new Error($t('切换供应商后，请填写对应的 API 密钥。'))}
+ function changeJevAuth(mode:string){settings.jev.auth_mode=mode as 'bearer'|'none';jevKey='';autoFilledKey=null;status='';error='';}
  function changeKey(kind:ModelKind,key:string){
   if(kind==='answer')answerKey=key;else jevKey=key;
   if(autoFilledKey===kind)autoFilledKey=null;
   const other=kind==='answer'?'jev':'answer',otherKey=other==='answer'?answerKey:jevKey;
-  if(providerChoice.answer==='302'&&providerChoice.jev==='302'&&(autoFilledKey===other||!otherKey.trim()&&!savedKeys[other])){
+  if(settings.jev.auth_mode!=='none'&&providerChoice.answer==='302'&&providerChoice.jev==='302'&&(autoFilledKey===other||!otherKey.trim()&&!savedKeys[other])){
    if(other==='answer')answerKey=key;else jevKey=key;
    autoFilledKey=key?other:null;
   }
  }
  function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom')providerChoice[kind]=providerFor(kind,address);status='';error='';}
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id==='custom'||id===current)return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
- onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN')});
+ $:applyTheme(settings.theme);
+ onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN');applyTheme(value.theme)});
  $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
  let descriptions:Record<string,string>; $:descriptions={clipper:$t('将网页保存为本地 Markdown 文件。'),general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 1 次；加上首次召回，共 2 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段目标字符数"),$t("默认约 512，保留完整句子及相邻上下文；长句可超过目标长度。修改后自动重建索引"),400,12000]];
@@ -72,9 +76,9 @@
    settings={...settings,mcp_servers:settings.mcp_servers.map(item=>item.id===server.id?{...item,tools}:item)};
   }catch(error){mcpErrors={...mcpErrors,[server.id]:$t(String(error))}}finally{mcpTesting=''}
  }
- async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
+ async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
- async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
+ async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
 </script>
 
 <Modal label={$t("设置")} class="settings-dialog settings-window" overlayClass="settings-backdrop" {onClose}>
@@ -95,8 +99,9 @@
      </section>
      {#if onShowGuide}<section class="settings-group"><div class="setting-row"><div><strong>{$t('快速入门')}</strong><p>{$t('重新查看文件接入、搜索与问答教程')}</p></div><Button.Root type="button" class="outline" onclick={onShowGuide}>{$t('查看教程')}</Button.Root></div></section>{/if}
     {:else if page==='appearance'}
+     <h3 class="appearance-section-title">{$t('视觉风格')}</h3>
      <section class="settings-group">
-      <div class="setting-row"><div><strong>{$t("主题")}</strong><p>{$t("设置应用的明暗外观")}</p></div><Select label={$t("主题")} bind:value={settings.theme} items={[{value:"light",label:$t("浅色")},{value:"dark",label:$t("深色")},{value:"system",label:$t("跟随系统")}]}/></div>
+      <div class="setting-row appearance-theme-row"><div><strong>{$t('模式')}</strong><p>{$t("设置应用的明暗外观")}</p></div><ThemePicker bind:value={settings.theme}/></div>
       <div class="setting-row"><div><strong>{$t("文档字号")}</strong><p>{$t("调整正文大小")}</p></div><Select label={$t("文档字号")} value={String(settings.editor_size)} onValueChange={value=>settings.editor_size=Number(value)} items={[14,15,16,18].map(n=>({value:String(n),label:`${n} px`}))}/></div>
      </section>
      <section class="settings-type-preview"><span>{$t("正文预览")}</span><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
@@ -131,7 +136,10 @@
         <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.answer==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input type={showAnswer?'text':'password'} value={answerKey} oninput={event=>changeKey('answer',event.currentTarget.value)} placeholder={savedKeys.answer?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showAnswer=!showAnswer}>{showAnswer?$t("隐藏"):$t("显示")}</Button.Root></div></label>
        {:else}
         <label class="field-label">{$t("模型名称")}<Input required bind:value={settings.jev.model} spellcheck="false"/></label>
+        <label class="field-label auth-field">{$t("鉴权方式")}<Select label={$t("Jev 鉴权方式")} value={settings.jev.auth_mode??'bearer'} items={[{value:'bearer',label:$t('API Key')},{value:'none',label:$t('无需鉴权')}]} onValueChange={changeJevAuth}/></label>
+        {#if settings.jev.auth_mode!=='none'}
         <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.jev==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input data-autofocus={initial==='jev'?true:undefined} type={showJev?'text':'password'} value={jevKey} oninput={event=>changeKey('jev',event.currentTarget.value)} placeholder={savedKeys.jev?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showJev=!showJev}>{showJev?$t("隐藏"):$t("显示")}</Button.Root></div></label>
+        {/if}
        {/if}
        <div class="settings-card-actions"><Button.Root type="button" class="outline" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root>{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}</div>
       </section>

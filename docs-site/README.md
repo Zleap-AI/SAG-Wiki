@@ -44,6 +44,6 @@ Update both languages and affected screenshots when product behavior changes. Se
 
 Dependencies, build outputs, generated sources, QA artifacts and TypeScript caches are local only. The site has no nested Git repository or separate Git remotes.
 
-当前仅提供本地预览，未部署。安装链接仍指向已发布的 0.1.8，开发中的 0.1.9 不作为可下载安装包展示。
+当前仅提供本地预览，未部署。安装链接指向已发布的 0.1.9，开发中的 0.2.0 不作为可下载安装包展示。
 
-This is a local preview, not a deployed site. Downloads point to released 0.1.8 installers, not the unreleased 0.1.9 development version.
+This is a local preview, not a deployed site. Downloads point to released 0.1.9 installers, not the unreleased 0.2.0 development version.

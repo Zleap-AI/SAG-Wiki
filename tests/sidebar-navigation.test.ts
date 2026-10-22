@@ -46,13 +46,14 @@ it('搜索历史标题和内容，键盘打开结果，并保留原列表位置'
 });
 it('会话列表放在右侧问答首页，左侧只保留知识库',async()=>{
  await start();
- expect(document.querySelector('.desktop-titlebar')).toBeNull();
+ expect(document.querySelector('.desktop-window>.desktop-titlebar[data-tauri-drag-region]')).not.toBeNull();
  expect(document.querySelector('.window-title')).toBeNull();
  expect(document.querySelector('.sidebar .sidebar-titlebar[data-tauri-drag-region]')).not.toBeNull();
  expect(document.querySelector('.sidebar-titlebar [aria-label="收起侧边栏"]')).not.toBeNull();
  expect(document.querySelector('.brand-row button')).toBeNull();
  expect(document.querySelector('.workspace-header[data-tauri-drag-region]')).not.toBeNull();
- expect(document.querySelectorAll('.window-controls')).toHaveLength(document.querySelector('.sidebar .window-controls')?1:0);
+ expect(document.querySelectorAll('.desktop-titlebar .caption-controls button')).toHaveLength(3);
+ expect(document.querySelector('.sidebar [aria-label="最小化"]')).toBeNull();
  expect(document.querySelector('.sidebar .recent-conversations')).toBeNull();
  expect(document.querySelectorAll('.workspace .recent-conversations .history-row')).toHaveLength(50);
  expect(document.querySelector('.workspace .topbar')).toBeNull();

@@ -264,13 +264,20 @@ impl CliService {
             protocol_version: VERSION,
             connected: !self.standalone,
             enabled: access.enabled,
-            jev_configured: models::has_secret(&self.data, "jev")?
-                && !settings.jev.model.trim().is_empty(),
+            jev_configured: !settings.jev.model.trim().is_empty()
+                && (settings.jev.auth_mode == crate::types::ModelAuthMode::None
+                    || models::has_secret(&self.data, "jev")?),
         })
     }
     fn index_ready(&self, requested: &Path) -> Result<bool> {
         let (_, roots) = self.indexed_scope(requested)?;
         Ok(!roots.is_empty() && roots.iter().all(|root| root.status == "ready"))
+    }
+    fn local_files_ready(&self, requested: &Path) -> Result<bool> {
+        let (_, roots) = self.indexed_scope(requested)?;
+        // Local matching reads authorized files directly. A semantic indexing
+        // resource failure must not make those files unavailable to -F/-E.
+        Ok(!roots.is_empty() && roots.iter().all(|root| matches!(root.status.as_str(), "ready" | "partial")))
     }
     fn check(&self, requested: &Path) -> Result<CheckOutput> {
         let (path, roots) = self.indexed_scope(requested)?;
@@ -323,25 +330,32 @@ impl CliService {
             Command::Status => Ok(Response::Status(self.status()?)),
             Command::List => Ok(Response::Roots(self.store.roots()?)),
             Command::Check => Ok(Response::Checked(self.check(&request.path)?)),
-            Command::Configure { enable, url, model, key } => {
+            Command::Configure { enable, url, model, key, auth_mode } => {
                 if enable { self.configure(Access { enabled: true })?; }
                 let mut settings = self.store.settings()?;
                 let previous = settings.jev.clone();
-                let changed = url.is_some() || model.is_some() || key.is_some();
+                let changed = url.is_some() || model.is_some() || key.is_some() || auth_mode.is_some();
                 if changed && !self.access().enabled {
                     bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
                 }
                 if let Some(url) = url { settings.jev.url = url; }
                 if let Some(model) = model { settings.jev.model = model; }
+                if let Some(auth_mode) = auth_mode { settings.jev.auth_mode = auth_mode; }
                 if changed {
-                    models::check_key_provider(&previous, &settings.jev, key.as_deref().unwrap_or(""), models::has_secret(&self.data, "jev")?)?;
+                    Store::validate_settings(&settings)?;
+                    if settings.jev.auth_mode == crate::types::ModelAuthMode::Bearer {
+                        models::check_key_provider(&previous, &settings.jev, key.as_deref().unwrap_or(""), models::has_secret(&self.data, "jev")?)?;
+                    }
                     // Clear the previous provider's credential before changing its
                     // address. A failed write must never leave a new URL with an old key.
-                    if reqwest::Url::parse(&previous.url)?.origin() != reqwest::Url::parse(&settings.jev.url)?.origin() {
+                    if settings.jev.auth_mode == crate::types::ModelAuthMode::None
+                        || reqwest::Url::parse(&previous.url)?.origin() != reqwest::Url::parse(&settings.jev.url)?.origin() {
                         models::clear_secret(&self.data, "jev")?;
                     }
                     self.store.save_settings(&settings)?;
-                    if let Some(key) = key { models::save_secret(&self.data, "jev", &key)?; }
+                    if settings.jev.auth_mode == crate::types::ModelAuthMode::Bearer {
+                        if let Some(key) = key { models::save_secret(&self.data, "jev", &key)?; }
+                    }
                 }
                 settings.jev.has_key = models::has_secret(&self.data, "jev")?;
                 Ok(Response::Configured(settings.jev))
@@ -406,7 +420,7 @@ impl CliService {
                     bail!("搜索参数超出允许范围")
                 }
                 let (path, scopes) = self.authorized(&request.path)?;
-                if !self.index_ready(&path)? {
+                if !self.local_files_ready(&path)? {
                     bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
                 }
                 self.release_preparation()?;

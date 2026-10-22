@@ -789,10 +789,23 @@ async fn failed_key_update_does_not_pair_new_provider_with_old_key() {
     let result = service.run_local(root, Command::Configure {
         enable: false,
         url: Some("https://different-provider.example/decisions".into()),
-        model: None, key: Some("new-provider-key".into()),
+        model: None, key: Some("new-provider-key".into()), auth_mode: None,
     }, CancellationToken::new()).await;
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o700)).unwrap();
     assert!(result.is_err());
     let current = service.store.settings().unwrap().jev.url;
     assert!(current == previous || !models::has_secret(dir.path(), "jev").unwrap());
+}
+
+#[tokio::test]
+async fn invalid_local_jev_cli_configuration_preserves_the_previous_key() {
+    let (dir, service, root) = fixture();
+    models::save_secret(dir.path(), "jev", "previous-jev-key").unwrap();
+    let result = service.run_local(root, Command::Configure {
+        enable: false, url: None, model: Some(String::new()), key: None,
+        auth_mode: Some(crate::types::ModelAuthMode::None),
+    }, CancellationToken::new()).await;
+    assert!(matches!(result, Err(_) | Ok(Response::Error(_))));
+    assert_eq!(models::secret(dir.path(), "jev").unwrap(), "previous-jev-key");
+    assert_eq!(service.store.settings().unwrap().jev.auth_mode, crate::types::ModelAuthMode::Bearer);
 }

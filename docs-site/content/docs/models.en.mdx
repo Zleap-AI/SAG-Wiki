@@ -30,6 +30,15 @@ Enter the API base URL provided by the service, not its web chat address. Preset
 
 When switching to a different service origin, supply that provider's API key. The app does not automatically reuse the previous provider's key with the new origin.
 
+Jev accepts a base URL such as `http://127.0.0.1:8000/v1`, or a complete `/systemone` or `/decisions` endpoint. The endpoint suffix is not added twice.
+
+### Jev authentication
+
+- **API Key**: use for services that require a key. Existing configurations retain this default.
+- **No authentication**: use for local Jev services that do not require a key. No authorization header is sent, and saving removes the previously stored Jev key.
+
+The service must implement the Jev judging API. For the CLI, use `sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none`. Switch back to a keyed service with `--auth bearer --key-stdin`.
+
 ### Available models and model name
 
 **Available models · one per line** controls the answer models shown in the UI. Enter an exact supported model ID on each line, without commas. Duplicates are removed on save. Connection testing uses the first entry.

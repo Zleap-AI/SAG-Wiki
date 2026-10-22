@@ -1,5 +1,5 @@
 mod support;
-use std::{fs, process::{Command, Output}};
+use std::{fs, path::Path, process::{Command, Output}};
 
 #[test]
 fn fixed_and_regex_modes_match_lines_without_model_configuration() {
@@ -18,7 +18,7 @@ fn fixed_and_regex_modes_match_lines_without_model_configuration() {
     let fixed = json(run(&["-F", "a.b", "-c", "--json"]));
     let results = fixed["results"].as_array().unwrap();
     assert_eq!(results.len(), 2);
-    assert_eq!(results[0]["path"], "./src/sample.txt");
+    assert_eq!(Path::new(results[0]["path"].as_str().unwrap()), Path::new("./src/sample.txt"));
     assert_eq!(results[0]["start_line"], 1);
     assert_eq!(results[0]["end_line"], 1);
     assert_eq!(results[0]["content"], "a.b");
@@ -64,12 +64,12 @@ fn local_matches_follow_ignore_rules_and_removed_subdirectories() {
     for flag in ["-E", "-F"] {
         let output = run(&[flag, "needle", "--json"]);
         let json: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-        let paths: Vec<_> = json["results"].as_array().unwrap().iter().map(|r| r["path"].as_str().unwrap()).collect();
-        assert_eq!(paths, ["./hidden/deep/keep.txt", "./visible.txt"]);
+        let paths: Vec<_> = json["results"].as_array().unwrap().iter().map(|r| Path::new(r["path"].as_str().unwrap())).collect();
+        assert_eq!(paths, [Path::new("./hidden/deep/keep.txt"), Path::new("./visible.txt")]);
     }
     run(&["add", "removed"]);
     let restored = run(&["-F", "needle", "removed", "-c"]);
-    assert_eq!(String::from_utf8(restored.stdout).unwrap(), "./removed/file.txt:1-1\nneedle\n\n");
+    assert_eq!(String::from_utf8(restored.stdout).unwrap(), format!("./{}:1-1\nneedle\n\n", Path::new("removed").join("file.txt").display()));
     fs::write(root.join(".sagignore"), "visible.txt\n").unwrap();
     let refreshed = run(&["-F", "needle", "--json"]);
     assert!(!String::from_utf8(refreshed.stdout).unwrap().contains("visible.txt"));
@@ -109,13 +109,16 @@ fn local_matching_marks_oversized_content_without_breaking_json() {
     let root = dir.path().join("project");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("large.txt"), format!("needle {}\n", "x".repeat(600_000))).unwrap();
+    let added = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", dir.path().join("data")).current_dir(&root).arg("add").output().unwrap();
+    assert!(!added.status.success(), "oversized semantic indexing must fail visibly");
+    assert!(String::from_utf8_lossy(&added.stderr).contains("资源上限"));
     let run = |args: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_sag"))
             .env("SAG_DATA_DIR", dir.path().join("data")).current_dir(&root).args(args).output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         output
     };
-    run(&["add"]);
     let content = run(&["-F", "needle", "-c", "--json"]);
     let output: serde_json::Value = serde_json::from_slice(&content.stdout).unwrap();
     assert_eq!(output["truncated"], true);

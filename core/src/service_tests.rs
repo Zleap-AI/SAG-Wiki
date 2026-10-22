@@ -1,6 +1,7 @@
 use sag_client::Client;
 use sag_protocol::{types::*, *};
 use std::{
+    path::Path,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -291,6 +292,46 @@ async fn stop(client: &Client, task: tokio::task::JoinHandle<anyhow::Result<()>>
         .unwrap()
         .unwrap()
         .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn jev_auth_mode_cannot_disable_answer_provider_key_protection() {
+    let (dir, client, server) = start().await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    let previous_url = settings.answer.url.clone();
+    crate::models::save_secret(&dir.path().join("data"), "answer", "previous-answer-key").unwrap();
+    settings.answer = serde_json::from_value(serde_json::json!({
+        "url":"http://127.0.0.1:1/v1", "model":"local-model", "auth_mode":"none"
+    })).unwrap();
+    let result = client.call(Operation::SaveSettings {
+        settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
+    }, Duration::from_secs(5)).await;
+    assert!(result.is_err(), "Jev-only auth mode was accepted for the answer model");
+    let result = client.call(Operation::TestModel {
+        kind: "answer".into(), config: settings.answer, key: String::new(),
+    }, Duration::from_secs(5)).await;
+    assert!(result.err().unwrap().to_string().contains("问答模型"));
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.answer.url, previous_url);
+    assert_eq!(crate::models::secret(&dir.path().join("data"), "answer").unwrap(), "previous-answer-key");
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invalid_local_jev_settings_do_not_remove_the_saved_key() {
+    let (dir, client, server) = start().await;
+    crate::models::save_secret(&dir.path().join("data"), "jev", "previous-jev-key").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.jev.auth_mode = ModelAuthMode::None;
+    settings.retrieval.candidate_k = 0;
+    let result = client.call(Operation::SaveSettings {
+        settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
+    }, Duration::from_secs(5)).await;
+    assert!(result.is_err());
+    assert_eq!(crate::models::secret(&dir.path().join("data"), "jev").unwrap(), "previous-jev-key");
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.jev.auth_mode, ModelAuthMode::Bearer);
+    stop(&client, server).await;
 }
 fn query(id: &str) -> Query {
     Query {
@@ -815,7 +856,7 @@ async fn search_summary_streams_without_history_and_respects_limit_disable_and_c
 async fn index_details_support_pause_resume_and_shutdown_over_rpc() {
     let (dir, client, server) = start().await;
     let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
-    assert_eq!(settings.conversion_workers, 4);
+    assert_eq!(settings.conversion_workers, 1);
     call(&client, Operation::SetConversionWorkers { workers: 2 }).await;
     let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert_eq!(settings.conversion_workers, 2);
@@ -864,7 +905,19 @@ async fn index_details_support_pause_resume_and_shutdown_over_rpc() {
     assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len()==1));
     call(&client, Operation::SetIndexPaused { paused: true }).await;
     call(&client, Operation::ReindexAll).await;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    // ReindexAll queues work; wait for the worker to enter its paused scan
+    // before testing that clearing history preserves that active task.
+    let root_path = root.canonicalize().unwrap().to_string_lossy().into_owned();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::IndexStatus(status) = call(&client, Operation::GetIndexStatus).await else { panic!("index status") };
+            assert!(status.paused);
+            if status.tasks.iter().any(|task| task.path == root_path && task.stage == "scanning") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("queued reindex should reach its paused scan");
     call(&client, Operation::ClearIndexHistory).await;
     assert!(matches!(call(&client, Operation::GetIndexStatus).await, Output::IndexStatus(status) if status.paused && !status.tasks.is_empty()));
     stop(&client, server).await;
@@ -913,16 +966,16 @@ async fn nested_folder_settings_reindex_only_the_selected_subdirectory_over_rpc(
     let folder = dir.path().join("project");
     std::fs::create_dir_all(folder.join("papers")).unwrap();
     std::fs::create_dir_all(folder.join("sibling")).unwrap();
-    std::fs::write(folder.join("papers/note.md"), "paper evidence").unwrap();
-    std::fs::write(folder.join("papers/main.py"), "print('code')").unwrap();
-    std::fs::write(folder.join("sibling/note.md"), "sibling evidence").unwrap();
+    std::fs::write(folder.join("papers").join("note.md"), "paper evidence").unwrap();
+    std::fs::write(folder.join("papers").join("main.py"), "print('code')").unwrap();
+    std::fs::write(folder.join("sibling").join("note.md"), "sibling evidence").unwrap();
     let initial = FolderIndexOptions { extensions: None, file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
     let Output::Text(root) = call(&client, Operation::AddRootWithOptions { path: folder.to_string_lossy().into_owned(), options: initial.clone() }).await else { panic!("root") };
-    let child = format!("{root}/papers");
+    let child = Path::new(&root).join("papers").to_string_lossy().into_owned();
     let changed = FolderIndexOptions { file_types: FileTypes { markdown: false, code: true, ..initial.file_types.clone() }, ..initial.clone() };
     for (expected, name) in [(initial, "note.md"), (changed.clone(), "main.py")] {
         if name == "main.py" {
-            std::fs::write(folder.join("sibling/note.md"), [0xff, 0xfe, 0x00]).unwrap();
+            std::fs::write(folder.join("sibling").join("note.md"), [0xff, 0xfe, 0x00]).unwrap();
             call(&client, Operation::SaveFolderIndexOptions { path: child.clone(), options: changed.clone(), rebuild: true }).await;
         }
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -936,11 +989,160 @@ async fn nested_folder_settings_reindex_only_the_selected_subdirectory_over_rpc(
         assert_eq!(saved, expected);
         let Output::Files(files) = call(&client, Operation::ListFiles).await else { panic!("files") };
         assert_eq!(files.len(), 2);
-        assert!(files.iter().any(|file| file.path == format!("{child}/{name}")));
-        assert!(files.iter().any(|file| file.path.ends_with("sibling/note.md")));
+        assert!(files.iter().any(|file| Path::new(&file.path) == Path::new(&child).join(name).as_path()));
+        assert!(files.iter().any(|file| Path::new(&file.path) == Path::new(&root).join("sibling").join("note.md").as_path()));
     }
-    assert!(folder.join("papers/note.md").exists());
-    assert!(folder.join("papers/main.py").exists());
+    assert!(folder.join("papers").join("note.md").exists());
+    assert!(folder.join("papers").join("main.py").exists());
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn conversion_profile_settings_validate_changed_formats_without_blocking_other_saves() {
+    let (dir, client, server) = start().await;
+    let home = dir.path().join("data/docling");
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    let binary = if cfg!(windows) { "docling.exe" } else { "docling" };
+    std::fs::write(home.join("bin").join(binary), "fixture").unwrap();
+    std::fs::write(home.join("ready"), "2.140.0").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.convert_other_formats = true;
+    settings.conversion_formats = Some(vec!["pdf".into()]);
+    call(&client, Operation::SaveSettings { settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    settings.conversion_formats = Some(vec!["mp3".into()]);
+    let rejected = client.call(Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }, Duration::from_secs(5)).await;
+    assert!(rejected.is_err(), "a document runtime must not authorize a new media selection");
+    let message = rejected.err().unwrap().to_string();
+    assert!(message.contains("音视频") || message.contains("媒体") || message.contains("media"), "{message}");
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(settings.conversion_formats, Some(vec!["pdf".into()]));
+    // An unavailable component must not prevent saving unrelated model choices.
+    std::fs::remove_dir_all(&home).unwrap();
+    settings.answer.reasoning_effort = Some(ReasoningEffort::High);
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(settings.answer.reasoning_effort, Some(ReasoningEffort::High));
+    settings.convert_other_formats = false;
+    settings.conversion_formats = Some(vec!["mp3".into()]);
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    assert!(!home.exists(), "saving settings must never download a component");
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn folder_conversion_profile_validation_precedes_rule_writes_and_rebuilds() {
+    let (dir, client, server) = start().await;
+    let folder = dir.path().join("media-rules");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("note.md"), "preservedfolderindex").unwrap();
+    std::fs::write(folder.join(".sagignore"), "private-*\n").unwrap();
+    let selected = FolderIndexOptions { extensions: None, file_types: FileTypes::default(), convert_other_formats: true, conversion_formats: Some(vec!["mp3".into()]) };
+    let rejected = client.call(Operation::AddRootWithOptions { path: folder.to_string_lossy().into_owned(), options: selected.clone() }, Duration::from_secs(5)).await;
+    assert!(rejected.is_err(), "explicit media options require a media component");
+    assert_eq!(std::fs::read_to_string(folder.join(".sagignore")).unwrap(), "private-*\n");
+    assert!(matches!(call(&client, Operation::ListRoots).await, Output::Roots(roots) if roots.is_empty()));
+    let Output::Text(root) = call(&client, Operation::AddRoot { path: folder.to_string_lossy().into_owned() }).await else { panic!("root") };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(call(&client, Operation::ListRoots).await, Output::Roots(roots) if roots.iter().any(|item| item.path == root && item.status == "ready")) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let rejected = client.call(Operation::SaveFolderIndexOptions { path: root.clone(), options: selected, rebuild: true }, Duration::from_secs(5)).await;
+    assert!(rejected.is_err(), "rebuild validation must precede deleting the old index");
+    assert_eq!(std::fs::read_to_string(folder.join(".sagignore")).unwrap(), "private-*\n");
+    assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("note.md")));
+    let Output::FolderIndexOptions(mut options) = call(&client, Operation::GetFolderIndexOptions { path: root.clone() }).await else { panic!("options") };
+    assert!(!options.convert_other_formats);
+    assert!(!dir.path().join("data/docling").exists(), "folder operations must never download components");
+    let home = dir.path().join("data/docling");
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    std::fs::write(home.join("bin").join(if cfg!(windows) { "docling.exe" } else { "docling" }), "fixture").unwrap();
+    std::fs::write(home.join("ready"), "2.140.0").unwrap();
+    options.convert_other_formats = true;
+    options.conversion_formats = Some(vec!["pdf".into()]);
+    call(&client, Operation::SaveFolderIndexOptions { path: root.clone(), options: options.clone(), rebuild: false }).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(call(&client, Operation::ListRoots).await, Output::Roots(roots) if roots.iter().any(|item| item.path == root && item.status == "ready")) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    std::fs::remove_dir_all(&home).unwrap();
+    options.file_types.code = true;
+    call(&client, Operation::SaveFolderIndexOptions { path: root.clone(), options, rebuild: true }).await;
+    assert!(!home.exists(), "unrelated folder changes must not recheck or install an unchanged profile selection");
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn inherited_legacy_conversion_options_report_missing_media_during_scan_without_installing() {
+    let (dir, client, server) = start().await;
+    // Simulate an existing library preference from a prior version, without an installed runtime.
+    let store = crate::store::Store::open(&dir.path().join("data/sag.sqlite")).unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.convert_other_formats = true;
+    settings.conversion_formats = None;
+    store.save_settings(&settings).unwrap();
+    drop(store);
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.answer.reasoning_effort = Some(ReasoningEffort::High);
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    let folder = dir.path().join("legacy-media");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("note.md"), "nativeevidence").unwrap();
+    std::fs::write(folder.join("recording.mp3"), "small fake audio").unwrap();
+    let Output::Text(root) = call(&client, Operation::AddRoot { path: folder.to_string_lossy().into_owned() }).await else { panic!("root") };
+    let issue = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::Roots(roots) = call(&client, Operation::ListRoots).await else { panic!("roots") };
+            if let Some(item) = roots.iter().find(|item| item.path == root && item.status == "partial") { break item.error.clone(); }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap().expect("the missing media profile must be reported for the source");
+    assert!(issue.contains("音视频") || issue.contains("媒体") || issue.contains("media"), "{issue}");
+    assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("note.md")));
+    assert!(!dir.path().join("data/docling").exists(), "ordinary scans must never install profiles");
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn changing_only_conversion_formats_rescans_cached_selected_sources() {
+    let (dir, client, server) = start().await;
+    let home = dir.path().join("data/docling");
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    std::fs::write(home.join("bin").join(if cfg!(windows) { "docling.exe" } else { "docling" }), "fixture").unwrap();
+    std::fs::write(home.join("ready"), "2.140.0").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.convert_other_formats = true;
+    settings.conversion_formats = Some(vec![]);
+    settings.watch = false;
+    call(&client, Operation::SaveSettings { settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    let folder = dir.path().join("selected-cache");
+    std::fs::create_dir(&folder).unwrap();
+    let source = folder.join("cached.eml");
+    std::fs::write(&source, "original").unwrap();
+    let output = crate::docling::output_path(&folder, &source).unwrap();
+    std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+    std::fs::write(&output, "cachedselectedevidence.").unwrap();
+    let ownership = std::collections::BTreeMap::from([("cached.eml", (crate::docling::fingerprint(&source).unwrap(), crate::docling::fingerprint(&output).unwrap()))]);
+    std::fs::write(output.parent().unwrap().join(".sag-converted.json"), serde_json::to_vec(&ownership).unwrap()).unwrap();
+    let Output::Text(root) = call(&client, Operation::AddRoot { path: folder.to_string_lossy().into_owned() }).await else { panic!("root") };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(call(&client, Operation::ListRoots).await, Output::Roots(roots) if roots.iter().any(|item| item.path == root && item.status == "ready")) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.is_empty()));
+    settings.conversion_formats = Some(vec!["eml".into()]);
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("cached.eml.md")) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("changing the conversion selection must schedule a scan without a watcher event");
     stop(&client, server).await;
 }
 
@@ -951,7 +1153,7 @@ async fn uninstall_docling_over_rpc_updates_status_and_default() {
     std::fs::create_dir_all(home.join("bin")).unwrap();
     let binary = if cfg!(windows) { "docling.exe" } else { "docling" };
     std::fs::write(home.join("bin").join(binary), "fixture").unwrap();
-    std::fs::write(home.join("ready"), "fixture").unwrap();
+    std::fs::write(home.join("ready"), "2.140.0").unwrap();
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     settings.convert_other_formats = true;
     call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
@@ -963,5 +1165,29 @@ async fn uninstall_docling_over_rpc_updates_status_and_default() {
     assert!(!home.exists());
     let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert!(!settings.convert_other_formats);
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn running_service_accepts_a_desktop_component_source_without_restart() {
+    let (dir, client, server) = start().await;
+    let component = dir.path().join("desktop-resources/docling-component");
+    std::fs::create_dir_all(&component).unwrap();
+    // Deliberately invalid payload: installation must reach this registered
+    // source, independently of the environment inherited at service startup.
+    std::fs::write(component.join("manifest.json"), "{}").unwrap();
+    assert!(matches!(call(&client, Operation::RegisterDoclingComponent {
+        path: component.to_string_lossy().into_owned(),
+    }).await, Output::Unit));
+    call(&client, Operation::InstallDocling).await;
+    let status = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::Docling(status) = call(&client, Operation::DoclingStatus).await else { panic!("docling") };
+            if !status.running { break status; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    let message = status.error.expect("invalid component must be rejected");
+    assert!(!message.contains("未包含预构建文档组件"), "registered component was ignored: {message}");
     stop(&client, server).await;
 }

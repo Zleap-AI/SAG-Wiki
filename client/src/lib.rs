@@ -193,6 +193,28 @@ impl Inner {
         });
     }
 }
+#[cfg(windows)]
+fn prevent_standard_handle_inheritance() -> std::io::Result<()> {
+    const HANDLE_FLAG_INHERIT: u32 = 1;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(kind: u32) -> *mut std::ffi::c_void;
+        fn SetHandleInformation(handle: *mut std::ffi::c_void, mask: u32, flags: u32) -> i32;
+    }
+    // Stdio::null selects the daemon's standard streams, but CreateProcess
+    // also inherits unrelated inheritable handles. In particular, retaining
+    // our original capture pipes prevents callers from observing EOF.
+    for kind in [-10_i32, -11, -12] {
+        let handle = unsafe { GetStdHandle(kind as u32) };
+        if handle.is_null() || handle == -1_isize as *mut std::ffi::c_void {
+            continue; // A GUI process may have no standard handles.
+        }
+        if unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) } == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
 pub fn spawn_service(data: &Path, executable: &Path) -> Result<()> {
     let mut command = std::process::Command::new(executable);
     command
@@ -209,6 +231,7 @@ pub fn spawn_service(data: &Path, executable: &Path) -> Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        prevent_standard_handle_inheritance().context("无法隔离 SAG 后台服务的标准输入输出")?;
         command.creation_flags(0x00000008 | 0x00000200);
     }
     let mut child = command

@@ -74,7 +74,7 @@ fn github_endpoint(value: &str) -> Result<Url> {
     let repo = segments[1].trim_end_matches(".git");
     ensure!(!repo.is_empty(), "请填写 GitHub 项目地址");
     Ok(Url::parse(&format!(
-        "https://github.com/{}/{repo}/releases/latest/download/latest.json",
+        "https://github.com/{}/{repo}/releases/latest/download/latest-v2.json",
         segments[0]
     ))?)
 }
@@ -164,7 +164,7 @@ async fn download(
         .build()?
         .check()
         .await
-        .context("无法获取已签名的更新，请确认发布包包含 latest.json 和签名")?
+        .context("无法获取已签名的更新，请确认更新清单和签名已发布")?
         .context("当前已是最新版本，请重新检查更新")?;
     https_url(update.download_url.as_str())?;
     download_package(update, version, on_progress).await
@@ -280,7 +280,7 @@ mod tests {
         let config = UpdateSettings::default();
         assert_eq!(
             github_endpoint(&config.github_url).unwrap(),
-            Url::parse("https://github.com/Zleap-AI/SAG-Wiki/releases/latest/download/latest.json")
+            Url::parse("https://github.com/Zleap-AI/SAG-Wiki/releases/latest/download/latest-v2.json")
                 .unwrap(),
             "checking and downloading must use the same release manifest, without the REST API"
         );
@@ -298,7 +298,7 @@ mod tests {
         };
         assert_eq!(
             manifest_endpoint(&config).unwrap().as_str(),
-            "https://github.com/Zleap-AI/SAG-Wiki/releases/latest/download/latest.json"
+            "https://github.com/Zleap-AI/SAG-Wiki/releases/latest/download/latest-v2.json"
         );
         let config = UpdateSettings {
             source: UpdateSource::Website,
@@ -478,7 +478,7 @@ mod tests {
             github_endpoint("https://github.com/customer/wiki.git/")
                 .unwrap()
                 .as_str(),
-            "https://github.com/customer/wiki/releases/latest/download/latest.json"
+            "https://github.com/customer/wiki/releases/latest/download/latest-v2.json"
         );
         for address in [
             "http://github.com/a/b",
