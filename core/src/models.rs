@@ -228,16 +228,19 @@ pub fn jev_batches(
     }).collect::<Vec<_>>();
     let state = encode_state(evidence);
     let base = estimate(&Value::String(state.clone())) + 1024;
+    if base + 64 > 32000 {
+        bail!("已有证据超过上下文预算。请减少扩展起点或调整切分；原文未截断。")
+    }
     let mut size = base;
     let mut questions = serde_json::Map::new();
     let mut items = vec![];
     let mut batches = vec![];
     for (c, question, n) in prepared {
         if base + n > 32000 {
-            bail!(
-                "候选片段 {} 超过单候选上下文预算。请减少扩展起点或调整切分；原文未截断。",
-                c.id
-            )
+            // One oversized passage (a table or a file without sentence
+            // breaks) cannot be scored; leaving it out keeps the query alive.
+            eprintln!("跳过超过单候选上下文预算的片段 {}：{}", c.id, c.path);
+            continue;
         }
         if size + n > 32000 {
             batches.push((
@@ -997,6 +1000,14 @@ mod tests {
         let evidence = (1..=20).map(|id| candidate(id, "历史内容 alpha beta gamma\n".repeat(400))).collect::<Vec<_>>();
         let error = jev_batches("query", vec![candidate(50, "当前候选".into())], &evidence, "jev-latest").unwrap_err();
         assert!(error.to_string().contains("原文未截断"));
+    }
+    #[test]
+    fn v10_skips_an_oversized_candidate_and_scores_the_rest() {
+        let huge = candidate(1, "无句号的长文本 ".repeat(20000));
+        let normal = candidate(2, "正常片段".into());
+        let batches = jev_batches("query", vec![huge, normal], &[], "jev-latest").unwrap();
+        let ids: Vec<_> = batches.iter().flat_map(|(_, items)| items.iter().map(|c| c.id)).collect();
+        assert_eq!(ids, vec![2]);
     }
     #[test]
     fn v10_batches_large_rounds_without_losing_candidates_or_shared_evidence() {
