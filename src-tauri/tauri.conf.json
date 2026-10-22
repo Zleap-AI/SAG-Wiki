@@ -48,6 +48,7 @@
       "licenses/SHADCN-SVELTE.txt",
       "licenses/MORPHDOM.txt",
       "licenses/GRAPH-VIEW.txt",
+      "licenses/ANYDOC.txt",
       "bin/sag"
     ]
   },
