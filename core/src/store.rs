@@ -989,9 +989,20 @@ impl Store {
             return self.scan_inner(root, directory, progress);
         }
         let mut rules = crate::folder_index::Rules::new(Path::new(root), &settings)?;
+        let excluded = self.excluded_directories()?;
         for path in paths.iter().filter(|path| path.starts_with(root) && !crate::docling::in_output(path)) {
             let options = rules.file(path)?;
-            if options.convert_other_formats && (crate::docling::is_source(path) && crate::docling::is_selected(path, &options.conversion_formats) || path.is_dir() || !path.exists()) {
+            // A changed source needs the conversion pass. Directories keep the
+            // previous rule: only folders that opted into component conversion
+            // rescan from the root; built-in sources inside them are picked up
+            // by the per-directory walk below.
+            if crate::docling::is_source(path) && crate::docling::should_convert(path, options)
+                || options.convert_other_formats && (path.is_dir() || !path.exists()) {
+                return self.scan_inner(root, Path::new(root), progress);
+            }
+            // Built-in formats are always converted, so a new or moved directory that
+            // holds any convertible source also needs the conversion pass.
+            if path.is_dir() && !self.conversion_files(Path::new(root), path, &settings, &excluded)?.0.is_empty() {
                 return self.scan_inner(root, Path::new(root), progress);
             }
         }
@@ -999,7 +1010,6 @@ impl Store {
         enum Work { Directory(PathBuf, Vec<PathBuf>), File(PathBuf), Remove(PathBuf) }
         let mut work = Vec::new();
         let mut total = 0;
-        let excluded = self.excluded_directories()?;
         for path in paths {
             if excluded.iter().any(|directory| path.starts_with(directory)) { continue; }
             let Ok(relative) = path.strip_prefix(root) else { continue; };
@@ -1117,8 +1127,7 @@ impl Store {
     }
     pub(crate) fn indexable_path(path: &Path, settings: &FolderIndexOptions) -> bool {
         if crate::docling::in_output(path) {
-            settings.convert_other_formats && text::is_markdown(path)
-                && crate::docling::is_selected(&path.with_extension(""), &settings.conversion_formats)
+            text::is_markdown(path) && crate::docling::should_convert(&path.with_extension(""), settings)
         } else if let Some(extensions) = &settings.extensions {
             path.extension().and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extensions.iter().any(|selected| selected.eq_ignore_ascii_case(extension)))
@@ -1146,12 +1155,12 @@ impl Store {
             if entry.file_type().is_some_and(|kind| kind.is_dir()) { rules.directory(entry.path())?; }
             if entry.path().starts_with(directory) && entry.file_type().is_some_and(|kind| kind.is_file())
                 && crate::docling::is_source(entry.path()) && !crate::docling::is_pem_key(entry.path())?
-                && rules.file(entry.path())?.convert_other_formats
-                && crate::docling::is_selected(entry.path(), &rules.file(entry.path())?.conversion_formats) {
+                && crate::docling::should_convert(entry.path(), rules.file(entry.path())?) {
                 files.push(entry.into_path());
             }
         }
-        Ok((files, rules.converts_files()))
+        let convert = rules.converts_files() || !files.is_empty();
+        Ok((files, convert))
     }
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
         let mut issues = vec![];
@@ -1189,7 +1198,7 @@ impl Store {
         for (source, output, output_hash) in previous {
             self.indexing.checkpoint()?;
             let options = rules.file(Path::new(&source))?;
-            if sources_set.contains(&source) || !options.convert_other_formats || !crate::docling::is_selected(Path::new(&source), &options.conversion_formats) { continue; }
+            if sources_set.contains(&source) || !crate::docling::should_convert(Path::new(&source), options) { continue; }
             let path = Path::new(&output);
             // Delete only our unchanged derivative; user-edited Markdown is preserved.
             if path.is_file() && crate::docling::fingerprint(path)? == output_hash {

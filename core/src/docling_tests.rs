@@ -680,17 +680,40 @@ echo converted >> "$(dirname "$0")/calls"
     (temp, store, root)
 }
 
+#[test]
+fn builtin_formats_convert_without_any_component_and_component_formats_stay_opt_in() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let root = store.add_root(&library).unwrap();
+    fs::write(library.join("table.csv"), "型号,价格\nBCD-215,1999\n").unwrap();
+    fs::write(library.join("photo.png"), "not really an image").unwrap();
+    assert!(!store.docling.installed());
+    assert!(store.docling.require_formats(&Some(vec!["csv".into(), "xlsx".into()])).is_ok());
+    assert!(store.docling.require_formats(&Some(vec!["png".into()])).is_err());
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(store.search_files("BCD-215", &[], 5).unwrap().len(), 1);
+    let state = &store.roots().unwrap()[0];
+    assert_eq!(state.status, "ready", "{:?}", state.error);
+    assert!(!library.join(OUTPUT_DIRECTORY).join("photo.png.md").exists());
+    let status = store.docling.status();
+    assert!(status.builtin_formats.iter().any(|(_, ext)| ext.iter().any(|e| e == "pdf")));
+    assert!(status.formats.iter().all(|(_, ext)| ext.iter().all(|e| !crate::anydoc::handles_extension(e))));
+    assert!(status.formats.iter().any(|(_, ext)| ext.iter().any(|e| e == "png")));
+}
+
 #[cfg(unix)]
 #[test]
 fn conversion_indexes_markdown_preserves_sources_and_reuses_unchanged_outputs() {
     let (_temp, store, root) = fixture();
     let root_path = Path::new(&root);
     fs::create_dir(root_path.join("nested")).unwrap();
-    let source = root_path.join("nested/report.pdf");
+    let source = root_path.join("nested/report.pages");
     fs::write(&source, "evidenceone").unwrap();
-    fs::write(root_path.join("nested/report.docx"), "evidencetwo").unwrap();
-    fs::write(root_path.join("ignored.pdf"), "invisible").unwrap();
-    fs::write(root_path.join(".sagignore"), "ignored.pdf\n").unwrap();
+    fs::write(root_path.join("nested/report.numbers"), "evidencetwo").unwrap();
+    fs::write(root_path.join("ignored.pages"), "invisible").unwrap();
+    fs::write(root_path.join(".sagignore"), "ignored.pages\n").unwrap();
     store.scan(&root, |_| {}).unwrap();
     assert!(!root_path.join(OUTPUT_DIRECTORY).exists());
     let mut settings = store.settings().unwrap();
@@ -701,7 +724,7 @@ fn conversion_indexes_markdown_preserves_sources_and_reuses_unchanged_outputs() 
     let output = output_path(root_path, &source).unwrap();
     assert!(fs::read_to_string(&output)
         .unwrap()
-        .contains("../../nested/report.pdf"));
+        .contains("../../nested/report.pages"));
     assert_eq!(fs::read_to_string(&source).unwrap(), "evidenceone");
     let history_id = store.index_history().unwrap()[0].id;
     let raw = store.index_history_log(history_id).unwrap().raw.unwrap();
@@ -749,7 +772,7 @@ fn conversion_indexes_markdown_preserves_sources_and_reuses_unchanged_outputs() 
         1
     );
     assert!(root_path
-        .join(".sag-converted/nested/report.docx.md")
+        .join(".sag-converted/nested/report.numbers.md")
         .is_file());
     let calls = store.docling.home.join("bin/calls");
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
@@ -1098,16 +1121,16 @@ fn nested_conversion_options_use_source_folder_rules_and_keep_siblings_unchanged
     crate::folder_index::write(&a, &enabled).unwrap();
     crate::folder_index::write(&b, &enabled).unwrap();
     crate::folder_index::write(&a.join("excluded"), &disabled).unwrap();
-    fs::write(a.join("report.pdf"), "alpha evidence").unwrap();
-    fs::write(b.join("report.pdf"), "beta evidence").unwrap();
-    fs::write(a.join("excluded/report.pdf"), "excluded evidence").unwrap();
+    fs::write(a.join("report.pages"), "alpha evidence").unwrap();
+    fs::write(b.join("report.pages"), "beta evidence").unwrap();
+    fs::write(a.join("excluded/report.pages"), "excluded evidence").unwrap();
     store.scan(&root, |_| {}).unwrap();
     assert_eq!(store.files().unwrap().len(), 2);
     assert!(store.search_files("excluded", &[], 5).unwrap().is_empty());
-    let a_output = output_path(root_path, &a.join("report.pdf")).unwrap();
-    let b_output = output_path(root_path, &b.join("report.pdf")).unwrap();
+    let a_output = output_path(root_path, &a.join("report.pages")).unwrap();
+    let b_output = output_path(root_path, &b.join("report.pages")).unwrap();
     let b_before = fs::read(&b_output).unwrap();
-    fs::write(b.join("report.pdf"), "FAIL").unwrap();
+    fs::write(b.join("report.pages"), "FAIL").unwrap();
     store
         .save_folder_index_options(&a, &disabled, true)
         .unwrap();
@@ -1132,7 +1155,7 @@ fn nested_conversion_options_use_source_folder_rules_and_keep_siblings_unchanged
         2
     );
     assert_eq!(
-        fs::read_to_string(a.join("report.pdf")).unwrap(),
+        fs::read_to_string(a.join("report.pages")).unwrap(),
         "alpha evidence"
     );
 }
@@ -1145,9 +1168,9 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     let root_path = Path::new(&root);
     let nested = root_path.join("nested");
     fs::create_dir(&nested).unwrap();
-    fs::write(root_path.join("report.PDF"), "selectedpdf evidence").unwrap();
-    fs::write(root_path.join("notes.docx"), "selectedword evidence").unwrap();
-    fs::write(nested.join("book.epub"), "selectedaudio evidence").unwrap();
+    fs::write(root_path.join("report.PAGES"), "selectedpdf evidence").unwrap();
+    fs::write(root_path.join("notes.numbers"), "selectedword evidence").unwrap();
+    fs::write(nested.join("book.eml"), "selectedaudio evidence").unwrap();
     let mut options = FolderIndexOptions {
         extensions: None,
         file_types: FileTypes::default(),
@@ -1157,11 +1180,11 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     crate::folder_index::write(root_path, &options).unwrap();
     store.scan(&root, |_| {}).unwrap();
     assert_eq!(store.files().unwrap().len(), 3);
-    let word_output = output_path(root_path, &root_path.join("notes.docx")).unwrap();
+    let word_output = output_path(root_path, &root_path.join("notes.numbers")).unwrap();
     let word_before = fs::read(&word_output).unwrap();
     // A deselected source must not be converted again, even after it changes.
-    fs::write(root_path.join("notes.docx"), "FAIL").unwrap();
-    options.conversion_formats = Some(vec!["pdf".into()]);
+    fs::write(root_path.join("notes.numbers"), "FAIL").unwrap();
+    options.conversion_formats = Some(vec!["pages".into()]);
     store
         .save_folder_index_options(root_path, &options, false)
         .unwrap();
@@ -1177,7 +1200,7 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
         options.conversion_formats
     );
     assert_eq!(store.files().unwrap().len(), 1);
-    assert!(store.files().unwrap()[0].path.ends_with("report.PDF.md"));
+    assert!(store.files().unwrap()[0].path.ends_with("report.PAGES.md"));
     assert!(store
         .search_files("selectedword", &[], 5)
         .unwrap()
@@ -1185,12 +1208,12 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     assert_eq!(fs::read(&word_output).unwrap(), word_before);
     let calls = store.docling.home.join("bin/calls");
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 3);
-    fs::write(nested.join("added.docx"), "FAIL").unwrap();
-    fs::write(nested.join("added.pdf"), "newselectedpdf evidence").unwrap();
+    fs::write(nested.join("added.numbers"), "FAIL").unwrap();
+    fs::write(nested.join("added.pages"), "newselectedpdf evidence").unwrap();
     store
         .update_paths(
             &root,
-            &[nested.join("added.docx"), nested.join("added.pdf")],
+            &[nested.join("added.numbers"), nested.join("added.pages")],
             |_| {},
         )
         .unwrap();
@@ -1199,7 +1222,7 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 4);
     // A child can select EPUB while keeping the parent's PDF selection unchanged.
     let child_options = FolderIndexOptions {
-        conversion_formats: Some(vec!["epub".into()]),
+        conversion_formats: Some(vec!["eml".into()]),
         ..options.clone()
     };
     store
@@ -1212,11 +1235,11 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     assert_eq!(files.len(), 2);
     assert!(files
         .iter()
-        .any(|file| file.path.ends_with("report.PDF.md")));
-    assert!(files.iter().any(|file| file.path.ends_with("book.epub.md")));
+        .any(|file| file.path.ends_with("report.PAGES.md")));
+    assert!(files.iter().any(|file| file.path.ends_with("book.eml.md")));
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 4);
     assert_eq!(
-        fs::read_to_string(root_path.join("report.PDF")).unwrap(),
+        fs::read_to_string(root_path.join("report.PAGES")).unwrap(),
         "selectedpdf evidence"
     );
     assert_eq!(

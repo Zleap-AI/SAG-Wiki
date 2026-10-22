@@ -355,6 +355,9 @@ pub struct DoclingStatus {
     #[serde(default)]
     pub packages_total: u32,
     pub formats: Vec<(String, Vec<String>)>,
+    /// Converted in process; never needs a component.
+    #[serde(default)]
+    pub builtin_formats: Vec<(String, Vec<String>)>,
     #[serde(default)]
     pub profiles: Vec<DoclingProfileStatus>,
     #[serde(default)]
