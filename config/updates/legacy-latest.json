@@ -1,0 +1,15 @@
+{
+  "version": "0.1.8",
+  "notes": "## 更新内容\n\n- 修复 Windows 文档转换组件安装卡住及部分 PDF 转换失败的问题。\n- 文件转换完成后即可检索，索引进度与图表同步刷新。\n- 优化 Windows 路径显示、失败文件定位及 @ 文件引用交互。\n- 其他产品优化与问题修复。\n",
+  "pub_date": "2026-10-20T14:24:09.191Z",
+  "platforms": {
+    "darwin-aarch64": {
+      "url": "https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.8/SAG-Wiki-0.1.8-macOS-arm64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSL3hucWd4WGJoVVdQQkRhYXhpdktYbU40ZUdydmk4Snd0Q2xpUHpsbU54SkQrcm9zbW4yS1Iybzl1a3RXaU4veGhyNHhHVnRiczFuYjRzZ2R2SVNOWWsxMUF0N1lRRWdNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNTA2MjQ5CWZpbGU6U0FHLVdpa2ktMC4xLjgtbWFjT1MtYXJtNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMS44CnEzN25EaHRuYVVTR1daWEdHYWdrRTVQOTZ3cXdFYWZXWU5OSWxrVjJ0Q096MnBEQmZCamJjTFNSMGhmQk1GNTUzTndrMWNyNjBZV21Td1FCOFVMbUJnPT0K"
+    },
+    "windows-x86_64": {
+      "url": "https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.8/SAG-Wiki-0.1.8-Windows-x64-setup.exe",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVSL3hucWd4WGJoVVRuT3UydmEyUUUzd09yVWlVKzMvMUt1Y0V3MVU0aGp3eXZFYWMzNitLSnA3S1l1di9PODNJYWZOU1dTU0phQUJNOXV6UHNHcE04L1E3MTd6QVZTZUFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyNTA2MjQ5CWZpbGU6U0FHLVdpa2ktMC4xLjgtV2luZG93cy14NjQtc2V0dXAuZXhlCXZlcnNpb246MC4xLjgKUWNUa3Mzb2VJRlhqNFR3c2dkUDROdThta25sTE9iMjNDZHBvQlhKcm5MTUpBN3ZKS2lZZFVXRDZPWWhVYmRLR0NhVHhpN29DTzVoUjBwb3JEeWhGRHc9PQo="
+    }
+  }
+}

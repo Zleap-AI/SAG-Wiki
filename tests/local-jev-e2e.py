@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -131,7 +132,7 @@ class CoreClient:
     """Use the existing authenticated core protocol, including chunked frames."""
 
     def __init__(self, data):
-        endpoint = json.loads((data / "sag-service.json").read_text())
+        endpoint = json.loads((data / "sag-service.json").read_text(encoding="utf-8"))
         self.socket = socket.create_connection(("127.0.0.1", endpoint["port"]), timeout=15)
         self.reader = self.socket.makefile("rb")
         self.counter = 0
@@ -197,7 +198,7 @@ def run(binary):
 
         def cli(*args, input=None, success=True):
             process = subprocess.run([str(binary), *args], cwd=documents, env=environment,
-                                     input=input, text=True, capture_output=True, timeout=35)
+                                     input=input, encoding="utf-8", capture_output=True, timeout=35)
             require((process.returncode == 0) == success,
                     f"sag {' '.join(args)} exited {process.returncode}: {process.stderr}")
             return process
@@ -238,7 +239,7 @@ def run(binary):
                 }})
             candidates = output["results"]
             require(candidates, "core deep search returned no indexed candidates")
-            require(candidates[0]["path"].endswith("/checklist.md"), "core deep search ignored configured Jev scores")
+            require(Path(candidates[0]["path"]).name == "checklist.md", "core deep search ignored configured Jev scores")
             require(candidates[0]["score"] == 0.98, "real core did not preserve the returned Noul score")
             require(output["trace"], "core search did not execute the real retrieval pipeline")
 
@@ -332,8 +333,11 @@ def run(binary):
 
 
 def main():
+    sys.stdout.reconfigure(encoding="utf-8")
+    sys.stderr.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--binary", type=Path, default=Path(__file__).resolve().parents[1] / "cli/target/debug/sag")
+    binary_name = "sag.exe" if os.name == "nt" else "sag"
+    parser.add_argument("--binary", type=Path, default=Path(__file__).resolve().parents[1] / "cli/target/debug" / binary_name)
     parser.add_argument("--serve", action="store_true", help="run only the strict no-auth Jev fixture for desktop UI acceptance")
     arguments = parser.parse_args()
     if arguments.serve:
