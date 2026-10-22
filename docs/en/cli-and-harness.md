@@ -16,9 +16,9 @@ sag
 
 The published `@zleap-ai/sag` contains native executables for these two platforms. Rust, source compilation and desktop installation are unnecessary. npm registers the `sag` command. Reuse an existing working `sag` installation.
 
-The first interactive run of `sag` guides configuration of the JEV retrieval service. The endpoint and model prompts show their current values; press Enter to keep them. First-time setup requires a key, entered with hidden input. The default endpoint is `https://api.302ai.cn/typesafeai/v1`, and the model is `jev-latest`. CLI search needs only this retrieval configuration. The answer model is configured separately in desktop.
+The first interactive run of `sag` guides configuration of the JEV retrieval service. The endpoint and model prompts show their current values; press Enter to keep them. API Key authentication is the default; first-time setup in this mode requires a key, entered with hidden input. The default endpoint is `https://api.302ai.cn/typesafeai/v1`, and the model is `jev-latest`. CLI search needs only this retrieval configuration. The answer model is configured separately in desktop.
 
-If no terminal was available during installation, the first terminal invocation of `sag` or `sag "search query"` opens the same setup flow. When started from a search, saving configuration resumes the original query. Existing keys automatically reuse the current configuration. Ctrl+C cancels; nothing is saved until setup finishes. Run `sag config` to configure it again at any time.
+If no terminal was available during installation, the first terminal invocation of `sag` or `sag "search query"` opens the same setup flow. When started from a search, saving configuration resumes the original query. Existing usable API Key or no-authentication settings are reused automatically. Ctrl+C cancels; nothing is saved until setup finishes. Run `sag config` to configure it again at any time.
 
 With an existing local key file, configure it through standard input, optionally specifying the endpoint and model:
 
@@ -28,9 +28,17 @@ sag config --url "$JEV_URL" --model "$JEV_MODEL" --key-stdin < "$JEV_KEY_FILE"
 
 Usually, run `sag` and enter the key at the hidden prompt. Do not paste keys into chat or place them in command arguments.
 
+For a local Jev service without authentication, configure the mode explicitly. Use the service’s model name and either its base URL or complete `/systemone` or `/decisions` endpoint.
+
+```sh
+sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none
+```
+
+`--auth none` removes the saved Jev key and omits the authorization header. To return to a keyed service, use `--auth bearer --key-stdin` and supply that service’s key. `sag config --if-needed` also reuses no-authentication settings.
+
 Keys are stored in private configuration for the current user and omitted from configuration output and installation logs. Noninteractive environments do not wait for input. An agent can read the explicit error and ask the user to run `sag` in a terminal. `sag config --if-needed` prompts only when configuration is missing and preserves existing settings. In a normal piped environment, `sag config` only outputs redacted configuration and whether a key exists.
 
-Give your agent the [SAG Skill GitHub link](https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md) and ask it to follow setup for the current project. It retrieves companion files from the same directory and completes CLI installation, Skill installation, configuration checks, project indexing and retrieval verification. The user enters the first key in a terminal. Building from source is for development; see the [development guide](development.md).
+Give your agent the [SAG Skill GitHub link](https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md) and ask it to follow setup for the current project. It retrieves companion files from the same directory and completes CLI installation, Skill installation, configuration checks, project indexing and retrieval verification. For API Key authentication, the user enters the first key in a terminal. Building from source is for development; see the [development guide](development.md).
 
 ## Sharing with desktop
 
