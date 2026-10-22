@@ -67,7 +67,7 @@ def main():
         if result.status != ConversionStatus.SUCCESS:
             raise RuntimeError(f"Media conversion failed: {result.status}: {result.errors}")
         result.document.save_as_markdown(output, image_mode=ImageRefMode.PLACEHOLDER)
-        text = output.read_text().lower()
+        text = output.read_text(encoding="utf-8").lower()
         if not text.strip():
             raise RuntimeError("Media conversion produced no transcript")
         if args.probe:

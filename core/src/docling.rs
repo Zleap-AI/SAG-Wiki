@@ -315,6 +315,9 @@ impl Docling {
             .env("UV_CACHE_DIR", self.home.join("cache"))
             .env("HF_HOME", self.home.join("huggingface"))
             .env("PYTHONUNBUFFERED", "1")
+            // Docling writes UTF-8; Windows otherwise decodes files and stderr with the ANSI code page.
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .env("NO_COLOR", "1");
         if cfg!(target_os = "linux") || cfg!(target_os = "windows") {
             command.env("UV_TORCH_BACKEND", "cpu");
