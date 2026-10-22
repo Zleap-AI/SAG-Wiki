@@ -234,7 +234,9 @@ def run(binary):
             with CoreClient(data) as core:
                 output = core.call("run_query", {"query": {
                     "id": f"local-jev-e2e-{time.time_ns()}", "kind": "deep_search", "question": QUESTION,
-                    "scope": [str(documents)], "references": [], "model": answer_model, "conversation_id": None,
+                    # Use the service's canonical root, as the desktop does.
+                    # Windows stores verbatim paths with a \\?\ prefix.
+                    "scope": [indexed["path"]], "references": [], "model": answer_model, "conversation_id": None,
                     "replace_from": None, "page": None,
                 }})
             candidates = output["results"]
