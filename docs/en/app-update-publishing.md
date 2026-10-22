@@ -27,7 +27,7 @@ With the private key and its password available as restricted local files, run:
 node scripts/configure-release.mjs \
   --key-file /secure/updater.key \
   --password-file /secure/updater.password \
-  --reviewer Zleap-Admin
+  --reviewer luoshuai990529
 ```
 
 This administrator operation configures environment protection and uploads the secret values from files without printing them. A repository Maintain role is insufficient to configure protected environments. If GitHub returns 403, an administrator must complete this step; a successful local build does not establish that the signing environment is ready.
@@ -40,11 +40,13 @@ The release job checks environment protection before signing. You can also inspe
 node scripts/release.mjs verify-environment
 ```
 
+The configured single-maintainer policy lets `luoshuai990529` request a release and manually approve the bot-started signing job. Keep prevention of self-approval enabled: the deployment initiator is the bot. This is one human confirmation, not independent two-person review. For two-person review, configure a separate reachable maintainer as reviewer.
+
 ## Build and release flow
 
 1. Update desktop and CLI versions, lock files and Changelog in a PR. Merge the PR into `main` only after review and unsigned CI checks pass.
 2. PR jobs build macOS arm64 and Windows x64 installers and the bundled CLI from the same commit, run tests and the local Jev protocol E2E. These jobs receive no signing secrets.
-3. Create `vX.Y.Z` at the validated `main` commit. The workflow rejects mismatched versions and tags outside `main`.
+3. Create `vX.Y.Z` at the validated `main` commit, then run **Request desktop release** from `main` with that tag. Pushing a tag alone does not start signing. The request dispatches the tag workflow as `github-actions[bot]`; it never creates or moves tags. The workflow rejects mismatched versions and tags outside `main`.
 4. After both platforms pass, the protected `release` job requires its reviewer. It signs the exact built update packages with Environment secrets, binds signatures to the release version, verifies signatures, checks platform metadata has the same commit/version, and generates checksums and update manifests.
 5. The workflow creates a **draft** GitHub Release with installers, signed update packages, manifests and build provenance. It does not automatically promote a partially built release.
 
@@ -58,7 +60,10 @@ node scripts/release.mjs validate
 release_commit=$(git rev-parse origin/main)
 git tag -a v0.1.9 "$release_commit" -m 'SAG Wiki 0.1.9'
 git push origin refs/tags/v0.1.9
+gh workflow run request-release.yml --repo Zleap-AI/SAG-Wiki --ref main -f tag=v0.1.9
 ```
+
+If the tag already exists, keep it unchanged and run only the request command. Inspect the resulting run actor before approval; it must be `github-actions[bot]`.
 
 The macOS `.dmg` is for manual installation; its `.app.tar.gz` is the updater payload. Windows uses the NSIS `.exe` for both purposes. The central signing step generates `.sig` files with the release version included in the signed comment. `requireSignedVersion` remains enabled.
 
