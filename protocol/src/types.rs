@@ -155,6 +155,13 @@ pub struct SearchPagination {
     pub page: usize,
     pub page_size: usize,
 }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ModelAuthMode {
+    #[default]
+    Bearer,
+    None,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ModelConfig {
@@ -162,6 +169,7 @@ pub struct ModelConfig {
     pub model: String,
     pub models: Vec<String>,
     pub has_key: bool,
+    pub auth_mode: ModelAuthMode,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<ReasoningEffort>,
 }
@@ -172,8 +180,14 @@ impl Default for ModelConfig {
             model: "qwen3.6-flash".into(),
             models: vec!["qwen3.6-flash".into()],
             has_key: false,
+            auth_mode: ModelAuthMode::Bearer,
             reasoning_effort: None,
         }
+    }
+}
+impl ModelConfig {
+    pub fn is_configured(&self) -> bool {
+        !self.model.trim().is_empty() && (self.auth_mode == ModelAuthMode::None || self.has_key)
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -295,6 +309,7 @@ impl Default for Settings {
                 model: "jev-latest".into(),
                 models: vec![],
                 has_key: false,
+                auth_mode: ModelAuthMode::Bearer,
                 reasoning_effort: None,
             },
             retrieval: Retrieval::default(),

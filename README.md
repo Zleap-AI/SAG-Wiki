@@ -104,7 +104,7 @@ https://github.com/user-attachments/assets/bcdf9dbf-7535-41d6-bd22-bde0ea824525
 | Feature | What you need |
 | --- | --- |
 | File indexing and quick search | Add a folder; no API key needed |
-| SAG2 semantic retrieval | Configure a Jev service and API key |
+| SAG2 semantic retrieval | Configure a Jev service; supply an API key when required |
 | Cited Q&A | Configure an answer model and API key; SAG2 retrieval also requires Jev configuration |
 
 SAG-Wiki itself is free and open source. External service charges depend on your chosen provider. Original files stay on your machine; in-depth retrieval and Q&A send the required questions, document passages, or context to the services you configure.
@@ -122,6 +122,8 @@ Install and open SAG-Wiki, then click **+** beside folder management to add the 
 ### 2. Search your files
 
 Once indexing finishes, use **Search** to find passages and preview the source. Quick search works locally; configure Jev in **Settings → Models** for in-depth semantic retrieval.
+
+For a local Jev service, select **Custom** and enter its model name and base URL (for example, `http://127.0.0.1:8000/v1`), or its complete `/systemone` or `/decisions` endpoint. Choose **No authentication** under **Jev authentication** if the service does not require an API key; this omits the authorization header and removes the saved Jev key. The service must implement Jev’s `state`, `questions`, and `answers.*.noul` protocol. For the CLI, run `sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none`. To switch back to a keyed service, use `--auth bearer --key-stdin` and enter that service’s key.
 
 <p align="center">
   <img src="docs/assets/readme/product-search-en.png" alt="Search results with the matching source passage" width="940" />
@@ -151,7 +153,7 @@ Give your agent this one sentence:
 Install https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md and follow its setup flow for my current project.
 ```
 
-SAG supports **Claude Code, Codex, and OpenCode**. The Skill includes CLI installation, configuration, project indexing and verification. **The CLI works without SAG Wiki desktop** and shares its settings and knowledge base when the desktop is installed. Existing settings are reused; first-time semantic search needs your own Jev API key, entered privately in a terminal. The GitHub Skill link is the canonical installation entry; the agent retrieves its supporting files from the same directory.
+SAG supports **Claude Code, Codex, and OpenCode**. The Skill includes CLI installation, configuration, project indexing and verification. **The CLI works without SAG Wiki desktop** and shares its settings and knowledge base when the desktop is installed. Existing settings are reused; API-key-authenticated semantic search needs your own Jev key, entered privately in a terminal. The GitHub Skill link is the canonical installation entry; the agent retrieves its supporting files from the same directory.
 
 With Node.js 18 or later installed:
 

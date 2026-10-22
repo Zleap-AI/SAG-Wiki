@@ -13,9 +13,17 @@ const card=(kind:ModelKind)=>document.querySelectorAll<HTMLElement>('.model-sett
 const address=(kind:ModelKind)=>card(kind).querySelector<HTMLInputElement>('input[type=url]')!;
 const key=(kind:ModelKind)=>card(kind).querySelector<HTMLInputElement>('input[type=password]')!;
 const trigger=(kind:ModelKind)=>card(kind).querySelector<HTMLButtonElement>('.provider-field button')!;
+const authTrigger=()=>card('jev').querySelector<HTMLButtonElement>('.auth-field button')!;
 async function input(element:HTMLInputElement,text:string){element.value=text;element.dispatchEvent(new Event('input',{bubbles:true}));await tick();}
 async function choose(kind:ModelKind,id:string){
  trigger(kind).dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ await vi.waitFor(()=>expect(document.querySelector(`[role=option][data-value="${id}"]`)).not.toBeNull());
+ document.querySelector(`[role=option][data-value="${id}"]`)!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));
+ await tick();
+}
+async function chooseAuth(id:'bearer'|'none'){
+ expect(authTrigger()).not.toBeNull();
+ authTrigger().dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector(`[role=option][data-value="${id}"]`)).not.toBeNull());
  document.querySelector(`[role=option][data-value="${id}"]`)!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));
  await tick();
@@ -114,4 +122,43 @@ it('清空源密钥会清空自动填入项，切换供应商不会将密钥带�
  await setup();await input(key('answer'),'test-shared-key');await input(key('answer'),'');expect(key('jev').value).toBe('');
  await input(key('answer'),'test-shared-key');await choose('answer','openai');expect(key('answer').value).toBe('');
  await input(key('jev'),'test-302-only');expect(key('answer').value).toBe('');
+});
+
+it('旧 Jev 配置默认使用 API Key，问答模型不出现鉴权选项',async()=>{
+ await setup();
+ expect(authTrigger()).not.toBeNull();expect(authTrigger().textContent).toContain('API Key');
+ expect(card('answer').querySelector('.auth-field')).toBeNull();
+ expect(key('jev')).not.toBeNull();
+});
+it('本地 Jev 无需鉴权时允许测试和保存，重新打开后保持该模式',async()=>{
+ const settings=structuredClone(value);settings.jev.has_key=true;
+ const onSave=await setup(settings);
+ await choose('jev','custom');await input(address('jev'),'http://127.0.0.1:8000/v1/systemone');
+ await chooseAuth('none');
+ expect(key('jev')).toBeNull();api.mockResolvedValue('连接成功');
+ card('jev').querySelector<HTMLButtonElement>('.settings-card-actions button')!.click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'jev',key:'',config:expect.objectContaining({auth_mode:'none',url:'http://127.0.0.1:8000/v1/systemone'})})));
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('连接成功'));
+ await save();expect(onSave).toHaveBeenCalledTimes(1);
+ expect(onSave.mock.calls[0][0].jev.auth_mode).toBe('none');expect(onSave.mock.calls[0][2]).toBe('');
+ const saved=structuredClone(onSave.mock.calls[0][0]);
+ await unmount(app!);app=undefined;document.body.innerHTML='';await setup(saved);
+ expect(authTrigger().textContent).toContain('无需鉴权');expect(key('jev')).toBeNull();
+});
+it('无需鉴权会丢弃草稿密钥，也不接收 302 自动共享的密钥',async()=>{
+ const onSave=await setup();await input(key('jev'),'test-draft-jev');
+ await chooseAuth('none');await input(key('answer'),'test-answer-updated');
+ api.mockResolvedValue('连接成功');card('jev').querySelector<HTMLButtonElement>('.settings-card-actions button')!.click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'jev',key:''})));
+ await save();expect(onSave.mock.calls[0][2]).toBe('');
+ await chooseAuth('bearer');expect(key('jev').value).toBe('');
+});
+it('切回 API Key 后仍禁止复用原供应商的保存密钥',async()=>{
+ const settings=structuredClone(value);settings.jev.has_key=true;const onSave=await setup(settings);
+ await chooseAuth('none');await choose('jev','custom');await input(address('jev'),'http://127.0.0.1:8000/v1');
+ await chooseAuth('bearer');
+ expect(key('jev').placeholder).toBe('填写 API 密钥');
+ card('jev').querySelector<HTMLButtonElement>('.settings-card-actions button')!.click();
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('切换供应商后，请填写对应的 API 密钥。'));
+ expect(api).not.toHaveBeenCalled();await save();expect(onSave).not.toHaveBeenCalled();
 });

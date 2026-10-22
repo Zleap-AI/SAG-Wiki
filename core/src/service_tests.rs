@@ -292,6 +292,46 @@ async fn stop(client: &Client, task: tokio::task::JoinHandle<anyhow::Result<()>>
         .unwrap()
         .unwrap();
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn jev_auth_mode_cannot_disable_answer_provider_key_protection() {
+    let (dir, client, server) = start().await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    let previous_url = settings.answer.url.clone();
+    crate::models::save_secret(&dir.path().join("data"), "answer", "previous-answer-key").unwrap();
+    settings.answer = serde_json::from_value(serde_json::json!({
+        "url":"http://127.0.0.1:1/v1", "model":"local-model", "auth_mode":"none"
+    })).unwrap();
+    let result = client.call(Operation::SaveSettings {
+        settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
+    }, Duration::from_secs(5)).await;
+    assert!(result.is_err(), "Jev-only auth mode was accepted for the answer model");
+    let result = client.call(Operation::TestModel {
+        kind: "answer".into(), config: settings.answer, key: String::new(),
+    }, Duration::from_secs(5)).await;
+    assert!(result.err().unwrap().to_string().contains("问答模型"));
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.answer.url, previous_url);
+    assert_eq!(crate::models::secret(&dir.path().join("data"), "answer").unwrap(), "previous-answer-key");
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invalid_local_jev_settings_do_not_remove_the_saved_key() {
+    let (dir, client, server) = start().await;
+    crate::models::save_secret(&dir.path().join("data"), "jev", "previous-jev-key").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.jev.auth_mode = ModelAuthMode::None;
+    settings.retrieval.candidate_k = 0;
+    let result = client.call(Operation::SaveSettings {
+        settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
+    }, Duration::from_secs(5)).await;
+    assert!(result.is_err());
+    assert_eq!(crate::models::secret(&dir.path().join("data"), "jev").unwrap(), "previous-jev-key");
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.jev.auth_mode, ModelAuthMode::Bearer);
+    stop(&client, server).await;
+}
 fn query(id: &str) -> Query {
     Query {
         id: id.into(),

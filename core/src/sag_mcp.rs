@@ -402,7 +402,7 @@ impl SagTools {
             if scope.is_empty() {
                 return Ok(Output::new(json!({"query":args.query}), vec![]));
             }
-            let key = models::secret(&self.data_dir, "jev")?;
+            let key = models::jev_secret(&self.data_dir, &self.settings.jev)?;
             let output = retrieval::retrieve(
                 &self.store,
                 &args.query,
