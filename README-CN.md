@@ -55,7 +55,7 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
 ```
 
-安装包大小不含按需下载的文档转换组件和识别模型。
+安装包大小不含按需下载的图片识别与音视频组件。
 
 添加一个文件夹，就能搜索其中的文档、笔记和代码。查找原文、跨文件提问、核对答案出处，也可以让编程 Agent 使用同一份知识库。
 
@@ -63,7 +63,7 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 - **快**：百万字索引约 **200 ms**，索引和检索不调用 LLM。
 - **准**：原创 **SAG2** 检索技术，检索效果超越 RAG、GraphRAG 等。
 
-你还可以编辑 Markdown、阅读 HTML、探索文档关联，或直接在终端搜索。按需启用文档转换组件后，PDF、Office 等格式也能加入同一知识库。
+你还可以编辑 Markdown、阅读 HTML、探索文档关联，或直接在终端搜索。PDF、Office、EPUB 等文档内置转换，直接加入同一知识库；图片识别与音视频转写按需安装组件。
 
 ### 与 LLM Wiki、RAG 的区别
 

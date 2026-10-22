@@ -86,7 +86,7 @@
 <div class="setting-row other-formats">
  <div class="description">
   <strong>{$t('其他格式')}</strong>
-  <p>{$t('本地转换为 Markdown，原文件保留。')}</p>
+  <p>{$t('PDF、Office、EPUB 等文档内置转换，无需下载。图片识别与音视频转写按需安装组件。')}</p>
   {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
  </div>
  <div class="other-formats-actions"><Button.Root type="button" class="outline other-formats-action" aria-label={$t('选择其他格式')} disabled={loading||disabled} onclick={showDetails}>{$t('选择')}</Button.Root></div>
@@ -96,6 +96,10 @@
  <div class="dialog-head"><h2>{$t(status.installed?'选择其他格式':'全部支持格式')}</h2><Button.Root type="button" class="icon-button" disabled={uninstalling||applying} aria-label={$t('关闭格式选择')} onclick={closeDetails}>{@html icon('close')}</Button.Root></div>
  <div class="dialog-body formats-list">
   <div class="docling-component"><div><a href="https://docling.ai/" target="_blank" rel="noreferrer" on:click={openDocling}>Docling ↗</a><p>{$t('本地转换组件')}</p></div><Button.Root type="button" class="outline uninstall-docling" disabled={status.running||uninstalling||(!status.installed&&!status.profiles?.some(profile=>profile.installed))} onclick={()=>{uninstallError='';confirmUninstall=true;}}>{$t('卸载相关组件')}</Button.Root></div>
+  {#if status.builtin_formats?.length}<section class="builtin-formats" aria-label={$t('内置转换格式')}>
+   <h3>{$t('内置转换格式')}<span class="format-readiness">{$t('无需下载')}</span></h3>
+   <p>{status.builtin_formats.map(([label,extensions])=>`${$t(label)}（${extensions.map(extension=>`.${extension}`).join(' ')}）`).join('；')}</p>
+  </section>{/if}
   <section class="conversion-info" aria-label={$t('转换与保存方式')}>
    <h3>{$t('转换与保存方式')}</h3>
    <p>{$t('先索引 Markdown、文本等直接支持的文件，再并行转换其他格式，最后索引转换结果。已完成索引的文件可立即搜索。')}</p>
@@ -107,7 +111,7 @@
   {#if selectionError}<p class="form-error" role="alert">{$t(selectionError)}</p>{/if}
   {#if uninstallError&&!confirmUninstall}<p class="form-error" role="alert">{$t(uninstallError)}</p>{/if}
   {#if legacyAll&&!selectionChanged}<p class="settings-help">{$t('沿用原有全部格式范围；仅调整并行数不会安装组件。修改格式选择后，才会确认所需组件。')}</p>
-  {:else}<p class="settings-help">{$t('勾选的格式决定要下载的组件：文档格式对应文档组件，音视频格式对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。')}</p>{/if}
+  {:else}<p class="settings-help">{$t('以下格式需要下载识别组件：图片和扫描件对应图片识别组件，音视频对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。')}</p>{/if}
   <div class="format-selection-actions"><Button.Root type="button" class="outline" onclick={()=>changeSelection(status.formats.flatMap(([,extensions])=>extensions))}>{$t('全选')}</Button.Root><Button.Root type="button" onclick={()=>changeSelection([])}>{$t('清空选择')}</Button.Root></div>
   {#each status.formats as [label,extensions]}
    <div class="format-group"><strong>{$t(label)}</strong><span class="format-readiness">{$t(extensions.every(extension=>profileInstalled(status,profileForExtension(status,extension)!))?'已就绪':'需安装组件')}</span>
@@ -129,6 +133,7 @@
 <style>
  .other-formats-actions{display:flex;gap:8px;flex-shrink:0}
  .format-readiness{font-size:11px;color:var(--color-muted);margin-left:10px}
+ .builtin-formats{margin:4px 0 12px}.builtin-formats h3{font-size:13px;font-weight:500;display:flex;align-items:center}.builtin-formats p{font-size:12px;line-height:1.7;color:var(--color-muted);margin-top:4px;overflow-wrap:anywhere}
  :global(.other-formats-action){flex-shrink:0;font-size:13px;line-height:1.4;padding:6px 12px;min-height:30px}
  :global(.docling-formats-dialog){width:560px;max-width:calc(100vw - 40px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
  .dialog-head,.dialog-footer{flex-shrink:0}

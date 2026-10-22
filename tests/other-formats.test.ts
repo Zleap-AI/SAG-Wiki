@@ -19,7 +19,7 @@ it('未安装时只有选择入口，从所选格式确认后才安装',async()=
  expect(find('选择其他格式').textContent).toBe('选择');
  expect(document.querySelector('.other-formats [role="checkbox"]')).toBeNull();
  expect(document.querySelector('.format-select')).toBeNull();
- expect(document.querySelector('.other-formats p')?.textContent).toBe('本地转换为 Markdown，原文件保留。');
+ expect(document.querySelector('.other-formats p')?.textContent).toContain('内置转换');
  find('选择其他格式').click();await tick();find('转换 .pdf').click();await tick();
  await vi.waitFor(()=>expect(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')?.disabled).toBe(false));
  (Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')!).click();await tick();

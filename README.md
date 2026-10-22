@@ -63,7 +63,7 @@ Add a folder to make your documents, notes, and code searchable. Find a passage,
 - **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
 - **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
 
-Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. Enable the optional document converter to bring PDF, Office, and other formats into the same workflow.
+Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. PDF, Office, and EPUB documents convert out of the box; image recognition and audio/video transcription are optional components.
 
 ### How it compares
 
