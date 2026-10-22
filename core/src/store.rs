@@ -194,12 +194,13 @@ fn candidate_metadata(r: &rusqlite::Row<'_>, order: usize) -> Result<Candidate> 
     })
 }
 
-/// Reads a document only when its content still matches the indexed hash.
+/// Loads the current source text for a candidate's document.
 ///
 /// A document whose file is unreadable (unmounted drive, permission change)
 /// or whose content no longer matches the indexed hash is skipped rather
 /// than failing the whole query: one stale file must not hide every other
 /// result. The watcher or a manual refresh brings the index back in sync.
+/// Reads a document only when its content still matches the indexed hash.
 fn read_indexed_source(path: &str, expected: &str) -> Option<String> {
     let raw = match fs::read(path) {
         Ok(raw) => raw,
@@ -1140,7 +1141,7 @@ impl Store {
         let mut files = vec![];
         for entry in builder.build() {
             self.indexing.checkpoint()?;
-            let entry = entry?;
+            let Some(entry) = self.walk_entry(root, entry)? else { continue };
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
             if entry.file_type().is_some_and(|kind| kind.is_dir()) { rules.directory(entry.path())?; }
             if entry.path().starts_with(directory) && entry.file_type().is_some_and(|kind| kind.is_file())
@@ -1342,6 +1343,33 @@ impl Store {
         }
         Ok(())
     }
+    /// Resolves one walk entry. A directory that cannot be listed (macOS privacy
+    /// protection, foreign ownership, Windows ACLs) is recorded as an index issue
+    /// and skipped so the rest of the folder still gets indexed.
+    fn walk_entry(&self, root: &Path, entry: std::result::Result<ignore::DirEntry, ignore::Error>) -> Result<Option<ignore::DirEntry>> {
+        let error = match entry {
+            Ok(entry) => return Ok(Some(entry)),
+            Err(error) => error,
+        };
+        let Some(io) = error.io_error() else { return Err(error.into()) };
+        if !matches!(io.kind(), std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotFound) {
+            return Err(error.into());
+        }
+        let path = match &error {
+            ignore::Error::WithPath { path, .. } => path.clone(),
+            ignore::Error::WithDepth { err, .. } => match err.as_ref() {
+                ignore::Error::WithPath { path, .. } => path.clone(),
+                _ => root.to_path_buf(),
+            },
+            _ => root.to_path_buf(),
+        };
+        eprintln!("跳过无法读取的目录：{}：{io}", path.display());
+        self.connection().execute(
+            "INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error",
+            params![path_text(&path)?, path_text(root)?, format!("无法读取目录：{io}")],
+        )?;
+        Ok(None)
+    }
     fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<Vec<PathBuf>> {
         let converted = if converted_only == Some(false) { HashSet::new() } else { self.conversion_outputs()? };
         let mut rules = crate::folder_index::Rules::new(root, settings)?;
@@ -1365,7 +1393,7 @@ impl Store {
         let mut files = Vec::new();
         for entry in builder.build() {
             self.indexing.checkpoint()?;
-            let entry = entry?;
+            let Some(entry) = self.walk_entry(root, entry)? else { continue };
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
             if (entry.path().starts_with(directory) || entry.path().starts_with(&converted_target)) && entry.file_type().is_some_and(|ty| ty.is_file())
                 && converted_only.is_none_or(|converted| converted == crate::docling::in_output(entry.path()))
@@ -1440,6 +1468,9 @@ impl Store {
         for p in indexed {
             self.indexing.checkpoint()?;
             if converted_only.is_some_and(|converted| converted != crate::docling::in_output(Path::new(&p))) { continue; }
+            // An issue recorded for a directory the walk could not enter stays until the
+            // directory becomes readable again or disappears.
+            if Path::new(&p).is_dir() && fs::read_dir(&p).is_err() { continue; }
             if !seen.contains(&p) {
                 self.remove_indexed(&p)?
             }
@@ -3894,6 +3925,32 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         assert_eq!(store.roots().unwrap()[0].status, "ready");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_subdirectory_is_reported_and_the_rest_of_the_folder_is_indexed() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 { return; }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+        let root_text = store.add_root(&root).unwrap();
+        fs::write(root.join("open.md"), "readablemarker").unwrap();
+        let locked = root.join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::write(locked.join("inside.md"), "lockedmarker").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let result = store.scan(&root_text, |_| {});
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        result.unwrap();
+        assert_eq!(store.search_files("readablemarker", &[], 10).unwrap().len(), 1);
+        let state = &store.roots().unwrap()[0];
+        assert_eq!(state.status, "partial");
+        assert!(state.error.as_ref().unwrap().contains("locked"), "{:?}", state.error);
+        // Once the directory becomes readable again a rescan clears the issue.
+        store.scan(&root_text, |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        assert_eq!(store.search_files("lockedmarker", &[], 10).unwrap().len(), 1);
+    }
     #[test]
     fn file_index_issues_persist_and_clear_when_the_directory_is_excluded() {
         let (dir, store, root) = setup();
