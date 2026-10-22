@@ -334,6 +334,12 @@ async fn indexing_search_save_and_user_isolation_use_native_acl() {
     let f = Fixture::new().await;
     assert_eq!(f.rpc(Some(1000), "add_root", json!({"path":f.a})).await.0, StatusCode::OK);
     let service = f.app.service(1000).await.unwrap();
+    // This fixture simulates NAS ACLs for synthetic UIDs, not OS accounts or a root worker.
+    // Exercise the gateway/store contract here; fnos-document-publish.py covers the real worker.
+    service.store.set_document_publisher(Arc::new(|temporary, target, _expected| {
+        std::fs::rename(temporary, target)?;
+        Ok(())
+    }));
     for _ in 0..100 {
         if service.store.files().unwrap().len() == 2 { break; }
         tokio::time::sleep(std::time::Duration::from_millis(30)).await;

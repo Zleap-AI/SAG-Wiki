@@ -1,0 +1,110 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == "main" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_COMMIT_BRANCH && $CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+stages: [test, build, publish]
+
+default:
+  image:
+    name: "$FPK_BUILD_IMAGE"
+  tags: [docker]
+  interruptible: true
+
+variables:
+  FPK_BUILD_IMAGE: "python:3.11"
+  FPK_PUBLISH_IMAGE: "python:3.11"
+  FPK_PUBLIC_API_V4_URL: "https://gitlab.zexrtq.com/api/v4"
+  RUSTUP_TOOLCHAIN: "1.99.1"
+  RUSTUP_DIST_SERVER: "https://rsproxy.cn"
+  DEBIAN_MIRROR: "https://mirrors.aliyun.com/debian"
+  PIP_INDEX_URL: "https://mirrors.aliyun.com/pypi/simple/"
+  CARGO_REGISTRY_MIRROR: "sparse+https://rsproxy.cn/index/"
+  CARGO_HOME: "$CI_PROJECT_DIR/.cargo-ci"
+  CARGO_BUILD_JOBS: "2"
+  CARGO_TERM_COLOR: never
+  NPM_CONFIG_CACHE: "$CI_PROJECT_DIR/.npm-ci"
+  NPM_CONFIG_REGISTRY: "https://registry.npmmirror.com"
+  NPM_CONFIG_FETCH_TIMEOUT: "60000"
+  NPM_CONFIG_FETCH_RETRIES: "2"
+  NPM_CONFIG_LOGLEVEL: http
+
+.rust-cache:
+  cache:
+    - key:
+        prefix: fnos-tools-v1
+        files: [scripts/ci/setup.sh, scripts/ci/check-tools.sh]
+      when: always
+      paths:
+        - .rustup-ci/
+        - .ci-tools/
+        - .cargo-ci/bin/
+        - .cargo-ci/.crates.toml
+        - .cargo-ci/.crates2.json
+    - key:
+        prefix: "rust-1.99.1-$CI_JOB_NAME_SLUG"
+        files: [Cargo.lock]
+      when: always
+      paths:
+        - .cargo-ci/registry/
+        - .cargo-ci/git/
+        - target/
+        - .npm-ci/
+
+checks:
+  extends: .rust-cache
+  stage: test
+  timeout: 1h
+  script:
+    - source scripts/ci/setup.sh
+    - bash scripts/ci/install-frontend.sh
+    - npm test
+    - npm run build
+    - python3 -m unittest discover -s tests -p test_fpk_ci.py
+    - bash scripts/ci/test-workspace.sh
+
+build-fpk:
+  extends: .rust-cache
+  stage: build
+  timeout: 2h
+  parallel:
+    matrix:
+      - FPK_ARCH: [x86, arm]
+  script:
+    - source scripts/ci/setup.sh build
+    - bash scripts/ci/install-frontend.sh
+    - npm run package:fnos -- --arch "$FPK_ARCH"
+    - |
+      if [ "$FPK_ARCH" = x86 ]; then
+        binary_dir=target/x86_64-unknown-linux-gnu/release
+        python3 tests/fnos-document-publish.py "$binary_dir/sag-fnos-worker"
+      else
+        binary_dir=target/aarch64-unknown-linux-gnu/release
+      fi
+      python3 scripts/ci/fpk.py verify --arch "$FPK_ARCH" --binary-directory "$binary_dir"
+  artifacts:
+    name: "fpk-$FPK_ARCH-$CI_COMMIT_SHORT_SHA-$CI_PIPELINE_ID"
+    expire_in: 30 days
+    paths:
+      - release/sag-desktop-fnos-*-$FPK_ARCH.fpk
+      - release/sag-desktop-fnos-*-$FPK_ARCH.fpk.sha256
+      - release/audit-$FPK_ARCH.json
+
+publish-fpk:
+  stage: publish
+  image:
+    name: "$FPK_PUBLISH_IMAGE"
+  interruptible: false
+  resource_group: fnos-fpk-release
+  timeout: 20m
+  needs:
+    - job: build-fpk
+      artifacts: true
+  cache: []
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "main" && ($CI_PIPELINE_SOURCE == "push" || $CI_PIPELINE_SOURCE == "web")'
+    - when: never
+  script:
+    - python3 scripts/ci/fpk.py publish

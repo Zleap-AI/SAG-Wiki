@@ -16,7 +16,7 @@ function run(command, arguments_, cwd = root) {
   if (result.status !== 0) throw new Error(`${command} 失败：${result.status}`);
 }
 run('npm', ['run', 'build']);
-if (!suppliedBinary) run('rustup', ['run', 'stable', 'cargo', 'zigbuild', '-p', 'sag-desktop-fnos', '-p', 'sag-cli', '--features', 'sag-cli/fnos', '--release', '--target', `${target}.2.35`]);
+if (!suppliedBinary) run('rustup', ['run', process.env.RUSTUP_TOOLCHAIN ?? 'stable', 'cargo', 'zigbuild', '-p', 'sag-desktop-fnos', '-p', 'sag-cli', '--features', 'sag-cli/fnos', '--release', '--target', `${target}.2.35`]);
 const binary = suppliedBinary ?? resolve(root, 'target', target, 'release/sag-desktop-fnos');
 const binaries = [binary, resolve(dirname(binary), 'sag-fnos-worker'), resolve(dirname(binary), 'sag')];
 for (const path of binaries) {

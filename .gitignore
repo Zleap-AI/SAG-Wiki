@@ -5,6 +5,10 @@ public/skills/
 release/
 tools/
 .local/
+.ci-tools/
+.cargo-ci/
+.rustup-ci/
+.npm-ci/
 /output/
 /tmp/
 .DS_Store

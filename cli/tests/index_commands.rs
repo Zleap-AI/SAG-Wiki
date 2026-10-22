@@ -2,7 +2,7 @@
 mod support;
 
 use serde_json::Value;
-use std::{fs, process::Command};
+use std::{fs, process::Command, time::{Duration, Instant}};
 
 #[test]
 fn list_and_check_distinguish_parent_coverage_exclusions_and_empty_directories() {
@@ -119,9 +119,21 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", &data).current_dir(&project).args(args).output().unwrap();
     let check = |directory: &str| {
-        let output = run(&["check", directory, "--json"]);
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
-        serde_json::from_slice::<Value>(&output.stdout).unwrap()
+        // Adding a root schedules background indexing; success does not imply readiness.
+        let deadline = Instant::now() + Duration::from_secs(8);
+        loop {
+            let output = run(&["check", directory, "--json"]);
+            let value: Value = serde_json::from_slice(&output.stdout).unwrap();
+            if output.status.success() { break value; }
+            let indexing = output.status.code() == Some(1) && value["coverage"] == "included"
+                && value["roots"].as_array().is_some_and(|roots| {
+                    roots.iter().all(|root| root["error"].is_null())
+                        && roots.iter().any(|root| matches!(root["status"].as_str(), Some("pending" | "indexing")))
+                });
+            assert!(indexing && Instant::now() < deadline,
+                "index did not become ready: {value}; {}", String::from_utf8_lossy(&output.stderr));
+            std::thread::sleep(Duration::from_millis(20));
+        }
     };
     let matches = || {
         let output = run(&["-F", "format fixture", ".", "-l", "--json"]);

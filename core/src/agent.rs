@@ -771,7 +771,10 @@ mod tests {
                 let mut bytes = vec![];
                 let mut part = [0; 4096];
                 let body = loop {
-                    let n = stream.read(&mut part).unwrap();
+                    let n = match stream.read(&mut part) {
+                        Err(error) if error.kind() == std::io::ErrorKind::Interrupted => continue,
+                        result => result.unwrap(),
+                    };
                     assert!(n > 0);
                     bytes.extend_from_slice(&part[..n]);
                     if let Some(end) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {

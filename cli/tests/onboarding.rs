@@ -234,6 +234,7 @@ fn cancelling_search_clears_the_animation_before_returning() {
     std::fs::write(data.path().join("sag-service.json"), serde_json::to_vec(&Endpoint {
         protocol_version: VERSION, port: listener.local_addr().unwrap().port(), pid: 1, token: "test-token".into(),
     }).unwrap()).unwrap();
+    let (requested, request_received) = std::sync::mpsc::channel();
     let server = std::thread::spawn(move || tokio::runtime::Runtime::new().unwrap().block_on(async {
         let listener = tokio::net::TcpListener::from_std(listener).unwrap();
         let (stream, _) = listener.accept().await.unwrap();
@@ -245,13 +246,16 @@ fn cancelling_search_clears_the_animation_before_returning() {
             channel: BUILD_CHANNEL.into(), pid: 1, executable: "test-sag".into(), data_directory: "test-data".into(),
         }}).await.unwrap();
         assert!(matches!(sag_client::wire::read(&mut read).await.unwrap(), Some(Frame::Request { .. })));
-        let next = tokio::time::timeout(Duration::from_secs(3), sag_client::wire::read(&mut read)).await.unwrap().unwrap();
+        requested.send(()).unwrap();
+        let next = tokio::time::timeout(Duration::from_secs(10), sag_client::wire::read(&mut read)).await.unwrap().unwrap();
         assert!(matches!(next, None | Some(Frame::Cancel { .. })));
     }));
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.args(["-F", "needle"]).current_dir(data.path()).env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
     terminal.wait_for("⠙");
+    // The spinner can appear before the network handshake/request has completed.
+    request_received.recv_timeout(Duration::from_secs(8)).unwrap();
     terminal.send("\u{3}");
     terminal.expect_exit(130);
     assert!(terminal.output.contains("\r\u{1b}[2K操作已取消"), "{}", terminal.output);
