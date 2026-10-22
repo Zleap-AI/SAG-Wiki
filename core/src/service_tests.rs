@@ -1120,12 +1120,12 @@ async fn changing_only_conversion_formats_rescans_cached_selected_sources() {
     call(&client, Operation::SaveSettings { settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     let folder = dir.path().join("selected-cache");
     std::fs::create_dir(&folder).unwrap();
-    let source = folder.join("cached.pdf");
+    let source = folder.join("cached.pages");
     std::fs::write(&source, "original").unwrap();
     let output = crate::docling::output_path(&folder, &source).unwrap();
     std::fs::create_dir_all(output.parent().unwrap()).unwrap();
     std::fs::write(&output, "cachedselectedevidence.").unwrap();
-    let ownership = std::collections::BTreeMap::from([("cached.pdf", (crate::docling::fingerprint(&source).unwrap(), crate::docling::fingerprint(&output).unwrap()))]);
+    let ownership = std::collections::BTreeMap::from([("cached.pages", (crate::docling::fingerprint(&source).unwrap(), crate::docling::fingerprint(&output).unwrap()))]);
     std::fs::write(output.parent().unwrap().join(".sag-converted.json"), serde_json::to_vec(&ownership).unwrap()).unwrap();
     let Output::Text(root) = call(&client, Operation::AddRoot { path: folder.to_string_lossy().into_owned() }).await else { panic!("root") };
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -1135,11 +1135,11 @@ async fn changing_only_conversion_formats_rescans_cached_selected_sources() {
         }
     }).await.unwrap();
     assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.is_empty()));
-    settings.conversion_formats = Some(vec!["pdf".into()]);
+    settings.conversion_formats = Some(vec!["pages".into()]);
     call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
-            if matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("cached.pdf.md")) { break; }
+            if matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("cached.pages.md")) { break; }
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
     }).await.expect("changing the conversion selection must schedule a scan without a watcher event");

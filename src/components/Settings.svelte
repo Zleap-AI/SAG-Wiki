@@ -105,7 +105,7 @@
      </section>
      <section class="settings-type-preview"><span>{$t("正文预览")}</span><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
     {:else if page==='files'}
-     <div class="settings-info-box">{$t("支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件。首次加入无需模型预处理。")}</div>
+     <div class="settings-info-box">{$t("支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件，并内置转换 PDF、Office、EPUB 等文档。首次加入无需模型预处理。")}</div>
      <section class="settings-group file-types">
       <IndexSettings settingsChanged={indexSettingsChanged}/>
       {#each fileTypeOptions as [kind,label,description]}

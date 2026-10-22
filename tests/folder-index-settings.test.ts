@@ -101,9 +101,9 @@ it('已安装后可选择具体扩展名，保存后重新打开保留选择',as
  const button=(label:string)=>document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
  await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
  button('选择其他格式').click();await tick();
- expect(button('转换 .pdf').getAttribute('aria-checked')).toBe('true');
- expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('true');
- [...document.querySelectorAll<HTMLButtonElement>('.format-selection-actions button')].find(button=>button.textContent==='清空选择')!.click();await tick();
+ // A legacy "all formats" preference opens with nothing preselected.
+ expect(button('转换 .pdf').getAttribute('aria-checked')).toBe('false');
+ expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('false');
  button('转换 .pdf').click();
  await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.docling-dialog .dialog-footer button')].find(button=>button.textContent==='应用')!.click();await tick();

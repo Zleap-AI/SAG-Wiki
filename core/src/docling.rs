@@ -44,18 +44,34 @@ const FORMATS: &[(&str, &str)] = &[
         "xml nxml xbrl dclg dclx json tar.gz ebc ebcdic afp",
     ),
 ];
+/// Formats that need a downloaded Docling component. Formats the built-in
+/// converter handles are listed by [`builtin_formats`] instead.
 pub fn formats() -> Vec<(String, Vec<String>)> {
+    grouped_formats(|ext| !crate::anydoc::handles_extension(ext))
+}
+/// Formats converted in process without any download.
+pub fn builtin_formats() -> Vec<(String, Vec<String>)> {
+    grouped_formats(crate::anydoc::handles_extension)
+}
+fn grouped_formats(select: impl Fn(&str) -> bool) -> Vec<(String, Vec<String>)> {
     FORMATS
         .iter()
         .filter_map(|(name, extensions)| {
             let extensions: Vec<_> = extensions
                 .split_whitespace()
-                .filter(|ext| is_source(Path::new(&format!("file.{ext}"))))
+                .filter(|ext| is_source(Path::new(&format!("file.{ext}"))) && select(ext))
                 .map(str::to_owned)
                 .collect();
             (!extensions.is_empty()).then(|| ((*name).into(), extensions))
         })
         .collect()
+}
+/// Whether a source should be converted under the given folder options:
+/// built-in formats always are; component formats only when the user
+/// enabled and selected them.
+pub fn should_convert(path: &Path, options: &crate::types::FolderIndexOptions) -> bool {
+    crate::anydoc::handles(path)
+        || options.convert_other_formats && is_selected(path, &options.conversion_formats)
 }
 
 pub fn is_source(path: &Path) -> bool {
@@ -75,6 +91,11 @@ pub fn is_source(path: &Path) -> bool {
     })
 }
 
+fn is_image(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {
+        matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png" | "tif" | "tiff" | "bmp" | "webp" | "gif")
+    })
+}
 pub fn is_pem_key(path: &Path) -> Result<bool> {
     if !path
         .extension()
@@ -179,16 +200,14 @@ impl Docling {
         }
     }
     pub fn require_formats(&self, extensions: &Option<Vec<String>>) -> Result<()> {
-        let Some(extensions) = extensions else {
-            if self.has_profile(DoclingProfile::Documents)
-                || self.has_profile(DoclingProfile::Media)
-            {
-                return Ok(());
-            }
-            bail!("请在文件设置中安装文档或音视频组件后重试")
-        };
+        // `None` keeps a legacy "all formats" choice; built-in formats always
+        // work and component formats are reported per file during indexing.
+        let Some(extensions) = extensions else { return Ok(()) };
         for extension in extensions {
             let extension = extension.to_ascii_lowercase();
+            if crate::anydoc::handles_extension(&extension) {
+                continue;
+            }
             let profile = if MEDIA_EXTENSIONS.contains(&extension.as_str()) {
                 DoclingProfile::Media
             } else if is_source(Path::new(&format!("file.{extension}"))) {
@@ -209,6 +228,7 @@ impl Docling {
         let mut status = self.status.lock().unwrap().clone();
         status.installed = self.installed();
         status.formats = formats();
+        status.builtin_formats = builtin_formats();
         status.profiles = [DoclingProfile::Documents, DoclingProfile::Media]
             .into_iter()
             .map(|id| DoclingProfileStatus {
@@ -975,6 +995,24 @@ impl Docling {
         output: &Path,
         cancel: impl Fn() -> bool + Sync,
     ) -> Result<()> {
+        let mut handoff = None;
+        if crate::anydoc::handles(source) {
+            match crate::anydoc::convert(source, output, &cancel) {
+                Ok(crate::anydoc::Outcome::Converted) => return Ok(()),
+                Ok(crate::anydoc::Outcome::NeedsOcr(detail)) => {
+                    if !self.has_profile(DoclingProfile::Documents) {
+                        bail!("扫描件需要 OCR（{detail}），请在文件设置中安装图片识别组件后重试")
+                    }
+                    handoff = Some(format!("内置转换需要 OCR：{detail}"));
+                }
+                Err(error) if crate::anydoc::is_handoff_error(&error)
+                    && self.has_profile(DoclingProfile::Documents) =>
+                {
+                    handoff = Some(format!("内置转换失败：{error:#}"));
+                }
+                Err(error) => return Err(error),
+            }
+        }
         let _usage = self.usage.read().unwrap();
         let profile = if source.extension().is_some_and(|ext| {
             MEDIA_EXTENSIONS
@@ -989,7 +1027,10 @@ impl Docling {
             if profile == DoclingProfile::Media {
                 bail!("请在文件设置中安装音视频组件后重试")
             }
-            bail!("请在文件设置中下载 Docling 后重试")
+            if handoff.is_some() || is_image(source) {
+                bail!("请在文件设置中安装图片识别组件后重试")
+            }
+            bail!("此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试")
         }
         let component_home = if profile == DoclingProfile::Media {
             self.home.join("media")
@@ -1104,6 +1145,9 @@ impl Docling {
             }
             Ok(content)
         };
+        if let Some(reason) = &handoff {
+            eprintln!("{}：交给 Docling 组件转换（{reason}）", source.display());
+        }
         let content = match convert(None) {
             Ok(content) => content,
             Err(first)
