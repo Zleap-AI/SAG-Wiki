@@ -44,8 +44,10 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 | System | Download | Size |
 | --- | --- | --- |
-| macOS | [v0.1.8](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.8/SAG-Wiki-0.1.8-macOS-arm64.dmg) | 14.0MB |
-| Windows | [v0.1.8](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.8/SAG-Wiki-0.1.8-Windows-x64-setup.exe) | 10.7MB |
+| macOS | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-macOS-arm64.dmg) | 14.4MB |
+| Windows | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-Windows-x64-setup.exe) | 10.9MB |
+
+**Upgrading from 0.1.8 or earlier:** manually install 0.1.9 once to switch to the new update signing key. Future versions can use in-app updates. [Migration details](docs/en/app-update-publishing.md).
 
 **Install for your agent**
 
