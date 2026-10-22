@@ -818,8 +818,9 @@ impl Store {
         {
             bail!("请在系统文件管理器中打开符号链接，应用不会替换链接")
         };
+        let publisher = self.document_publisher.lock().unwrap_or_else(|error| error.into_inner()).clone();
         let mut temp = tempfile::Builder::new().prefix(".sag-save-").tempfile_in(&parent)?;
-        if old.is_some() {
+        if old.is_some() && publisher.is_none() {
             temp.as_file()
                 .set_permissions(fs::metadata(&target)?.permissions())?;
         }
@@ -830,7 +831,6 @@ impl Store {
                 bail!("保存前检测到外部修改，未覆盖原文件")
             }
         }
-        let publisher = self.document_publisher.lock().unwrap_or_else(|error| error.into_inner()).clone();
         if let Some(publish) = publisher {
             publish(temp.path(), &target, expected_hash)?;
         } else if old.is_some() {

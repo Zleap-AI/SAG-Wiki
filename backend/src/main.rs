@@ -1,5 +1,5 @@
 mod file_permissions;
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 mod document_publish;
 mod cli;
 mod fnos;

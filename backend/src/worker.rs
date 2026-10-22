@@ -1,4 +1,4 @@
-#[cfg(target_os = "linux")]
+#[cfg(any(target_os = "linux", test))]
 mod document_publish;
 #[cfg(target_os = "linux")]
 mod linux {

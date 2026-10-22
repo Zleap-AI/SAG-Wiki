@@ -45,6 +45,31 @@ pub fn prepare(request: &Request, app_uid: u32, user_gid: u32) -> Result<std::fs
     if !metadata.is_file() || metadata.uid() != app_uid || metadata.nlink() != 1 {
         bail!("文档临时文件无效");
     }
+    let directory = std::fs::File::open(&parent)?;
+    // fnOS volumes implement native ACL inheritance through system.trim_acl.
+    // chmod materializes a different explicit native ACL even for mode 0600.
+    // ENODATA is a supported, inherited ACL; ordinary Linux returns ENOTSUP.
+    if !matches!(read_attribute(&directory, c"system.trim_acl")?, Attribute::Unsupported) {
+        let source = if request.expected_hash.is_some() {
+            Some(std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&request.target)?)
+        } else { None };
+        let (uid, gid, native, posix) = if let Some(source) = source {
+            let metadata = source.metadata()?;
+            if !metadata.is_file() || metadata.uid() == 0 || metadata.mode() & 0o7000 != 0 {
+                bail!("不能替换系统或特殊权限文档");
+            }
+            (metadata.uid(), metadata.gid(), read_attribute(&source, c"system.trim_acl")?, read_attribute(&source, c"system.posix_acl_access")?)
+        } else {
+            (request.uid, user_gid, Attribute::Supported(None), Attribute::Supported(None))
+        };
+        if unsafe { libc::fchown(temporary.as_raw_fd(), uid, gid) } != 0 { return Err(std::io::Error::last_os_error().into()); }
+        apply_attribute(&temporary, c"system.posix_acl_access", posix)?;
+        // Apply native ACL last, including removal when the source inherits.
+        // This also removes the explicit ACL created by tempfile's 0600 mode.
+        apply_attribute(&temporary, c"system.trim_acl", native)?;
+        temporary.sync_all()?;
+        return Ok(temporary.metadata()?);
+    }
     let (uid, gid, mode, acl) = if request.expected_hash.is_some() {
         let source = std::fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&request.target)?;
         let metadata = source.metadata()?;
@@ -146,4 +171,104 @@ pub fn publish(request: &Request, device: u64, inode: u64) -> Result<()> {
     // as "not saved" after the source has already changed.
     if let Ok(directory) = std::fs::File::open(request.target.parent().unwrap()) { let _ = directory.sync_all(); }
     Ok(())
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum Attribute {
+    Unsupported,
+    Supported(Option<Vec<u8>>),
+}
+
+fn read_attribute(file: &std::fs::File, name: &std::ffi::CStr) -> Result<Attribute> {
+    use std::os::fd::AsRawFd;
+    let fd = file.as_raw_fd();
+    #[cfg(target_os = "linux")]
+    let size = unsafe { libc::fgetxattr(fd, name.as_ptr(), std::ptr::null_mut(), 0) };
+    #[cfg(target_os = "macos")]
+    let size = unsafe { libc::fgetxattr(fd, name.as_ptr(), std::ptr::null_mut(), 0, 0, 0) };
+    if size < 0 {
+        let error = std::io::Error::last_os_error();
+        return match error.raw_os_error() {
+            Some(libc::ENOTSUP) => Ok(Attribute::Unsupported),
+            Some(libc::ENODATA) => Ok(Attribute::Supported(None)),
+            #[cfg(target_os = "macos")]
+            Some(libc::ENOATTR) => Ok(Attribute::Supported(None)),
+            _ => Err(error.into()),
+        };
+    }
+    let mut bytes = vec![0u8; size as usize];
+    #[cfg(target_os = "linux")]
+    let count = unsafe { libc::fgetxattr(fd, name.as_ptr(), bytes.as_mut_ptr().cast(), bytes.len()) };
+    #[cfg(target_os = "macos")]
+    let count = unsafe { libc::fgetxattr(fd, name.as_ptr(), bytes.as_mut_ptr().cast(), bytes.len(), 0, 0) };
+    if count < 0 { return Err(std::io::Error::last_os_error().into()); }
+    bytes.truncate(count as usize);
+    Ok(Attribute::Supported(Some(bytes)))
+}
+
+fn apply_attribute(file: &std::fs::File, name: &std::ffi::CStr, attribute: Attribute) -> Result<()> {
+    use std::os::fd::AsRawFd;
+    let fd = file.as_raw_fd();
+    let code = match attribute {
+        Attribute::Unsupported => return Ok(()),
+        Attribute::Supported(Some(bytes)) => {
+            #[cfg(target_os = "linux")]
+            let code = unsafe { libc::fsetxattr(fd, name.as_ptr(), bytes.as_ptr().cast(), bytes.len(), 0) };
+            #[cfg(target_os = "macos")]
+            let code = unsafe { libc::fsetxattr(fd, name.as_ptr(), bytes.as_ptr().cast(), bytes.len(), 0, 0) };
+            code
+        },
+        Attribute::Supported(None) => {
+            #[cfg(target_os = "linux")]
+            let code = unsafe { libc::fremovexattr(fd, name.as_ptr()) };
+            #[cfg(target_os = "macos")]
+            let code = unsafe { libc::fremovexattr(fd, name.as_ptr(), 0) };
+            if code != 0 {
+                let error = std::io::Error::last_os_error();
+                match error.raw_os_error() {
+                    Some(libc::ENODATA | libc::ENOTSUP) => return Ok(()),
+                    #[cfg(target_os = "macos")]
+                    Some(libc::ENOATTR) => return Ok(()),
+                    _ => return Err(error.into()),
+                }
+            }
+            code
+        },
+    };
+    if code != 0 { return Err(std::io::Error::last_os_error().into()); }
+    Ok(())
+}
+
+#[cfg(test)]
+mod acl_attribute_tests {
+    use super::*;
+    use std::os::fd::AsRawFd;
+    fn set(file: &std::fs::File, bytes: &[u8]) {
+        #[cfg(target_os = "linux")]
+        let code = unsafe { libc::fsetxattr(file.as_raw_fd(), c"user.sag-document-acl".as_ptr(), bytes.as_ptr().cast(), bytes.len(), 0) };
+        #[cfg(target_os = "macos")]
+        let code = unsafe { libc::fsetxattr(file.as_raw_fd(), c"user.sag-document-acl".as_ptr(), bytes.as_ptr().cast(), bytes.len(), 0, 0) };
+        assert_eq!(code, 0, "{}", std::io::Error::last_os_error());
+    }
+    #[test]
+    fn preserves_explicit_native_acl_bytes_exactly() {
+        let source = tempfile::tempfile().unwrap();
+        let target = tempfile::tempfile().unwrap();
+        let bytes = [1, 0, 0, 0, 5, 0, 0, 0, 207, 55, 0, 0, 7, 0, 0, 0, 217, 3, 0, 0, 0, 0, 0, 0];
+        set(&source, &bytes);
+        set(&target, b"temporary explicit ACL");
+        let attribute = read_attribute(&source, c"user.sag-document-acl").unwrap();
+        apply_attribute(&target, c"user.sag-document-acl", attribute).unwrap();
+        assert_eq!(read_attribute(&target, c"user.sag-document-acl").unwrap(), Attribute::Supported(Some(bytes.to_vec())));
+    }
+    #[test]
+    fn absent_native_acl_removes_temporary_override_to_restore_inheritance() {
+        let source = tempfile::tempfile().unwrap();
+        let target = tempfile::tempfile().unwrap();
+        set(&target, b"temporary explicit ACL");
+        let attribute = read_attribute(&source, c"user.sag-document-acl").unwrap();
+        assert_eq!(attribute, Attribute::Supported(None));
+        apply_attribute(&target, c"user.sag-document-acl", attribute).unwrap();
+        assert_eq!(read_attribute(&target, c"user.sag-document-acl").unwrap(), Attribute::Supported(None));
+    }
 }
