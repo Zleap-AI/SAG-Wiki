@@ -6,7 +6,10 @@ fn paused_index_keeps_search_available_and_resumes_remaining_files() {
     let temp = tempfile::tempdir().unwrap();
     let folder = temp.path().join("notes");
     fs::create_dir(&folder).unwrap();
-    for i in 0..300 { fs::write(folder.join(format!("{i:03}.md")), "searchable evidence").unwrap(); }
+    // Exercise pause/resume, not indexing throughput on a hosted runner.
+    const FILES: usize = 40;
+    let wait = Duration::from_secs(30);
+    for i in 0..FILES { fs::write(folder.join(format!("{i:03}.md")), "searchable evidence").unwrap(); }
     let store = Arc::new(Store::open(&temp.path().join("data/index.sqlite")).unwrap());
     let root = store.add_root(&folder).unwrap();
     let (paused_tx, paused_rx) = mpsc::channel();
@@ -22,18 +25,18 @@ fn paused_index_keeps_search_available_and_resumes_remaining_files() {
         });
         done_tx.send(result).unwrap();
     });
-    paused_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-    assert!(done_rx.recv_timeout(Duration::from_millis(100)).is_err());
+    paused_rx.recv_timeout(wait).expect("index worker did not reach the pause checkpoint");
+    assert!(matches!(done_rx.recv_timeout(Duration::from_millis(100)), Err(mpsc::RecvTimeoutError::Timeout)));
     let status = store.indexing.status();
     assert!(status.paused);
     assert_eq!(status.tasks[0].path, root);
-    assert_eq!(status.tasks[0].total, 300);
+    assert_eq!(status.tasks[0].total, FILES);
     assert!(!store.search_files("searchable", &[], 10).unwrap().is_empty());
     store.indexing.set_paused(false);
-    assert_eq!(done_rx.recv_timeout(Duration::from_secs(5)).unwrap().unwrap(), 300);
+    assert_eq!(done_rx.recv_timeout(wait).expect("index worker did not finish after resume").unwrap(), FILES);
     thread.join().unwrap();
     assert!(store.indexing.status().tasks.is_empty());
-    assert_eq!(store.files().unwrap().len(), 300);
+    assert_eq!(store.files().unwrap().len(), FILES);
 }
 
 #[test]
