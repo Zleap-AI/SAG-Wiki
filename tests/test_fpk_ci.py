@@ -18,7 +18,7 @@ ci = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(ci)
 
 
-def package(path, arch='x86', version='0.1.12', machine=None):
+def package(path, arch='x86', version='0.1.13', machine=None):
     binary = bytearray(64)
     binary[:5] = b'\x7fELF\x02'
     binary[5] = 1
@@ -42,7 +42,7 @@ class PackageTests(unittest.TestCase):
             for arch in ['x86', 'arm']:
                 path = Path(directory) / f'{arch}.fpk'
                 package(path, arch)
-                result = ci.inspect_package(path, arch, '0.1.12')
+                result = ci.inspect_package(path, arch, '0.1.13')
                 self.assertEqual(result['sha256'], hashlib.sha256(path.read_bytes()).hexdigest())
                 self.assertEqual(set(result['binaries']), {'sag-desktop-fnos', 'sag-fnos-worker', 'sag'})
 
@@ -51,14 +51,14 @@ class PackageTests(unittest.TestCase):
             path = Path(directory) / 'bad.fpk'
             package(path, machine=183)
             with self.assertRaisesRegex(ValueError, 'ELF'):
-                ci.inspect_package(path, 'x86', '0.1.12')
+                ci.inspect_package(path, 'x86', '0.1.13')
 
     def test_wrong_manifest_version_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'old.fpk'
             package(path, version='0.1.11')
             with self.assertRaisesRegex(ValueError, 'version'):
-                ci.inspect_package(path, 'x86', '0.1.12')
+                ci.inspect_package(path, 'x86', '0.1.13')
 
 
 class PackagingTests(unittest.TestCase):
@@ -67,7 +67,7 @@ class PackagingTests(unittest.TestCase):
             root = Path(directory)
             (root / 'scripts').mkdir()
             shutil.copy(Path(__file__).parents[1] / 'scripts/package-fnos.mjs', root / 'scripts')
-            (root / 'package.json').write_text('{"version":"0.1.12"}')
+            (root / 'package.json').write_text('{"version":"0.1.13"}')
             (root / 'packaging/sag-desktop-fnos').mkdir(parents=True)
             (root / 'packaging/sag-desktop-fnos/manifest').write_text('platform=x86\n')
             for name in ['dist', 'licenses', 'bin']:
@@ -176,13 +176,13 @@ class Registry:
 class PublicationTests(unittest.TestCase):
     def fixture(self, directory, registry):
         root = Path(directory)
-        (root / 'package.json').write_text('{"version":"0.1.12"}')
+        (root / 'package.json').write_text('{"version":"0.1.13"}')
         release = root / 'release'
         release.mkdir()
         for arch in ['x86', 'arm']:
-            path = release / f'sag-desktop-fnos-0.1.12-{arch}.fpk'
+            path = release / f'sag-desktop-fnos-0.1.13-{arch}.fpk'
             package(path, arch)
-            audit = ci.inspect_package(path, arch, '0.1.12')
+            audit = ci.inspect_package(path, arch, '0.1.13')
             audit.update(commit='a' * 40, pipeline_id='123')
             (release / f'audit-{arch}.json').write_text(json.dumps(audit))
             path.with_suffix('.fpk.sha256').write_text(f'{audit["sha256"]}  {path.name}\n')
@@ -279,7 +279,7 @@ class PublicationTests(unittest.TestCase):
                     value['commit'] = 'b' * 40
                     audit.write_text(json.dumps(value))
                 else:
-                    (root / 'release/sag-desktop-fnos-0.1.12-arm.fpk.sha256').write_text('bad checksum')
+                    (root / 'release/sag-desktop-fnos-0.1.13-arm.fpk.sha256').write_text('bad checksum')
                 with self.assertRaises((ValueError, FileNotFoundError)):
                     ci.publish(root, env)
                 self.assertEqual(registry.puts, [])

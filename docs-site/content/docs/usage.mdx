@@ -33,7 +33,9 @@ Reads and queries recheck revoked permissions. Reauthorize in fnOS or remove the
 
 ## PDF and Office conversion
 
-Under **Settings → Files → Other formats**, install Docling to download the runtime, format components, and recognition models. Installation supports progress, cancellation, retry, and uninstall. Components may use several GB; scanned documents and audio/video can require additional model downloads.
+PDF, Word, PowerPoint, Excel/CSV, OpenDocument and EPUB are converted by the built-in converter as soon as a folder is added; no component download is needed. **Settings → Files → Other formats** lists the built-in formats.
+
+Image recognition, scanned-page OCR, audio/video transcription and other formats such as iWork need the Docling component. Tick those formats under **Other formats** and choose **Install and apply**; after confirmation the runtime, format components and recognition models are downloaded. The dialog shows per-package progress, the latest activity and the install log, and supports cancel, retry and uninstall. Components may use several GB. Reachability of the model host is checked before downloading; when the NAS cannot reach Hugging Face the error appears immediately, and `HF_ENDPOINT` can point the app at a mirror. Without the component, a scanned PDF without a text layer is recorded as an index issue for that folder and nothing downloads automatically.
 
 Select formats and conversion concurrency, then save. New folders inherit these defaults; existing folders have their own indexing options. Converted Markdown is stored in `.sag-converted/` inside the original folder. Originals are preserved, unchanged results are reused, and manually edited output is not overwritten automatically.
 

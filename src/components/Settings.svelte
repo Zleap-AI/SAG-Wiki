@@ -38,13 +38,14 @@
  let languageSaved=false;
  let providerChoice={answer:providerFor('answer',value.answer.url),jev:providerFor('jev',value.jev.url)};
  let autoFilledKey:ModelKind|null=null;
- $: savedKeys={answer:settings.answer.has_key&&sameProviderOrigin(value.answer.url,settings.answer.url),jev:settings.jev.has_key&&sameProviderOrigin(value.jev.url,settings.jev.url)};
- function checkProviderKey(kind:ModelKind){if(settings[kind].has_key&&!savedKeys[kind]&&!(kind==='answer'?answerKey:jevKey).trim())throw new Error($t('切换供应商后，请填写对应的 API 密钥。'))}
+ $: savedKeys={answer:settings.answer.has_key&&sameProviderOrigin(value.answer.url,settings.answer.url),jev:settings.jev.auth_mode!=='none'&&value.jev.auth_mode!=='none'&&settings.jev.has_key&&sameProviderOrigin(value.jev.url,settings.jev.url)};
+ function checkProviderKey(kind:ModelKind){if(kind==='jev'&&settings.jev.auth_mode==='none')return;if(settings[kind].has_key&&!savedKeys[kind]&&!(kind==='answer'?answerKey:jevKey).trim())throw new Error($t('切换供应商后，请填写对应的 API 密钥。'))}
+ function changeJevAuth(mode:string){settings.jev.auth_mode=mode as 'bearer'|'none';jevKey='';autoFilledKey=null;status='';error='';}
  function changeKey(kind:ModelKind,key:string){
   if(kind==='answer')answerKey=key;else jevKey=key;
   if(autoFilledKey===kind)autoFilledKey=null;
   const other=kind==='answer'?'jev':'answer',otherKey=other==='answer'?answerKey:jevKey;
-  if(providerChoice.answer==='302'&&providerChoice.jev==='302'&&(autoFilledKey===other||!otherKey.trim()&&!savedKeys[other])){
+  if(settings.jev.auth_mode!=='none'&&providerChoice.answer==='302'&&providerChoice.jev==='302'&&(autoFilledKey===other||!otherKey.trim()&&!savedKeys[other])){
    if(other==='answer')answerKey=key;else jevKey=key;
    autoFilledKey=key?other:null;
   }
@@ -72,9 +73,9 @@
    settings={...settings,mcp_servers:settings.mcp_servers.map(item=>item.id===server.id?{...item,tools}:item)};
   }catch(error){mcpErrors={...mcpErrors,[server.id]:$t(String(error))}}finally{mcpTesting=''}
  }
- async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,jevKey,credentials);languageSaved=true;answerKey='';jevKey='';onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
+ async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials);languageSaved=true;answerKey='';jevKey='';onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
- async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
+ async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
 </script>
 
 <Modal label={$t("设置")} class="settings-dialog settings-window" overlayClass="settings-backdrop" {onClose}>
@@ -101,7 +102,7 @@
      </section>
      <section class="settings-type-preview"><span>{$t("正文预览")}</span><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
     {:else if page==='files'}
-     <div class="settings-info-box">{$t("支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件。首次加入无需模型预处理。")}</div>
+     <div class="settings-info-box">{$t("支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件，并内置转换 PDF、Office、EPUB 等文档。首次加入无需模型预处理。")}</div>
      <section class="settings-group file-types">
       <IndexSettings settingsChanged={indexSettingsChanged}/>
       {#each fileTypeOptions as [kind,label,description]}
@@ -131,7 +132,10 @@
         <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.answer==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input type={showAnswer?'text':'password'} value={answerKey} oninput={event=>changeKey('answer',event.currentTarget.value)} placeholder={savedKeys.answer?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showAnswer=!showAnswer}>{showAnswer?$t("隐藏"):$t("显示")}</Button.Root></div></label>
        {:else}
         <label class="field-label">{$t("模型名称")}<Input required bind:value={settings.jev.model} spellcheck="false"/></label>
+        <label class="field-label auth-field">{$t("鉴权方式")}<Select label={$t("Jev 鉴权方式")} value={settings.jev.auth_mode??'bearer'} items={[{value:'bearer',label:$t('API Key')},{value:'none',label:$t('无需鉴权')}]} onValueChange={changeJevAuth}/></label>
+        {#if settings.jev.auth_mode!=='none'}
         <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.jev==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input data-autofocus={initial==='jev'?true:undefined} type={showJev?'text':'password'} value={jevKey} oninput={event=>changeKey('jev',event.currentTarget.value)} placeholder={savedKeys.jev?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showJev=!showJev}>{showJev?$t("隐藏"):$t("显示")}</Button.Root></div></label>
+        {/if}
        {/if}
        <div class="settings-card-actions"><Button.Root type="button" class="outline" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root>{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}</div>
       </section>

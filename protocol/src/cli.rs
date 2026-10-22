@@ -45,6 +45,8 @@ pub enum Command {
         url: Option<String>,
         model: Option<String>,
         key: Option<String>,
+        #[serde(default)]
+        auth_mode: Option<crate::types::ModelAuthMode>,
     },
     Add,
     AddWithTypes { extensions: Vec<String> },

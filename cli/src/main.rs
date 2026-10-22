@@ -4,7 +4,7 @@ mod install;
 mod fnos;
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
-use sag_protocol::types::ModelConfig;
+use sag_protocol::types::{ModelAuthMode, ModelConfig};
 use cli_protocol::*;
 use std::{
     io::{IsTerminal, Read, Write},
@@ -161,6 +161,9 @@ struct ConfigOptions {
     url: Option<String>,
     #[arg(long)]
     model: Option<String>,
+    /// Jev 鉴权方式；本地无鉴权服务使用 none。
+    #[arg(long, value_parser = ["bearer", "none"])]
+    auth: Option<String>,
     /// 直接传入密钥；命令可能保存在终端历史中。
     #[arg(long, conflicts_with = "key_stdin")]
     key: Option<String>,
@@ -183,8 +186,11 @@ fn configured(response: Response) -> Result<ModelConfig> {
     }
 }
 fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt>, current:Option<ModelConfig>) -> Result<ModelConfig> {
-    let current=match current{Some(current)=>current,None=>configured(request(Command::Configure { enable: false, url: None, model: None, key: None }, path.clone(), 10, interrupt.clone(), false)?)?};
-    if options.if_needed && current.has_key && options.url.is_none() && options.model.is_none() && options.key.is_none() && !options.key_stdin && !options.enable {
+    let current=match current{Some(current)=>current,None=>configured(request(Command::Configure { enable: false, url: None, model: None, key: None, auth_mode: None }, path.clone(), 10, interrupt.clone(), false)?)?};
+    let auth_mode = options.auth.as_deref().map(|auth| if auth == "none" { ModelAuthMode::None } else { ModelAuthMode::Bearer });
+    let requires_key = auth_mode.unwrap_or(current.auth_mode) == ModelAuthMode::Bearer;
+    if !requires_key && (options.key.is_some() || options.key_stdin) { bail!("无需鉴权模式不能同时填写 API 密钥") }
+    if options.if_needed && current.is_configured() && options.auth.is_none() && options.url.is_none() && options.model.is_none() && options.key.is_none() && !options.key_stdin && !options.enable {
         eprintln!("已使用现有 JEV 配置。");
         return Ok(current);
     }
@@ -197,7 +203,7 @@ fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt
         std::io::stdin().read_to_string(&mut input)?;
         if input.trim().is_empty() { bail!("API 密钥不能为空") }
         options.key = Some(input.trim().to_owned());
-    } else if options.key.is_none() && !options.enable && interactive() && (options.if_needed || (options.url.is_none() && options.model.is_none())) {
+    } else if requires_key && options.auth.is_none() && options.key.is_none() && !options.enable && interactive() && (options.if_needed || (options.url.is_none() && options.model.is_none())) {
         eprintln!("配置 JEV 检索服务。接口和模型按回车使用当前值，密钥输入不会显示。");
         fn prompt(label: &str, current: &str) -> Result<Option<String>> {
             eprint!("{label} [{current}]：");
@@ -223,13 +229,13 @@ fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt
             if current.has_key { break; }
             eprintln!("首次使用需要 API 密钥，请填写后继续。");
         }
-    } else if options.if_needed && !current.has_key && options.key.is_none() {
+    } else if options.if_needed && requires_key && !current.has_key && options.key.is_none() {
         bail!("尚未配置 JEV。请在终端运行 sag，或使用安装参数 --key / --key-stdin。")
     }
-    if !options.enable && options.url.is_none() && options.model.is_none() && options.key.is_none() {
+    if !options.enable && options.auth.is_none() && options.url.is_none() && options.model.is_none() && options.key.is_none() {
         return Ok(current);
     }
-    let result = configured(request(Command::Configure { enable: options.enable, url: options.url, model: options.model, key: options.key }, path, 10, interrupt, false)?)?;
+    let result = configured(request(Command::Configure { enable: options.enable, url: options.url, model: options.model, key: options.key, auth_mode }, path, 10, interrupt, false)?)?;
     eprintln!("配置已保存。");
     Ok(result)
 }
@@ -319,12 +325,14 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         }
         return Ok(0);
     }
-    let cwd = std::env::current_dir()?;
+    // Match the canonical absolute paths returned by the service. On Windows
+    // they carry a verbatim prefix, which pathdiff cannot mix with plain cwd.
+    let cwd = std::env::current_dir()?.canonicalize()?;
     let explicit_patterns = !args.matching.patterns.is_empty() || !args.matching.pattern_files.is_empty();
     if args.command.is_none() {
         if !args.extended_regexp && !args.fixed_strings && interactive() && !args.json {
-            let current=configured(request(Command::Configure{enable:false,url:None,model:None,key:None},cwd.clone(),10,interrupted.clone(),false)?)?;
-            if !current.has_key {
+            let current=configured(request(Command::Configure{enable:false,url:None,model:None,key:None,auth_mode:None},cwd.clone(),10,interrupted.clone(),false)?)?;
+            if !current.is_configured() {
             configure(ConfigOptions::default(), cwd.clone(), interrupted.clone(),Some(current))?;
             if args.query.is_none() {
                 eprintln!("接下来运行 sag add 添加当前目录，再运行 sag \"搜索内容\"。");

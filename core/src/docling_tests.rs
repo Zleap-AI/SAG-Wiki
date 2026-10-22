@@ -47,17 +47,91 @@ echo converted >> "$(dirname "$0")/calls"
     (temp, store, root)
 }
 
+#[test]
+fn builtin_formats_convert_without_any_component_and_component_formats_stay_opt_in() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let root = store.add_root(&library).unwrap();
+    fs::write(library.join("table.csv"), "型号,价格\nBCD-215,1999\n").unwrap();
+    fs::write(library.join("note.docx"), crate::anydoc::tests::docx("内置转换 builtindocxmarker")).unwrap();
+    fs::write(library.join("photo.png"), "not really an image").unwrap();
+    assert!(!store.docling.installed());
+    assert!(store.docling.require_formats(&Some(vec!["csv".into(), "xlsx".into()])).is_ok());
+    assert!(store.docling.require_formats(&Some(vec!["png".into()])).is_err());
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(store.search_files("BCD-215", &[], 5).unwrap().len(), 1);
+    assert_eq!(store.search_files("builtindocxmarker", &[], 5).unwrap().len(), 1);
+    let state = &store.roots().unwrap()[0];
+    assert_eq!(state.status, "ready", "{:?}", state.error);
+    assert!(!library.join(OUTPUT_DIRECTORY).join("photo.png.md").exists());
+    assert!(fs::read_to_string(library.join(OUTPUT_DIRECTORY).join("note.docx.md")).unwrap().contains("note.docx"));
+    let status = store.docling.status();
+    assert!(status.builtin_formats.iter().any(|(_, ext)| ext.iter().any(|e| e == "pdf")));
+    assert!(status.formats.iter().all(|(_, ext)| ext.iter().all(|e| !crate::anydoc::handles_extension(e))));
+    assert!(status.formats.iter().any(|(_, ext)| ext.iter().any(|e| e == "png")));
+    // Removing the source retires our derivative even though no folder opted into other formats.
+    fs::remove_file(library.join("note.docx")).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    assert!(store.search_files("builtindocxmarker", &[], 5).unwrap().is_empty());
+    assert!(!library.join(OUTPUT_DIRECTORY).join("note.docx.md").exists());
+}
+
+#[test]
+fn pem_keys_are_skipped_without_excluding_keynote_documents() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    fs::write(library.join("server.key"), "-----BEGIN PRIVATE KEY-----\nsecret\n-----END PRIVATE KEY-----\n").unwrap();
+    fs::write(library.join("deck.key"), "PK\x03\x04 not a certificate").unwrap();
+    assert!(is_pem_key(&library.join("server.key")).unwrap());
+    assert!(!is_pem_key(&library.join("deck.key")).unwrap());
+    assert!(is_source(Path::new("deck.key")));
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let root = store.add_root(&library).unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.convert_other_formats = true;
+    settings.conversion_formats = None;
+    store.save_settings(&settings).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    // The private key is never handed to a converter; the Keynote file is reported as needing Docling.
+    let state = &store.roots().unwrap()[0];
+    assert_eq!(state.status, "partial");
+    let error = state.error.clone().unwrap();
+    assert!(error.contains("deck.key") && !error.contains("server.key"), "{error}");
+    assert!(store.search_files("secret", &[], 5).unwrap().is_empty());
+}
+
+#[test]
+fn scanned_pdf_without_a_component_is_reported_as_an_index_issue() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let root = store.add_root(&library).unwrap();
+    fs::write(library.join("note.md"), "nativemarker").unwrap();
+    fs::write(library.join("scan.pdf"), crate::anydoc::tests::image_only_pdf()).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    let state = &store.roots().unwrap()[0];
+    assert_eq!(state.status, "partial");
+    let error = state.error.clone().unwrap();
+    assert!(error.contains("OCR") && error.contains("Docling"), "{error}");
+    assert_eq!(store.search_files("nativemarker", &[], 5).unwrap().len(), 1);
+    assert!(!library.join(OUTPUT_DIRECTORY).join("scan.pdf.md").exists());
+}
+
 #[cfg(unix)]
 #[test]
 fn conversion_indexes_markdown_preserves_sources_and_reuses_unchanged_outputs() {
     let (_temp, store, root) = fixture();
     let root_path = Path::new(&root);
     fs::create_dir(root_path.join("nested")).unwrap();
-    let source = root_path.join("nested/report.pdf");
+    let source = root_path.join("nested/report.pages");
     fs::write(&source, "evidenceone").unwrap();
-    fs::write(root_path.join("nested/report.docx"), "evidencetwo").unwrap();
-    fs::write(root_path.join("ignored.pdf"), "invisible").unwrap();
-    fs::write(root_path.join(".sagignore"), "ignored.pdf\n").unwrap();
+    fs::write(root_path.join("nested/report.numbers"), "evidencetwo").unwrap();
+    fs::write(root_path.join("ignored.pages"), "invisible").unwrap();
+    fs::write(root_path.join(".sagignore"), "ignored.pages\n").unwrap();
     store.scan(&root, |_| {}).unwrap();
     assert!(!root_path.join(OUTPUT_DIRECTORY).exists());
     let mut settings = store.settings().unwrap();
@@ -66,7 +140,7 @@ fn conversion_indexes_markdown_preserves_sources_and_reuses_unchanged_outputs() 
     store.save_settings(&settings).unwrap();
     store.scan(&root, |_| {}).unwrap();
     let output = output_path(root_path, &source).unwrap();
-    assert!(fs::read_to_string(&output).unwrap().contains("../../nested/report.pdf"));
+    assert!(fs::read_to_string(&output).unwrap().contains("../../nested/report.pages"));
     assert_eq!(fs::read_to_string(&source).unwrap(), "evidenceone");
     let history_id = store.index_history().unwrap()[0].id;
     let raw = store.index_history_log(history_id).unwrap().raw.unwrap();
@@ -81,7 +155,7 @@ fn conversion_indexes_markdown_preserves_sources_and_reuses_unchanged_outputs() 
     let scope = vec![root_path.join("nested").to_string_lossy().into_owned()];
     assert_eq!(store.search_files("evidenceone", &scope, 5).unwrap().len(), 1);
     assert_eq!(store.candidate_query("evidenceone", None, &scope, &[], &[], 5).unwrap().len(), 1);
-    assert!(root_path.join(".sag-converted/nested/report.docx.md").is_file());
+    assert!(root_path.join(".sag-converted/nested/report.numbers.md").is_file());
     let calls = store.docling.home.join("bin/calls");
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 2);
     store.scan(&root, |_| {}).unwrap();
@@ -113,7 +187,7 @@ fn conversion_indexes_markdown_preserves_sources_and_reuses_unchanged_outputs() 
 fn failed_updates_never_serve_stale_evidence_and_do_not_overwrite_manual_edits() {
     let (_temp, store, root) = fixture();
     let root_path = Path::new(&root);
-    let source = root_path.join("report.docx");
+    let source = root_path.join("report.pages");
     fs::write(&source, "originalevidence").unwrap();
     let mut settings = store.settings().unwrap();
     settings.convert_other_formats = true;
@@ -140,12 +214,12 @@ fn failed_updates_never_serve_stale_evidence_and_do_not_overwrite_manual_edits()
 fn removed_and_ignored_sources_remove_only_owned_derivatives() {
     let (_temp, store, root) = fixture();
     let root_path = Path::new(&root);
-    let source = root_path.join("report.docx");
+    let source = root_path.join("report.pages");
     fs::write(&source, "evidence").unwrap();
     let mut settings = store.settings().unwrap();settings.convert_other_formats = true;
     store.save_settings(&settings).unwrap();store.scan(&root, |_| {}).unwrap();
     let output = output_path(root_path, &source).unwrap();
-    fs::write(root_path.join(".gitignore"), "*.docx\n").unwrap();
+    fs::write(root_path.join(".gitignore"), "*.pages\n").unwrap();
     store.scan(&root, |_| {}).unwrap();
     assert!(!output.exists());
     assert!(source.exists());
@@ -232,6 +306,36 @@ fn live_download_progress_is_visible_before_a_carriage_return_line_finishes() {
 }
 
 #[test]
+fn pipe_mode_uv_output_reports_progress_per_package() {
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Docling::new(temp.path());
+    converter.progress("dependencies", "installing");
+    converter.update_download_line(b"Resolved 111 packages in 1.51s");
+    assert_eq!(converter.status().total, None);
+    converter.update_download_line(b"Downloading torch (121.4MiB)");
+    converter.update_download_line(b"Downloading numpy (5.2MiB)");
+    let status = converter.status();
+    assert_eq!(status.packages_total, 2);
+    assert_eq!(status.packages_done, 0);
+    assert_eq!(status.downloaded, 0);
+    assert_eq!(status.total, Some((121.4 * 1048576.0) as u64 + (5.2 * 1048576.0) as u64));
+    converter.update_download_line(b" Downloaded numpy");
+    let status = converter.status();
+    assert_eq!(status.packages_done, 1);
+    assert_eq!(status.downloaded, (5.2 * 1048576.0) as u64);
+    assert!(status.message.contains("Downloaded numpy"));
+    converter.update_download_line(b"Prepared 111 packages in 16.05s");
+    let status = converter.status();
+    assert_eq!(status.packages_done, 2);
+    assert_eq!(status.downloaded, status.total.unwrap());
+    // A new step starts from zero.
+    converter.progress("models", "models");
+    let status = converter.status();
+    assert_eq!(status.packages_total, 0);
+    assert_eq!(status.total, None);
+}
+
+#[test]
 fn terminal_download_frames_include_all_active_packages_and_model_percentages() {
     let temp = tempfile::tempdir().unwrap();
     let converter = Docling::new(temp.path());
@@ -287,16 +391,16 @@ fn nested_conversion_options_use_source_folder_rules_and_keep_siblings_unchanged
     crate::folder_index::write(&a, &enabled).unwrap();
     crate::folder_index::write(&b, &enabled).unwrap();
     crate::folder_index::write(&a.join("excluded"), &disabled).unwrap();
-    fs::write(a.join("report.pdf"), "alpha evidence").unwrap();
-    fs::write(b.join("report.pdf"), "beta evidence").unwrap();
-    fs::write(a.join("excluded/report.pdf"), "excluded evidence").unwrap();
+    fs::write(a.join("report.pages"), "alpha evidence").unwrap();
+    fs::write(b.join("report.pages"), "beta evidence").unwrap();
+    fs::write(a.join("excluded/report.pages"), "excluded evidence").unwrap();
     store.scan(&root, |_| {}).unwrap();
     assert_eq!(store.files().unwrap().len(), 2);
     assert!(store.search_files("excluded", &[], 5).unwrap().is_empty());
-    let a_output = output_path(root_path, &a.join("report.pdf")).unwrap();
-    let b_output = output_path(root_path, &b.join("report.pdf")).unwrap();
+    let a_output = output_path(root_path, &a.join("report.pages")).unwrap();
+    let b_output = output_path(root_path, &b.join("report.pages")).unwrap();
     let b_before = fs::read(&b_output).unwrap();
-    fs::write(b.join("report.pdf"), "FAIL").unwrap();
+    fs::write(b.join("report.pages"), "FAIL").unwrap();
     store.save_folder_index_options(&a, &disabled, true).unwrap();
     store.update_paths(&root, &[a.join(".sagignore")], |_| {}).unwrap();
     assert_eq!(store.roots().unwrap()[0].status, "ready");
@@ -308,7 +412,7 @@ fn nested_conversion_options_use_source_folder_rules_and_keep_siblings_unchanged
     assert_eq!(store.roots().unwrap()[0].status, "ready");
     assert_eq!(store.files().unwrap().len(), 2);
     assert_eq!(fs::read_to_string(store.docling.home.join("bin/calls")).unwrap().lines().count(), 2);
-    assert_eq!(fs::read_to_string(a.join("report.pdf")).unwrap(), "alpha evidence");
+    assert_eq!(fs::read_to_string(a.join("report.pages")).unwrap(), "alpha evidence");
 }
 
 #[cfg(unix)]
@@ -319,8 +423,8 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     let root_path = Path::new(&root);
     let nested = root_path.join("nested");
     fs::create_dir(&nested).unwrap();
-    fs::write(root_path.join("report.PDF"), "selectedpdf evidence").unwrap();
-    fs::write(root_path.join("notes.docx"), "selectedword evidence").unwrap();
+    fs::write(root_path.join("report.PAGES"), "selectedpdf evidence").unwrap();
+    fs::write(root_path.join("notes.numbers"), "selectedword evidence").unwrap();
     fs::write(nested.join("voice.mp3"), "selectedaudio evidence").unwrap();
     let mut options = FolderIndexOptions {
         extensions: None,
@@ -329,24 +433,24 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     crate::folder_index::write(root_path, &options).unwrap();
     store.scan(&root, |_| {}).unwrap();
     assert_eq!(store.files().unwrap().len(), 3);
-    let word_output = output_path(root_path, &root_path.join("notes.docx")).unwrap();
+    let word_output = output_path(root_path, &root_path.join("notes.numbers")).unwrap();
     let word_before = fs::read(&word_output).unwrap();
     // A deselected source must not be converted again, even after it changes.
-    fs::write(root_path.join("notes.docx"), "FAIL").unwrap();
-    options.conversion_formats = Some(vec!["pdf".into()]);
+    fs::write(root_path.join("notes.numbers"), "FAIL").unwrap();
+    options.conversion_formats = Some(vec!["pages".into()]);
     store.save_folder_index_options(root_path, &options, false).unwrap();
     store.update_paths(&root, &[root_path.join(".sagignore")], |_| {}).unwrap();
     assert_eq!(store.roots().unwrap()[0].status, "ready");
     assert_eq!(store.folder_index_options(&nested).unwrap().conversion_formats, options.conversion_formats);
     assert_eq!(store.files().unwrap().len(), 1);
-    assert!(store.files().unwrap()[0].path.ends_with("report.PDF.md"));
+    assert!(store.files().unwrap()[0].path.ends_with("report.PAGES.md"));
     assert!(store.search_files("selectedword", &[], 5).unwrap().is_empty());
     assert_eq!(fs::read(&word_output).unwrap(), word_before);
     let calls = store.docling.home.join("bin/calls");
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 3);
-    fs::write(nested.join("added.docx"), "FAIL").unwrap();
-    fs::write(nested.join("added.pdf"), "newselectedpdf evidence").unwrap();
-    store.update_paths(&root, &[nested.join("added.docx"), nested.join("added.pdf")], |_| {}).unwrap();
+    fs::write(nested.join("added.numbers"), "FAIL").unwrap();
+    fs::write(nested.join("added.pages"), "newselectedpdf evidence").unwrap();
+    store.update_paths(&root, &[nested.join("added.numbers"), nested.join("added.pages")], |_| {}).unwrap();
     assert_eq!(store.roots().unwrap()[0].status, "ready");
     assert_eq!(store.files().unwrap().len(), 2);
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 4);
@@ -356,10 +460,10 @@ fn selected_formats_are_persisted_inherited_and_filter_existing_and_incremental_
     store.update_paths(&root, &[nested.join(".sagignore")], |_| {}).unwrap();
     let files = store.files().unwrap();
     assert_eq!(files.len(), 2);
-    assert!(files.iter().any(|file| file.path.ends_with("report.PDF.md")));
+    assert!(files.iter().any(|file| file.path.ends_with("report.PAGES.md")));
     assert!(files.iter().any(|file| file.path.ends_with("voice.mp3.md")));
     assert_eq!(fs::read_to_string(&calls).unwrap().lines().count(), 4);
-    assert_eq!(fs::read_to_string(root_path.join("report.PDF")).unwrap(), "selectedpdf evidence");
+    assert_eq!(fs::read_to_string(root_path.join("report.PAGES")).unwrap(), "selectedpdf evidence");
     assert_eq!(crate::folder_index::read(root_path).unwrap().unwrap(), options);
     assert_eq!(crate::folder_index::read(&nested).unwrap().unwrap(), child_options);
 }
@@ -381,7 +485,7 @@ fn old_rules_keep_all_formats_and_format_choices_exclude_native_types() {
 #[test]
 fn uninstall_removes_only_components_and_keeps_sources_converted_files_and_indexes() {
     let (_temp, store, root) = fixture();
-    let source = Path::new(&root).join("report.pdf");
+    let source = Path::new(&root).join("report.pages");
     fs::write(&source, "keptconversion evidence").unwrap();
     let mut settings = store.settings().unwrap();
     settings.convert_other_formats = true;
@@ -428,7 +532,7 @@ fn text_is_searchable_before_parallel_conversion_and_converted_indexing_preserve
     for workers in [4,2] {
         let (_temp, store, root) = fixture();
         fs::write(Path::new(&root).join("quick.md"), "nativeevidence").unwrap();
-        for i in 0..6 { fs::write(Path::new(&root).join(format!("report-{i}.pdf")), "convertedevidence").unwrap(); }
+        for i in 0..6 { fs::write(Path::new(&root).join(format!("report-{i}.pages")), "convertedevidence").unwrap(); }
         let command = store.docling.home.join("bin/docling");
         let script = fs::read_to_string(&command).unwrap().replace("cat \"$source\" > \"$output\"", r#"touch "$(dirname "$0")/started-$(basename "$source")"
     while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.01; done
@@ -474,7 +578,7 @@ fn text_is_searchable_before_parallel_conversion_and_converted_indexing_preserve
         assert_eq!(stages[0], "indexing_native");
         assert_eq!(&stages[1..7], vec!["converting";6]);
         assert_eq!(&stages[7..], vec!["indexing_converted";6]);
-        fs::write(Path::new(&root).join("report-0.pdf"), "newconvertedevidence").unwrap();
+        fs::write(Path::new(&root).join("report-0.pages"), "newconvertedevidence").unwrap();
         store.scan(&root, |_| {}).unwrap();
         assert_eq!(store.search_files("nativeevidence", &[], 10).unwrap().len(), 1);
         assert_eq!(store.files().unwrap().len(), 7);
@@ -509,7 +613,7 @@ fn native_conversion_checks_writes_reuses_readonly_output_and_requires_delete_pe
         FileAccessMode::Write => allow_write.load(Ordering::SeqCst),
         FileAccessMode::Delete => allow_delete.load(Ordering::SeqCst),
     }))));
-    let source = Path::new(&root).join("report.pdf");
+    let source = Path::new(&root).join("report.pages");
     fs::write(&source, "nativeconversionmarker").unwrap();
     let mut settings = store.settings().unwrap();
     settings.convert_other_formats = true;
@@ -544,7 +648,7 @@ fn docling_subprocess_does_not_inherit_the_native_api_token() {
 #[test]
 fn heading_only_converted_documents_are_searchable() {
     let (_temp, store, root) = fixture();
-    let source = Path::new(&root).join("heading.pdf");
+    let source = Path::new(&root).join("heading.pages");
     fs::write(&source, "## convertedheadingmarker").unwrap();
     let mut settings = store.settings().unwrap();
     settings.convert_other_formats = true;
@@ -553,5 +657,5 @@ fn heading_only_converted_documents_are_searchable() {
     let result = store.search_files("convertedheadingmarker", &[], 10).unwrap();
     assert_eq!(result.len(), 1);
     assert!(result[0].content.contains("convertedheadingmarker"));
-    assert!(result[0].path.ends_with("heading.pdf.md"));
+    assert!(result[0].path.ends_with("heading.pages.md"));
 }

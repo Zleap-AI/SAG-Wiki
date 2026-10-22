@@ -4,7 +4,8 @@ import os
 import sys
 import signal
 
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+if hasattr(signal, 'SIGPIPE'):
+    signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 import time
 
 for line in sys.stdin:

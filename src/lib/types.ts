@@ -7,7 +7,7 @@ export type FileInfo={id:number;path:string;name:string};
 export type SourceSpan={start_byte:number;end_byte:number;start_line:number;start_column:number;end_line:number;end_column:number};
 export type AnswerContext={limit:number;reserved_output:number;estimated_input:number;omitted_sources:number;omitted_history:number;input_tokens:number|null;output_tokens:number|null;elapsed_ms?:number|null;generation_ms?:number|null};
 export type Candidate={id:number;document_id:number;path:string;title:string;heading:string;content:string;start_line:number;end_line:number;source_ranges:[number,number][];source_spans?:SourceSpan[];bm25:number;score:number;order:number;hash:string};
-export type ModelConfig={reasoning_effort?:ReasoningEffort|null;url:string;model:string;models:string[];has_key:boolean};
+export type ModelConfig={reasoning_effort?:ReasoningEffort|null;auth_mode?:'bearer'|'none';url:string;model:string;models:string[];has_key:boolean};
 export type McpServer={id:string;name:string;transport:'http'|'stdio';url:string;command:string;args:string[];require_confirmation:boolean;has_credentials:boolean;tools?:McpToolInfo[]|null};
 export type McpCredentials={env:Record<string,string>;headers:Record<string,string>};
 export type McpToolInfo={name:string;description:string};
@@ -30,7 +30,7 @@ export type QueryOutput={terms:string[];elapsed_ms?:number;results:Candidate[];p
 
 export type CliAccess={enabled:boolean};
 
-export type DoclingStatus={installed:boolean;running:boolean;stage:string;message:string;downloaded:number;total:number|null;percent?:number|null;error:string|null;formats:[string,string[]][]};
+export type DoclingStatus={installed:boolean;running:boolean;stage:string;message:string;downloaded:number;total:number|null;percent?:number|null;packages_done?:number;packages_total?:number;error:string|null;formats:[string,string[]][];builtin_formats?:[string,string[]][]};
 
 export type IndexTask={path:string;stage:string;completed:number;total:number;files:string[]};
 export type IndexStatus={paused:boolean;tasks:IndexTask[]};

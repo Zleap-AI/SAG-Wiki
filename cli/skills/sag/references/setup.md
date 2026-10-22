@@ -6,7 +6,7 @@ SAG CLI and the optional SAG Wiki desktop app share the same local service, know
 
 1. Run `sag --version`. If missing, run `/var/apps/sag-desktop-fnos/target/bin/sag install cli` as the NAS login user, then open a new terminal. Keep the SAG Wiki application running. The packaged native CLI supports fnOS x86-64 and ARM64; no Node.js or Rust installation is required.
 2. Run `sag install codex`, `sag install claude-code`, or `sag install opencode` for the requested agent. The bundled Skill and three references match the installed fnOS application. Preserve user-edited files and unrelated skills. Open a new agent session after installation.
-3. Run `sag config --if-needed` to reuse the Jev settings shared with the web app. If credentials are missing, ask the user to enter them in the web app's model settings or in the terminal using `sag`. Hidden input and `--key-stdin` are supported; do not request credentials in chat.
+3. Run `sag config --if-needed` to reuse the Jev settings shared with the web app. For a user-supplied unauthenticated Jev service, configure `--auth none` as described below. If Bearer authentication needs a key, ask the user to enter it in the web app's model settings or in the terminal using `sag`. Hidden input and `--key-stdin` are supported; do not request credentials in chat.
 4. Run `sag check --json` from the intended directory. fnOS must authorize that directory for SAG Wiki before it can be indexed. If authorization is missing, use the web app's native folder authorization flow. When coverage is `none`, inspect the formats and run `sag add --types md,txt,html,py,js,ts,tsx,json,yaml` with the required extensions. Preserve existing exclusions and folder format selections. For `partial`, inspect `sag list` and select the intended scope. Do not re-enable excluded content or CLI access without authorization.
 5. Verify the CLI version, installed Skill files, existing Jev configuration, a ready nonempty index, and a semantic search answering a specific question about the intended files. Report a credential or permission blocker explicitly; installation alone is not successful search verification.
 
@@ -38,10 +38,12 @@ Running `sag` without a query in an interactive terminal guides first-time JEV s
 
 | Command or option | Meaning |
 | --- | --- |
-| `sag config` | In a terminal, prompt for endpoint, model and a hidden key; Enter keeps existing values, but first-time setup requires a key. Noninteractive invocation reads the current configuration. Output is JSON without the key. |
-| `sag config --if-needed` | With no replacement options, reuse an existing key and configuration; otherwise guide terminal setup. Noninteractive use without a key reports an error. |
-| `sag config --url URL` | Set the JEV endpoint. |
+| `sag config` | In a terminal, prompt for endpoint, model and a hidden key when using Bearer authentication; Enter keeps existing values. No-authentication services need no key. Noninteractive invocation reads the current configuration. Output is JSON without the key. |
+| `sag config --if-needed` | With no replacement options, reuse a usable Bearer or no-authentication configuration; otherwise guide terminal setup. Noninteractive Bearer use without a key reports an error. |
+| `sag config --url URL` | Set the JEV endpoint; a base URL or a complete `/systemone` or `/decisions` endpoint. |
 | `sag config --model MODEL` | Set the JEV model. |
+| `sag config --auth none` | Explicitly use a Jev service without authentication; remove its saved key and omit the authorization header. |
+| `sag config --auth bearer` | Use API Key authentication (the default for existing settings). Supply the service’s key when switching back from `none`. |
 | `sag config --key-stdin` | Read the key from standard input. |
 | `sag config --key KEY` | Set a key through a command argument; it may appear in shell history and process arguments. Mutually exclusive with `--key-stdin`. |
 | `sag config --enable` | Re-enable CLI access when the user explicitly requests it. There is no `--disable` CLI option. |
@@ -51,6 +53,8 @@ Options may be combined. Prefer hidden terminal input or `--key-stdin`; never pr
 ```bash
 sag config --url "$JEV_URL" --model "$JEV_MODEL" --key-stdin < "$JEV_KEY_FILE"
 ```
+
+For a user-supplied local Jev service that requires no authentication, configure `sag config --url "$JEV_URL" --model "$JEV_MODEL" --auth none`. Choose `none` only when the user identifies the service as unauthenticated.
 
 If setup is required and credentials have not been supplied, ask the user to run `sag` in a terminal. Never invent credentials or silently change providers. If CLI access is off, report that setting; do not enable it without the user's request.
 

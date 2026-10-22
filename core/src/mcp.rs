@@ -244,12 +244,15 @@ pub async fn test_with_runtime(
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    pub fn python_command() -> &'static str {
+        if cfg!(windows) { "python" } else { "python3" }
+    }
     pub fn local_server() -> McpServer {
         McpServer {
             id: "test".into(),
             name: "测试 MCP".into(),
             transport: "stdio".into(),
-            command: "/usr/bin/python3".into(),
+            command: python_command().into(),
             args: vec![format!(
                 "{}/../tests/mock_mcp.py",
                 env!("CARGO_MANIFEST_DIR")

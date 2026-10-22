@@ -23,6 +23,7 @@ parser.add_argument('--docling', action='store_true')
 parser.add_argument('--serve', action='store_true')
 args = parser.parse_args()
 assert os.getuid() == 0
+VERSION = json.loads(Path('/source/package.json').read_text())['version']
 base = Path('/srv/sag-test')
 app = base / 'app'
 data = base / 'data'
@@ -245,7 +246,7 @@ s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1]);s.sendall((json.dumps({'u
     web = rpc('fnos_cli_run',{'command':'sag -F "alice-private-marker" --json','directory':root})
     assert web['code'] == 0 and json.loads(web['stdout'])['matched'], web
     web = rpc('fnos_cli_run',{'command':'sag --version','directory':root})
-    assert web['code'] == 0 and '0.1.9' in web['stdout'], web
+    assert web['code'] == 0 and VERSION in web['stdout'], web
     # Remote MCP authenticates independently of the fnOS browser gateway.
     token = rpc('fnos_remote_rotate')['token']
     def remote_mcp(message, access_token=token, extra=None):
@@ -277,7 +278,7 @@ s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1]);s.sendall((json.dumps({'u
     assert '未运行' in sag(['service','status']).stdout
     restarted = sag(['service','restart'])
     assert restarted.returncode == 0, restarted.stderr
-    assert json.loads(restarted.stdout)['version'] == '0.1.9'
+    assert json.loads(restarted.stdout)['version'] == VERSION
     assert rpc('list_roots')[0]['path'] == root
     # fnOS can assign a home path without creating it before the first SSH login.
     home = Path('/home/alice')
@@ -294,12 +295,40 @@ s=socket.socket(socket.AF_UNIX);s.connect(sys.argv[1]);s.sendall((json.dumps({'u
         assert result.returncode == 0, result.stderr
         if target == 'cli':
             installed = subprocess.run(['runuser','-u','alice','--','/home/alice/.local/bin/sag','--version'],capture_output=True,text=True,timeout=10)
-            assert installed.returncode == 0 and '0.1.9' in installed.stdout, installed.stderr
+            assert installed.returncode == 0 and VERSION in installed.stdout, installed.stderr
         result = sag(['uninstall',target])
         assert result.returncode == 0, result.stderr
     removed = sag(['remove',root,'--json'])
     assert removed.returncode == 0 and (base/'alice/private.txt').exists(), removed.stderr
     print('PASS packaged CLI, web CLI, shared index, search, exits, native ACL, users, lifecycle and all installations',flush=True)
+    # Built-in document conversion runs in the application process without the Docling component.
+    assert not rpc('get_docling_status')['installed']
+    import zipfile
+    builtin_source = base / 'alice/内置转换.docx'
+    with zipfile.ZipFile(builtin_source, 'w') as archive:
+        archive.writestr('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>')
+        archive.writestr('_rels/.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>')
+        archive.writestr('word/document.xml', '<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Linux 内置转换 builtinlinuxmarker</w:t></w:r></w:p></w:body></w:document>')
+    os.chown(builtin_source, 1501, 1501)
+    builtin_bytes = builtin_source.read_bytes()
+    rpc('add_root', {'path':root})
+    builtin_output = base / 'alice/.sag-converted/内置转换.docx.md'
+    wait_for(lambda: any(f['path'] == str(builtin_output) for f in rpc('list_files')), 120)
+    assert 'builtinlinuxmarker' in builtin_output.read_text()
+    assert builtin_source.read_bytes() == builtin_bytes
+    assert rpc('list_roots')[0]['status'] == 'ready', rpc('list_roots')
+    direct = subprocess.run(['runuser','-u','alice','--','cat',str(builtin_output)], capture_output=True,text=True)
+    assert direct.returncode == 0 and 'builtinlinuxmarker' in direct.stdout, direct.stderr
+    result = rpc('run_query', {'query':{'id':str(uuid.uuid4()),'kind':'search','question':'builtinlinuxmarker','scope':[],'references':[],'model':'','conversation_id':None,'replace_from':None,'page':1}})
+    assert result['results'] and result['results'][0]['path'] == str(builtin_output), result
+    assert not rpc('get_docling_status')['installed']
+    # A source changed after indexing is skipped by search until the index catches up.
+    builtin_source.write_bytes(builtin_bytes + b'\0')
+    stale = rpc('run_query', {'query':{'id':str(uuid.uuid4()),'kind':'search','question':'alice-private-marker','scope':[],'references':[],'model':'','conversation_id':None,'replace_from':None,'page':1}})
+    assert stale['results'], stale
+    builtin_source.write_bytes(builtin_bytes)
+    assert sag(['remove',root,'--json']).returncode == 0
+    print('PASS built-in Word conversion without Docling, user-readable output, search, originals preserved',flush=True)
 
     if args.serve:
         assert sag(['add',root,'--json']).returncode == 0
