@@ -1,4 +1,6 @@
 mod file_permissions;
+#[cfg(target_os = "linux")]
+mod document_publish;
 mod cli;
 mod fnos;
 mod remote;
@@ -48,6 +50,16 @@ fn same_origin(headers: &HeaderMap) -> Result<()> {
         if site != "same-origin" { bail!("请求来源与应用地址不一致"); }
         return Ok(());
     }
+    // A cross-origin script must preflight this non-simple header. This router
+    // never grants CORS access, so it cannot be attached by a foreign web page.
+    // Unlike forwarded Host headers, it also works through the fnOS HTTP gateway.
+    if headers.get("x-sag-request").is_some_and(|value| value == "1") {
+        if let Some(origin) = headers.get("origin") {
+            let origin = reqwest::Url::parse(origin.to_str()?)?;
+            if !matches!(origin.scheme(), "http" | "https") { bail!("请求来源与应用地址不一致"); }
+        }
+        return Ok(());
+    }
     if let Some(origin) = headers.get("origin") {
         let origin = reqwest::Url::parse(origin.to_str()?)?;
         let host = headers.get("host").context("缺少 Host")?.to_str()?;
@@ -87,6 +99,15 @@ impl App {
         });
         let runtime = sag_core::mcp::StdioRuntime::Fnos { socket: self.worker_socket.clone(), uid };
         let service = tokio::task::spawn_blocking(move || Service::open_with_runtime(data, Some(policy), runtime)).await??;
+        #[cfg(target_os = "linux")]
+        {
+            let socket = self.worker_socket.clone();
+            service.store.set_document_publisher(Arc::new(move |temporary, target, expected_hash| {
+                document_publish::request(&socket, &document_publish::Request {
+                    uid, temporary: temporary.into(), target: target.into(), expected_hash: expected_hash.map(str::to_owned),
+                })
+            }));
+        }
         users.insert(uid, service.clone());
         Ok(service)
     }
@@ -205,7 +226,16 @@ async fn rpc(State(app): State<App>, headers: HeaderMap, Json(request): Json<Rpc
     let sink = EventSink { owner: request.session.to_string(), request_id: Some(uuid::Uuid::new_v4().to_string()), cancel: CancellationToken::new(), bus: service.events.clone() };
     let output = service.handle(operation, &sink).await.map_err(anyhow::Error::msg)?;
     let envelope = serde_json::to_value(output)?;
-    let data = envelope.get("data").cloned().unwrap_or(Value::Null);
+    let mut data = envelope.get("data").cloned().unwrap_or(Value::Null);
+    if request.command == "list_drafts" {
+        let mut visible = Vec::new();
+        for draft in data.as_array().context("草稿列表格式无效")? {
+            let path = Path::new(draft["path"].as_str().context("草稿路径无效")?);
+            let access_path = if draft["is_new"] == true { path.parent().context("草稿缺少父目录")? } else { path };
+            if app.fnos.allowed(uid, access_path, false).await? { visible.push(draft.clone()); }
+        }
+        data = Value::Array(visible);
+    }
     app.check_paths(uid, &data).await?;
     Ok(Json(data))
 }

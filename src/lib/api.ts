@@ -68,7 +68,7 @@ export async function api<T>(command: string, args: Record<string, unknown> = {}
       return await sdk.close() as T;
   }
   const response = await fetch(`${basePath}api/rpc`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-SAG-Request': '1' },
     body: JSON.stringify({ command, args, session }),
   });
   const result = await response.json();

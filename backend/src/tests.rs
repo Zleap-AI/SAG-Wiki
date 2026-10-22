@@ -35,6 +35,25 @@ fn cross_site_requests_are_rejected_with_or_without_origin() {
     }
 }
 
+#[test]
+fn http_rpc_survives_gateway_rewriting_without_fetch_metadata() {
+    let headers = HeaderMap::from_iter([
+        ("origin".parse().unwrap(), "http://nas.example:5666".parse().unwrap()),
+        ("host".parse().unwrap(), "localhost".parse().unwrap()),
+        ("x-sag-request".parse().unwrap(), "1".parse().unwrap()),
+    ]);
+    assert!(same_origin(&headers).is_ok());
+    let mut cross_site = headers.clone();
+    cross_site.insert("sec-fetch-site", "cross-site".parse().unwrap());
+    assert!(same_origin(&cross_site).is_err());
+    let mut opaque = headers.clone();
+    opaque.insert("origin", "null".parse().unwrap());
+    assert!(same_origin(&opaque).is_err());
+    let mut simple = headers;
+    simple.remove("x-sag-request");
+    assert!(same_origin(&simple).is_err());
+}
+
 struct Fixture {
     directory: tempfile::TempDir,
     app: App,
@@ -405,5 +424,43 @@ async fn browser_cli_only_accepts_sag_and_authorized_working_directories() {
         let args = json!({"directory":directory,"command":command}).as_object().unwrap().clone();
         assert!(cli::run_command(&f.app,1000,&args).await.is_err());
     }
+    f.finish().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn revoked_draft_does_not_hide_other_drafts_or_leak_its_body() {
+    let f = Fixture::new().await;
+    f.rpc(Some(1000), "add_root", json!({"path":f.a})).await;
+    let blocked = f.a.join("hello.md");
+    let allowed = f.a.join("allowed.md");
+    std::fs::write(&allowed, "allowed").unwrap();
+    for (path, body) in [(&blocked, "revoked secret draft"), (&allowed, "allowed draft")] {
+        let (status, _) = f.rpc(Some(1000), "put_draft", json!({"draft":{
+            "path":path,"name":path.file_name().unwrap().to_str().unwrap(),"body":body,"hash":"old","is_new":false
+        }})).await;
+        assert_eq!(status, StatusCode::OK);
+    }
+    f.denied.lock().unwrap().insert(blocked.display().to_string());
+    let (status, drafts) = f.rpc(Some(1000), "list_drafts", json!({})).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(drafts.as_array().unwrap().len(), 1);
+    assert_eq!(drafts[0]["body"], "allowed draft");
+    f.denied.lock().unwrap().clear();
+    let (_, drafts) = f.rpc(Some(1000), "list_drafts", json!({})).await;
+    assert_eq!(drafts.as_array().unwrap().len(), 2, "revoked drafts remain recoverable after access is restored");
+    f.finish().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn foreign_scripts_cannot_preflight_the_http_rpc_marker() {
+    let f = Fixture::new().await;
+    let response = router(f.app.clone(), f.directory.path().into()).oneshot(Request::builder()
+        .method("OPTIONS").uri(format!("{PREFIX}/api/rpc"))
+        .header("origin", "http://untrusted.example")
+        .header("access-control-request-method", "POST")
+        .header("access-control-request-headers", "content-type,x-sag-request")
+        .body(Body::empty()).unwrap()).await.unwrap();
+    assert!(!response.headers().contains_key("access-control-allow-origin"));
+    assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
     f.finish().await;
 }

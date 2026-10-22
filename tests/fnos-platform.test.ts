@@ -15,6 +15,13 @@ import { api } from '../src/lib/api';
 
 beforeEach(() => { host.standalone = false; host.open.mockClear(); host.settings.mockReset(); vi.restoreAllMocks(); sessionStorage.clear(); });
 describe('fnOS browser integration', () => {
+  it('marks RPC requests with a non-simple header so HTTP survives Host rewriting safely', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{}'));
+    await api('get_settings');
+    expect(fetch).toHaveBeenCalledWith('/app/sag-desktop-fnos/api/rpc', expect.objectContaining({
+      method: 'POST', headers: expect.objectContaining({'X-SAG-Request': '1'}),
+    }));
+  });
   it('opens the fnOS desktop without calling a host-only API in standalone pages', async () => {
     host.standalone = true;
     const open = vi.spyOn(window, 'open').mockReturnValue(null);

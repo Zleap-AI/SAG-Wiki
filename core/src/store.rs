@@ -32,7 +32,10 @@ struct PreparedFile {
 pub enum FileAccessMode { Read, Write, Delete, Publish }
 pub type FileAccess = Arc<dyn Fn(&Path, FileAccessMode) -> Result<bool> + Send + Sync>;
 
+pub type DocumentPublisher = Arc<dyn Fn(&Path, &Path, Option<&str>) -> Result<()> + Send + Sync>;
+
 pub struct Store {
+    document_publisher: Mutex<Option<DocumentPublisher>>,
     file_access: Option<FileAccess>,
     pub indexing: crate::index_status::IndexControl,
     pub(crate) docling: Arc<crate::docling::Docling>,
@@ -309,6 +312,7 @@ impl Store {
         let saved: Option<String> = db.query_row("SELECT value FROM preferences WHERE id=1", [], |r| r.get(0)).optional()?;
         let store = Self {
             file_access,
+            document_publisher: Mutex::new(None),
             indexing: crate::index_status::IndexControl::default(),
             docling: Arc::new(crate::docling::Docling::new(path.parent().context("数据库缺少父目录")?)),
             db: Mutex::new(db),
@@ -745,6 +749,9 @@ impl Store {
             .collect::<rusqlite::Result<_>>()?;
         Ok(rows)
     }
+    pub fn set_document_publisher(&self, publisher: DocumentPublisher) {
+        *self.document_publisher.lock().unwrap_or_else(|error| error.into_inner()) = Some(publisher);
+    }
     pub fn save_document(
         &self,
         path: &Path,
@@ -811,7 +818,7 @@ impl Store {
         {
             bail!("请在系统文件管理器中打开符号链接，应用不会替换链接")
         };
-        let mut temp = tempfile::NamedTempFile::new_in(&parent)?;
+        let mut temp = tempfile::Builder::new().prefix(".sag-save-").tempfile_in(&parent)?;
         if old.is_some() {
             temp.as_file()
                 .set_permissions(fs::metadata(&target)?.permissions())?;
@@ -821,7 +828,12 @@ impl Store {
         if let Some(bytes) = &old {
             if hash(&fs::read(&target)?) != hash(bytes) {
                 bail!("保存前检测到外部修改，未覆盖原文件")
-            };
+            }
+        }
+        let publisher = self.document_publisher.lock().unwrap_or_else(|error| error.into_inner()).clone();
+        if let Some(publish) = publisher {
+            publish(temp.path(), &target, expected_hash)?;
+        } else if old.is_some() {
             temp.persist(&target).map_err(|e| e.error)?;
         } else {
             temp.persist_noclobber(&target).map_err(|e| e.error)?;
@@ -2028,6 +2040,24 @@ mod tests {
         let notes = notes.canonicalize().unwrap();
         (dir, db, notes)
     }
+    #[test]
+    fn failed_document_publication_keeps_original_and_draft_intact() {
+        let (_dir, store, root) = setup();
+        let path = root.join("publication.md");
+        fs::write(&path, "original").unwrap();
+        let doc = store.document(&path).unwrap();
+        store.set_document_publisher(Arc::new(|temporary, target, expected| {
+            assert_eq!(fs::read_to_string(temporary).unwrap(), "changed");
+            assert_eq!(fs::read_to_string(target).unwrap(), "original");
+            assert_eq!(expected, Some(hash(b"original").as_str()));
+            anyhow::bail!("publication denied")
+        }));
+        let error = store.save_document(&path, "changed", Some(&doc.hash)).unwrap_err();
+        assert!(error.to_string().contains("publication denied"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "original");
+        assert_eq!(fs::read_dir(&root).unwrap().count(), 1);
+    }
+
     #[test]
     fn removed_file_stays_excluded_and_can_be_restored_without_changing_local_data() {
         let (dir, store, root) = setup();

@@ -1,4 +1,6 @@
 #[cfg(target_os = "linux")]
+mod document_publish;
+#[cfg(target_os = "linux")]
 mod linux {
     use anyhow::{bail, Context, Result};
     use sag_protocol::{McpProcessReply, McpProcessRequest};
@@ -111,6 +113,38 @@ mod linux {
             bail!("本地命令请求超过大小限制");
         }
         let value: serde_json::Value = serde_json::from_str(&line)?;
+        if let Some(request) = value.get("document_publish") {
+            let result = async {
+                let request: super::document_publish::Request = serde_json::from_value(request.clone())?;
+                let user = account(request.uid, app_uid)?;
+                let metadata = super::document_publish::prepare(&request, app_uid, user.gid)?;
+                use std::os::unix::fs::MetadataExt;
+                let mut command = std::process::Command::new(std::env::current_exe()?);
+                command.arg("--publish-document").arg(serde_json::to_string(&request)?)
+                    .arg(metadata.dev().to_string()).arg(metadata.ino().to_string())
+                    .env_clear().stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped());
+                unsafe { command.pre_exec(move || {
+                    if libc::setgroups(user.groups.len(), user.groups.as_ptr()) != 0
+                        || libc::setgid(user.gid) != 0 || libc::setuid(request.uid) != 0
+                        || libc::prctl(libc::PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                }); }
+                let mut command = tokio::process::Command::from(command);
+                command.kill_on_drop(true);
+                let output = tokio::time::timeout(std::time::Duration::from_secs(20), command.output()).await??;
+                if !output.status.success() { bail!("{}", String::from_utf8_lossy(&output.stderr).trim()); }
+                Ok::<_, anyhow::Error>(())
+            }.await;
+            let response = match result {
+                Ok(()) => serde_json::json!({"ok":true}),
+                Err(error) => serde_json::json!({"error":format!("{error:#}")}),
+            };
+            reader.get_mut().write_all(&serde_json::to_vec(&response)?).await?;
+            reader.get_mut().write_all(b"\n").await?;
+            return Ok(());
+        }
         if value.get("cli_args").is_some() { return cli_command(reader, value, app_uid, stop).await; }
         let request: McpProcessRequest = serde_json::from_str(&line).context("本地命令请求无效")?;
         let user = match account(request.uid, app_uid) {
@@ -355,6 +389,12 @@ mod linux {
 async fn main() -> anyhow::Result<()> {
     #[cfg(target_os = "linux")]
     {
+        let args: Vec<String> = std::env::args().collect();
+        if args.get(1).is_some_and(|arg| arg == "--publish-document") {
+            if args.len() != 5 { anyhow::bail!("文档发布参数无效"); }
+            let request = serde_json::from_str(&args[2])?;
+            return document_publish::publish(&request, args[3].parse()?, args[4].parse()?);
+        }
         linux::run().await
     }
     #[cfg(not(target_os = "linux"))]
