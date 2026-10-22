@@ -60,7 +60,9 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     let cwd = home.path().join("项目 space");
     fs::create_dir_all(cwd.join("src")).unwrap();
     let cwd = cwd.canonicalize().unwrap();
-    let path = cwd.join("src/main.rs");
+    #[cfg(windows)]
+    assert!(matches!(cwd.components().next(), Some(std::path::Component::Prefix(prefix)) if prefix.kind().is_verbatim()));
+    let path = cwd.join("src").join("main.rs");
     let server_path = path.clone();
     let query = "Where is 'quoted' permission\nvalidated?";
     let relative_path = format!("./{}", Path::new("src").join("main.rs").display());
@@ -84,7 +86,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
             .unwrap()
     };
     let plain = run(&[]);
-    assert!(plain.status.success());
+    assert!(plain.status.success(), "{}", String::from_utf8_lossy(&plain.stderr));
     assert_eq!(
         String::from_utf8(plain.stdout).unwrap(),
         format!("[1/1]\nfilepath: {relative_path}\nheading: 部署指南 / 生产环境\nlines: 2-4\ncontent:\n原文 'quoted'\nsecond line\n\n")

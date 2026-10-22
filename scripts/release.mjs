@@ -29,7 +29,7 @@ export function validateVersions(directory = root) {
   for (const [directoryName, packageName] of [['cli', 'sag-cli'], ['src-tauri', 'sag-desktop']]) {
     const manifest = readFileSync(join(directory, directoryName, 'Cargo.toml'), 'utf8');
     assert.equal(manifest.match(/^version = "([^"]+)"/m)?.[1], version, 'Cargo manifest version mismatch');
-    const cargoLock = readFileSync(join(directory, directoryName, 'Cargo.lock'), 'utf8');
+    const cargoLock = readFileSync(join(directory, directoryName, 'Cargo.lock'), 'utf8').replace(/\r\n/g, '\n');
     assert.equal(cargoLock.match(new RegExp(`\\[\\[package\\]\\]\\nname = "${packageName}"\\nversion = "([^"]+)"`))?.[1], version, 'Cargo lock version mismatch');
   }
   assert.equal(json(join(directory, 'src-tauri/tauri.conf.json')).plugins.updater.requireSignedVersion, true, 'Signed versions must be enforced');

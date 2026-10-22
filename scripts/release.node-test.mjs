@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import {readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync} from 'node:fs';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {dirname, join} from 'node:path';
 import {createHash} from 'node:crypto';
 import {generateKeyPairSync} from 'node:crypto';
 import test from 'node:test';
@@ -57,6 +57,25 @@ test('checks current manifests and preserves the published legacy manifest byte 
   assert.equal(createHash('sha256').update(legacy).digest('hex'), legacyDigest);
   assert.equal(JSON.parse(legacy).version, '0.1.8');
 });
+
+for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+  test(`accepts consistent release versions with ${label} checkout line endings`, () => {
+    const directory = mkdtempSync(join(tmpdir(), 'sag-version-checkout-'));
+    const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+    try {
+      for (const name of ['package.json', 'package-lock.json', 'src-tauri/tauri.conf.json',
+        'cli/Cargo.toml', 'cli/Cargo.lock', 'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock']) {
+        const destination = join(directory, name);
+        mkdirSync(dirname(destination), {recursive: true});
+        const source = readFileSync(new URL(`../${name}`, import.meta.url), 'utf8');
+        writeFileSync(destination, source.replace(/\r?\n/g, newline));
+      }
+      assert.equal(validateVersions(directory), version);
+    } finally {
+      rmSync(directory, {recursive: true, force: true});
+    }
+  });
+}
 
 test('requires both platforms from one commit and detects tampered transfer artifacts', () => {
   const directory = mkdtempSync(join(tmpdir(), 'sag-release-'));

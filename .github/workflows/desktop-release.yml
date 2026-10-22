@@ -102,7 +102,10 @@ jobs:
           cargo test --locked --manifest-path protocol/Cargo.toml --target-dir cli/target
           cargo test --locked --manifest-path client/Cargo.toml --target-dir cli/target
           cargo test --locked --manifest-path core/Cargo.toml --target-dir cli/target
-          cargo test --locked --manifest-path cli/Cargo.toml
+          # Fail within a bounded regression test if daemon pipes leak again,
+          # before running CLI tests that collect complete subprocess output.
+          cargo test --locked --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
+          cargo test --locked --manifest-path cli/Cargo.toml -- --nocapture
           cargo test --locked --manifest-path src-tauri/Cargo.toml
       # Ordinary bundles have no updater signing enabled. The release job signs
       # the exact artifacts produced and tested here, without rebuilding them.
