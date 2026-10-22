@@ -393,7 +393,10 @@ impl Store {
             None => Ok(Settings::default()),
         }
     }
-    pub fn save_settings(&self, s: &Settings) -> Result<()> {
+    pub fn validate_settings(s: &Settings) -> Result<()> {
+        if s.answer.auth_mode != ModelAuthMode::Bearer {
+            bail!("问答模型需要 API Key 鉴权；无需鉴权选项仅适用于 Jev")
+        }
         anyhow::ensure!(s.search_summary_sources > 0, "自动问答参考数量必须大于 0");
         if !matches!(s.language.as_str(), "zh-CN" | "en") {
             bail!("不支持的界面语言")
@@ -446,6 +449,10 @@ impl Store {
         if !(10..=600).contains(&s.timeout_secs) {
             bail!("超时应为 10–600 秒")
         }
+        Ok(())
+    }
+    pub fn save_settings(&self, s: &Settings) -> Result<()> {
+        Self::validate_settings(s)?;
         let previous = self.settings()?;
         let mut db = self.connection();
         let transaction = db.transaction()?;

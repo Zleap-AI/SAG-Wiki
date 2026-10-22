@@ -104,7 +104,7 @@ https://github.com/user-attachments/assets/439bbb1c-3fd8-41e1-a77b-865e8dce4d48
 | 功能 | 使用条件 |
 | --- | --- |
 | 文件索引、快速搜索 | 添加文件夹即可，无需 API Key |
-| SAG2 精准检索 | 配置 Jev 服务与 API Key |
+| SAG2 精准检索 | 配置 Jev 服务；需要鉴权时填写 API Key |
 | 引用问答 | 配置问答模型与 API Key；使用 SAG2 检索时还需 Jev 配置 |
 
 SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务商为准。原文件保留在本地；深入检索与问答会将所需问题、文档片段或上下文发送给你配置的服务。
@@ -122,6 +122,8 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 ### 2. 搜索，查看原文
 
 索引完成后，在“搜索”中输入要查找的内容，点击结果即可查看原文。快速搜索可直接在本地使用；在“设置 → 模型设置”配置 Jev 后，可以使用深入语义检索。
+
+接入本地 Jev 时，选择“自定义”，填写服务提供的模型名称及基础地址（如 `http://127.0.0.1:8000/v1`），或完整的 `/systemone`、`/decisions` 接口地址。服务不要求 API Key 时，将“Jev 鉴权方式”设为“无需鉴权”；此模式不发送鉴权头，并移除已保存的 Jev 密钥。服务需兼容 Jev 的 `state`、`questions` 与 `answers.*.noul` 协议。CLI 可运行 `sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none`；切回需要密钥的服务时使用 `--auth bearer --key-stdin`，并输入该服务的密钥。
 
 <p align="center">
   <img src="docs/assets/readme/product-search-cn.png" alt="搜索结果与对应原文，高亮显示匹配位置" width="940" />
@@ -151,7 +153,7 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
 ```
 
-支持 **Claude Code、Codex、OpenCode**。Skill 包含 CLI 安装、配置、项目索引和验证流程。**无需安装 SAG Wiki 桌面端，也能单独使用 CLI**；安装桌面端后，两者共用配置和知识库。已有配置会直接复用，首次语义检索需要在终端中私密填写自己的 Jev API Key。统一以 GitHub 上的 Skill 链接为安装入口，Agent 会从同一目录获取配套文件。
+支持 **Claude Code、Codex、OpenCode**。Skill 包含 CLI 安装、配置、项目索引和验证流程。**无需安装 SAG Wiki 桌面端，也能单独使用 CLI**；安装桌面端后，两者共用配置和知识库。已有配置会直接复用，使用 API Key 鉴权时，首次语义检索需要在终端中私密填写自己的 Jev API Key。统一以 GitHub 上的 Skill 链接为安装入口，Agent 会从同一目录获取配套文件。
 
 安装 Node.js 18 或以上版本后，运行：
 

@@ -17,7 +17,7 @@ When asked to install this Skill and enable SAG for a project, complete the appl
 
 2. Install the current Skill folder for the active agent at the [location below](#installation-and-removal), including `SKILL.md` and all three references: `setup.md`, `parameters.md`, and `ignores.md`. Retrieve all four files from the [canonical GitHub folder](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag), without building the repository. Preserve user-edited files and unrelated skills. The npm CLI embeds a release-time Skill snapshot, so `sag install codex`, `sag install claude-code`, or `sag install opencode` may supply older instructions. Keep the GitHub version when following this setup. A new agent session loads it automatically; use the instructions already read to finish the current setup.
 
-3. Run `sag config --if-needed` to reuse existing Jev settings. If a key is missing, have the user run `sag` in an interactive terminal and enter their Jev endpoint, model and API key there. The key input is hidden. If credentials were already supplied through a secure local source, use `sag config --key-stdin` as described below. Do not request keys in chat. Only the Jev retrieval configuration is required for CLI semantic search; a desktop answer model is unnecessary.
+3. Run `sag config --if-needed` to reuse existing Jev settings. For a user-supplied unauthenticated Jev service, configure `--auth none` as described below. If Bearer authentication needs a key, have the user run `sag` in an interactive terminal and enter their Jev endpoint, model and API key there. The key input is hidden. If credentials were already supplied through a secure local source, use `sag config --key-stdin` as described below. Do not request keys in chat. Only the Jev retrieval configuration is required for CLI semantic search; a desktop answer model is unnecessary.
 
 4. From the intended project directory, run `sag check --json`. If coverage is `none`, inspect the project formats and run `sag add --types md,txt,html,py,js,ts,tsx,json,yaml` with the extensions needed for that project, then check again. Use `sag add --help` to check whether the installed CLI supports `--types`; if an npm-installed CLI lacks this option, update it with `npm install -g @zleap-ai/sag` and check again. Use the owning installer to update a desktop-managed or otherwise managed CLI. For `partial`, inspect `sag list` and the intended scope; retain explicitly excluded subtrees. For `excluded` or disabled CLI access, report the existing setting and change it only when the user's request authorizes that change. Wait for pending indexing; report file errors or an empty index instead of searching unrelated directories.
 
@@ -49,10 +49,12 @@ Running `sag` without a query in an interactive terminal guides first-time JEV s
 
 | Command or option | Meaning |
 | --- | --- |
-| `sag config` | In a terminal, prompt for endpoint, model and a hidden key; Enter keeps existing values, but first-time setup requires a key. Noninteractive invocation reads the current configuration. Output is JSON without the key. |
-| `sag config --if-needed` | With no replacement options, reuse an existing key and configuration; otherwise guide terminal setup. Noninteractive use without a key reports an error. |
+| `sag config` | In a terminal, prompt for endpoint, model and a hidden key when using Bearer authentication; Enter keeps existing values. No-authentication services need no key. Noninteractive invocation reads the current configuration. Output is JSON without the key. |
+| `sag config --if-needed` | With no replacement options, reuse a usable Bearer or no-authentication configuration; otherwise guide terminal setup. Noninteractive Bearer use without a key reports an error. |
 | `sag config --url URL` | Set the JEV endpoint. |
 | `sag config --model MODEL` | Set the JEV model. |
+| `sag config --auth none` | Explicitly use a Jev service without authentication; remove its saved key and omit the authorization header. |
+| `sag config --auth bearer` | Use API Key authentication (the default for existing settings). Supply the service’s key when switching back from `none`. |
 | `sag config --key-stdin` | Read the key from standard input. |
 | `sag config --key KEY` | Set a key through a command argument; it may appear in shell history and process arguments. Mutually exclusive with `--key-stdin`. |
 | `sag config --enable` | Re-enable CLI access when the user explicitly requests it. There is no `--disable` CLI option. |
@@ -63,7 +65,9 @@ Options may be combined. Prefer hidden terminal input or `--key-stdin`; never pr
 sag config --url "$JEV_URL" --model "$JEV_MODEL" --key-stdin < "$JEV_KEY_FILE"
 ```
 
-If setup is required and credentials have not been supplied, ask the user to run `sag` in a terminal. Never invent credentials or silently change providers. If CLI access is off, report that setting; do not enable it without the user's request.
+For a user-supplied local Jev service that requires no authentication, configure `sag config --url "$JEV_URL" --model "$JEV_MODEL" --auth none`; verify the installed CLI supports `--auth` with `sag config --help`. The URL may be a base URL or a complete `/systemone` or `/decisions` endpoint. Choose `none` only when the user identifies the service as unauthenticated.
+
+If Bearer setup is required and credentials have not been supplied, ask the user to run `sag` in a terminal. Never invent credentials or silently change providers. If CLI access is off, report that setting; do not enable it without the user's request.
 
 ## Service commands
 

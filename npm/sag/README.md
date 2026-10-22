@@ -15,7 +15,7 @@ The same unversioned install command updates an existing npm installation to the
 
 You can also install with `pnpm add -g @zleap-ai/sag` or `bun add -g @zleap-ai/sag`.
 
-First use of semantic search guides you through the JEV endpoint, model and API key. The key is entered without echoing. Existing settings are reused. To configure noninteractively, use `sag config --key 'YOUR_KEY'` or `sag config --key-stdin`. Command arguments may be saved in shell history.
+First use of semantic search guides you through the JEV endpoint, model and API key. The key is entered without echoing. Existing settings are reused. To configure noninteractively, use `sag config --key 'YOUR_KEY'` or `sag config --key-stdin`. Command arguments may be saved in shell history. For a local Jev service without authentication, use `sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none`. This removes the saved Jev key and omits the authorization header. Base URLs and complete `/systemone` or `/decisions` endpoints are accepted. Use `--auth bearer --key-stdin` to return to API Key authentication.
 
 The package includes precompiled native binaries. No Rust toolchain, desktop app, install script or extra binary download is required. Node.js 18 or later is required for the command launcher.
 

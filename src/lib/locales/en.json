@@ -1232,5 +1232,9 @@
   "重试安装": "Retry installation",
   "请先选择要解析的文件格式": "Choose the file formats to parse first",
   "所选文件格式尚未准备就绪，请重试安装。": "Support for the selected formats is not ready. Retry installation.",
-  "未安装的文件格式会在应用时确认下载；扫描文件不会自动下载。": "Applying formats that need support asks you to confirm a download. Scanning files never downloads it automatically."
+  "未安装的文件格式会在应用时确认下载；扫描文件不会自动下载。": "Applying formats that need support asks you to confirm a download. Scanning files never downloads it automatically.",
+  "鉴权方式": "Authentication",
+  "Jev 鉴权方式": "Jev authentication",
+  "API Key": "API Key",
+  "无需鉴权": "No authentication"
 }
