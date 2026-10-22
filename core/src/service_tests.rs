@@ -1,6 +1,7 @@
 use sag_client::Client;
 use sag_protocol::{types::*, *};
 use std::{
+    path::Path,
     sync::{
         atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc,
@@ -904,7 +905,19 @@ async fn index_details_support_pause_resume_and_shutdown_over_rpc() {
     assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len()==1));
     call(&client, Operation::SetIndexPaused { paused: true }).await;
     call(&client, Operation::ReindexAll).await;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    // ReindexAll queues work; wait for the worker to enter its paused scan
+    // before testing that clearing history preserves that active task.
+    let root_path = root.canonicalize().unwrap().to_string_lossy().into_owned();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::IndexStatus(status) = call(&client, Operation::GetIndexStatus).await else { panic!("index status") };
+            assert!(status.paused);
+            if status.tasks.iter().any(|task| task.path == root_path && task.stage == "scanning") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("queued reindex should reach its paused scan");
     call(&client, Operation::ClearIndexHistory).await;
     assert!(matches!(call(&client, Operation::GetIndexStatus).await, Output::IndexStatus(status) if status.paused && !status.tasks.is_empty()));
     stop(&client, server).await;
@@ -953,16 +966,16 @@ async fn nested_folder_settings_reindex_only_the_selected_subdirectory_over_rpc(
     let folder = dir.path().join("project");
     std::fs::create_dir_all(folder.join("papers")).unwrap();
     std::fs::create_dir_all(folder.join("sibling")).unwrap();
-    std::fs::write(folder.join("papers/note.md"), "paper evidence").unwrap();
-    std::fs::write(folder.join("papers/main.py"), "print('code')").unwrap();
-    std::fs::write(folder.join("sibling/note.md"), "sibling evidence").unwrap();
+    std::fs::write(folder.join("papers").join("note.md"), "paper evidence").unwrap();
+    std::fs::write(folder.join("papers").join("main.py"), "print('code')").unwrap();
+    std::fs::write(folder.join("sibling").join("note.md"), "sibling evidence").unwrap();
     let initial = FolderIndexOptions { extensions: None, file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
     let Output::Text(root) = call(&client, Operation::AddRootWithOptions { path: folder.to_string_lossy().into_owned(), options: initial.clone() }).await else { panic!("root") };
-    let child = format!("{root}/papers");
+    let child = Path::new(&root).join("papers").to_string_lossy().into_owned();
     let changed = FolderIndexOptions { file_types: FileTypes { markdown: false, code: true, ..initial.file_types.clone() }, ..initial.clone() };
     for (expected, name) in [(initial, "note.md"), (changed.clone(), "main.py")] {
         if name == "main.py" {
-            std::fs::write(folder.join("sibling/note.md"), [0xff, 0xfe, 0x00]).unwrap();
+            std::fs::write(folder.join("sibling").join("note.md"), [0xff, 0xfe, 0x00]).unwrap();
             call(&client, Operation::SaveFolderIndexOptions { path: child.clone(), options: changed.clone(), rebuild: true }).await;
         }
         tokio::time::timeout(Duration::from_secs(5), async {
@@ -976,11 +989,11 @@ async fn nested_folder_settings_reindex_only_the_selected_subdirectory_over_rpc(
         assert_eq!(saved, expected);
         let Output::Files(files) = call(&client, Operation::ListFiles).await else { panic!("files") };
         assert_eq!(files.len(), 2);
-        assert!(files.iter().any(|file| file.path == format!("{child}/{name}")));
-        assert!(files.iter().any(|file| file.path.ends_with("sibling/note.md")));
+        assert!(files.iter().any(|file| Path::new(&file.path) == Path::new(&child).join(name).as_path()));
+        assert!(files.iter().any(|file| Path::new(&file.path) == Path::new(&root).join("sibling").join("note.md").as_path()));
     }
-    assert!(folder.join("papers/note.md").exists());
-    assert!(folder.join("papers/main.py").exists());
+    assert!(folder.join("papers").join("note.md").exists());
+    assert!(folder.join("papers").join("main.py").exists());
     stop(&client, server).await;
 }
 

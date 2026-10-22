@@ -24,6 +24,9 @@ defaults:
 env:
   CARGO_INCREMENTAL: '0'
   RUST_BACKTRACE: '1'
+  # Native tests create their own async runtimes and child processes. Bound
+  # concurrent tests on the small hosted runners without reducing coverage.
+  RUST_TEST_THREADS: '2'
   PYTHONUTF8: '1'
 
 jobs:
@@ -103,6 +106,9 @@ jobs:
           cargo test --locked --manifest-path src-tauri/Cargo.toml
       # Ordinary bundles have no updater signing enabled. The release job signs
       # the exact artifacts produced and tested here, without rebuilding them.
+      - name: Free debug test outputs before production compilation
+        run: |
+          node --input-type=module -e "import {rmSync} from 'node:fs'; for (const path of ['cli/target/debug', 'src-tauri/target/debug']) rmSync(path, {recursive:true, force:true});"
       - name: Build unsigned desktop installers
         run: |
           config_args=()
