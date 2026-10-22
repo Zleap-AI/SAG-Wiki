@@ -33,13 +33,20 @@ if(!isSafari) api.downloads.onChanged.addListener(async delta => {
  const [item] = await api.downloads.search({id:delta.id});
  if(item) await finishDownload(item);
 });
-async function save(tab) {
+async function preview(tabId) {
+ const tab=await api.tabs.get(tabId);
  const t = await translator();
  if (!tab?.id || !/^https?:\/\//.test(tab.url)) throw new Error(t('invalidPage'));
- await api.action.setBadgeText({text:'…'});
  const results = await api.scripting.executeScript({target:{tabId:tab.id},files:['extract.js']});
  const clip = results[0]?.result;
  if (!clip?.content?.trim()) throw new Error(t('empty'));
+ return clip;
+}
+async function save(clip) {
+ const t = await translator();
+ if(typeof clip?.title!=='string' || typeof clip.url!=='string' || !/^https?:\/\//.test(clip.url)) throw new Error(t('invalidPage'));
+ if(typeof clip.content!=='string' || !clip.content.trim()) throw new Error(t('empty'));
+ await api.action.setBadgeText({text:'…'});
  const settings = await api.storage.local.get({folder:defaultFolder,saveAs:false,destination:'default'});
  let folder;
  try {folder=validateFolder(settings.folder);} catch {throw new Error(t('invalidFolder'));}
@@ -48,7 +55,7 @@ async function save(tab) {
  if(isSafari) {
   const result = await api.runtime.sendNativeMessage('com.sag.webclipper',{action:'save',folder,filename,content,destination:settings.destination,useDownloads:settings.destination==='downloads'});
   if(result.error) throw new Error(errorMessage(result,t));
-  const saved = {state:'complete',url:tab.url,path:result.path};
+  const saved = {state:'complete',url:clip.url,path:result.path};
   await report(saved);
   return saved;
  }
@@ -60,12 +67,12 @@ async function save(tab) {
   const file=await handle.getFileHandle(filename,{create:true});
   const writer=await file.createWritable();
   await writer.write(content);await writer.close();
-  const saved={state:'complete',url:tab.url,path:`${handle.name}/${filename}`};
+  const saved={state:'complete',url:clip.url,path:`${handle.name}/${filename}`};
   await report(saved);return saved;
  }
  const path = folder ? `${folder}/${filename}` : filename;
  const id = await api.downloads.download({url:`data:text/markdown;charset=utf-8,${encodeURIComponent(content)}`,filename:path,conflictAction:'uniquify',saveAs:settings.saveAs});
- const pending = {state:'in_progress',url:tab.url,path};
+ const pending = {state:'in_progress',url:clip.url,path};
  await api.storage.local.set({[`download:${id}`]:pending});
  await report(pending);
  // The download may have completed before its record was saved.
@@ -80,13 +87,13 @@ async function fail(error) {
 }
 api.contextMenus.onClicked.addListener(async (info,tab) => {
  if(info.menuItemId !== 'save-page') return;
- try { await save(tab); }
- catch(error) {await fail(error);await api.runtime.openOptionsPage();}
+ try {await api.windows.create({url:api.runtime.getURL(`/popup.html?tabId=${tab.id}`),type:'popup',width:520,height:660});}
+ catch(error) {await fail(error);}
 });
 api.runtime.onMessage.addListener((message, sender, respond) => {
- if(message.type !== 'save' || !sender.url?.startsWith(api.runtime.getURL('/'))) return false;
+ if(!['preview','save'].includes(message.type) || !sender.url?.startsWith(api.runtime.getURL('/'))) return false;
  (async () => {
-  try {respond({ok:true,...await save(await api.tabs.get(message.tabId))});}
+  try {respond(message.type==='preview'?{ok:true,clip:await preview(message.tabId)}:{ok:true,...await save(message.clip)});}
   catch(error) {await fail(error);respond({ok:false,error:String(error.message)});}
  })();
  return true;

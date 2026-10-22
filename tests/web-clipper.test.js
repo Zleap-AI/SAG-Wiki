@@ -19,7 +19,7 @@ it('extracts Markdown from the displayed DOM and keeps source links without alte
 
 
 function extension(browser, options={}) {
- let receiver=()=>{}, downloadChanged=()=>{};
+ let receiver=()=>{}, downloadChanged=()=>{}, contextClicked=()=>{};
  const data={folder:'clippings',saveAs:false,destination:'downloads',language:options.language || 'en'};
  const listeners={addListener:vi.fn()};
  let state=options.state || 'in_progress';
@@ -32,7 +32,8 @@ function extension(browser, options={}) {
   i18n:{getUILanguage:()=> 'en'},
   storage:{local:storage,onChanged:listeners},
   runtime:{getURL:path=>'chrome-extension://test'+path,onInstalled:listeners,onStartup:listeners,onMessage:{addListener:fn=>receiver=fn},openOptionsPage:vi.fn(),sendNativeMessage:vi.fn(async()=>options.nativeResult || {path:'/Users/test/Downloads/网页剪辑/article.md'})},
-  contextMenus:{onClicked:listeners,removeAll:vi.fn(),create:vi.fn()},
+  contextMenus:{onClicked:{addListener:fn=>contextClicked=fn},removeAll:vi.fn(),create:vi.fn()},
+  windows:{create:vi.fn()},
   action:{setBadgeText:vi.fn(),setBadgeBackgroundColor:vi.fn(),setTitle:vi.fn()},
   tabs:{get:async()=>({id:7,url:'https://example.org/article'})},
   scripting:{executeScript:vi.fn(async()=>[{result:{title:'Article',url:'https://example.org/article',content:'# Article'}}])}
@@ -40,8 +41,32 @@ function extension(browser, options={}) {
  if(browser==='chrome')api.downloads={download:vi.fn(async()=>42),search:vi.fn(async()=>[{id:42,state,filename:'/Downloads/网页剪辑/article.md',error:state==='interrupted'?'USER_CANCELED':undefined}]),onChanged:{addListener:fn=>downloadChanged=fn}};
  const fetch=vi.fn(()=>{throw new Error('No server should be contacted');});
  new Function('globalThis','fetch',readFileSync(`browser-extension/build/${browser}/background.js`,'utf8'))({chrome:api},fetch);
- return {api,data,fetch,send:()=>new Promise(resolve=>receiver({type:'save',tabId:7},{url:'chrome-extension://test/popup.html'},resolve)),complete:async()=>{state='complete';await downloadChanged({id:42,state:{current:'complete'}});}};
+ const message=request=>new Promise(resolve=>receiver(request,{url:'chrome-extension://test/popup.html'},resolve));
+ return {api,data,fetch,message,send:async()=>{const result=await message({type:'preview',tabId:7});return message({type:'save',clip:result.clip});},open:()=>contextClicked({menuItemId:'save-page'},{id:7}),complete:async()=>{state='complete';await downloadChanged({id:42,state:{current:'complete'}});}};
 }
+
+for(const browser of ['chrome','safari'])it(`${browser} opens a preview from the context menu without saving`,async()=>{
+ const ext=extension(browser);
+ await ext.open();
+ expect(ext.api.windows.create).toHaveBeenCalledWith({url:'chrome-extension://test/popup.html?tabId=7',type:'popup',width:520,height:660});
+ const result=await ext.message({type:'preview',tabId:7});
+ expect(result).toMatchObject({ok:true,clip:{title:'Article',content:'# Article'}});
+ expect(ext.api.runtime.sendNativeMessage).not.toHaveBeenCalled();
+ if(browser==='chrome')expect(ext.api.downloads.download).not.toHaveBeenCalled();
+ expect(ext.data.lastResult).toBeUndefined();
+ expect(ext.api.action.setBadgeText).not.toHaveBeenCalled();
+});
+
+it('saves the preview snapshot even if the original page changes',async()=>{
+ const ext=extension('chrome');
+ const {clip}=await ext.message({type:'preview',tabId:7});
+ ext.api.scripting.executeScript.mockResolvedValue([{result:{title:'Changed page',url:'https://example.org/changed',content:'Changed content'}}]);
+ expect(await ext.message({type:'save',clip})).toMatchObject({ok:true,url:'https://example.org/article'});
+ const text=decodeURIComponent(ext.api.downloads.download.mock.calls[0][0].url.split(',').slice(1).join(','));
+ expect(text).toContain('# Article');
+ expect(text).not.toContain('Changed content');
+ expect(ext.api.scripting.executeScript).toHaveBeenCalledTimes(1);
+});
 
 it('saves through Chrome downloads without pairing and only reports success after completion',async()=>{
  const ext=extension('chrome');

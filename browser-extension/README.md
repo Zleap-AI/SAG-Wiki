@@ -12,10 +12,13 @@ npm run build:clipper:safari
 
 Desktop builds automatically include the Safari test package on macOS and the Chrome/Edge package on all platforms. Packages go to `src-tauri/clipper/`; unpacked extensions go to `browser-extension/build/`.
 
-Chrome/Edge packages use Load unpacked. Safari source builds use local ad-hoc signing and require Allow Unsigned Extensions. Distributable Safari packages must be signed with a Developer ID certificate, accepted by Apple notarization, and stapled before packaging. Verify the final app with `codesign --verify --deep --strict`, `xcrun stapler validate`, and `spctl --assess --type execute`. Browser-store publication is separate.
+Chrome/Edge packages use Load unpacked. Safari source builds use local ad-hoc signing and require Allow Unsigned Extensions. Distributable Safari packages must be signed with a Developer ID certificate, accepted by Apple notarization, and stapled before packaging. Browser-store publication is separate.
+
+Copy the built Safari app to the release directory, then sign it with `node browser-extension/sign-safari.mjs sign "<app-path>" "<Developer ID identity>"`. This preserves the effective entitlements of each Xcode target and removes debugger access. The setup app needs `com.apple.security.network.client` for WebKit to start; re-signing both targets with the file-saving entitlements alone removes this setting and causes a blank setup window. Verify the final app with `node browser-extension/sign-safari.mjs verify "<app-path>"`, `xcrun stapler validate`, and `spctl --assess --type execute`. Extract the final ZIP and launch that copy to check that the language selector, extension status and Safari settings button appear.
 
 ## Save behavior
 
+- The context menu opens a preview window for the original webpage. The toolbar opens the same preview as a popup. Both show the title, source URL, Markdown and destination. No file is written until Save is clicked; Cancel or closing the window discards the preview. Save uses the previewed content even if the source tab changes or closes.
 - Chrome/Edge: `downloads` permission, default browser download directory, optional Save As dialog.
 - Safari: `nativeMessaging` permission, with the native handler bundled in the extension's own app. Its sandbox allows writes to user-authorized folders and system Downloads. No SAG Wiki connection is involved.
 - The default destination is Documents/sag-wiki/clippings. Click Save settings to commit changes; a folder picker opens on first use to select Documents, then the extension creates the subfolders if needed. Default and custom destinations have separate directory handles (Chrome/Edge) or security-scoped bookmarks (Safari), preserving existing custom-folder permissions. Dropdown labels include the location. Folder and language choices are drafts until Save settings is clicked. The indexing reminder appears only after applying a destination change. An optional Downloads mode uses the relative subfolder clippings.
@@ -31,7 +34,7 @@ The popup, settings, context menu and common save errors support Simplified Chin
 ## Validation
 
 ```sh
-npm run test -- tests/web-clipper.test.js tests/web-clipper-localization.test.js tests/web-clipper-windows.test.js tests/web-clipper-destinations.test.js tests/web-clipper-settings.test.ts
+npm run test -- tests/web-clipper.test.js tests/web-clipper-preview.test.js tests/web-clipper-localization.test.js tests/web-clipper-windows.test.js tests/web-clipper-destinations.test.js tests/web-clipper-settings.test.ts
 swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/ClipFileStoreTests.swift -o /tmp/sag-clipper-file-tests
 /tmp/sag-clipper-file-tests
 ```

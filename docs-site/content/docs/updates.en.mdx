@@ -7,7 +7,9 @@ This page lists development summaries, published releases and early development 
 
 Published versions link to their official release notes. A development summary does not mean every item was first implemented that day or is included in the latest installer.
 
-## 2026-10-23 · Development summary
+## 2026-10-23 · 0.2.0 development version
+
+Status: In development, not yet officially released.
 
 ### New features
 
@@ -17,6 +19,7 @@ Published versions link to their official release notes. A development summary d
 
 ### Changes to existing workflows
 
+- **Markdown and status display**: adds table borders, block quote, list and task-list styles to answers. Index status text wraps to avoid overlapping the dismiss button.
 - **Built-in document parsing**: Word, PowerPoint, Excel, OpenDocument, RTF, CSV, EPUB and text-based PDFs are parsed locally with built-in anydoc, without installing a conversion component first. Install optional Docling for scanned PDFs and other formats. See [Document formats and conversion](/en/docs/folders#other-formats-and-conversion).
 - **File lists and index status**: switch between **All**, **Indexed** and **Not indexed** inside a folder while retaining access to subfolders. Original files with indexed conversions are recognized as indexed; opening one displays its Markdown conversion. Editing the conversion does not modify the original Office or PDF file. See [File management](/en/docs/files).
 - **New document location**: creating a document inside a folder uses that folder. Creating one from the **Indexed files** overview first asks for a destination. The file is written and indexed after selecting **Save**. See [Create a document](/en/docs/files#create-a-document).

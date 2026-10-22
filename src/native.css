@@ -59,8 +59,9 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .history-empty,.real-client .tree-empty{font-size:var(--text-caption);line-height:1.6;padding:8px;color:var(--color-muted)}
 .real-client .sidebar-bottom{margin-top:12px;padding:12px 4px 0;border-top:1px solid var(--color-window-border)}
 .real-client .sidebar-tools button{min-height:30px;border-radius:7px;font-size:var(--text-ui);padding:5px 8px}
-.real-client .agent-connect-entry{position:absolute;right:24px;top:26px;display:flex;align-items:center;gap:7px;height:34px;padding:6px 12px;font-size:var(--text-ui);color:var(--color-secondary);background:var(--color-paper);box-shadow:none}
-.real-client .agent-connect-entry>.icon{width:15px;height:15px}
+.real-client .workspace-actions{grid-column:3;justify-self:end;display:flex;align-items:center;gap:8px}
+.real-client .workspace-actions>.outline{display:flex;align-items:center;gap:7px;height:34px;padding:6px 12px;font-size:var(--text-ui);white-space:nowrap;color:var(--color-secondary);background:var(--color-paper);box-shadow:none}
+.real-client .workspace-actions>.outline>.icon{width:15px;height:15px}
 .real-client .sidebar-tools .icon{width:16px;height:16px}
 .real-client:not(.compact-sidebar) .sidebar-tools{gap:8px}
 .real-client:not(.compact-sidebar) .sidebar-tools>button:first-child{margin-right:auto}
@@ -389,8 +390,8 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .workspace-back{position:absolute;top:27px;left:18px;z-index:2;width:32px;height:32px;background:var(--color-paper);color:var(--color-secondary)}
 .real-client .workspace-back:hover{background:var(--color-hover);color:var(--color-ink)}
 
-.real-client .workspace-header{position:relative;display:flex;align-items:center;justify-content:center;flex-shrink:0;height:70px;padding:24px 64px 8px;background:var(--color-paper)}
-.real-client .workspace-switch{display:flex;align-items:center;gap:3px;width:300px;padding:3px;border-radius:10px;background:var(--color-hover)}
+.real-client .workspace-header{position:relative;display:grid;grid-template-columns:minmax(32px,1fr) auto minmax(max-content,1fr);align-items:center;gap:12px;flex-shrink:0;height:70px;padding:24px 24px 8px;background:var(--color-paper)}
+.real-client .workspace-switch{grid-column:2;display:flex;align-items:center;gap:3px;width:300px;padding:3px;border-radius:10px;background:var(--color-hover)}
 .real-client .workspace-switch .nav-item{display:flex;align-items:center;justify-content:center;flex:1;min-width:0;height:32px;padding:0 12px;gap:7px;border-radius:7px;background:transparent;color:var(--color-secondary);font-size:var(--text-ui);font-weight:450;line-height:1}
 .real-client .workspace-switch .nav-item.active{background:var(--color-paper);color:var(--color-ink);font-weight:550;box-shadow:0 1px 4px var(--color-control-shadow)}
 .real-client .workspace-switch .nav-item>.icon{width:16px;height:16px}

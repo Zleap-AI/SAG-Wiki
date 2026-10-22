@@ -9,16 +9,29 @@ The extension saves the current webpage's main content as a local Markdown file.
 
 ## Install
 
-1. Open **Settings → Web Clipper** in SAG Wiki and download the package for your browser.
+1. Click **Web Clipper** at the top right of SAG Wiki and download the package for your browser. You can also open it through **Settings → Web Clipper**.
 2. Install and enable the extension.
-3. Right-click a webpage and choose **Save as Markdown**, or save from the extension popup.
+3. Right-click a webpage and choose **Save as Markdown**, or click the extension icon in the browser toolbar to open a preview.
+4. Review the title, content and destination, then click **Save** to create the file. **Cancel** or closing the window does not save it.
+
+![Web Clipper button at the top right](/images/web-clipper-entry-en.png)
 
 Downloadable packages are available outside browser stores. The notarized Safari package can be installed directly; Chrome / Edge use Developer mode as described below.
 
 - **Chrome / Edge (Windows / macOS)**: extract the ZIP, enable **Developer mode** in extension management, select **Load unpacked**, and choose the extracted folder.
 - **Safari (macOS)**: extract the notarized package, move `SAG Web Clipper.app` into **Applications**, open it, then enable it in **Safari Settings → Extensions**. The notarized package does not require **Allow Unsigned Extensions**. Unsigned builds made from source still require that developer setting.
 
+The Safari app shows a language selector, the extension status and a **Quit and open Safari settings** button. If an older app opens to a blank window, quit it and replace it using the updated package.
+
+![Safari app setup screen](/images/extension-web-clipper-safari-setup-en.png)
+
 Download buttons export packages included in the current desktop build. A browser's button is unavailable if its package is absent.
+
+## Preview and save
+
+The context menu opens a separate preview window, while the toolbar icon opens a popup. Both show the page title, source URL, Markdown preview and destination before writing a file. Click **Save** to save the previewed content. Switching or closing the original page after the preview loads does not change that content.
+
+![Clipping preview: review the content and folder before saving](/images/extension-web-clipper-preview-en.jpg)
 
 ## Save folder
 
