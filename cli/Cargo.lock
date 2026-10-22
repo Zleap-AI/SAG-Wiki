@@ -2370,6 +2370,7 @@ name = "sag-client"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "libc",
  "sag-protocol",
  "serde",
  "serde_json",

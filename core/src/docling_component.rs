@@ -397,11 +397,15 @@ fn normalize_internal_links(root: &Path, cancel: &dyn Fn() -> bool) -> Result<()
         #[cfg(windows)]
         {
             if resolved.is_dir() {
+                // uv creates this alias as a junction. Rewriting it as a
+                // directory symlink needs Developer Mode or admin rights
+                // (error 1314) and the runtime never uses the alias: the
+                // manifest points at the fully versioned directory. Drop it.
+                let _ = relative;
                 fs::remove_dir(path)?;
-                std::os::windows::fs::symlink_dir(&relative, path)?;
             } else {
                 fs::remove_file(path)?;
-                std::os::windows::fs::symlink_file(&relative, path)?;
+                fs::copy(&resolved, path)?;
             }
         }
     }

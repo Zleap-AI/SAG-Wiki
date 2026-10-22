@@ -105,9 +105,40 @@ pub struct Docling {
     home: PathBuf,
     source: Mutex<Option<PathBuf>>,
     status: Arc<Mutex<DoclingStatus>>,
+    /// Per-package byte accounting for uv's non-TTY output, which only
+    /// prints one line when a download starts and one when it finishes.
+    packages: Arc<Mutex<Packages>>,
     cancel: Arc<AtomicBool>,
     profile: DoclingProfile,
     usage: RwLock<()>,
+}
+#[derive(Default)]
+struct Packages {
+    sizes: std::collections::BTreeMap<String, u64>,
+    done: std::collections::BTreeSet<String>,
+}
+impl Packages {
+    fn clear(&mut self) {
+        self.sizes.clear();
+        self.done.clear();
+    }
+    fn total(&self) -> u64 {
+        self.sizes.values().sum()
+    }
+    fn downloaded(&self) -> u64 {
+        self.done.iter().filter_map(|name| self.sizes.get(name)).sum()
+    }
+}
+fn byte_scale(unit: &str) -> f64 {
+    match unit.to_ascii_lowercase().as_str() {
+        "kib" => 1024.0,
+        "mib" => 1048576.0,
+        "gib" => 1073741824.0,
+        "kb" => 1000.0,
+        "mb" => 1e6,
+        "gb" => 1e9,
+        _ => 1.0,
+    }
 }
 
 impl Docling {
@@ -116,6 +147,7 @@ impl Docling {
             home: data.join("docling"),
             source: Mutex::new(None),
             status: Arc::new(Mutex::new(DoclingStatus::default())),
+            packages: Arc::new(Mutex::new(Packages::default())),
             cancel: Arc::new(AtomicBool::new(false)),
             profile: DoclingProfile::Documents,
             usage: RwLock::new(()),
@@ -222,12 +254,15 @@ impl Docling {
     }
 
     fn progress(&self, stage: &str, message: impl Into<String>) {
+        self.packages.lock().unwrap().clear();
         let mut status = self.status.lock().unwrap();
         status.stage = stage.into();
         status.message = message.into();
         status.downloaded = 0;
         status.total = None;
         status.percent = None;
+        status.packages_done = 0;
+        status.packages_total = 0;
     }
     pub fn start(self: &Arc<Self>) -> Result<()> {
         self.start_profiles(vec![DoclingProfile::Documents])
@@ -248,6 +283,7 @@ impl Docling {
             return Ok(());
         }
         self.cancel.store(false, Ordering::Relaxed);
+        self.packages.lock().unwrap().clear();
         *status = DoclingStatus {
             running: true,
             requested_profiles: profiles.clone(),
@@ -293,6 +329,7 @@ impl Docling {
             },
             source: Mutex::new(self.source.lock().unwrap().clone()),
             status: self.status.clone(),
+            packages: self.packages.clone(),
             cancel: self.cancel.clone(),
             profile,
             usage: RwLock::new(()),
@@ -315,6 +352,9 @@ impl Docling {
             .env("UV_CACHE_DIR", self.home.join("cache"))
             .env("HF_HOME", self.home.join("huggingface"))
             .env("PYTHONUNBUFFERED", "1")
+            // Docling writes UTF-8; Windows otherwise decodes files and stderr with the ANSI code page.
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .env("NO_COLOR", "1");
         if cfg!(target_os = "linux") || cfg!(target_os = "windows") {
             command.env("UV_TORCH_BACKEND", "cpu");
@@ -462,6 +502,7 @@ impl Docling {
                 .arg(staging.path());
         } else {
             self.progress("models", "正在下载文档识别模型…");
+            self.check_model_host()?;
             command
                 .args([
                     "-m",
@@ -491,6 +532,39 @@ impl Docling {
             |runtime| self.probe_component(runtime, &cancel),
             self.profile,
         )
+    }
+    /// Fails fast when the model host is unreachable. Without this the
+    /// Hugging Face client retries silently and the user watches a frozen
+    /// 0% for up to half an hour before any error appears.
+    fn check_model_host(&self) -> Result<()> {
+        let endpoint = std::env::var("HF_ENDPOINT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "https://huggingface.co".into());
+        let url = format!("{}/api/models/docling-project/docling-layout-heron", endpoint.trim_end_matches('/'));
+        self.status.lock().unwrap().message = format!("正在连接模型服务 {endpoint}…");
+        let probe: Result<std::result::Result<(), reqwest::Error>> = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let client = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(15))
+                .build()?;
+            let request = client.head(&url).send();
+            tokio::pin!(request);
+            loop {
+                tokio::select! {
+                    result = &mut request => break Ok(result.map(|_| ())),
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        if self.cancel.load(Ordering::Relaxed) { bail!("已取消下载，可稍后重试") }
+                    }
+                }
+            }
+        });
+        match probe? {
+            Ok(()) => Ok(()),
+            Err(error) => bail!(
+                "无法连接模型服务 {endpoint}：{error}。请检查网络或代理；如需镜像，可在启动前设置 HF_ENDPOINT 环境变量（例如 https://hf-mirror.com）。"
+            ),
+        }
     }
     fn run_install(&self, command: &mut Command, timeout: Duration) -> Result<()> {
         let cancel = || self.cancel.load(Ordering::Relaxed);
@@ -804,6 +878,14 @@ impl Docling {
             LazyLock::new(|| regex::Regex::new(r"\s+-{3,}\s+").unwrap());
         static SPACING: LazyLock<regex::Regex> =
             LazyLock::new(|| regex::Regex::new(r" {2,}").unwrap());
+        // uv without a TTY: "Downloading torch (121.4MiB)" then " Downloaded torch".
+        static STARTED: LazyLock<regex::Regex> = LazyLock::new(|| {
+            regex::Regex::new(r"(?im)^\s*Downloading\s+(\S+)\s+\(([0-9]+(?:\.[0-9]+)?)\s*(KiB|MiB|GiB|kB|MB|GB|B)\)").unwrap()
+        });
+        static FINISHED: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"(?im)^\s*Downloaded\s+(\S+)\s*$").unwrap());
+        static SETTLED: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"(?im)^\s*(?:Prepared|Installed)\s+[0-9]+\s+packages?").unwrap());
         let text = String::from_utf8_lossy(raw);
         let clean = ANSI.replace_all(&text, "");
         let clean = BAR.replace_all(&clean, ": ");
@@ -823,25 +905,30 @@ impl Docling {
         status.downloaded = 0;
         status.total = None;
         status.percent = None;
+        let mut packages = self.packages.lock().unwrap();
+        for started in STARTED.captures_iter(&clean) {
+            let bytes = (started[2].parse::<f64>().unwrap() * byte_scale(&started[3])) as u64;
+            packages.sizes.insert(started[1].to_owned(), bytes);
+        }
+        for finished in FINISHED.captures_iter(&clean) {
+            let name = finished[1].to_owned();
+            packages.sizes.entry(name.clone()).or_insert(0);
+            packages.done.insert(name);
+        }
+        if SETTLED.is_match(&clean) {
+            let names: Vec<_> = packages.sizes.keys().cloned().collect();
+            packages.done.extend(names);
+        }
         let downloads: Vec<_> = BYTES.captures_iter(&clean).collect();
         if !downloads.is_empty() {
-            let scale = |unit: &str| match unit.to_ascii_lowercase().as_str() {
-                "kib" => 1024.0,
-                "mib" => 1048576.0,
-                "gib" => 1073741824.0,
-                "kb" => 1000.0,
-                "mb" => 1e6,
-                "gb" => 1e9,
-                _ => 1.0,
-            };
             status.downloaded = downloads
                 .iter()
-                .map(|bytes| (bytes[1].parse::<f64>().unwrap() * scale(&bytes[2])) as u64)
+                .map(|bytes| (bytes[1].parse::<f64>().unwrap() * byte_scale(&bytes[2])) as u64)
                 .sum();
             status.total = Some(
                 downloads
                     .iter()
-                    .map(|bytes| (bytes[3].parse::<f64>().unwrap() * scale(&bytes[4])) as u64)
+                    .map(|bytes| (bytes[3].parse::<f64>().unwrap() * byte_scale(&bytes[4])) as u64)
                     .sum(),
             );
             status.percent = None;
@@ -849,7 +936,13 @@ impl Docling {
             status.percent = Some(percent[1].parse::<f64>().unwrap().min(100.0));
             status.total = None;
             status.downloaded = 0;
+        } else if !packages.sizes.is_empty() {
+            status.downloaded = packages.downloaded();
+            status.total = Some(packages.total());
+            status.percent = None;
         }
+        status.packages_done = packages.done.len() as u32;
+        status.packages_total = packages.sizes.len() as u32;
         clean
     }
     #[cfg(test)]

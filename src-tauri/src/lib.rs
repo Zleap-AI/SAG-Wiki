@@ -104,8 +104,36 @@ macro_rules! remote {
         async fn $name($($arg:$ty,)+state:State<'_,Arc<AppState>>)->CommandResult<serde_json::Value>{rpc(&state,Operation::$variant{$($arg),+}).await}
     };
 }
+/// Connects to the service once at startup and localizes the tray menu.
+///
+/// Connection failures are reported to the window instead of aborting
+/// setup: a stale service record, an older daemon that is still running,
+/// or a slow shutdown during upgrade must leave the user with a visible
+/// error and a retry, not a silently closed application.
+fn connect_on_startup(state: Arc<AppState>) {
+    tauri::async_runtime::spawn(async move {
+        match rpc(&state, Operation::GetSettings).await {
+            Ok(value) => {
+                if let Some(language) = value.get("language").and_then(|v| v.as_str()) {
+                    if let Some(tray) = state.app.tray_by_id("main") {
+                        match tray_menu(&state.app, language) {
+                            Ok(menu) => {
+                                if let Err(e) = tray.set_menu(Some(menu)) {
+                                    eprintln!("更新托盘菜单失败：{e}");
+                                }
+                            }
+                            Err(e) => eprintln!("构建托盘菜单失败：{e}"),
+                        }
+                    }
+                }
+            }
+            Err(error) => eprintln!("启动时连接 SAG 服务失败：{error}"),
+        }
+    });
+}
 fn forward_events(state: Arc<AppState>) {
     tauri::async_runtime::spawn(async move {
+        let mut reported: Option<String> = None;
         loop {
             let mut client = state.client.lock().unwrap().clone();
             if !client.is_connected() {
@@ -113,30 +141,34 @@ fn forward_events(state: Arc<AppState>) {
                 let _guard = state.reconnect.lock().await;
                 client = state.client.lock().unwrap().clone();
                 if !client.is_connected() {
-                    match Client::connect(&state.data_dir).await {
+                    // Keep trying: the user may stop an old service or the
+                    // window may trigger `rpc`, which restarts it. Each
+                    // distinct failure is reported once.
+                    let failure = match Client::connect(&state.data_dir).await {
                         Ok(Some(connected)) => {
-                            if let Err(error) = protocol::BuildInfo::from(connected.info())
+                            match protocol::BuildInfo::from(connected.info())
                                 .check_compatible(&protocol::BuildInfo::current())
                             {
-                                emit(
-                                    &state.app,
-                                    "app-error",
-                                    error.to_string(),
-                                );
-                                return;
+                                Ok(()) => {
+                                    client = connected;
+                                    *state.client.lock().unwrap() = client.clone();
+                                    reported = None;
+                                    None
+                                }
+                                Err(error) => Some(error.to_string()),
                             }
-                            client = connected;
-                            *state.client.lock().unwrap() = client.clone();
                         }
                         Ok(None) => continue,
-                        Err(error) => {
-                            emit(
-                                &state.app,
-                                "app-error",
-                                format!("SAG 服务重连失败：{error}"),
-                            );
-                            return;
+                        Err(error) => Some(format!("SAG 服务重连失败：{error}")),
+                    };
+                    if let Some(message) = failure {
+                        if reported.as_deref() != Some(&message) {
+                            emit(&state.app, "app-error", message.clone());
+                            reported = Some(message);
                         }
+                        drop(_guard);
+                        tokio::time::sleep(Duration::from_secs(2)).await;
+                        continue;
                     }
                 }
             }
@@ -302,6 +334,14 @@ async fn reveal_path(path: String, state: State<'_, Arc<AppState>>) -> CommandRe
     reveal(Path::new(value.as_str().unwrap())).map_err(error)
 }
 #[tauri::command]
+async fn reveal_docling_log(state: State<'_, Arc<AppState>>) -> CommandResult<()> {
+    let log = state.data_dir.join("docling").join("install-diagnostics.log");
+    if !log.is_file() {
+        return Err("尚未生成安装日志".into());
+    }
+    reveal(&log).map_err(error)
+}
+#[tauri::command]
 async fn open_index_history_file(id: i64, path: String, state: State<'_, Arc<AppState>>) -> CommandResult<()> {
     let value = rpc(&state, Operation::AuthorizeIndexHistoryFile { id, path }).await?;
     #[cfg(target_os = "macos")]
@@ -386,14 +426,9 @@ pub fn run() {
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             let source = cli_commands::service_source(app.handle(), cli_install_error.is_none())
                 .map_err(anyhow::Error::msg)?;
-            let client = tauri::async_runtime::block_on(sag_client::ensure(&data, &source))?;
-            let settings = tauri::async_runtime::block_on(
-                client.call(Operation::GetSettings, Duration::from_secs(10)),
-            )?;
-            let settings = match settings {
-                Output::Settings(value) => value,
-                _ => return Err("SAG 设置响应类型无效".into()),
-            };
+            // The service is connected asynchronously by `connect_on_startup`
+            // and on demand by `rpc`; the tray starts with the default language.
+            let language = "zh-CN";
             let icon = app.default_window_icon().unwrap().clone();
             #[cfg(target_os = "macos")]
             let icon = {
@@ -421,7 +456,7 @@ pub fn run() {
                 .icon(icon)
                 .icon_as_template(cfg!(target_os = "macos"))
                 .tooltip("SAG Wiki")
-                .menu(&tray_menu(app.handle(), &settings.language)?)
+                .menu(&tray_menu(app.handle(), language)?)
                 .show_menu_on_left_click(!cfg!(target_os = "windows"))
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "sag-open" => {
@@ -452,7 +487,7 @@ pub fn run() {
                 .build(app)?;
 
             let state = Arc::new(AppState {
-                client: Mutex::new(client),
+                client: Mutex::new(Client::disconnected()),
                 reconnect: tokio::sync::Mutex::new(()),
                 app: app.handle().clone(),
                 data_dir: data,
@@ -460,6 +495,7 @@ pub fn run() {
                 cli_install_error: Mutex::new(cli_install_error),
             });
             app.manage(state.clone());
+            connect_on_startup(state.clone());
             forward_events(state);
             Ok(())
         })
@@ -528,6 +564,7 @@ pub fn run() {
             run_query,
             summarize_search,
             reveal_path,
+            reveal_docling_log,
             open_data_directory,
             open_about_link,
             updates::check_app_update,
