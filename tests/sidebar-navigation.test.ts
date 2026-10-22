@@ -26,7 +26,7 @@ it('搜索历史标题和内容，键盘打开结果，并保留原列表位置'
  await start();
  const list=document.querySelector<HTMLElement>('.ask-content')!;list.scrollTop=520;list.dispatchEvent(new Event('scroll'));
  document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
- const input=document.querySelector<HTMLInputElement>('input[aria-label="搜索历史会话"]')!;
+ const input=document.querySelector<HTMLInputElement>('input[aria-label="搜索会话"]')!;
  input.value='TRACING';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  const result=document.querySelector<HTMLButtonElement>('.history-search-result')!;
  expect(result.tabIndex).toBe(-1);expect(result.textContent).toContain('会话 41');expect(document.querySelectorAll('.history-search-result')).toHaveLength(1);
@@ -37,15 +37,22 @@ it('搜索历史标题和内容，键盘打开结果，并保留原列表位置'
  await vi.waitFor(()=>expect(document.querySelector('button[aria-label="搜索会话"]')).not.toBeNull());
  expect(document.querySelector<HTMLElement>('.ask-content')!.scrollTop).toBe(520);
  document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
- const titleInput=document.querySelector<HTMLInputElement>('input[aria-label="搜索历史会话"]')!;
+ const titleInput=document.querySelector<HTMLInputElement>('input[aria-label="搜索会话"]')!;
  titleInput.value='会话 23';titleInput.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  expect(document.querySelectorAll('.history-search-result')).toHaveLength(1);
  expect(document.querySelector('.history-search-result')!.textContent).toContain('会话 23');
  titleInput.value='完全不存在';titleInput.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  expect(document.querySelector('.history-search-empty')?.textContent).toContain('没有找到相关会话');
 });
-it('最近问答放在右侧问答首页，左侧只保留知识库',async()=>{
+it('会话列表放在右侧问答首页，左侧只保留知识库',async()=>{
  await start();
+ expect(document.querySelector('.desktop-titlebar')).toBeNull();
+ expect(document.querySelector('.window-title')).toBeNull();
+ expect(document.querySelector('.sidebar .sidebar-titlebar[data-tauri-drag-region]')).not.toBeNull();
+ expect(document.querySelector('.sidebar-titlebar [aria-label="收起侧边栏"]')).not.toBeNull();
+ expect(document.querySelector('.brand-row button')).toBeNull();
+ expect(document.querySelector('.workspace-header[data-tauri-drag-region]')).not.toBeNull();
+ expect(document.querySelectorAll('.window-controls')).toHaveLength(document.querySelector('.sidebar .window-controls')?1:0);
  expect(document.querySelector('.sidebar .recent-conversations')).toBeNull();
  expect(document.querySelectorAll('.workspace .recent-conversations .history-row')).toHaveLength(50);
  expect(document.querySelector('.workspace .topbar')).toBeNull();
@@ -68,6 +75,7 @@ it('会话和知识库独立保存滚动位置，收起侧栏与重开应用后�
  list.scrollTop=430;list.dispatchEvent(new Event('scroll'));
  tree.scrollTop=170;tree.dispatchEvent(new Event('scroll'));
  document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
+ expect(document.querySelector('.sidebar-titlebar [aria-label="展开侧边栏"]')).not.toBeNull();
  document.querySelector<HTMLButtonElement>('[aria-label="展开侧边栏"]')!.click();await tick();
  expect(list.scrollTop).toBe(430);expect(tree.scrollTop).toBe(170);
  await unmount(app);await start();
@@ -107,14 +115,44 @@ it('问答与搜索切换位于右侧顶部，折叠左栏后仍可切换并保�
  expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0');
 });
 
-it('没有文件夹时显示说明和可用的添加按钮',async()=>{
+it('没有文件夹时说明用途，快捷按钮打开文件夹选择窗口',async()=>{
  const original=invoke.getMockImplementation()!;
- invoke.mockImplementation(async(command,...args)=>command==='list_roots'?[]:original(command,...args));
+ invoke.mockImplementation(async(command,...args)=>{
+  if(command==='list_roots')return [];
+  if(command==='browse_folders')return {path:'/home',parent:'/',home:'/home',folders:[]};
+  return original(command,...args);
+ });
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.folder-empty-state')).not.toBeNull());
- expect(document.querySelector('.tree-heading')?.textContent).toContain('文件夹管理');
  expect(document.querySelector('.folder-empty-state')?.textContent).toContain('添加文件夹后，即可对其中的文件提问和搜索。');
- const button=document.querySelector<HTMLButtonElement>('.folder-empty-state button')!;
- expect(button.textContent).toContain('添加文件夹');
- expect(button.disabled).toBe(false);
+ document.querySelector<HTMLButtonElement>('.folder-empty-state button')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.folder-picker')).not.toBeNull());
+ expect(invoke.mock.calls.some(([command])=>command==='browse_folders')).toBe(true);
+});
+
+it('右上角接入入口直达 CLI 设置，保留未发送的问题',async()=>{
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,...args)=>{
+  if(command==='get_cli_settings')return{access:{enabled:true},installations:[]};
+  const result=await original(command,...args);
+  if(command==='get_settings')return{...result,
+   answer:{...result.answer,url:'https://example.com/v1',has_key:false},
+   jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:false},
+   retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},
+   excluded:[],watch:true,show_hidden:false,timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048,
+  };
+  return result;
+ });
+ await start();
+ const input=document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;
+ input.value='未发送的问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ expect(document.querySelector('.agent-connect-hint')).toBeNull();
+ expect(document.querySelector('.sidebar .agent-connect-entry')).toBeNull();
+ expect(document.querySelectorAll('.agent-connect-entry')).toHaveLength(1);
+  document.querySelector<HTMLButtonElement>('.workspace-header .agent-connect-entry')!.click();
+  await vi.waitFor(()=>expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('CLI设置'));
+  expect(document.querySelector('.cli-settings')).not.toBeNull();
+  document.querySelector<HTMLButtonElement>('[aria-label="关闭设置"]')!.click();await tick();
+  expect(input.value).toBe('未发送的问题');
+ expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration'||command==='run_query')).toBe(false);
 });

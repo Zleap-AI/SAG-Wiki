@@ -159,7 +159,10 @@ fn standalone_cli_indexes_refreshes_and_removes_without_a_desktop() {
     }
     run(&["remove", "--json"]);
     assert!(root.join("normal.md").exists());
-    assert!(run(&["status"]).contains("当前范围有索引：false"));
+    let check = command().args(["check", "--json"]).output().unwrap();
+    assert_eq!(check.status.code(), Some(1));
+    let check: serde_json::Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(check["coverage"], "none");
     stopped.store(true, Ordering::SeqCst); server.join().unwrap();
 }
 
@@ -187,6 +190,11 @@ fn standalone_add_reports_unreadable_documents_without_requiring_desktop() {
     fs::create_dir(&root).unwrap();
     fs::write(root.join("broken.xml"), b"<?xml version=\"1.0\" encoding=\"UNKNOWN-ENCODING\"?><root>broken</root>").unwrap();
     let _cleanup=ServiceCleanup(temp.path().join("data"));
+    let store = sag_core::store::Store::open(&temp.path().join("data/sag.sqlite")).unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.file_types.config = true;
+    store.save_settings(&settings).unwrap();
+    drop(store);
     let output = Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", temp.path().join("data")).current_dir(&root)
         .arg("add").output().unwrap();

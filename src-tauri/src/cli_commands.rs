@@ -3,6 +3,7 @@ use sag_protocol::{Access, Operation};
 use serde::Serialize;
 use std::{path::PathBuf, sync::Arc};
 use tauri::{Manager, State};
+use tauri_plugin_dialog::DialogExt;
 
 #[derive(Serialize)]
 pub struct IntegrationSettings {
@@ -106,6 +107,22 @@ pub async fn install_cli_integration(
                 path.display()
             ))
         }
+    })
+    .await
+    .map_err(error)?
+}
+#[tauri::command]
+pub async fn download_cli_skill(
+    title: String,
+    app: tauri::AppHandle,
+) -> CommandResult<Option<String>> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(folder) = app.dialog().file().set_title(title).blocking_pick_folder() else {
+            return Ok(None);
+        };
+        let folder = folder.into_path().map_err(error)?;
+        let path = install::export_skill(&folder).map_err(error)?;
+        Ok(Some(path.display().to_string()))
     })
     .await
     .map_err(error)?

@@ -45,7 +45,11 @@ impl Client {
         };
         let endpoint: Endpoint = serde_json::from_slice(&bytes).context("SAG 服务连接记录无效")?;
         if endpoint.protocol_version != VERSION {
-            bail!("SAG 服务协议版本不兼容，请升级并重启服务")
+            bail!(
+                "SAG 服务协议版本 {} 与客户端 {} 不兼容，请升级桌面端或 CLI；现有服务未修改",
+                endpoint.protocol_version,
+                VERSION
+            )
         }
         let stream = match tokio::time::timeout(
             Duration::from_secs(3),
@@ -218,25 +222,40 @@ pub fn spawn_service(data: &Path, executable: &Path) -> Result<()> {
     Ok(())
 }
 pub async fn ensure(data: &Path, executable: &Path) -> Result<Client> {
+    ensure_build(data, executable, &BuildInfo::current()).await
+}
+
+async fn ensure_build(data: &Path, executable: &Path, current: &BuildInfo) -> Result<Client> {
     let connected = Client::connect(data).await?;
     if let Some(client) = &connected {
-        if client.info().build_id == BUILD_ID {
+        let running = BuildInfo::from(client.info());
+        running.check_protocol(current)?;
+        if running.build_id == current.build_id && current.channel != "release" {
             return Ok(client.clone());
-        }
-        if client.info().channel != BUILD_CHANNEL {
-            bail!("SAG 服务构建类型为 {}，当前客户端为 {}。请使用相同构建，或通过 SAG_DATA_DIR 隔离开发数据。",client.info().channel,BUILD_CHANNEL)
         }
     }
     let output = std::process::Command::new(executable)
         .arg("--build-info")
         .output()
         .context("无法检查 SAG 服务构建")?;
-    let identity: serde_json::Value =
-        serde_json::from_slice(&output.stdout).context("SAG 服务文件缺少构建身份，请重新构建")?;
-    if !output.status.success() || identity["build_id"] != BUILD_ID {
-        bail!("SAG 服务文件与当前客户端构建不同，请使用同一批产物")
+    if !output.status.success() {
+        bail!(
+            "无法检查 SAG 服务构建：{}",
+            String::from_utf8_lossy(&output.stderr)
+        )
     }
+    let identity: BuildInfo =
+        serde_json::from_slice(&output.stdout).context("SAG 服务文件缺少构建身份，请重新构建")?;
+    identity.check_compatible(current)?;
     if let Some(client) = connected {
+        let running = BuildInfo::from(client.info());
+        if current.channel == "release"
+            && compare_versions(running.version()?, identity.version()?)?
+                != std::cmp::Ordering::Less
+        {
+            running.check_compatible(current)?;
+            return Ok(client);
+        }
         client
             .call(Operation::Shutdown, Duration::from_secs(10))
             .await?;
@@ -248,9 +267,7 @@ pub async fn ensure(data: &Path, executable: &Path) -> Result<Client> {
     for _ in 0..100 {
         tokio::time::sleep(Duration::from_millis(100)).await;
         if let Some(client) = Client::connect(data).await? {
-            if client.info().build_id != BUILD_ID {
-                bail!("SAG 服务启动期间构建已变更，请重新连接匹配的版本")
-            }
+            BuildInfo::from(client.info()).check_compatible(&identity)?;
             return Ok(client);
         }
     }
@@ -265,3 +282,6 @@ pub async fn wait_stopped(data: &Path) -> Result<()> {
     }
     bail!("SAG 服务停止超时，连接记录仍存在")
 }
+
+#[cfg(all(test, unix))]
+mod version_tests;

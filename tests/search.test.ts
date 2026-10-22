@@ -9,10 +9,10 @@ vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:a
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
-const hit={id:1,document_id:1,path:'/files/open-octx.md',title:'open-octx.md',heading:'',content:'octx 文档',start_line:1,end_line:1,source_ranges:[[1,1]],source_spans:[],bm25:-1,score:0,order:0,hash:'same'};
+const hit={id:1,document_id:1,path:'/files/open-octx.md',title:'open-octx.md',heading:'',content:'OCTX 是一种格式。第二处 octx。',start_line:1,end_line:1,source_ranges:[[1,1]],source_spans:[],bm25:-1,score:0,order:0,hash:'same'};
 async function setup(pending=false,mode='deep_search',paginated=false,deepResults?:typeof hit[]){
  invoke.mockImplementation(async(command,args)=>{
-  if(command==='get_settings')return {theme:'light',start_page:'search',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_settings')return {theme:'light',start_page:'search',editor_size:15,answer:{url:'https://example.com/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:false},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:0};
   if(command==='run_query'){
    if(pending)return new Promise(()=>{});
    const page=args.query.page??1;
@@ -33,7 +33,7 @@ async function selectMode(value:string){
 }
 const click=async(label:string)=>{await vi.waitFor(()=>expect(document.querySelector(`[aria-label="${label}"]`)).not.toBeNull());const button=document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);expect(button).not.toBeNull();button!.click();await tick()};
 describe('深入搜索分页',()=>{
- it('按已有文件顺序每页显示 20 个，翻页只读取预览，不重复搜索或重排',async()=>{
+ it('按已有文件顺序每页显示 20 个，翻页只更新片段，不重复搜索或重排',async()=>{
   const ranked=Array.from({length:45},(_,index)=>{
    const id=(index*17)%45+1;
    return {...hit,id,path:`/files/ranked-${id}.md`,title:`ranked-${id}.md`,score:(id%7)/7};
@@ -124,6 +124,8 @@ describe('搜索的本地结果和深度分析',()=>{
   expect(document.querySelector('.search-preview')).toBeNull();
   expect(document.querySelector('.search-loading[role="status"]')).not.toBeNull();
   expect(document.querySelector('.search-loading .icon')).not.toBeNull();
+  events.get('query-progress')!({payload:{id:calls[1][1].query.id,stage:'正在加载搜索索引',count:0,delta:null}});await tick();
+  expect(document.querySelector('.search-loading')!.textContent).toContain('正在加载搜索索引');
   events.get('query-progress')!({payload:{id:calls[1][1].query.id,stage:'正在扩展检索',count:1,delta:null}});await tick();
   expect(document.querySelector('.search-loading')!.textContent).toContain('正在扩展搜索范围');
   events.get('query-progress')!({payload:{id:calls[1][1].query.id,stage:'Jev 正在判断相关原文',count:100,delta:null}});await tick();
@@ -152,7 +154,7 @@ describe('深度搜索返回状态',()=>{
 });
 
 describe('搜索结果里的原文高亮',()=>{
- it('摘要和全文高亮，下一处移动当前位置，修改输入不影响已完成的搜索',async()=>{
+ it('摘要和片段高亮，下一处移动当前位置，修改输入不影响已完成的搜索',async()=>{
   await setup();await vi.waitFor(()=>expect(document.querySelectorAll('.search-preview .search-hit')).toHaveLength(2));
   expect(document.querySelector('.search-result mark')!.textContent).toBe('octx');
   expect(document.querySelector('.search-preview .search-hit.active')!.textContent).toBe('OCTX');
@@ -160,4 +162,25 @@ describe('搜索结果里的原文高亮',()=>{
   const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;input.value='新问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
   expect(document.querySelectorAll('.search-preview .search-hit')).toHaveLength(2);
  });
+});
+
+
+it('缺少 Jev 密钥时跳转模型设置并定位密钥输入，关闭后保留搜索',async()=>{
+ await setup(false,'search');
+ await vi.waitFor(()=>expect(document.querySelector('.search-result')).not.toBeNull());
+ const base=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='run_query')throw '请在设置中填写 Jev API 密钥';
+  return base(command,args);
+ });
+ await selectMode('deep_search');
+ await vi.waitFor(()=>expect(document.querySelector('.search-page .settings-error-link')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('.search-page .settings-error-link')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.settings-nav [aria-current="page"]')?.textContent).toBe('模型设置'));
+ const key=document.querySelector('.model-settings-card[data-model=jev] input[data-autofocus]');
+ expect(key).not.toBeNull();
+ expect(key?.getAttribute('type')).toBe('password');
+ document.querySelector<HTMLButtonElement>('[aria-label="关闭设置"]')!.click();await tick();
+ expect(document.querySelector('.settings-dialog')).toBeNull();
+ expect(document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!.value).toBe('octx');
 });

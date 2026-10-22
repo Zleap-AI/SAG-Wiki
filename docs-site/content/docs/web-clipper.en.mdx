@@ -1,0 +1,59 @@
+---
+title: Web Clipper
+description: Save webpages as local Markdown independently, with optional SAG Wiki indexing.
+---
+
+The extension saves the current webpage's main content as a local Markdown file. It does not require a connection code, a running SAG Wiki app, Obsidian, or a model.
+
+![Web Clipper settings](/images/product-web-clipper-en.jpg)
+
+## Install
+
+1. Open **Settings → Web Clipper** in SAG Wiki and download the package for your browser.
+2. Install and enable the extension.
+3. Right-click a webpage and choose **Save as Markdown**, or save from the extension popup.
+
+Downloadable packages are available outside browser stores. The notarized Safari package can be installed directly; Chrome / Edge use Developer mode as described below.
+
+- **Chrome / Edge (Windows / macOS)**: extract the ZIP, enable **Developer mode** in extension management, select **Load unpacked**, and choose the extracted folder.
+- **Safari (macOS)**: extract the notarized package, move `SAG Web Clipper.app` into **Applications**, open it, then enable it in **Safari Settings → Extensions**. The notarized package does not require **Allow Unsigned Extensions**. Unsigned builds made from source still require that developer setting.
+
+Download buttons export packages included in the current desktop build. A browser's button is unavailable if its package is absent.
+
+## Save folder
+
+On first initialization, SAG Wiki creates `Documents/sag-wiki/clippings` and adds `Documents/sag-wiki` to folder management. Existing libraries are not changed. Use **Add clipping folder** to add it manually when needed.
+
+**Save to** initially selects **Default folder (Documents/sag-wiki/clippings)**. Click **Save settings** to apply your changes. On first use, the browser opens a folder picker; choose the system Documents folder. The extension then uses or creates `sag-wiki/clippings` inside it.
+
+To use a different location, select **Choose another folder**, click **Choose folder**, then click **Save settings**. The dropdown shows **Custom folder (location)** directly. Default and custom folders are stored separately, and unsaved changes do not affect actual saves. The indexing reminder appears only after applying a changed destination; reopening settings or choosing the same folder does not repeat it.
+
+Safari shows the full selected path in the dropdown. Chrome / Edge expose the selected folder's name, and the default location shows its known relative path. Use **Choose folder** or **Change folder** and click **Save settings** to select the location again when needed. Safari remembers the selected folder in the native component included with the extension, without connecting to SAG Wiki.
+
+On Windows, the default `sag-wiki\clippings` folder is created inside the system Documents folder. Use the directory picker to authorize locations on other drives or with non-ASCII characters and spaces. The Windows desktop package includes the Chrome / Edge extension. Packaging configuration and filename rules have been checked; saving on a Windows machine has not yet been verified.
+
+An optional **Downloads folder** mode remains available: Chrome / Edge use the browser's download directory and optionally a Save dialog for each file; Safari uses system Downloads. This mode defaults to the `clippings` subfolder and accepts other relative subfolders or an empty value.
+
+A check mark on the extension icon means saving has completed. Chrome / Edge show a pending state until the download finishes and report interrupted downloads as errors. The extension popup shows the actual saved path.
+
+Each save creates a separate `.md` file with its title, source URL, capture time, and content, without overwriting existing files. Images keep their original URLs and may be unavailable offline. Browser internal pages and PDF extraction are outside the current scope.
+
+## Add to knowledge base (optional)
+
+Click **Add clipping folder** in SAG Wiki's Web Clipper settings and choose the actual save folder, or add it through the existing folder manager.
+
+SAG Wiki then updates the index according to file-type, exclusion and **Watch file changes** settings. Add a new folder separately after changing the extension destination; older files are not moved. The extension can save while SAG Wiki is closed. Indexing updates when the background service runs and checks the folder.
+
+## Language and data
+
+The extension interface, context menu, and common save errors support Simplified Chinese and English. It follows the browser language by default, with a language selector in extension settings. The Safari setup app also offers both languages. System file dialogs use the system language.
+
+The interface uses black, white, and gray in both system light and dark modes. Settings use 18px text and buttons with a 26px heading. Toolbar icons have dedicated small-size images, and the Safari application icon has a larger symbol. Buttons, inputs, selected controls, and error messages share the same palette.
+
+![English extension settings in light mode](/images/extension-web-clipper-en.jpg)
+
+![English extension settings in dark mode](/images/extension-web-clipper-en-dark.jpg)
+
+![Custom location shown in the dropdown with a reminder after changing folders](/images/extension-web-clipper-custom-en.jpg)
+
+Content extraction is local. The extension does not use a local HTTP port, a connection code, or a model service. Safari's native saving component only receives requests from its own extension and limits writes to the user-authorized folder or system Downloads. Later searches and questions in SAG Wiki follow existing model settings.

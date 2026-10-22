@@ -14,6 +14,7 @@ export const providers: Record<ModelKind, Provider[]> = {
   {value:'302',label:'302.AI',url:'https://api.302ai.cn/typesafeai/v1'},
   {value:'openrouter',label:'OpenRouter',url:'https://openrouter.ai/api/alpha/decisions'},
   {value:'official',label:'Typesafe',url:'https://api.typesafe.ai/v1'},
+  {value:'custom',label:'自定义',url:''},
  ],
 };
 

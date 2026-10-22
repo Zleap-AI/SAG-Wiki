@@ -10,10 +10,10 @@
 </script>
 <DropdownMenu.Root open={true} onOpenChange={open=>{if(!open)onClose()}}>
  <DropdownMenu.Portal>
-  <DropdownMenu.ContentStatic forceMount id="context-menu" aria-label={$t("操作菜单")} style={`left:${menu.x}px;top:${menu.y}px`}
+  <DropdownMenu.ContentStatic forceMount preventScroll={false} id="context-menu" aria-label={$t("操作菜单")} style={`left:${menu.x}px;top:${menu.y}px`}
    onCloseAutoFocus={event=>{event.preventDefault();if(menu.trigger.isConnected)menu.trigger.focus({preventScroll:true})}}>
    {#snippet child({props})}
-   <div {...props} transition:surface|global={{keyboard:keyboard.current}}>
+   <div {...props} oncontextmenu={(event:MouseEvent)=>event.preventDefault()} transition:surface|global={{keyboard:keyboard.current}}>
    {#each menu.items as item}
     <DropdownMenu.Item class="menu-item" textValue={item.label} onSelect={()=>{onClose();void tick().then(()=>item.run())}}>
      {@html icon(item.glyph)}<span>{item.label}</span>

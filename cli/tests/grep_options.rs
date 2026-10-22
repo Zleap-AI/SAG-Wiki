@@ -141,6 +141,7 @@ fn multiple_patterns_and_ordered_file_filters_share_one_search() {
         ("src/code.rs", "cat\n"),
         ("patterns", "cat\ndog\n"),
     ]);
+    assert!(p.run(&["add", "--types", "txt,rs"]).status.success());
     let multiple = p.json(&[
         "-F",
         "-e",

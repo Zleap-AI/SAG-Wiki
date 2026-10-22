@@ -2,7 +2,10 @@ pub mod agent;
 pub mod cli_service;
 mod cli_match;
 pub mod document_text;
+pub mod docling;
 pub mod indexer;
+pub mod index_status;
+pub mod folder_index;
 pub mod ignore_rules;
 pub mod mcp;
 pub mod models;
@@ -12,6 +15,7 @@ pub mod sag_mcp;
 pub mod store;
 pub mod text;
 pub mod types;
+mod utility_tools;
 pub mod protocol;
 
 pub mod explore;

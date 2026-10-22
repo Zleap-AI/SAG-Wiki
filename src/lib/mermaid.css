@@ -1,0 +1,78 @@
+.mermaid-diagram {
+ --pele-bg: var(--color-paper);
+ --pele-fg: var(--color-ink);
+ --pele-muted: var(--color-secondary);
+ --pele-line: var(--color-secondary);
+ --pele-surface: var(--color-panel);
+ --pele-surface-alt: var(--color-selected);
+ --pele-border: var(--color-rule);
+ --pele-accent: var(--color-accent);
+ --pele-font: var(--font-body);
+ --pele-font-mono: var(--font-mono);
+ margin: 1em 0;
+ overflow: auto;
+ line-height: 1.4;
+ text-align: center;
+}
+
+.mermaid-diagram > svg {
+ display: block;
+ max-width: 100%;
+ height: auto;
+ margin: 0 auto;
+}
+
+.mermaid-code-block {
+ position: relative;
+ margin: 1em 0;
+ padding: 36px 12px 12px;
+ border: 1px solid transparent;
+ border-radius: var(--radius-md);
+}
+
+.mermaid-code-block:hover,
+.mermaid-code-block:focus-within {
+ border-color: var(--color-rule);
+}
+
+.mermaid-code-block > button {
+ position: absolute;
+ top: 5px;
+ right: 8px;
+ padding: 4px 10px;
+ border: 1px solid var(--color-rule);
+ border-radius: var(--radius-sm);
+ background: var(--color-paper);
+ color: var(--color-secondary);
+ font: 12px/1.5 var(--font-body);
+ cursor: pointer;
+ opacity: 0;
+}
+
+.mermaid-code-block:hover > button,
+.mermaid-code-block:focus-within > button,
+.mermaid-code-block.is-editing > button {
+ opacity: 1;
+}
+
+.mermaid-code-block > button:focus-visible {
+ outline: 2px solid var(--color-focus);
+ outline-offset: 2px;
+}
+
+.mermaid-code-block .mermaid-diagram,
+.mermaid-code-block pre {
+ margin: 0;
+}
+
+.mermaid-code-block > [hidden] {
+ display: none;
+}
+
+.mermaid-error {
+ color: var(--color-danger);
+ white-space: pre-wrap;
+ overflow-wrap: anywhere;
+ text-align: left;
+ font-size: 12px;
+}

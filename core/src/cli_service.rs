@@ -257,20 +257,56 @@ impl CliService {
         }).collect::<Result<Vec<_>>>()?;
         Ok((path, scopes))
     }
-    pub fn status(&self, path: &Path) -> Result<Status> {
+    pub fn status(&self) -> Result<Status> {
         let access = self.access();
-        let (canonical, selected) = self.indexed_scope(path)?;
-        let allowed = !selected.is_empty();
         let settings = self.store.settings()?;
         Ok(Status {
             protocol_version: VERSION,
             connected: !self.standalone,
             enabled: access.enabled,
-            allowed,
-            index_ready: allowed && selected.iter().all(|r| r.status == "ready"),
             jev_configured: models::has_secret(&self.data, "jev")?
                 && !settings.jev.model.trim().is_empty(),
-            path: store::path_text(&canonical)?,
+        })
+    }
+    fn index_ready(&self, requested: &Path) -> Result<bool> {
+        let (_, roots) = self.indexed_scope(requested)?;
+        Ok(!roots.is_empty() && roots.iter().all(|root| root.status == "ready"))
+    }
+    fn check(&self, requested: &Path) -> Result<CheckOutput> {
+        let (path, roots) = self.indexed_scope(requested)?;
+        let covering = roots.iter().find(|root| path.starts_with(&root.path));
+        let mut excluded = self.store.is_excluded(&path)?;
+        if let Some(root) = covering {
+            let settings = self.store.settings()?;
+            let mut matcher = crate::ignore_rules::matcher(Path::new(&root.path));
+            let mut ancestor = PathBuf::from(&root.path);
+            for component in path.strip_prefix(&root.path)?.components() {
+                ancestor.push(component);
+                let name = component.as_os_str();
+                if name.as_encoded_bytes().starts_with(b".")
+                    || settings.excluded.iter().any(|item| name == item.as_str())
+                    || crate::ignore_rules::is_ignored(&mut matcher, &ancestor, true)? {
+                    excluded = true;
+                    break;
+                }
+            }
+        }
+        let coverage = if excluded { IndexCoverage::Excluded }
+            else if covering.is_some() { IndexCoverage::Included }
+            else if roots.is_empty() { IndexCoverage::None }
+            else { IndexCoverage::Partial };
+        let extensions = if coverage == IndexCoverage::Included {
+            let options = self.store.folder_index_options(&path)?;
+            Some(options.extensions.unwrap_or_else(|| crate::text::enabled_extensions(&options.file_types)))
+        } else { None };
+        Ok(CheckOutput {
+            extensions,
+            path: store::path_text(&path)?,
+            coverage,
+            index_ready: !excluded && !roots.is_empty() && roots.iter().all(|root| root.status == "ready"),
+            enabled: self.access().enabled,
+            indexed_files: if excluded { 0 } else { self.store.indexed_file_count(&path)? },
+            roots,
         })
     }
     async fn execute(&self, request: Request, cancel: CancellationToken) -> Result<Response> {
@@ -284,7 +320,9 @@ impl CliService {
             bail!("请求路径必须是完整路径")
         }
         match request.command {
-            Command::Status => Ok(Response::Status(self.status(&request.path)?)),
+            Command::Status => Ok(Response::Status(self.status()?)),
+            Command::List => Ok(Response::Roots(self.store.roots()?)),
+            Command::Check => Ok(Response::Checked(self.check(&request.path)?)),
             Command::Configure { enable, url, model, key } => {
                 if enable { self.configure(Access { enabled: true })?; }
                 let mut settings = self.store.settings()?;
@@ -316,15 +354,41 @@ impl CliService {
                     Some(root) => PathBuf::from(root.path),
                     None => request.path.canonicalize().context("无法打开这个文件夹")?,
                 };
+                if path.is_file() { bail!("CLI 移除命令仅支持文件夹") }
                 (self.remove_root)(&path)?;
                 Ok(Response::Removed { path: store::path_text(&path)? })
             }
-            Command::Add => {
+            command @ (Command::Add | Command::AddWithTypes { .. }) => {
                 if !self.access().enabled {
                     bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
                 }
                 let path = request.path.canonicalize().context("无法打开这个文件夹")?;
                 if !path.is_dir() { bail!("请选择文件夹") }
+                if let Command::AddWithTypes { extensions } = command {
+                    let mut extensions: Vec<_> = extensions.into_iter()
+                        .map(|extension| extension.trim().trim_start_matches('.').to_ascii_lowercase()).collect();
+                    if extensions.is_empty() { bail!("请至少指定一种文件扩展名") }
+                    for extension in &extensions {
+                        let path = PathBuf::from(format!("file.{extension}"));
+                        if extension.is_empty() || !(crate::text::is_supported(&path) || crate::docling::is_builtin(&path))
+                            || extension.contains(['/', '\\', '.']) {
+                            bail!("不支持的索引格式：{extension}。--types 支持文本、代码及内置文档格式，如 md,txt,html,py,docx,pdf,xlsx")
+                        }
+                    }
+                    extensions.sort();
+                    extensions.dedup();
+                    let roots = self.store.roots()?;
+                    let root = roots.iter().find(|root| path.starts_with(&root.path));
+                    if root.is_some_and(|root| matches!(root.status.as_str(), "pending" | "indexing")) {
+                        bail!("此文件夹正在索引，请完成后再修改索引设置")
+                    }
+                    let settings = self.store.settings()?;
+                    let mut rules = crate::folder_index::Rules::new(root.map_or(path.as_path(), |root| Path::new(&root.path)), &settings)?;
+                    let mut options = rules.directory(&path)?.clone();
+                    options.extensions = Some(extensions);
+                    options.convert_other_formats = false;
+                    crate::folder_index::write(&path, &options)?;
+                }
                 (self.add_root)(&path)?;
                 let root = loop {
                     let root=self.store.roots()?.into_iter().find(|item|path.starts_with(&item.path)).context("目录已从知识库移除，请重新添加")?;
@@ -342,7 +406,7 @@ impl CliService {
                     bail!("搜索参数超出允许范围")
                 }
                 let (path, scopes) = self.authorized(&request.path)?;
-                if !self.status(&path)?.index_ready {
+                if !self.index_ready(&path)? {
                     bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
                 }
                 self.release_preparation()?;
@@ -370,12 +434,11 @@ impl CliService {
                     bail!("搜索参数超出允许范围")
                 }
                 let (path, _) = self.authorized(&request.path)?;
-                let status = self.status(&path)?;
-                if !status.index_ready {
+                if !self.index_ready(&path)? {
                     bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
                 }
-                if !status.jev_configured {
-                    bail!("JEV 未配置，请运行 sag config，或在 SAG-Desktop 模型设置中配置")
+                if !self.status()?.jev_configured {
+                    bail!("JEV 未配置，请运行 sag config，或在 SAG Wiki 模型设置中配置")
                 }
                 self.release_preparation()?;
                 let operation = async {
@@ -485,7 +548,7 @@ impl CliService {
             let response = tokio::select! {
                 result = self.execute(request, cancel) => result,
                 result = read.read(&mut next) => { result?; bail!("客户端已断开或发送了额外数据") },
-                _ = self.stop.cancelled() => { bail!("SAG-Desktop 正在退出") }
+                _ = self.stop.cancelled() => { bail!("SAG Wiki 正在退出") }
             };
             drop(drop_guard);
             response

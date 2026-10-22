@@ -2,6 +2,7 @@
  import {t} from '../lib/i18n';
  import {Collapsible} from 'bits-ui';
  import {icon} from '../lib/icons';
+ import {answerHtml} from '../lib/answer-html';
  export let content='';
  export let running=false;
  let open=false;
@@ -15,6 +16,10 @@
   <span class="reasoning-chevron" aria-hidden="true">{@html icon('chevron')}</span>
  </Collapsible.Trigger>
  <Collapsible.Content class="reasoning-content">
-  <div class="reasoning-text">{content}</div>
+  {#await import('../lib/markdown')}
+   <div class="reasoning-text reasoning-plain">{content}</div>
+  {:then markdown}
+   <div class="reasoning-text" use:answerHtml={markdown.renderMarkdown(content)}></div>
+  {/await}
  </Collapsible.Content>
 </Collapsible.Root>

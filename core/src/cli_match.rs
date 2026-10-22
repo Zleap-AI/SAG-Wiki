@@ -126,10 +126,17 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
     };
     let mut used = serde_json::to_vec(&output)?.len();
     let mut selected_count = 0;
+    let mut rules = tools.store.roots()?.into_iter()
+        .filter(|root| path.starts_with(&root.path) || std::path::Path::new(&root.path).starts_with(&path))
+        .map(|root| {
+        let path = PathBuf::from(root.path);
+        let rules = crate::folder_index::Rules::new(&path, &tools.settings)?;
+        Ok((path, rules))
+    }).collect::<Result<Vec<_>>>()?;
     tools.visit(paths, true, |file, _, metadata| {
-        if !metadata.is_file() || !text::is_indexable(file, &tools.settings.file_types) {
-            return Ok(true);
-        }
+        if !metadata.is_file() { return Ok(true); }
+        let (_, rules) = rules.iter_mut().find(|(root, _)| file.starts_with(root)).expect("authorized root");
+        if !store::Store::indexable_path(file, rules.file(file)?) { return Ok(true); }
         let mut included = filters.first().is_none_or(|(include, _)| !include);
         for (include, pattern) in &filters {
             if pattern.matches_path(std::path::Path::new(file.file_name().unwrap())) {

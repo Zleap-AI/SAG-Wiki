@@ -37,6 +37,8 @@ pub struct Request {
 #[serde(tag = "command", rename_all = "snake_case")]
 pub enum Command {
     Status,
+    List,
+    Check,
     Configure {
         #[serde(default)]
         enable: bool,
@@ -45,6 +47,7 @@ pub enum Command {
         key: Option<String>,
     },
     Add,
+    AddWithTypes { extensions: Vec<String> },
     Remove,
     Search {
         query: String,
@@ -142,15 +145,33 @@ pub struct Status {
     pub protocol_version: u32,
     pub connected: bool,
     pub enabled: bool,
-    pub allowed: bool,
-    pub index_ready: bool,
     pub jev_configured: bool,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexCoverage {
+    Included,
+    Partial,
+    Excluded,
+    None,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CheckOutput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<String>>,
     pub path: String,
+    pub coverage: IndexCoverage,
+    pub index_ready: bool,
+    pub enabled: bool,
+    pub indexed_files: usize,
+    pub roots: Vec<crate::types::Root>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Response {
     Status(Status),
+    Roots(Vec<crate::types::Root>),
+    Checked(CheckOutput),
     Configured(crate::types::ModelConfig),
     Added(AddOutput),
     Removed { path: String },

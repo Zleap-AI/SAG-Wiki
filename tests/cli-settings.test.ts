@@ -22,7 +22,9 @@ it('saves CLI enabled changes only with the settings form, across tab switches a
  const onSave=vi.fn(),onClose=vi.fn();
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave,onClose}});
  await ready();
- expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('CLI');
+ expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('CLI设置');
+ expect(document.querySelector('#cli-tools-heading')?.textContent).toBe('接入Agent');
+ expect(document.querySelector('.settings-content')?.textContent).not.toContain('编程工具');
  expect(document.body.textContent).not.toContain('Factory Droid');
  expect(document.body.textContent).not.toContain('应用 CLI 设置');
  document.querySelector<HTMLButtonElement>('[aria-label="启用 CLI"]')!.click();
@@ -30,7 +32,7 @@ it('saves CLI enabled changes only with the settings form, across tab switches a
  expect(invoke.mock.calls.some(([command])=>command==='save_cli_settings')).toBe(false);
  expect([...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()==='测试连接')?.disabled).toBe(true);
  click('安装');await vi.waitFor(()=>expect(document.querySelector('[role=status]')?.textContent).toContain('已安装'));
- click('通用');await tick();click('CLI');await ready();
+ click('通用');await tick();click('CLI设置');await ready();
  expect(document.querySelector('[aria-label="启用 CLI"]')?.getAttribute('data-state')).toBe('checked');
  click('保存设置');await vi.waitFor(()=>expect(onClose).toHaveBeenCalled());
  expect(invoke).toHaveBeenCalledWith('save_cli_settings',{access:{enabled:true}});
@@ -66,7 +68,7 @@ it('reports partial failure without announcing success or closing, and lets the 
 it.each([['claude-code','Claude Code'],['codex','Codex'],['opencode','OpenCode']])('%s has one button that switches between install and uninstall',async(target,name)=>{
  installed.clear();
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
- expect(document.querySelectorAll('.cli-install-row')).toHaveLength(3);
+ expect(document.querySelectorAll('.cli-install-row')).toHaveLength(4);
  for(const row of document.querySelectorAll('.cli-install-row')){
   expect(row.querySelectorAll('.cli-action')).toHaveLength(1);
   expect(row.textContent).not.toMatch(/已安装|未安装/);
@@ -113,5 +115,83 @@ it('omits the command-line tool panel while preserving CLI and skill settings',a
  expect(document.querySelector('#cli-command-heading')).toBeNull();
  expect(document.querySelectorAll('.cli-section')).toHaveLength(2);
  expect(document.querySelector('[aria-label="启用 CLI"]')).not.toBeNull();
- expect(document.querySelectorAll('.cli-install-row')).toHaveLength(3);
+ expect(document.querySelectorAll('.cli-install-row')).toHaveLength(4);
+});
+
+it('shows the usage guide last, collapsed by default, without submitting settings when expanded',async()=>{
+ const onSave=vi.fn();
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave,onClose:vi.fn()}});await ready();
+ const guide=document.querySelector<HTMLElement>('.cli-guide')!;
+ const trigger=guide.querySelector<HTMLButtonElement>('button')!;
+ const guides=document.querySelector('.cli-guides')!;
+ expect(document.querySelector('.cli-settings')?.lastElementChild).toBe(guides);
+ expect(guides.lastElementChild).toBe(guide);
+ const skill=guides.querySelector('.cli-location')!;
+ const skillTrigger=skill.querySelector<HTMLButtonElement>('button')!;
+ const skillContent=skill.querySelector<HTMLElement>('.cli-location-content')!;
+ expect(skillTrigger.textContent).toContain('Skill 安装指南');
+ expect(skillTrigger.getAttribute('aria-expanded')).toBe('false');
+ expect(skillContent.hidden).toBe(true);
+ expect(document.querySelector('.cli-integrations .cli-skill-help')).toBeNull();
+ skillTrigger.click();await tick();
+ expect(skillContent.hidden).toBe(false);
+ expect(skillContent.querySelector('p')?.textContent).toBe('点击上方对应 Agent 的“安装”按钮即可完成安装。');
+ expect(skillContent.textContent).toContain('安装完成后，请在对应 Agent 中新开会话以加载 Skill。');
+ expect(skillContent.textContent).toContain('/home/skills/codex');
+ expect(trigger.textContent).toContain('CLI 使用指南');
+ expect(trigger.getAttribute('aria-expanded')).toBe('false');
+ expect(guide.querySelector<HTMLElement>('.cli-guide-content')!.hidden).toBe(true);
+ const before=invoke.mock.calls.length;
+ trigger.click();await tick();
+ expect(trigger.getAttribute('aria-expanded')).toBe('true');
+ expect(guide.querySelector<HTMLElement>('.cli-guide-content')!.hidden).toBe(false);
+ expect(guide.textContent).toContain('sag add');
+ expect(guide.textContent).toContain('sag add\nsag check');
+ expect(guide.textContent).toContain('sag "这个项目如何处理登录与权限？" -m 5');
+ expect(guide.textContent).not.toContain('sag -c');
+ expect(guide.textContent).toContain('默认进行语义搜索，并返回原文片段、路径和行号');
+ expect(guide.textContent).toContain('sag list');
+ expect(guide.textContent).toContain('status 查看服务、CLI 接入和模型配置状态');
+ expect(guide.textContent).toContain('sag remove ./docs');
+ expect(guide.textContent).toContain('不会删除本地文件');
+ expect(guide.textContent).toContain('sag --help');
+ expect(onSave).not.toHaveBeenCalled();
+ expect(invoke.mock.calls).toHaveLength(before);
+ trigger.click();await tick();
+ expect(trigger.getAttribute('aria-expanded')).toBe('false');
+});
+
+it('downloads the complete skill through the last Other row without installing an integration',async()=>{
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ const rows=document.querySelectorAll('.cli-install-row');
+ expect(rows[rows.length-1].textContent).toContain('其他');
+ expect(rows[rows.length-1].textContent).toContain('下载完整 Skill 文件夹');
+ const download=document.querySelector<HTMLButtonElement>('[aria-label="下载 SAG Skill"]')!;
+ expect(download.textContent).toBe('下载');
+ invoke.mockImplementationOnce(async()=>'/Downloads/sag');download.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain('/Downloads/sag'));
+ expect(invoke).toHaveBeenCalledWith('download_cli_skill',{title:'选择 Skill 保存位置'});
+ expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration')).toBe(false);
+ expect(download.textContent).toBe('下载');
+});
+
+it('keeps cancellation silent and makes a failed download retryable',async()=>{
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ const download=document.querySelector<HTMLButtonElement>('[aria-label="下载 SAG Skill"]')!;
+ invoke.mockResolvedValueOnce(null);download.click();await tick();
+ await vi.waitFor(()=>expect(download.disabled).toBe(false));
+ expect(document.querySelector('.cli-feedback')).toBeNull();
+ invoke.mockRejectedValueOnce(Error('无法创建 Skill 文件夹'));download.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-error')?.textContent).toContain('无法创建 Skill 文件夹'));
+ expect(download.disabled).toBe(false);
+});
+
+it('translates the download row and success message',async()=>{
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ setLanguage('en');await tick();
+ const download=document.querySelector<HTMLButtonElement>('[aria-label="Download SAG Skill"]')!;
+ expect(document.querySelectorAll('.cli-install-row')[3].textContent).toContain('Other');
+ invoke.mockResolvedValueOnce('/Downloads/sag');download.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain('Skill downloaded to /Downloads/sag'));
+ expect(invoke).toHaveBeenCalledWith('download_cli_skill',{title:'Choose where to save the Skill'});
 });

@@ -8,10 +8,8 @@ export function toolResultText(value:unknown,translate:(text:string,parameters?:
   delete data.note;
   if(sagTool==='search'&&Array.isArray(data.sources)){
    const sources=data.sources as {source_id:number;title:string;path:string;content:string}[];
-   const omitted=data.omitted_sources as number;
    const lines=sources.length?[translate('返回 {value0} 个原文片段',{value0:sources.length}),...sources.map(source=>`[${source.source_id}] ${source.title}\n${source.path}\n${source.content}`)]:[];
-   if(omitted>0)lines.push(translate('因本轮上下文空间不足，{value0} 个原文片段未传给模型。可提高上下文预算或新建对话后重试。',{value0:omitted}));
-   if(!lines.length)lines.push(translate('未找到相关内容。请尝试调整关键词，或检查文件是否已完成索引。'));
+   if(!lines.length)lines.push(translate(data.omitted_sources?'本轮没有新增原文片段。':'未找到相关内容。请尝试调整关键词，或检查文件是否已完成索引。'));
    return lines.join('\n\n');
   }
   return JSON.stringify(data,null,2);

@@ -9,11 +9,30 @@ vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async(name,callback)=>{listen
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear()});
 const button=()=>document.querySelector<HTMLButtonElement>('.reindex-settings button')!;
+it('文件设置同步外部暂停、等待当前文件结束以及继续索引的状态',async()=>{
+ let status={paused:true,tasks:[{path:'/a',stage:'indexing',completed:12,total:100,files:[] as string[]}]};
+ invoke.mockImplementation(async command=>{
+  if(command==='list_roots')return [{path:'/a',name:'A',status:'indexing',count:12,error:null}];
+  if(command==='get_index_status')return structuredClone(status);
+ });
+ app=mount(IndexSettings,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.reindex-status')?.textContent).toContain('索引已暂停'));
+ expect(button().textContent).toBe('索引已暂停');
+ expect(button().disabled).toBe(true);
+ expect(document.querySelector('.reindex-running')).toBeNull();
+ status={...status,tasks:[{...status.tasks[0],files:['/a/test.md']}]};
+ await vi.waitFor(()=>expect(document.querySelector('.reindex-status')?.textContent).toContain('正在暂停…'),{timeout:2000});
+ status={...status,paused:false};
+ await vi.waitFor(()=>expect(button().textContent).toBe('正在索引…'),{timeout:2000});
+ expect(document.querySelector('.reindex-status')?.textContent).not.toContain('索引已暂停');
+ expect(document.querySelector('.reindex-running')).not.toBeNull();
+});
 it('重新索引期间显示进度并禁止重复启动，完成后可查看失败详情',async()=>{
  let roots:Root[]=[{path:'/a',name:'A',status:'ready',count:2,error:null},{path:'/b',name:'B',status:'ready',count:3,error:null}];
  invoke.mockImplementation(async command=>{
   if(command==='reindex_all'){roots=roots.map(root=>({...root,status:'pending'}));return roots;}
   if(command==='list_roots')return roots;
+  if(command==='get_index_status')return {paused:false,tasks:[]};
  });
  app=mount(IndexSettings,{target:document.body});
  await vi.waitFor(()=>expect(button().disabled).toBe(false));
@@ -39,6 +58,7 @@ it('未保存索引设置或未添加目录时禁用按钮，启动错误可见'
  let roots:Root[]=[];
  invoke.mockImplementation(async command=>{
   if(command==='list_roots')return roots;
+  if(command==='get_index_status')return {paused:false,tasks:[]};
   if(command==='reindex_all')throw new Error('索引启动失败');
  });
  app=mount(IndexSettings,{target:document.body});

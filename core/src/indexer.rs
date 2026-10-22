@@ -54,8 +54,9 @@ pub fn event_requests(event: &Event, roots: &[Root], settings: &Settings) -> Vec
     roots
         .iter()
         .filter_map(|root| {
-            if event.paths.iter().any(|path| path.starts_with(&root.path) && crate::ignore_rules::is_rule_file(path)) {
-                return Some(IndexRequest::Scan { root: root.path.clone(), verify: false });
+            let rules: Vec<_> = event.paths.iter().filter(|path| path.starts_with(&root.path) && crate::ignore_rules::is_rule_file(path)).cloned().collect();
+            if !rules.is_empty() {
+                return Some(IndexRequest::Paths { root: root.path.clone(), paths: rules });
             }
             let paths: Vec<_> = event
                 .paths
@@ -190,6 +191,9 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
         let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        store.save_settings(&settings).unwrap();
         let root_text = store.add_root(&root).unwrap();
         let unrelated = root.join("unrelated.txt");
         fs::write(&unrelated, "untouched content").unwrap();
@@ -249,6 +253,9 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let root = temp.path().canonicalize().unwrap();
         let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        store.save_settings(&settings).unwrap();
         let root_text = store.add_root(&root).unwrap();
         let folder = root.join("folder");
         let sibling = root.join("folder-other");
@@ -465,6 +472,9 @@ mod tests {
         fs::create_dir(&root).unwrap();
         let root = root.canonicalize().unwrap();
         let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        store.save_settings(&settings).unwrap();
         let root_text = store.add_root(&root).unwrap();
         let unrelated = root.join("unrelated.txt");
         fs::write(&unrelated, "untouched content").unwrap();

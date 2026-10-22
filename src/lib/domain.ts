@@ -1,4 +1,4 @@
-import type {Candidate} from './types';
+import type {Candidate,Entry,FileInfo} from './types';
 import {get} from 'svelte/store';
 import {t} from './i18n';
 const compactFormatter=new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1});
@@ -7,6 +7,21 @@ export function durationLabel(milliseconds:number):string{const seconds=millisec
 export const basename=(path:string)=>path.split(/[\\/]/).filter(Boolean).pop()||path;
 export const dirname=(path:string)=>path.replace(/[\\/][^\\/]+[\\/]?$/,'');
 export const inside=(path:string,parent:string)=>path===parent||path.startsWith(parent.replace(/[\\/]$/,'')+(parent.includes('\\')?'\\':'/'));
+export function indexedSourcePath(path:string):string {
+ const directory=/([\\/])\.sag-converted[\\/]/;
+ return directory.test(path)&&path.endsWith('.md')?path.replace(directory,'$1').slice(0,-3):path;
+}
+export function indexedDirectoryEntries(files:FileInfo[],directory:string):Entry[]{
+ const prefix=directory.replace(/[\\/]$/,'')+(directory.includes('\\')?'\\':'/');
+ const entries=new Map<string,Entry>();
+ for(const file of files){
+  if(!file.path.startsWith(prefix))continue;
+  const relative=file.path.slice(prefix.length),separator=relative.search(/[\\/]/);
+  const name=separator<0?relative:relative.slice(0,separator),path=prefix+name;
+  entries.set(path,{path,name,directory:separator>=0,symlink:false});
+ }
+ return [...entries.values()].sort((a,b)=>Number(b.directory)-Number(a.directory)||a.name.localeCompare(b.name));
+}
 export function normalizeScope(paths:string[]):string[]{return [...new Set(paths)].filter(p=>!paths.some(other=>other!==p&&inside(p,other)));}
 export function documentResults(candidates:Candidate[]):{first:Candidate;matches:Candidate[]}[]{const groups=new Map<string,Candidate[]>();for(const c of candidates){const list=groups.get(c.path)||[];list.push(c);groups.set(c.path,list)}return [...groups.values()].map(matches=>({first:matches[0],matches}));}
 export const escaped=(text:string)=>text.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]!));

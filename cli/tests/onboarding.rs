@@ -168,6 +168,97 @@ fn setup_continues_the_original_search_after_saving() {
 }
 
 #[test]
+fn terminal_search_animates_until_results_or_errors_are_ready() {
+    for fail in [false, true] {
+        let data = tempfile::tempdir().unwrap();
+        let root = data.path().canonicalize().unwrap();
+        let source = root.join("evidence.md");
+        let mut step = 0;
+        let server = support::serve(data.path(), 2, move |_| {
+            step += 1;
+            if step == 1 {
+                return serde_json::json!({"type":"configured","data":{"url":"https://example.com","model":"test","models":[],"has_key":true}});
+            }
+            std::thread::sleep(Duration::from_millis(450));
+            if fail {
+                serde_json::json!({"type":"error","data":"test search failed"})
+            } else {
+                serde_json::json!({"type":"search","data":{"protocol_version":2,"scope":source.parent(),"results":[{"path":"evidence.md","absolute_path":source,"start_line":1,"end_line":1,"content":"search evidence"}],"truncated":false}})
+            }
+        });
+        let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+        command.args(["-c", "How is the session validated?"])
+            .current_dir(root).env("SAG_DATA_DIR", data.path());
+        let mut terminal = Terminal::start(command);
+        terminal.wait_for("⠋");
+        terminal.expect_exit(if fail { 1 } else { 0 });
+        let result = if fail { "test search failed" } else { "[1/1]" };
+        assert!(terminal.output.contains('⠙'), "{}", terminal.output);
+        assert!(!terminal.output.contains("正在搜索"));
+        assert!(terminal.output.rfind('⠙').unwrap() < terminal.output.find(result).unwrap());
+        assert!(terminal.output.contains(&format!("\r\u{1b}[2K{result}")), "{}", terminal.output);
+        server.join().unwrap();
+    }
+}
+
+#[test]
+fn piped_search_and_terminal_json_do_not_contain_animation() {
+    let data = tempfile::tempdir().unwrap();
+    let root = data.path().canonicalize().unwrap();
+    let source = root.join("evidence.md");
+    let server = support::serve(data.path(), 2, move |_| {
+        serde_json::json!({"type":"search","data":{"protocol_version":2,"scope":source.parent(),"results":[{"path":"evidence.md","absolute_path":source,"start_line":1,"end_line":1,"content":"search evidence"}],"truncated":false}})
+    });
+    let result = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["-c", "How is the session validated?"])
+        .current_dir(&root).env("SAG_DATA_DIR", data.path()).output().unwrap();
+    assert!(result.status.success());
+    assert!(result.stderr.is_empty());
+    assert!(String::from_utf8(result.stdout).unwrap().starts_with("[1/1]"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+    command.args(["--json", "-c", "How is the session validated?"])
+        .current_dir(root).env("SAG_DATA_DIR", data.path());
+    let mut terminal = Terminal::start(command);
+    terminal.finish();
+    let result: serde_json::Value = serde_json::from_str(terminal.output.trim()).unwrap();
+    assert_eq!(result["results"][0]["content"], "search evidence");
+    server.join().unwrap();
+}
+
+#[test]
+fn cancelling_search_clears_the_animation_before_returning() {
+    use sag_protocol::{Endpoint, Frame, ServiceInfo, BUILD_CHANNEL, BUILD_ID, BUILD_VERSION, VERSION};
+    let data = tempfile::tempdir().unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    std::fs::write(data.path().join("sag-service.json"), serde_json::to_vec(&Endpoint {
+        protocol_version: VERSION, port: listener.local_addr().unwrap().port(), pid: 1, token: "test-token".into(),
+    }).unwrap()).unwrap();
+    let server = std::thread::spawn(move || tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let listener = tokio::net::TcpListener::from_std(listener).unwrap();
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut read = tokio::io::BufReader::new(read);
+        assert!(matches!(sag_client::wire::read(&mut read).await.unwrap(), Some(Frame::Hello { .. })));
+        sag_client::wire::write(&mut write, &Frame::Welcome { info: ServiceInfo {
+            version: Some(BUILD_VERSION.into()), protocol_version: VERSION, build_id: BUILD_ID.into(),
+            channel: BUILD_CHANNEL.into(), pid: 1, executable: "test-sag".into(), data_directory: "test-data".into(),
+        }}).await.unwrap();
+        assert!(matches!(sag_client::wire::read(&mut read).await.unwrap(), Some(Frame::Request { .. })));
+        let next = tokio::time::timeout(Duration::from_secs(3), sag_client::wire::read(&mut read)).await.unwrap().unwrap();
+        assert!(matches!(next, None | Some(Frame::Cancel { .. })));
+    }));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
+    command.args(["-F", "needle"]).current_dir(data.path()).env("SAG_DATA_DIR", data.path());
+    let mut terminal = Terminal::start(command);
+    terminal.wait_for("⠙");
+    terminal.send("\u{3}");
+    terminal.expect_exit(130);
+    assert!(terminal.output.contains("\r\u{1b}[2K操作已取消"), "{}", terminal.output);
+    server.join().unwrap();
+}
+
+#[test]
 fn cancelling_setup_does_not_save_a_key() {
     let data = tempfile::tempdir().unwrap();
     let _cleanup=support::ServiceCleanup(data.path().to_path_buf());

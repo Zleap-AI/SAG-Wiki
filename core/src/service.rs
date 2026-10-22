@@ -55,6 +55,7 @@ pub struct Service {
     client: reqwest::Client,
     tasks: Mutex<HashMap<(String, String), CancellationToken>>,
     sessions: Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
+    conversation_access: tokio::sync::RwLock<()>,
     approvals: Mutex<HashMap<(String, String), tokio::sync::oneshot::Sender<bool>>>,
     scan: mpsc::Sender<IndexRequest>,
     watcher: Arc<Mutex<notify::RecommendedWatcher>>,
@@ -287,6 +288,9 @@ fn save_settings(
     _app: &EventSink,
 ) -> CommandResult<()> {
     let old = state.store.settings().map_err(error)?;
+    if settings.convert_other_formats && !state.store.docling.installed() {
+        return Err("请先下载 Docling，再启用其他格式".into());
+    }
     let mcp_credentials = mcp_credentials.unwrap_or_default();
     for (kind, previous, next, key) in [
         ("answer", &old.answer, &settings.answer, &answer_key),
@@ -334,7 +338,7 @@ fn save_settings(
                 })
                 .map_err(error)?
         }
-    } else if old.file_types != settings.file_types || !old.watch && settings.watch {
+    } else if old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || !old.watch && settings.watch {
         for root in state.store.roots().map_err(error)? {
             state
                 .scan
@@ -456,6 +460,13 @@ async fn test_model(
 fn list_conversations(state: &Arc<Service>) -> CommandResult<Vec<Conversation>> {
     state.store.conversations().map_err(error)
 }
+async fn clear_conversations(state: &Arc<Service>) -> CommandResult<()> {
+    let _access = state.conversation_access.try_write()
+        .map_err(|_| "请先停止正在进行的问答，再清空所有对话".to_string())?;
+    let state = state.clone();
+    tokio::task::spawn_blocking(move || state.store.clear_conversations().map_err(error))
+        .await.map_err(error)?
+}
 fn edit_conversation(
     id: String,
     title: Option<String>,
@@ -473,6 +484,7 @@ async fn replace_messages(
     state: &Arc<Service>,
     app: &EventSink,
 ) -> CommandResult<Conversation> {
+    let _access = state.conversation_access.read().await;
     let lock = state.session_lock(&id);
     let _query = tokio::select! {
         _ = app.cancel.cancelled() => return Err("已停止".into()),
@@ -485,11 +497,51 @@ fn cancel_query(id: String, state: &Arc<Service>, app: &EventSink) {
         token.cancel()
     }
 }
+async fn summarize_search(
+    id: String,
+    question: String,
+    results: Vec<Candidate>,
+    state: &Arc<Service>,
+    app: &EventSink,
+) -> CommandResult<sag_protocol::SearchSummary> {
+    let cancel = app.cancel.child_token();
+    state.tasks.lock().unwrap().insert((app.owner.clone(), id.clone()), cancel.clone());
+    let result = async {
+        let settings = state.store.settings()?;
+        anyhow::ensure!(settings.search_summary_enabled, "自动总结已关闭");
+        anyhow::ensure!(!question.trim().is_empty(), "请输入问题或关键词");
+        anyhow::ensure!(!results.is_empty(), "总结需要搜索结果");
+        let results = &results[..results.len().min(settings.search_summary_sources)];
+        for candidate in results {
+            state.store.authorize(Path::new(&candidate.path))?;
+        }
+        let mut config = settings.answer.clone();
+        config.reasoning_effort = settings.model_profiles.get(&config.model)
+            .and_then(|profile| profile.reasoning_effort);
+        let key = models::secret(&state.data_dir, "answer")?;
+        let plan = models::prepare_search_summary(
+            &config, &question, results, settings.answer_context_tokens,
+            settings.answer_output_tokens.min(settings.answer_context_tokens / 4),
+        )?;
+        let answer = models::answer(&state.client, &config, &key, &plan,
+            settings.timeout_secs, &cancel, |delta| {
+                emit(app, "query-progress", Progress {
+                    id: id.clone(), stage: "正在总结搜索结果".into(),
+                    delta: Some(delta.into()), reasoning_delta: None, reasoning_block: None,
+                    replace: false, count: plan.evidence.len(), tool: None,
+                });
+            }).await?;
+        Ok(sag_protocol::SearchSummary { text: answer.text, evidence: plan.evidence })
+    }.await;
+    state.tasks.lock().unwrap().remove(&(app.owner.clone(), id));
+    result.map_err(|e: anyhow::Error| e.to_string())
+}
 async fn run_query(
     query: Query,
     state: &Arc<Service>,
     app: &EventSink,
 ) -> CommandResult<QueryOutput> {
+    let _access = if query.kind == "ask" { Some(state.conversation_access.read().await) } else { None };
     let state = state.clone();
     let cancel = app.cancel.child_token();
     state
@@ -591,6 +643,7 @@ async fn execute_query(
     let retrieval_question = q.question.clone();
     if let Some(c) = &mut conversation {
         c.messages.push(Message {
+            created_at: Some(store::now()),
             question: q.question.clone(),
             answer: String::new(),
             reasoning: String::new(),
@@ -932,7 +985,7 @@ impl Service {
                     emit(
                         &handle,
                         "index-progress",
-                        serde_json::json!({"path":root,"count":progress.count,"total":progress.total}),
+                        serde_json::json!({"path":root,"count":progress.count,"total":progress.total,"stage":worker_store.indexing.task(&root).stage}),
                     )
                 }) {
                     emit(&handle, "app-error", format!("{}：{}", root, e));
@@ -972,6 +1025,7 @@ impl Service {
             client,
             tasks: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
+            conversation_access: tokio::sync::RwLock::new(()),
             approvals: Mutex::new(HashMap::new()),
             scan: tx,
             watcher,
@@ -984,6 +1038,8 @@ impl Service {
     }
     pub async fn finish(&self) -> anyhow::Result<()> {
         self.stop.cancel();
+        self.store.indexing.stop();
+        self.store.docling.cancel();
         let worker = self.worker.lock().unwrap().take();
         if let Some(worker) = worker {
             tokio::task::spawn_blocking(move || {
@@ -997,6 +1053,7 @@ impl Service {
     }
     pub fn info(&self) -> anyhow::Result<sag_protocol::ServiceInfo> {
         Ok(sag_protocol::ServiceInfo {
+            version: Some(sag_protocol::BUILD_VERSION.into()),
             protocol_version: sag_protocol::VERSION,
             build_id: sag_protocol::BUILD_ID.into(),
             channel: sag_protocol::BUILD_CHANNEL.into(),
@@ -1017,18 +1074,29 @@ impl Service {
         let modified = matches!(
             &operation,
             Op::AddRoot { .. }
+                | Op::AddRootWithOptions { .. }
+                | Op::SaveFolderIndexOptions { .. }
                 | Op::RemoveRoot { .. }
                 | Op::SaveDocument { .. }
                 | Op::ReindexAll
+                | Op::SetIndexPaused { .. }
+                | Op::UninstallDocling
+                | Op::ClearIndexHistory
+                | Op::SetConversionWorkers { .. }
+                | Op::RemoveAllRoots
+                | Op::ClearAllData
                 | Op::SaveSettings { .. }
         );
         let history_changed = matches!(
             &operation,
-            Op::EditConversation { .. } | Op::ReplaceMessages { .. }
+            Op::EditConversation { .. } | Op::ReplaceMessages { .. } | Op::ClearConversations | Op::ClearAllData
         );
         let settings_changed = matches!(
             &operation,
             Op::SaveSettings { .. }
+                | Op::SetConversionWorkers { .. }
+                | Op::UninstallDocling
+                | Op::ClearAllData
                 | Op::ClearModelKey { .. }
                 | Op::Cli {
                     command: sag_protocol::Command::Configure { .. },
@@ -1065,6 +1133,25 @@ impl Service {
                 expected_hash,
             } => Out::Document(save_document(path, body, expected_hash, self)?),
             Op::AddRoot { path } => Out::Text(add_root(path, self)?),
+            Op::AddRootWithOptions { path, options } => {
+                let directory = Path::new(&path).canonicalize().map_err(error)?;
+                if !directory.is_dir() { return Err("请选择文件夹".into()); }
+                if self.store.roots().map_err(error)?.iter().any(|root| directory.starts_with(&root.path)) {
+                    return Err("此文件夹已被添加，请使用文件夹菜单中的索引设置".into());
+                }
+                crate::folder_index::write(&directory, &options).map_err(error)?;
+                Out::Text(add_root(path, self)?)
+            }
+            Op::GetFolderIndexOptions { path } => {
+                let path = self.store.authorize(Path::new(&path)).map_err(error)?;
+                Out::FolderIndexOptions(self.store.folder_index_options(&path).map_err(error)?)
+            }
+            Op::SaveFolderIndexOptions { path, options, rebuild } => {
+                let root = self.store.save_folder_index_options(Path::new(&path), &options, rebuild).map_err(error)?;
+                let path = self.store.authorize(Path::new(&path)).map_err(error)?;
+                self.scan.send(IndexRequest::Paths { root, paths: vec![path.join(".sagignore")] }).map_err(error)?;
+                Out::Unit
+            }
             Op::RemoveRoot { path } => {
                 remove_root(path, self)?;
                 Out::Unit
@@ -1075,6 +1162,29 @@ impl Service {
                 Out::Unit
             }
             Op::ReindexAll => Out::Roots(reindex_all(self)?),
+            Op::GetIndexStatus => Out::IndexStatus(self.store.indexing.status()),
+            Op::GetIndexHistory => Out::IndexHistory(self.store.index_history().map_err(error)?),
+            Op::SetConversionWorkers { workers } => {
+                let mut settings = self.store.settings().map_err(error)?;
+                settings.conversion_workers = workers;
+                self.store.save_settings(&settings).map_err(error)?;
+                Out::Unit
+            }
+            Op::GetIndexHistoryLog { id } => Out::IndexHistoryLog(self.store.index_history_log(id).map_err(error)?),
+            Op::AuthorizeIndexHistoryFile { id, path } => Out::Text(
+                self.store.authorize_index_history_file(id, &path).map_err(error)?.to_string_lossy().into_owned(),
+            ),
+            Op::ClearIndexHistory => {
+                self.store.clear_index_history().map_err(error)?;
+                Out::Unit
+            }
+            Op::SetIndexPaused { paused } => Out::IndexStatus(self.store.indexing.set_paused(paused)),
+            Op::RemoveAllRoots => {
+                let store = self.store.clone();
+                tokio::task::spawn_blocking(move || store.remove_all_roots().map_err(error))
+                    .await.map_err(error)??;
+                Out::Unit
+            }
             Op::PutDraft { draft } => {
                 put_draft(draft, self)?;
                 Out::Unit
@@ -1085,6 +1195,26 @@ impl Service {
                 Out::Unit
             }
             Op::GetSettings => Out::Settings(get_settings(self)?),
+            Op::DoclingStatus => Out::Docling(self.store.docling.status()),
+            Op::InstallDocling => {
+                self.store.docling.start().map_err(error)?;
+                Out::Docling(self.store.docling.status())
+            }
+            Op::CancelDoclingInstall => {
+                self.store.docling.cancel();
+                Out::Unit
+            }
+            Op::UninstallDocling => {
+                let store = self.store.clone();
+                tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+                    store.docling.uninstall()?;
+                    let mut settings = store.settings()?;
+                    settings.convert_other_formats = false;
+                    store.save_settings(&settings)?;
+                    Ok(())
+                }).await.map_err(error)?.map_err(error)?;
+                Out::Docling(self.store.docling.status())
+            }
             Op::SaveSettings {
                 settings,
                 answer_key,
@@ -1106,6 +1236,20 @@ impl Service {
                 credentials,
             } => Out::McpTools(test_mcp(server, credentials, self).await?),
             Op::ListConversations => Out::Conversations(list_conversations(self)?),
+            Op::ClearConversations => {
+                clear_conversations(self).await?;
+                Out::Unit
+            }
+            Op::ClearAllData => {
+                let _access = self.conversation_access.try_write()
+                    .map_err(|_| "请先停止正在进行的问答，再清除所有数据".to_string())?;
+                let store = self.store.clone();
+                tokio::task::spawn_blocking(move || store.clear_all_data().map_err(error))
+                    .await.map_err(error)??;
+                models::clear_secrets(&self.data_dir).map_err(error)?;
+                self.cli.configure(sag_protocol::Access::default()).map_err(error)?;
+                Out::Unit
+            }
             Op::EditConversation { id, title, deleted } => {
                 edit_conversation(id, title, deleted, self)?;
                 Out::Unit
@@ -1114,6 +1258,8 @@ impl Service {
                 Out::Conversation(replace_messages(id, messages, self, app).await?)
             }
             Op::RunQuery { query } => Out::Query(run_query(query, self, app).await?),
+            Op::SummarizeSearch { id, question, results } =>
+                Out::SearchSummary(summarize_search(id, question, results, self, app).await?),
             Op::CancelQuery { id } => {
                 cancel_query(id, self, app);
                 Out::Unit

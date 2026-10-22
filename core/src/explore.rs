@@ -798,6 +798,9 @@ mod tests {
         fs::write(root.join("orbit.py"), "from common_package import shared_token\n\ndef calculate_orbit():\n    return star_mass * orbital_radius\n").unwrap();
         fs::write(root.join("photo.py"), "from common_package import shared_token\n\ndef render_photo():\n    return image_width * pixel_brightness\n").unwrap();
         let store = Arc::new(crate::store::Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        store.save_settings(&settings).unwrap();
         let scope = store.add_root(&root).unwrap();
         store.scan(&scope, |_| {}).unwrap();
         let explorer = Explorer::new(store);

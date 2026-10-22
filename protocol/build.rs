@@ -21,6 +21,16 @@ fn sources(path: &Path, hash: &mut DefaultHasher) {
 }
 fn main() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
+    // CLI packages and desktop bundles distribute the same native release.
+    let manifest = fs::read_to_string(root.join("cli/Cargo.toml")).unwrap();
+    let version = manifest
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("version = \"")
+                .and_then(|value| value.strip_suffix('"'))
+        })
+        .unwrap();
+    println!("cargo:rustc-env=SAG_RELEASE_VERSION={version}");
     let mut hash = DefaultHasher::new();
     for name in [
         "protocol/src",

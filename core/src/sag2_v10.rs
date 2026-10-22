@@ -44,6 +44,10 @@ fn words(text: &str) -> Vec<String> {
         .collect()
 }
 
+pub(crate) fn vocabulary(content: &str) -> HashSet<String> {
+    words(content).into_iter().collect()
+}
+
 pub struct Corpus {
     aliases: HashMap<String, String>,
     names: Option<Regex>,
@@ -53,17 +57,24 @@ pub struct Corpus {
 
 impl Corpus {
     pub fn new(documents: &[(String, String)]) -> Result<Self> {
+        Self::from_vocabulary(documents.iter().map(|(title, content)| {
+            (title.clone(), vocabulary(content))
+        }).collect())
+    }
+
+    pub(crate) fn from_vocabulary(documents: Vec<(String, HashSet<String>)>) -> Result<Self> {
+        let n = documents.len() as f64;
         let mut names: HashMap<String, HashSet<String>> = HashMap::new();
         let mut titles = HashSet::new();
         let mut frequencies = HashMap::<String, usize>::new();
-        for (title, content) in documents {
+        for (title, terms) in documents {
             let name = title.nfkc().case_fold().collect::<String>();
             names.entry(folded(&name)).or_default().insert(name);
-            let terms = tokenize(title);
-            if terms.len() >= 2 {
-                titles.insert(terms.join(" "));
+            let title_terms = tokenize(&title);
+            if title_terms.len() >= 2 {
+                titles.insert(title_terms.join(" "));
             }
-            for word in words(content).into_iter().collect::<HashSet<_>>() {
+            for word in terms {
                 *frequencies.entry(word).or_default() += 1;
             }
         }
@@ -90,7 +101,6 @@ impl Corpus {
                     .join("|")
             ))?)
         };
-        let n = documents.len() as f64;
         let idf = frequencies
             .into_iter()
             .map(|(term, df)| (term, ((1. + n) / (1. + df as f64)).ln() + 1.))

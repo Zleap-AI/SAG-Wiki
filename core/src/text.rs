@@ -9,20 +9,46 @@ static WORD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"[\p{L}\p{N}]").unwr
 static STOPS: LazyLock<HashSet<&'static str>> = LazyLock::new(|| {
     "的 了 是 在 和 与 或 哪 什么 哪个 哪些 如何 怎么 为什么 是否 这 那 一个 一种 请 我 你 他 它 吗 呢 吧 地 得 the a an of in on at to for and or is are was were be by with from which what who how when where does do did that this it as".split_whitespace().collect()
 });
-static TOKEN_CACHE: LazyLock<Mutex<IndexMap<String, Vec<String>>>> = LazyLock::new(|| Mutex::new(IndexMap::new()));
+const TOKEN_CACHE_MAX_BYTES: usize = 8 * 1024 * 1024;
+const TOKEN_CACHE_MAX_INPUT_BYTES: usize = 8192;
+#[derive(Default)]
+struct TokenCache {
+    entries: IndexMap<String, Vec<String>>,
+    bytes: usize,
+}
+impl TokenCache {
+    fn entry_bytes(source: &str, tokens: &[String]) -> usize {
+        source.len() + std::mem::size_of_val(tokens) + tokens.iter().map(String::len).sum::<usize>()
+    }
+    fn insert(&mut self, source: &str, tokens: &[String]) {
+        let bytes = Self::entry_bytes(source, tokens);
+        if bytes > TOKEN_CACHE_MAX_BYTES { return; }
+        if let Some(previous) = self.entries.swap_remove(source) {
+            self.bytes -= Self::entry_bytes(source, &previous);
+        }
+        while self.bytes + bytes > TOKEN_CACHE_MAX_BYTES || self.entries.len() >= 8192 {
+            let (source, tokens) = self.entries.swap_remove_index(0).unwrap();
+            self.bytes -= Self::entry_bytes(&source, &tokens);
+        }
+        self.entries.insert(source.to_owned(), tokens.to_vec());
+        self.bytes += bytes;
+    }
+}
+static TOKEN_CACHE: LazyLock<Mutex<TokenCache>> = LazyLock::new(|| Mutex::new(TokenCache::default()));
 pub fn tokenize(text: &str) -> Vec<String> {
+    // Large source lines (for example embedded images) must not stay resident.
+    if text.len() > TOKEN_CACHE_MAX_INPUT_BYTES { return tokenize_uncached(text); }
     {
         let mut cache = TOKEN_CACHE.lock().expect("token cache mutex poisoned");
         // Cache eviction order does not affect tokens; avoid shifting thousands of entries.
-        if let Some(tokens) = cache.swap_remove(text) {
-            cache.insert(text.to_owned(), tokens.clone());
+        if let Some(tokens) = cache.entries.swap_remove(text) {
+            cache.entries.insert(text.to_owned(), tokens.clone());
             return tokens;
         }
     }
     let tokens = tokenize_uncached(text);
     let mut cache = TOKEN_CACHE.lock().expect("token cache mutex poisoned");
-    cache.insert(text.to_owned(), tokens.clone());
-    if cache.len() > 8192 { cache.swap_remove_index(0); }
+    cache.insert(text, &tokens);
     tokens
 }
 fn tokenize_uncached(text: &str) -> Vec<String> {
@@ -104,6 +130,69 @@ pub fn is_markdown(path: &std::path::Path) -> bool {
         .and_then(|e| e.to_str())
         .is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "md" | "markdown"))
 }
+pub(crate) fn indexable_ranges(source: &str, path: &std::path::Path) -> Vec<(usize, usize)> {
+    if !path.extension().is_some_and(|extension| ["html", "htm", "md", "markdown"].iter().any(|kind| extension.eq_ignore_ascii_case(kind))) {
+        return vec![(0, source.len())];
+    }
+    static RESOURCE_DATA: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+        r#"(?i)data:(?:image|font|audio|video|application)/[a-z0-9.+-]+(?:;[^;,\s"'<>]+)*,"#
+    ).unwrap());
+    static SVG_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<(/?)svg\b[^>]*>").unwrap());
+    let bytes = source.as_bytes();
+    let mut excluded = vec![];
+    for resource in RESOURCE_DATA.find_iter(source) {
+        let quoted = resource.start() > 0 && matches!(bytes[resource.start() - 1], b'\'' | b'"');
+        let base64 = resource.as_str().to_ascii_lowercase().contains(";base64,");
+        let mut end = resource.end();
+        while end < bytes.len() {
+            let byte = bytes[end];
+            let allowed = if base64 {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')
+                    || quoted && byte.is_ascii_whitespace()
+            } else {
+                !byte.is_ascii_whitespace() && !matches!(byte, b'\'' | b'"' | b'<' | b'>' | b')')
+            };
+            if !allowed { break; }
+            end += 1;
+        }
+        excluded.push((resource.start(), end));
+    }
+    let (mut svg_depth, mut svg_start) = (0usize, 0usize);
+    for tag in SVG_TAG.captures_iter(source) {
+        let whole = tag.get(0).unwrap();
+        if &tag[1] == "/" {
+            if svg_depth > 0 {
+                svg_depth -= 1;
+                if svg_depth == 0 { excluded.push((svg_start, whole.end())); }
+            }
+        } else if whole.as_str().ends_with("/>") {
+            if svg_depth == 0 { excluded.push((whole.start(), whole.end())); }
+        } else {
+            if svg_depth == 0 { svg_start = whole.start(); }
+            svg_depth += 1;
+        }
+    }
+    if svg_depth > 0 { excluded.push((svg_start, source.len())); }
+    excluded.sort_unstable();
+    let mut ranges = vec![];
+    let mut cursor = 0;
+    for (start, end) in excluded {
+        if cursor < start { ranges.push((cursor, start)); }
+        cursor = cursor.max(end);
+    }
+    if cursor < source.len() { ranges.push((cursor, source.len())); }
+    ranges
+}
+pub(crate) fn indexable_text<'a>(source: &'a str, path: &std::path::Path) -> std::borrow::Cow<'a, str> {
+    let ranges = indexable_ranges(source, path);
+    if ranges == [(0, source.len())] { return std::borrow::Cow::Borrowed(source); }
+    let mut text = String::new();
+    for (start, end) in ranges {
+        if !text.is_empty() { text.push('\n'); }
+        text.push_str(&source[start..end]);
+    }
+    std::borrow::Cow::Owned(text)
+}
 enum FileKind { Markdown, Text, Code, Config }
 fn file_kind(path: &std::path::Path) -> Option<FileKind> {
     if path.file_name().and_then(|name| name.to_str()).is_some_and(|name| {
@@ -111,49 +200,29 @@ fn file_kind(path: &std::path::Path) -> Option<FileKind> {
     }) {
         return Some(FileKind::Code);
     }
-    match path.extension()?.to_str()?.to_ascii_lowercase().as_str() {
-        "md" | "markdown" => Some(FileKind::Markdown),
-        "txt" | "rst" | "rtf" => Some(FileKind::Text),
-        "json" | "jsonc" | "yaml" | "yml" | "toml" | "ini" | "cfg" | "conf" | "xml" => Some(FileKind::Config),
-            "rs"
-                | "py"
-                | "js"
-                | "jsx"
-                | "ts"
-                | "tsx"
-                | "mjs"
-                | "cjs"
-                | "go"
-                | "java"
-                | "c"
-                | "h"
-                | "cpp"
-                | "hpp"
-                | "cc"
-                | "cs"
-                | "rb"
-                | "php"
-                | "swift"
-                | "kt"
-                | "kts"
-                | "scala"
-                | "sh"
-                | "bash"
-                | "zsh"
-                | "ps1"
-                | "sql"
-                | "html"
-                | "htm"
-                | "css"
-                | "scss"
-                | "vue"
-                | "svelte"
-                | "r"
-                | "lua"
-                | "dart" => Some(FileKind::Code),
-        _ => None,
-    }
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+    if MARKDOWN_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Markdown) }
+    else if TEXT_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Text) }
+    else if CODE_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Code) }
+    else if CONFIG_EXTENSIONS.contains(&extension.as_str()) { Some(FileKind::Config) }
+    else { None }
 }
+const MARKDOWN_EXTENSIONS: &[&str] = &["md", "markdown"];
+const TEXT_EXTENSIONS: &[&str] = &["txt", "rst", "rtf"];
+const CODE_EXTENSIONS: &[&str] = &[
+    "rs", "py", "js", "jsx", "ts", "tsx", "mjs", "cjs", "go", "java", "c", "h", "cpp", "hpp", "cc", "cs",
+    "rb", "php", "swift", "kt", "kts", "scala", "sh", "bash", "zsh", "ps1", "sql", "html", "htm", "css",
+    "scss", "vue", "svelte", "r", "lua", "dart",
+];
+const CONFIG_EXTENSIONS: &[&str] = &["json", "jsonc", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml"];
+pub fn enabled_extensions(types: &crate::types::FileTypes) -> Vec<String> {
+    [(types.markdown, MARKDOWN_EXTENSIONS), (types.text, TEXT_EXTENSIONS),
+     (types.text, crate::docling::DOCUMENT_EXTENSIONS),
+     (types.code, CODE_EXTENSIONS), (types.config, CONFIG_EXTENSIONS)]
+        .into_iter().filter(|(enabled, _)| *enabled)
+        .flat_map(|(_, extensions)| extensions.iter().map(|extension| (*extension).into())).collect()
+}
+
 pub fn is_supported(path: &std::path::Path) -> bool {
     file_kind(path).is_some()
 }
@@ -390,6 +459,16 @@ pub fn chunks_for_file(content: &str, max_chars: usize, path: &std::path::Path) 
     let mut result: Vec<Chunk> = vec![];
     let mut sentences: Vec<Vec<(usize, usize)>> = vec![];
     let mut length = 0;
+    // Cut out embedded resource data before splitting, retaining original offsets
+    // so search snippets and citations can still be read from the source file.
+    let ranges = indexable_ranges(content, path);
+    let blocks = blocks.into_iter().flat_map(|(heading, start, end, code)| {
+        ranges.iter().filter_map(move |&(allowed_start, allowed_end)| {
+            let start = start.max(allowed_start);
+            let end = end.min(allowed_end);
+            (start < end).then(|| (heading.clone(), start, end, code))
+        })
+    });
     for (heading, start, end, code) in blocks {
         for (s, e) in split_block(content, start, end, body_limit, code) {
             let part = &content[s..e];
@@ -469,6 +548,61 @@ pub(crate) fn source_content(source: &str, spans: &[crate::types::SourceSpan]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn embedded_resources_are_excluded_without_removing_ordinary_scripts() {
+        let source = concat!(
+            "<p>beforemarker</p><svg><text>svgpayloadmarker</text><svg><path d='nestedmarker'/></svg></svg>",
+            "<img src='data:image/svg+xml,%3Csvg%3Eencodedsvgmarker%3C/svg%3E'>",
+            "<style>@font-face{src:url(data:font/woff2;base64,fontpayloadmarker)}</style>",
+            "<audio src='data:audio/mpeg;base64,audiopayloadmarker'></audio>",
+            "<video src='data:video/mp4;base64,videopayloadmarker'></video>",
+            "<a download='file.pdf' href='data:application/pdf;base64,attachmentpayloadmarker'>附件说明</a>",
+            "<script>ordinaryscriptmarker(); //# sourceMappingURL=data:application/json;base64,sourcemapmarker</script>",
+            "<style>.ordinarystylemarker{color:red}</style><p>aftermarker</p>"
+        );
+        for extension in ["html", "md", "MD"] {
+            let chunks = chunks_for_file(source, 512, std::path::Path::new(&format!("resources.{extension}")));
+            let content = chunks.iter().map(|chunk| chunk.content.as_str()).collect::<String>();
+            for marker in ["svgpayloadmarker", "nestedmarker", "encodedsvgmarker", "fontpayloadmarker", "audiopayloadmarker", "videopayloadmarker", "attachmentpayloadmarker", "sourcemapmarker"] {
+                assert!(!content.contains(marker), "{extension} retained {marker}");
+            }
+            for marker in ["beforemarker", "aftermarker", "附件说明", "ordinaryscriptmarker", "ordinarystylemarker"] {
+                assert!(content.contains(marker), "{extension} removed {marker}");
+            }
+            for chunk in chunks { assert_eq!(chunk.content, source_content(source, &chunk.spans)); }
+        }
+    }
+
+    #[test]
+    fn html_chunks_exclude_image_data_and_preserve_source_spans() {
+        let source = concat!(
+            "<h1>正文标题</h1>\r\n<p>beforemarker</p><img alt='图像说明' src='data:image/png;base64,aW1hZ2VwYXlsb2Fk'>",
+            "<p>aftermarker</p>\r\n<style>.logo{background:url(\"DATA:IMAGE/SVG+XML;charset=utf-8;BASE64,c2Vjb25k\r\n  cGF5bG9hZA==\")}</style>",
+            "<img src=data:image/jpeg;base64,dGhpcmRwYXlsb2Fk alt=endmarker><p>结尾正文</p>",
+            "<img src='https://example.com/image.png'><img src='data:image/svg+xml,%3Csvg%3E'>"
+        );
+        for extension in ["html", "HTM"] {
+            let chunks = chunks_for_file(source, 512, std::path::Path::new(&format!("page.{extension}")));
+            let result = chunks.iter().map(|chunk| chunk.content.as_str()).collect::<String>();
+            for marker in ["正文标题", "beforemarker", "图像说明", "aftermarker", "endmarker", "结尾正文", "https://example.com/image.png"] {
+                assert!(result.contains(marker), "missing {marker}");
+            }
+            for payload in ["aW1hZ2VwYXlsb2Fk", "c2Vjb25k", "cGF5bG9hZA", "dGhpcmRwYXlsb2Fk", "%3Csvg%3E"] {
+                assert!(!result.contains(payload), "image payload remained: {payload}");
+            }
+            for chunk in &chunks {
+                assert_eq!(chunk.content, source_content(source, &chunk.spans));
+                for span in &chunk.spans {
+                    assert_eq!(span.start_line, source[..span.start_byte].bytes().filter(|byte| *byte == b'\n').count() + 1);
+                    let line_start = source[..span.start_byte].rfind('\n').map_or(0, |offset| offset + 1);
+                    assert_eq!(span.start_column, source[line_start..span.start_byte].chars().count() + 1);
+                }
+            }
+        }
+        let literal = chunks_for_file(source, 512, std::path::Path::new("example.txt"));
+        assert!(literal.iter().any(|chunk| chunk.content.contains("aW1hZ2VwYXlsb2Fk")));
+    }
+
     #[test]
     fn sentence_boundaries_survive_chunking_and_overlap() {
         let first = format!("{}。", "完整条件".repeat(100));
@@ -665,6 +799,28 @@ mod tests {
         }
     }
     #[test]
+    fn large_inputs_are_not_retained_in_token_cache() {
+        let source = format!("large-cache-regression {}", "中文 document payload ".repeat(1000));
+        assert_eq!(tokenize(&source), tokenize_uncached(&source));
+        assert!(!TOKEN_CACHE.lock().unwrap().entries.contains_key(&source));
+    }
+
+    #[test]
+    fn token_cache_enforces_total_memory_budget() {
+        let mut cache = TokenCache::default();
+        let tokens = vec!["word".to_owned(); 1000];
+        for index in 0..1000 {
+            cache.insert(&format!("document-{index}"), &tokens);
+            assert!(cache.bytes <= TOKEN_CACHE_MAX_BYTES);
+        }
+        assert!(cache.entries.len() < 1000);
+        assert_eq!(cache.bytes, cache.entries.iter().map(|(source, tokens)| TokenCache::entry_bytes(source, tokens)).sum::<usize>());
+        let bytes = cache.bytes;
+        cache.insert("document-999", &tokens);
+        assert_eq!(cache.bytes, bytes);
+    }
+
+    #[test]
     fn cache_eviction_preserves_tokenization() {
         for index in 0..8_300 {
             let source = format!("文档标识符 marker_{index} mixedCase");
@@ -672,7 +828,9 @@ mod tests {
             assert_eq!(tokenize(&source), expected);
             assert_eq!(tokenize(&source), expected);
         }
-        assert!(TOKEN_CACHE.lock().unwrap().len() <= 8192);
+        let cache = TOKEN_CACHE.lock().unwrap();
+        assert!(cache.entries.len() <= 8192);
+        assert!(cache.bytes <= TOKEN_CACHE_MAX_BYTES);
     }
 
 }

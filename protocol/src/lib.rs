@@ -1,7 +1,9 @@
+mod build;
 mod cli;
 pub mod explore;
 mod retrieval;
 pub mod types;
+pub use build::*;
 pub use cli::*;
 use explore::*;
 pub use retrieval::*;
@@ -17,6 +19,8 @@ pub const MAX_MESSAGE: usize = 64 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ServiceInfo {
+    #[serde(default)]
+    pub version: Option<String>,
     pub protocol_version: u32,
     pub build_id: String,
     pub channel: String,
@@ -54,11 +58,55 @@ pub struct QueryOutput {
     pub conversation: Option<Conversation>,
     pub pagination: Option<SearchPagination>,
 }
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SearchSummary {
+    pub text: String,
+    pub evidence: Vec<Candidate>,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexEvent {
     pub path: String,
     pub count: usize,
     pub total: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<String>,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct IndexStatus {
+    pub paused: bool,
+    pub tasks: Vec<IndexTask>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexTask {
+    pub path: String,
+    pub stage: String,
+    pub completed: usize,
+    pub total: usize,
+    pub files: Vec<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexHistory {
+    pub id: i64,
+    pub path: String,
+    pub name: String,
+    pub started_at: i64,
+    pub finished_at: i64,
+    pub completed: usize,
+    pub total: usize,
+    pub status: String,
+    pub error: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexFileLog {
+    pub time: i64,
+    pub path: String,
+    pub stage: String,
+    pub status: String,
+    pub error: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexHistoryLog {
+    pub raw: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Snapshot {
@@ -88,6 +136,10 @@ pub struct EventEnvelope {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", content = "args", rename_all = "snake_case")]
 pub enum Operation {
+    DoclingStatus,
+    InstallDocling,
+    CancelDoclingInstall,
+    UninstallDocling,
     Info,
     Snapshot,
     Cli {
@@ -114,6 +166,18 @@ pub enum Operation {
     AddRoot {
         path: String,
     },
+    AddRootWithOptions {
+        path: String,
+        options: FolderIndexOptions,
+    },
+    GetFolderIndexOptions {
+        path: String,
+    },
+    SaveFolderIndexOptions {
+        path: String,
+        options: FolderIndexOptions,
+        rebuild: bool,
+    },
     RemoveRoot {
         path: String,
     },
@@ -122,6 +186,14 @@ pub enum Operation {
         path: String,
     },
     ReindexAll,
+    GetIndexStatus,
+    GetIndexHistory,
+    GetIndexHistoryLog { id: i64 },
+    SetConversionWorkers { workers: usize },
+    AuthorizeIndexHistoryFile { id: i64, path: String },
+    ClearIndexHistory,
+    SetIndexPaused { paused: bool },
+    RemoveAllRoots,
     PutDraft {
         draft: Draft,
     },
@@ -149,6 +221,8 @@ pub enum Operation {
         credentials: Option<McpCredentials>,
     },
     ListConversations,
+    ClearConversations,
+    ClearAllData,
     EditConversation {
         id: String,
         title: Option<String>,
@@ -160,6 +234,11 @@ pub enum Operation {
     },
     RunQuery {
         query: Query,
+    },
+    SummarizeSearch {
+        id: String,
+        question: String,
+        results: Vec<Candidate>,
     },
     CancelQuery {
         id: String,
@@ -201,6 +280,11 @@ pub enum Operation {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    Docling(DoclingStatus),
+    IndexStatus(IndexStatus),
+    IndexHistory(Vec<IndexHistory>),
+    IndexHistoryLog(IndexHistoryLog),
+    FolderIndexOptions(FolderIndexOptions),
     Unit,
     Info(ServiceInfo),
     Snapshot(Snapshot),
@@ -218,10 +302,25 @@ pub enum Output {
     Conversations(Vec<Conversation>),
     Conversation(Conversation),
     Query(QueryOutput),
+    SearchSummary(SearchSummary),
     Overview(ExploreOverview),
     Graph(ExploreGraph),
     Neighbors(ExploreNeighbors),
     Evidence(ExploreEvidence),
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct DoclingStatus {
+    pub installed: bool,
+    pub running: bool,
+    pub stage: String,
+    pub message: String,
+    pub downloaded: u64,
+    pub total: Option<u64>,
+    #[serde(default)]
+    pub percent: Option<f64>,
+    pub error: Option<String>,
+    pub formats: Vec<(String, Vec<String>)>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "frame", rename_all = "snake_case")]

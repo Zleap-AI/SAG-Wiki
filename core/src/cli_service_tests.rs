@@ -20,6 +20,9 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
     .unwrap();
     let root = root.canonicalize().unwrap();
     let store = Arc::new(Store::open(&dir.path().join("test.sqlite")).unwrap());
+    let mut settings = store.settings().unwrap();
+    settings.file_types.code = true;
+    store.save_settings(&settings).unwrap();
     store.add_root(&root).unwrap();
     store.scan(root.to_str().unwrap(), |_| {}).unwrap();
     let watcher = Arc::new(std::sync::Mutex::new(notify::recommended_watcher(|_: notify::Result<notify::Event>| {}).unwrap()));
@@ -73,6 +76,48 @@ fn search(content: bool) -> Command {
 }
 
 #[tokio::test]
+async fn check_and_list_report_pending_indexes_and_disabled_access_without_models() {
+    let (_dir, service, root) = fixture();
+    service.store.connection().execute("UPDATE roots SET status='indexing'", []).unwrap();
+    service.configure(Access { enabled: false }).unwrap();
+    match send(&service, &root, Command::Check, None).await {
+        Response::Checked(output) => {
+            assert_eq!(output.coverage, IndexCoverage::Included);
+            assert!(!output.index_ready);
+            assert!(!output.enabled);
+            assert_eq!(output.indexed_files, 1);
+            assert_eq!(output.roots[0].status, "indexing");
+        }
+        response => panic!("{response:?}"),
+    }
+    match send(&service, &root, Command::List, None).await {
+        Response::Roots(roots) => {
+            assert_eq!(roots.len(), 1);
+            assert_eq!(roots[0].path, root.to_str().unwrap());
+            assert_eq!(roots[0].count, 1);
+        }
+        response => panic!("{response:?}"),
+    }
+}
+
+#[tokio::test]
+async fn status_contains_only_service_configuration_and_does_not_require_a_directory() {
+    let (_dir, service, root) = fixture();
+    let expected = json!({
+        "protocol_version": VERSION,
+        "connected": true,
+        "enabled": true,
+        "jev_configured": false,
+    });
+    for path in [&root, &root.join("not-created")] {
+        let Response::Status(status) = send(&service, path, Command::Status, None).await else {
+            panic!("status failed");
+        };
+        assert_eq!(serde_json::to_value(status).unwrap(), expected);
+    }
+}
+
+#[tokio::test]
 async fn local_matching_socket_needs_no_model_and_keeps_access_checks() {
     let (_dir, service, root) = fixture();
     let command = || Command::Match(MatchRequest {
@@ -105,7 +150,6 @@ async fn socket_status_reports_disabled_and_search_uses_automatic_scope() {
     match send(&service, &root, Command::Status, None).await {
         Response::Status(s) => {
             assert!(!s.enabled);
-            assert!(s.allowed);
             assert!(!s.jev_configured)
         }
         r => panic!("{r:?}"),
@@ -166,6 +210,111 @@ async fn model_request(stream: &mut TcpStream) -> Value {
     let mut body = vec![0; length];
     read.read_exact(&mut body).await.unwrap();
     serde_json::from_slice(&body).unwrap()
+}
+#[tokio::test]
+async fn twenty_searches_reach_the_model_before_any_response_returns() {
+    let (_dir, service, root) = fixture();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut settings = service.store.settings().unwrap();
+    settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
+    settings.retrieval.max_hops = 0;
+    service.store.save_settings(&settings).unwrap();
+    models::save_secret(&service.data, "jev", "test-only").unwrap();
+    let mut clients = vec![];
+    for _ in 0..20 {
+        let service = service.clone();
+        let root = root.clone();
+        clients.push(tokio::spawn(async move { send(&service, &root, search(true), None).await }));
+    }
+    let mut requests = vec![];
+    for _ in 0..20 {
+        let (mut stream, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept()).await
+            .expect("all twenty searches must run before a model response is released").unwrap();
+        let payload = model_request(&mut stream).await;
+        requests.push((stream, payload));
+    }
+    for (mut stream, payload) in requests {
+        let answers: serde_json::Map<String, Value> = payload["questions"].as_object().unwrap()
+            .keys().map(|key| (key.clone(), json!({"type":"noul","noul":0.9}))).collect();
+        let body = json!({"answers":answers}).to_string();
+        stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    }
+    for client in clients {
+        let Response::Search(output) = client.await.unwrap() else { panic!("search failed") };
+        assert_eq!(output.results.len(), 1);
+        assert!(output.results[0].content.as_deref().unwrap().contains("validate_permission"));
+    }
+    service.shutdown();
+}
+#[tokio::test]
+async fn standalone_search_rechecks_access_changed_by_another_core() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("project");
+    fs::create_dir(&root).unwrap();
+    fs::write(root.join("session.txt"), "Session authentication checks permissions.").unwrap();
+    let service = CliService::local(dir.path().into()).unwrap();
+    let registered = service.store.add_root(&root).unwrap();
+    service.store.scan(&registered, |_| {}).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut settings = service.store.settings().unwrap();
+    settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
+    settings.retrieval.max_hops = 0;
+    service.store.save_settings(&settings).unwrap();
+    models::save_secret(dir.path(), "jev", "test-only").unwrap();
+    let task = tokio::spawn(async move { service.run_local(root, Command::Search {
+        query: "How does session authentication check permissions?".into(),
+        max_results: 1, content: true, timeout: 3,
+    }, CancellationToken::new()).await });
+    let (mut stream, _) = listener.accept().await.unwrap();
+    let payload = model_request(&mut stream).await;
+    let other = CliService::local(dir.path().into()).unwrap();
+    other.configure(Access { enabled: false }).unwrap();
+    drop(other);
+    let answers: serde_json::Map<String, Value> = payload["questions"].as_object().unwrap().keys()
+        .map(|key| (key.clone(), json!({"type":"noul","noul":0.9}))).collect();
+    let body = json!({"answers":answers}).to_string();
+    stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    assert!(task.await.unwrap().unwrap_err().to_string().contains("未启用"));
+}
+#[tokio::test]
+async fn semantic_limit_keeps_every_source_span_of_selected_evidence() {
+    let (_dir, service, root) = fixture();
+    fs::remove_file(root.join("session.rs")).unwrap();
+    fs::write(root.join("session.md"), "Session access requires a valid account.\n\nAuthentication checks permission.\n\nAccess denied returns an error.\n").unwrap();
+    service.store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut settings = service.store.settings().unwrap();
+    settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
+    settings.retrieval.max_hops = 0;
+    service.store.save_settings(&settings).unwrap();
+    models::save_secret(&service.data, "jev", "test-only").unwrap();
+    service.configure(Access { enabled: true }).unwrap();
+    let model = tokio::spawn(async move {
+        for _ in 0..2 {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let payload = model_request(&mut stream).await;
+            let answers: serde_json::Map<String, Value> = payload["questions"].as_object().unwrap()
+                .keys().map(|key| (key.clone(), json!({"type":"noul","noul":0.9}))).collect();
+            let body = json!({"answers":answers}).to_string();
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    for content in [true, false] {
+        let response = send(&service, &root, Command::Search {
+            query: "How does session authentication check permission and report denied access?".into(),
+            max_results: 1, content, timeout: 3,
+        }, None).await;
+        let Response::Search(output) = response else { panic!("{response:?}") };
+        assert!(!output.truncated);
+        assert_eq!(output.results.iter().map(|r| (r.start_line, r.end_line)).collect::<Vec<_>>(), vec![(1, 1), (3, 3), (5, 5)]);
+        assert!(output.results.iter().all(|r| r.path == "./session.md"));
+        let passages = output.results.iter().map(|r| r.content.as_deref()).collect::<Vec<_>>();
+        assert_eq!(passages, if content {
+            vec![Some("Session access requires a valid account."), Some("Authentication checks permission."), Some("Access denied returns an error.")]
+        } else { vec![None, None, None] });
+    }
+    model.await.unwrap();
+    service.shutdown();
 }
 #[tokio::test]
 async fn semantic_results_keep_headings_without_repeating_overlap() {
@@ -257,7 +406,7 @@ async fn parent_scope_search_reuses_retrieval_and_returns_exact_crlf_passage() {
     model.await.unwrap();
 }
 #[tokio::test]
-async fn disconnect_and_timeout_release_the_query_without_cancelling_ui() {
+async fn disconnect_and_timeout_only_cancel_their_own_parallel_queries() {
     let (_dir, service, root) = fixture();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let mut settings = service.store.settings().unwrap();
@@ -285,11 +434,12 @@ async fn disconnect_and_timeout_release_the_query_without_cancelling_ui() {
         .unwrap();
     let (mut remote, _) = listener.accept().await.unwrap();
     model_request(&mut remote).await;
+    let peer_service = service.clone();
+    let peer_root = root.clone();
+    let peer = tokio::spawn(async move { send(&peer_service, &peer_root, search(true), None).await });
+    let (mut peer_remote, _) = tokio::time::timeout(Duration::from_secs(1), listener.accept()).await.unwrap().unwrap();
+    let peer_payload = model_request(&mut peer_remote).await;
     drop(cli);
-    let guard = tokio::time::timeout(Duration::from_secs(1), service.query_lock.lock())
-        .await
-        .unwrap();
-    drop(guard);
     let mut eof = [0];
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(1), remote.read(&mut eof))
@@ -298,6 +448,11 @@ async fn disconnect_and_timeout_release_the_query_without_cancelling_ui() {
             .unwrap(),
         0
     );
+    let answers: serde_json::Map<String, Value> = peer_payload["questions"].as_object().unwrap().keys()
+        .map(|key| (key.clone(), json!({"type":"noul","noul":0.9}))).collect();
+    let body = json!({"answers":answers}).to_string();
+    peer_remote.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+    assert!(matches!(peer.await.unwrap(), Response::Search(_)));
     let cli = send(
         &service,
         &root,
@@ -314,7 +469,6 @@ async fn disconnect_and_timeout_release_the_query_without_cancelling_ui() {
         Response::Error(e) => assert!(e.contains("超时")),
         r => panic!("{r:?}"),
     }
-    assert!(service.query_lock.try_lock().is_ok());
 }
 
 #[cfg(unix)]
@@ -363,7 +517,7 @@ async fn removing_a_root_removes_it_from_automatic_scope() {
     fs::create_dir(&child).unwrap();
     service.configure(Access { enabled: true }).unwrap();
     service.store.remove_root(path).unwrap();
-    assert!(!service.status(&root).unwrap().allowed);
+    assert_eq!(service.check(&root).unwrap().coverage, IndexCoverage::None);
     service.configure(Access { enabled: false }).unwrap();
     assert!(!service.access().enabled);
 }
@@ -409,19 +563,19 @@ async fn add_registers_indexes_and_enables_discovery() {
     assert!(!service.store.roots().unwrap().iter().any(|r| Path::new(&r.path)==new));
     assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Added(_)));
     for _ in 0..100 {
-        if service.status(&new).unwrap().index_ready { break; }
+        if service.index_ready(&new).unwrap() { break; }
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    assert!(service.status(&new).unwrap().index_ready);
+    assert!(service.index_ready(&new).unwrap());
     assert!(service.store.document(&new.join("notes.md")).is_ok());
-    assert!(service.status(&new).unwrap().allowed);
+    assert_eq!(service.check(&new).unwrap().coverage, IndexCoverage::Included);
     assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Added(_)));
     assert_eq!(service.store.roots().unwrap().iter().filter(|r| Path::new(&r.path)==new).count(),1);
     let child = root.join("子目录");
     fs::create_dir(&child).unwrap();
     assert!(matches!(send(&service,&child,Command::Add,None).await,Response::Added(_)));
-    assert!(service.status(&child).unwrap().allowed);
-    assert!(service.status(&root).unwrap().allowed);
+    assert_eq!(service.check(&child).unwrap().coverage, IndexCoverage::Included);
+    assert_eq!(service.check(&root).unwrap().coverage, IndexCoverage::Included);
     assert!(matches!(send(&service,&root.join("session.rs"),Command::Add,None).await,Response::Error(_)));
     assert!(matches!(send(&service,&dir.path().join("missing"),Command::Add,None).await,Response::Error(_)));
 }
@@ -435,7 +589,7 @@ async fn offline_roots_do_not_block_add_or_disabling_cli() {
     let new = dir.path().join("new");
     fs::create_dir(&new).unwrap();
     assert!(matches!(send(&service,&new,Command::Add,None).await,Response::Added(_)));
-    assert!(service.status(&new).unwrap().allowed);
+    assert_eq!(service.check(&new).unwrap().coverage, IndexCoverage::Included);
     let mut access = service.access();
     access.enabled = false;
     service.configure(access).unwrap();
@@ -448,7 +602,7 @@ async fn parallel_adds_preserve_roots_and_queued_index_is_not_ready() {
     service.configure(Access { enabled: true }).unwrap();
     let Response::Added(existing_result) = send(&service,&existing,Command::Add,None).await else { panic!("add failed") };
     assert_eq!(existing_result.index_status,"pending");
-    assert!(!service.status(&existing).unwrap().index_ready);
+    assert!(!service.index_ready(&existing).unwrap());
     let root = dir.path().join("outer");
     fs::create_dir(&root).unwrap();
     let root = root.canonicalize().unwrap();
@@ -459,21 +613,22 @@ async fn parallel_adds_preserve_roots_and_queued_index_is_not_ready() {
         let Response::Added(output) = result else { panic!("add failed: {result:?}") };
         assert_eq!(output.index_status,"pending");
     }
-    assert!(service.status(&root).unwrap().allowed);
-    assert!(service.status(&child).unwrap().allowed);
-    assert!(!service.status(&root).unwrap().index_ready);
+    assert_eq!(service.check(&root).unwrap().coverage, IndexCoverage::Included);
+    assert_eq!(service.check(&child).unwrap().coverage, IndexCoverage::Included);
+    assert!(!service.index_ready(&root).unwrap());
 }
 
 #[tokio::test]
 async fn new_install_is_enabled_and_parent_scope_discovers_indexed_children() {
     let (dir, service, root) = fixture();
-    let status = service.status(dir.path()).unwrap();
-    assert!(status.enabled, "new users should not need to enable CLI");
-    assert!(status.allowed && status.index_ready, "a parent directory should discover indexed children");
+    assert!(service.status().unwrap().enabled, "new users should not need to enable CLI");
+    let check = service.check(dir.path()).unwrap();
+    assert_eq!(check.coverage, IndexCoverage::Partial);
+    assert!(check.index_ready, "a parent directory should discover indexed children");
     let unindexed = dir.path().join("unindexed");
     fs::create_dir(&unindexed).unwrap();
-    assert!(!service.status(&unindexed).unwrap().allowed);
-    assert!(service.status(&root).unwrap().allowed);
+    assert_eq!(service.check(&unindexed).unwrap().coverage, IndexCoverage::None);
+    assert_eq!(service.check(&root).unwrap().coverage, IndexCoverage::Included);
     service.configure(Access { enabled: false }).unwrap();
     assert!(matches!(send(&service,&root,search(false),None).await,Response::Error(_)));
 }
@@ -494,13 +649,13 @@ async fn remove_unregisters_only_the_requested_root_and_preserves_local_files() 
     service.configure(Access { enabled: true }).unwrap();
     assert!(matches!(send(&service, &root, Command::Remove, Some("bad-token")).await, Response::Error(_)));
     assert!(matches!(send(&service, &root.join("session.rs"), Command::Remove, None).await, Response::Error(_)));
-    assert!(service.status(&root).unwrap().allowed);
+    assert_eq!(service.check(&root).unwrap().coverage, IndexCoverage::Included);
 
     let Response::Removed { path } = send(&service, &root, Command::Remove, None).await else { panic!("remove failed") };
     assert_eq!(path, root.to_str().unwrap());
-    let Response::Status(status) = send(&service, &root, Command::Status, None).await else { panic!("status failed") };
-    assert!(!status.allowed);
-    assert!(service.status(&other).unwrap().allowed);
+    let Response::Checked(check) = send(&service, &root, Command::Check, None).await else { panic!("check failed") };
+    assert_eq!(check.coverage, IndexCoverage::None);
+    assert_eq!(service.check(&other).unwrap().coverage, IndexCoverage::Included);
     assert!(matches!(send(&service, &root, search(true), None).await, Response::Error(_)));
     assert_eq!(fs::read(root.join("session.rs")).unwrap(), original);
     assert_eq!(fs::read(child.join("notes.md")).unwrap(), b"keep nested file");
@@ -515,8 +670,8 @@ async fn remove_accepts_an_offline_registered_path_and_keeps_moved_files() {
     fs::rename(&root, &moved).unwrap();
     let Response::Removed { path } = send(&service, &root, Command::Remove, None).await else { panic!("offline remove failed") };
     assert_eq!(path, root.to_str().unwrap());
-    let Response::Status(status) = send(&service, dir.path(), Command::Status, None).await else { panic!("status failed") };
-    assert!(!status.allowed);
+    let Response::Checked(check) = send(&service, dir.path(), Command::Check, None).await else { panic!("check failed") };
+    assert_eq!(check.coverage, IndexCoverage::None);
     assert_eq!(fs::read(moved.join("session.rs")).unwrap(), original);
 }
 
@@ -532,8 +687,8 @@ async fn removed_subdirectory_stays_out_of_index_until_added_again() {
     assert!(service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
 
     assert!(matches!(send(&service, &child, Command::Remove, None).await, Response::Removed { .. }));
-    assert!(!service.status(&child).unwrap().allowed);
-    assert!(service.status(&root).unwrap().allowed);
+    assert_eq!(service.check(&child).unwrap().coverage, IndexCoverage::Excluded);
+    assert_eq!(service.check(&root).unwrap().coverage, IndexCoverage::Included);
     assert!(!service.store.entries(&root, true).unwrap().iter().any(|item| item.path == child.to_str().unwrap()));
     assert!(service.store.document(&file).is_err());
     assert!(!service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
@@ -548,7 +703,7 @@ async fn removed_subdirectory_stays_out_of_index_until_added_again() {
 
     assert!(matches!(send(&service, &child, Command::Add, None).await, Response::Added(_)));
     for request in queue.try_iter() { crate::indexer::apply_request(&service.store, request, |_| {}).unwrap(); }
-    assert!(service.status(&child).unwrap().allowed);
+    assert_eq!(service.check(&child).unwrap().coverage, IndexCoverage::Included);
     assert!(service.store.files().unwrap().iter().any(|item| item.path == file.to_str().unwrap()));
     assert_eq!(service.store.document(&file).unwrap().body, "changed local content");
 }
@@ -613,13 +768,13 @@ async fn malformed_ignore_rules_preserve_existing_index_and_report_the_error() {
     send(&service, &root, Command::Add, None).await;
     let error = crate::indexer::apply_request(&service.store, queue.recv().unwrap(), |_| {}).unwrap_err();
     assert!(error.to_string().contains(".sagignore"), "{error}");
-    assert!(!service.status(&root).unwrap().index_ready);
+    assert!(!service.index_ready(&root).unwrap());
     let after: Vec<_> = service.store.files().unwrap().into_iter().map(|file| file.path).collect();
     assert_eq!(after, original);
     fs::write(&rules, "").unwrap();
     send(&service, &root, Command::Add, None).await;
     crate::indexer::apply_request(&service.store, queue.recv().unwrap(), |_| {}).unwrap();
-    assert!(service.status(&root).unwrap().index_ready);
+    assert!(service.index_ready(&root).unwrap());
 }
 
 #[cfg(unix)]

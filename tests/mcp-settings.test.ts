@@ -68,13 +68,13 @@ it('模型工具列表默认折叠，切换模型后保持折叠，并保留独�
  expect(onSave.mock.calls[0][0].model_profiles.first.mcp_tools.wiki).toEqual(['read_wiki_structure']);
  expect(onSave.mock.calls[0][0].model_profiles.second.mcp_tools.wiki).toEqual(['read_wiki_structure','ask_question']);
 });
-it('SAG 内置 MCP 默认有四个工具，可按模型单独选择并保存',async()=>{
+it('SAG 内置 MCP 默认有六个工具，可按模型单独选择并保存',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(query('SAG 的工具列表')).not.toBeNull());
  expect(query('SAG 的工具列表').getAttribute('aria-expanded')).toBe('false');
  query('SAG 的工具列表').click();await tick();
- for(const name of ['search','list','read','grep'])expect(query(`启用 SAG / ${name}`).getAttribute('aria-checked')).toBe('true');
+ for(const name of ['search','list','read','grep','getTime','calculate'])expect(query(`启用 SAG / ${name}`).getAttribute('aria-checked')).toBe('true');
  query('启用 SAG / search').click();await tick();
  expect(query('启用 SAG / read').getAttribute('aria-checked')).toBe('true');
  const select=query('配置问答模型');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
@@ -84,7 +84,7 @@ it('SAG 内置 MCP 默认有四个工具，可按模型单独选择并保存',as
  query('SAG 的工具列表').click();await tick();
  expect(query('启用 SAG / search').getAttribute('aria-checked')).toBe('true');
  await submit();
- expect(onSave.mock.calls[0][0].model_profiles.first.mcp_tools['builtin:sag']).toEqual(['list','read','grep']);
+ expect(onSave.mock.calls[0][0].model_profiles.first.mcp_tools['builtin:sag']).toEqual(['list','read','grep','getTime','calculate']);
  expect(onSave.mock.calls[0][0].model_profiles.second.mcp_tools['builtin:sag']).toBeUndefined();
 });
 it('MCP 连接配置与工具选择位于同一卡片，工具列表仍可折叠',async()=>{

@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {version as appVersion} from '../../src-tauri/tauri.conf.json';
  import {t,setLanguage,type Language} from '../lib/i18n';
  import {onDestroy} from 'svelte';
  import Input from "./ui/Input.svelte";
@@ -10,14 +11,30 @@
  import type{Settings,ModelConfig,Retrieval,FileTypes,CliAccess}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
  import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo}from '../lib/types';
  import IndexSettings from './IndexSettings.svelte';
+ import OtherFormats from './OtherFormats.svelte';
  import RemovedDirectories from './RemovedDirectories.svelte';
  import CliSettings from './CliSettings.svelte';
+ import WebClipper from './WebClipper.svelte';
+ import AppUpdates from './AppUpdates.svelte';
+ import {defaultUpdateSettings} from '../lib/updates';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
  export let onShowGuide:(()=>void)|undefined=undefined;
+ export let onIndexHistory:(()=>void)|undefined=undefined;
+ export let onBeforeUpdate:(()=>Promise<boolean>)|undefined=undefined;
  export let onSaved:(()=>void)|undefined=undefined;
+ export let onConversationsCleared:(()=>void)|undefined=undefined;
+ export let onFoldersRemoved:(()=>void)|undefined=undefined;
+ export let onDataCleared:(()=>Promise<void>)|undefined=undefined;
+ let confirmClearData=false,clearingData=false,clearDataError='';
+ async function clearData(){clearingData=true;clearDataError='';try{await api('clear_all_data');languageSaved=true;await onDataCleared?.();confirmClearData=false;onClose()}catch(e){clearDataError=$t(String(e))}finally{clearingData=false}}
+ let confirmClear=false,clearing=false,clearError='';
+ let confirmRemoveRoots=false,removingRoots=false,removeRootsError='';
+ async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
+ async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
- let settings={...structuredClone(value),language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??10,index_workers:value.index_workers??8,file_types:{markdown:true,text:true,code:true,config:true,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??10,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??4,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false;
+ async function openAboutLink(event:MouseEvent,target:'project'|'company'|'302-api-keys'){event.preventDefault();error='';try{await api('open_about_link',{target})}catch(e){error=String(e)}}
  let languageSaved=false;
  let providerChoice={answer:providerFor('answer',value.answer.url),jev:providerFor('jev',value.jev.url)};
  let autoFilledKey:ModelKind|null=null;
@@ -32,14 +49,14 @@
    autoFilledKey=key?other:null;
   }
  }
- function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom'||kind==='jev')providerChoice[kind]=providerFor(kind,address);status='';error='';}
+ function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom')providerChoice[kind]=providerFor(kind,address);status='';error='';}
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id==='custom'||id===current)return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN')});
- $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("检索设置"),'search'],['cli','CLI','codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
- let descriptions:Record<string,string>; $:descriptions={general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让编程工具通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
+ $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
+ let descriptions:Record<string,string>; $:descriptions={clipper:$t('将网页保存为本地 Markdown 文件。'),general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 1 次；加上首次召回，共 2 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段目标字符数"),$t("默认约 512，保留完整句子及相邻上下文；长句可超过目标长度。修改后自动重建索引"),400,12000]];
- let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与 RTF"),'.txt · .rst · .rtf'],['code',$t("代码"),$t("Python、JavaScript、TypeScript、Rust、HTML、CSS 等")],['config',$t("配置文件"),'JSON · YAML · TOML · XML · INI']];
- $:indexSettingsChanged=fileTypeOptions.some(([kind])=>settings.file_types[kind]!==({markdown:true,text:true,code:true,config:true,...value.file_types})[kind])||JSON.stringify(settings.excluded)!==JSON.stringify(value.excluded)||settings.retrieval.chunk_chars!==value.retrieval.chunk_chars;
+ let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与文档"),'.txt · .rtf · .docx · .pptx · .xlsx · .odt · .epub · .pdf'],['code',$t("代码"),'.py · .js · .ts · .rs · .html · .css'],['config',$t("配置文件"),'.json · .yaml · .toml · .xml · .ini']];
+ $:indexSettingsChanged=JSON.stringify(settings.conversion_formats??null)!==JSON.stringify(value.conversion_formats??null)||settings.convert_other_formats!==(value.convert_other_formats??false)||fileTypeOptions.some(([kind])=>settings.file_types[kind]!==({markdown:true,text:true,code:false,config:false,...value.file_types})[kind])||JSON.stringify(settings.excluded)!==JSON.stringify(value.excluded)||settings.retrieval.chunk_chars!==value.retrieval.chunk_chars;
  $:profileNames=models.split('\n').map(name=>name.trim()).filter(Boolean);
  $:if(profileNames.length&&!profileNames.includes(profileModel))profileModel=profileNames[0];
  $:if(profileModel&&!settings.model_profiles[profileModel])settings.model_profiles[profileModel]={system_prompt:'',sag2_enabled:true,mcp_servers:[],mcp_tools:{}};
@@ -84,34 +101,37 @@
      </section>
      <section class="settings-type-preview"><span>{$t("正文预览")}</span><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
     {:else if page==='files'}
-     <div class="settings-info-box">{$t("支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件。首次加入无需模型预处理。")}</div>
+     <div class="settings-info-box">{$t("内置解析 Markdown、文本、RTF、Office、PDF 与电子书。扫描 PDF、图片、音视频等可按需安装 Docling。")}</div>
      <section class="settings-group file-types">
       <IndexSettings settingsChanged={indexSettingsChanged}/>
       {#each fileTypeOptions as [kind,label,description]}
        <div class="setting-row"><label for={`file-type-${kind}`}><strong>{label}</strong><p>{description}</p></label><Checkbox.Root id={`file-type-${kind}`} class="ui-checkbox" aria-label={$t("导入 {value0}",{value0:label})} checked={settings.file_types[kind]} onCheckedChange={checked=>settings.file_types={...settings.file_types,[kind]:checked}}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root></div>
       {/each}
+      <OtherFormats bind:workers={settings.conversion_workers} bind:enabled={settings.convert_other_formats} bind:formats={settings.conversion_formats} disabled={busy}/>
      </section>
      <section class="settings-group">
       <div class="setting-row"><div><strong>{$t("自动监听文件变化")}</strong><p>{$t("新增、修改、删除和重命名后自动更新索引；退出应用后停止监听")}</p></div><Switch bind:checked={settings.watch} label={$t("自动监听文件变化")}/></div>
+      <div class="setting-row hidden-folder-settings"><div><strong>{$t("显示隐藏文件夹")}</strong><p>{$t("仅在右侧文件列表显示，左侧始终隐藏；不影响索引。")}</p></div><Switch bind:checked={settings.show_hidden} label={$t("显示隐藏文件夹")}/></div>
       <div class="setting-row"><label for="index-workers"><strong>{$t("索引并行数")}</strong><p>{$t("默认 8，可设为 1–64；下次索引任务生效，不会重建已有索引")}</p></label><Input id="index-workers" aria-label={$t("索引并行数")} type="number" min="1" max="64" required bind:value={settings.index_workers}/></div>
-      <div class="setting-row"><div><strong>{$t("显示隐藏文件夹")}</strong><p>{$t("仅影响文件树显示，隐藏子目录不会进入索引。")}</p></div><Switch bind:checked={settings.show_hidden} label={$t("显示隐藏文件夹")}/></div>
      </section>
      <section class="settings-group settings-fields"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p><p class="settings-help">{$t("项目忽略规则自动读取 .gitignore 和 .sagignore。可用 *.log、目录名/ 和 !文件名 编写规则；.sagignore 优先。修改后自动更新索引，原文件仍可浏览。")}</p></section>
      <RemovedDirectories/>
+     {#if onIndexHistory}<section class="settings-group index-history-settings"><div class="setting-row"><div><strong>{$t('索引历史')}</strong><p>{$t('查看索引进度和历史记录')}</p></div><Button.Root type="button" class="outline settings-index-history" onclick={onIndexHistory}>{$t('查看')}</Button.Root></div></section>{/if}
+
     {:else if page==='models'}
      {#if value.credential_error}<p class="form-error">{$t(value.credential_error)}</p>{/if}
      <div class="settings-info-box">{$t("问答模型按需调用 SAG2 检索工具，Jev 判断原文相关性。问答模型需支持工具调用，问题和相关原文会发送至所配置的服务。")}</div>
      {#each ['answer','jev'] as kind}
-      <section class="settings-group settings-fields model-settings-card">
+      <section class="settings-group settings-fields model-settings-card" data-model={kind}>
        <div class="settings-group-heading"><h3>{kind==='answer'?$t("问答模型（LLM）"):$t("Jev 模型")}</h3><span>{kind==='answer'?$t("生成回答"):$t("判断相关性")}</span></div>
        <label class="field-label provider-field">{$t('供应商')}<Select label={kind==='answer'?$t('LLM 供应商'):$t('Jev 供应商')} value={providerChoice[kind as ModelKind]} placeholder={kind==='jev'?$t('已保存的接口'):''} items={providers[kind as ModelKind].map(provider=>({value:provider.value,label:$t(provider.label)}))} onValueChange={id=>changeProvider(kind as ModelKind,id)}/></label>
        <label class="field-label">{$t("接口地址")}<Input type="url" required value={settings[kind as ModelKind].url} oninput={event=>changeAddress(kind as ModelKind,event.currentTarget.value)} spellcheck="false"/></label>
        {#if kind==='answer'}
         <label class="field-label">{$t("可选模型 · 每行一个")}<Textarea required bind:value={models} rows={3} spellcheck="false"/></label>
-        <label class="field-label">{$t("API 密钥")}<div class="key-field"><Input type={showAnswer?'text':'password'} value={answerKey} oninput={event=>changeKey('answer',event.currentTarget.value)} placeholder={savedKeys.answer?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showAnswer=!showAnswer}>{showAnswer?$t("隐藏"):$t("显示")}</Button.Root></div></label>
+        <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.answer==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input type={showAnswer?'text':'password'} value={answerKey} oninput={event=>changeKey('answer',event.currentTarget.value)} placeholder={savedKeys.answer?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showAnswer=!showAnswer}>{showAnswer?$t("隐藏"):$t("显示")}</Button.Root></div></label>
        {:else}
         <label class="field-label">{$t("模型名称")}<Input required bind:value={settings.jev.model} spellcheck="false"/></label>
-        <label class="field-label">{$t("API 密钥")}<div class="key-field"><Input type={showJev?'text':'password'} value={jevKey} oninput={event=>changeKey('jev',event.currentTarget.value)} placeholder={savedKeys.jev?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showJev=!showJev}>{showJev?$t("隐藏"):$t("显示")}</Button.Root></div></label>
+        <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.jev==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input data-autofocus={initial==='jev'?true:undefined} type={showJev?'text':'password'} value={jevKey} oninput={event=>changeKey('jev',event.currentTarget.value)} placeholder={savedKeys.jev?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showJev=!showJev}>{showJev?$t("隐藏"):$t("显示")}</Button.Root></div></label>
        {/if}
        <div class="settings-card-actions"><Button.Root type="button" class="outline" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root>{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}</div>
       </section>
@@ -142,23 +162,50 @@
       <div class="setting-row"><label for="answer-context"><strong>{$t("回答上下文预算（tokens）")}</strong><p>{$t("控制问题、历史、工具记录和引用的输入规模。默认 64K，无固定最大值，请按模型支持的上下文大小填写。输出长度由模型服务决定。")}</p></label><Input id="answer-context" aria-label={$t("回答上下文预算（tokens）")} type="number" min="4096" step="1" required bind:value={settings.answer_context_tokens}/></div>
       <div class="setting-row"><label for="model-timeout"><strong>{$t("请求超时")}</strong><p>{$t("单位：秒")}</p></label><Input id="model-timeout" aria-label={$t("请求超时")} type="number" min="10" max="600" bind:value={settings.timeout_secs}/></div>
      </section>
+
     {:else if page==='retrieval'}
-     <div class="settings-info-box"><strong>SAG2 · V10</strong><p>{$t("按证据关联检索原文，结合历史评分和本地多样性排序。")}</p></div>
+     <section class="settings-group"><div class="setting-row"><div><strong>{$t("搜索结果自动总结")}</strong><p>{$t("搜索后使用问答模型，根据问题和参考结果生成简短总结。")}</p></div><Switch bind:checked={settings.search_summary_enabled} label={$t("搜索结果自动总结")}/></div><div class="setting-row"><div><strong>{$t("自动总结参考数量")}</strong><p>{$t("默认 10 条，不设最大值；超过模型上下文预算时自动裁剪。")}</p></div><Input type="number" min="1" step="1" required bind:value={settings.search_summary_sources} aria-label={$t("自动总结参考数量")}/></div></section>
      <section class="settings-group">{#each parameters as [key,title,desc,min,max]}<div class="setting-row"><div><strong>{title}</strong><p>{desc}</p></div><Input type="number" {min} {max} required bind:value={settings.retrieval[key]} aria-label={title}/></div>{/each}</section>
      <div class="settings-section-actions"><Button.Root type="button" class="outline" onclick={()=>settings.retrieval={candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512}}>{$t("恢复默认参数")}</Button.Root></div>
      <details class="settings-limits"><summary>{$t("算法固定规则")}</summary><p>{$t("每次检索最多 3 轮 Jev 评分，本地排序不增加模型请求。单轮预算为 64,000 tokens，单候选与共享证据合计不超过 32,000 tokens；超限时提示调整候选数量，原文不截断。")}</p></details>
+    {:else if page==='clipper'}
+     <WebClipper/>
     {:else if page==='cli'}
      <CliSettings bind:access={cliAccess} bind:pending={cliBusy} saving={busy}/>
     {:else if page==='privacy'}
-     <div class="settings-info-box">{$t("原文件、索引、历史和草稿保存在本地。模型服务会收到当前查询所需的问题与原文片段。")}</div>
      <section class="settings-group"><div class="setting-row"><div><strong>{$t("应用数据位置")}</strong><p>{$t("SQLite 索引、配置与问答历史")}</p></div><Button.Root type="button" class="outline" onclick={()=>api('open_data_directory').catch(e=>error=$t(String(e)))}>{$t("打开目录")}</Button.Root></div></section>
-     <p class="settings-help">{$t("移除文件夹仅取消接入。修改切分或排除设置后自动重建索引，并保留历史与草稿。")}</p>
+     <section class="settings-group data-cleanup-settings">
+      <div class="setting-row clear-conversations-settings"><div><strong>{$t("清空所有对话")}</strong><p>{$t("永久删除全部对话、思考过程和工具调用日志，包括此前删除的对话。文件与索引保留。")}</p></div><Button.Root type="button" class="clear-conversations-button" onclick={()=>{clearError='';confirmClear=true}}>{$t("清空所有对话")}</Button.Root></div>
+     <div class="setting-row remove-roots-settings"><div><strong>{$t("移除所有文件夹")}</strong><p>{$t("移除全部已添加的文件夹，同时删除索引。本地文件和会话会保留。")}</p></div><Button.Root type="button" class="remove-roots-button" onclick={()=>{removeRootsError='';confirmRemoveRoots=true}}>{$t("移除所有文件夹")}</Button.Root></div>
+     <div class="setting-row clear-data-settings"><div><strong>{$t("清除所有数据")}</strong><p>{$t("清空所有对话、文件夹及索引、搜索记录、模型设置、密钥和草稿，所有设置恢复默认。本地原文件保留。")}</p></div><Button.Root type="button" class="clear-conversations-button" onclick={()=>{clearDataError='';confirmClearData=true}}>{$t("清除所有数据")}</Button.Root></div>
+     </section>
     {:else if page==='shortcuts'}
      <section class="settings-group settings-shortcuts">{#each [[$t("搜索文件"),'⌘ / Ctrl + K'],[$t("新建问答"),'⌘ / Ctrl + N'],[$t("保存文档"),'⌘ / Ctrl + S'],[$t("发送或搜索"),'Enter'],[$t("问题换行"),'Shift + Enter'],[$t("引用文件"),'@'],[$t("选择引用"),'↑ ↓ / Enter / Esc']] as [label,key]}<div class="setting-row"><strong>{label}</strong><kbd>{key}</kbd></div>{/each}</section>
     {:else}
-     <div class="settings-about">{@html logo}<h3>SAG</h3><p>{$t("向你的文件提问")}</p><span>0.1.0 · Tauri + Rust + SQLite</span></div><p class="settings-about-note">{$t("本地文件、快速索引、SAG2 检索。当前开发版。")}</p>
+     <div class="settings-about">{@html logo}<h3>SAG Wiki</h3><p>{$t("向你的文件提问")}</p><span>{appVersion} · Tauri + Rust + SQLite</span>
+      <div class="settings-about-links"><a href="https://github.com/Zleap-AI/SAG-Wiki" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'project')}>{$t('开源项目')} · GitHub</a><a href="https://zleap.com" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'company')}>{$t('开发公司')} · Zleap</a></div>
+     </div>
+     <AppUpdates bind:config={settings.updates} onBeforeInstall={onBeforeUpdate}/>
     {/if}
    </div>
    <div class="settings-footer"><div class="settings-feedback"><span class="form-error" role="alert">{$t(error)}</span><span class="settings-status" role="status">{$t(status)}</span></div><Button.Root type="button" class="settings-cancel" onclick={onClose}>{$t("取消")}</Button.Root><Button.Root type="submit" class="primary" disabled={busy||!!mcpTesting||cliBusy}>{$t("保存设置")}</Button.Root></div>
   </form>
 </Modal>
+
+{#if confirmClear}<Modal label={$t("清空所有对话")} onClose={()=>{if(!clearing)confirmClear=false}}>
+ <div class="dialog-head"><h2>{$t("清空所有对话")}</h2></div>
+ <div class="dialog-body"><p>{$t("所有问答历史、思考过程和工具调用日志将被永久删除，无法恢复。原文件、知识库索引、模型设置和密钥会保留。")}</p>{#if clearError}<p class="form-error clear-history-error" role="alert">{clearError}</p>{/if}</div>
+ <div class="dialog-footer"><Button.Root type="button" aria-label={$t("取消清空对话")} disabled={clearing} onclick={()=>confirmClear=false}>{$t("取消")}</Button.Root><Button.Root type="button" class="clear-conversations-button" aria-label={$t("确认清空所有对话")} disabled={clearing} onclick={clearConversations}>{clearing?$t("正在清空…"):$t("确认清空")}</Button.Root></div>
+</Modal>{/if}
+
+{#if confirmRemoveRoots}<Modal label={$t("移除所有文件夹")} onClose={()=>{if(!removingRoots)confirmRemoveRoots=false}}>
+ <div class="dialog-head"><h2>{$t("移除所有文件夹")}</h2></div>
+ <div class="dialog-body"><p>{$t("将移除全部已添加的文件夹，同时删除这些文件夹的索引。本地文件、会话、草稿和模型设置会保留。之后可重新添加文件夹。")}</p>{#if removeRootsError}<p class="form-error remove-roots-error" role="alert">{removeRootsError}</p>{/if}</div>
+ <div class="dialog-footer"><Button.Root type="button" aria-label={$t("取消移除文件夹")} disabled={removingRoots} onclick={()=>confirmRemoveRoots=false}>{$t("取消")}</Button.Root><Button.Root type="button" class="remove-roots-button" aria-label={$t("确认移除所有文件夹")} disabled={removingRoots} onclick={removeRoots}>{removingRoots?$t("正在移除…"):$t("确认移除")}</Button.Root></div>
+</Modal>{/if}
+
+{#if confirmClearData}<Modal label={$t("清除所有数据")} onClose={()=>{if(!clearingData)confirmClearData=false}}>
+ <div class="dialog-head"><h2>{$t("清除所有数据")}</h2></div>
+ <div class="dialog-body"><p>{$t("所有对话、思考过程、工具调用日志、已添加的文件夹、索引、搜索记录、模型设置、密钥和未保存草稿将被清除，无法恢复。所有设置恢复默认，仅保留本地原文件。")}</p>{#if clearDataError}<p class="form-error clear-data-error" role="alert">{clearDataError}</p>{/if}</div>
+ <div class="dialog-footer"><Button.Root type="button" aria-label={$t("取消清除所有数据")} disabled={clearingData} onclick={()=>confirmClearData=false}>{$t("取消")}</Button.Root><Button.Root type="button" class="clear-conversations-button" aria-label={$t("确认清除所有数据")} disabled={clearingData} onclick={clearData}>{clearingData?$t("正在清除…"):$t("确认清除")}</Button.Root></div>
+</Modal>{/if}

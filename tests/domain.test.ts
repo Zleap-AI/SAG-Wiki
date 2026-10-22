@@ -1,4 +1,4 @@
-import {describe,it,expect}from 'vitest';import{inside,normalizeScope,fileName,documentResults,sourceHtml}from '../src/lib/domain';import type{Candidate}from '../src/lib/types';
+import {describe,it,expect}from 'vitest';import{indexedSourcePath,inside,normalizeScope,fileName,documentResults,sourceHtml}from '../src/lib/domain';import type{Candidate}from '../src/lib/types';
 describe('范围和文件操作',()=>{
  it('按目录组件比较，不混入相似名称',()=>{expect(inside('/notes/one.md','/notes')).toBe(true);expect(inside('/notes2/one.md','/notes')).toBe(false);expect(inside('C:\\notes\\one.md','C:\\notes')).toBe(true)});
  it('父目录覆盖子目录并去重',()=>expect(normalizeScope(['/a','/a/b','/a','/x'])).toEqual(['/a','/x']));
@@ -22,3 +22,9 @@ describe('RTF 正文与引用',()=>{
  it('正文保留换行并转义 HTML',()=>{expect(readonlyHtml('/notes/a.RTF','星河\n<正文>')).toBe('<pre class="rtf-preview">星河\n&lt;正文&gt;</pre>')});
  it('引用位置明确对应 RTF 正文',()=>{const source={path:'/notes/a.rtf',start_line:2,end_line:2,source_spans:[{start_byte:4,end_byte:10,start_line:2,start_column:1,end_line:2,end_column:3}]} as Candidate;expect(sourceLocation(source)).toBe('RTF 正文 · 第 2 行 1 列 → 第 2 行 3 列')});
 });
+
+ it('转换结果对应到原文路径，保留 Windows 分隔符',()=>{
+  expect(indexedSourcePath('/notes/.sag-converted/sub/report.docx.md')).toBe('/notes/sub/report.docx');
+  expect(indexedSourcePath('C:\\notes\\.sag-converted\\report.pdf.md')).toBe('C:\\notes\\report.pdf');
+  expect(indexedSourcePath('/notes/report.md')).toBe('/notes/report.md');
+ });

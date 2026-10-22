@@ -47,8 +47,8 @@
 </script>
 
 <svelte:window on:keydown={key}/>
-<Modal label={$t('欢迎使用 SAG')} class="onboarding-dialog" overlayClass="onboarding-backdrop" {onClose}>
- <header class="onboarding-header"><span>{@html logo}<b>SAG</b><span>{$t('快速入门')}</span></span><Button.Root class="icon-button" aria-label={$t('关闭教程')} onclick={onClose}>{@html icon('close')}</Button.Root></header>
+<Modal label={$t('欢迎使用 SAG Wiki')} class="onboarding-dialog" overlayClass="onboarding-backdrop" {onClose}>
+ <header class="onboarding-header"><span>{@html logo}<b>SAG Wiki</b><span>{$t('快速入门')}</span></span><Button.Root class="icon-button" aria-label={$t('关闭教程')} onclick={onClose}>{@html icon('close')}</Button.Root></header>
  <div role="region" aria-label={$t('快速入门')} class="onboarding-track" class:dragging bind:this={track} on:scroll={scroll} on:wheel={()=>targetPage=null} on:touchstart={()=>targetPage=null} on:pointerdown={dragStart} on:pointermove={dragMove} on:pointerup={dragEnd} on:pointercancel={()=>{dragging=false;go(dragPage)}}>
   {#each slides as slide,index}
    <section class="onboarding-slide" data-current={page===index} inert={page!==index} aria-label={$t('教程第 {value0} 页',{value0:index+1})}>
@@ -76,7 +76,7 @@
      {:else if index===2}
       <div class="onboarding-answer-demo">
        <div class="onboarding-demo-question onboarding-piece">{$t('新项目的发布流程是什么？')}</div>
-       <div class="onboarding-demo-answer onboarding-piece" style="--delay:140ms"><span>{@html logo}<b>SAG</b></span><p>{$t('先完成测试，再检查发布清单。')}<sup>1</sup></p><span class="onboarding-demo-citation">1 {@html icon('file')}{$t('发布流程.md')}</span></div>
+       <div class="onboarding-demo-answer onboarding-piece" style="--delay:140ms"><span>{@html logo}<b>SAG Wiki</b></span><p>{$t('先完成测试，再检查发布清单。')}<sup>1</sup></p><span class="onboarding-demo-citation">1 {@html icon('file')}{$t('发布流程.md')}</span></div>
        <div class="onboarding-source onboarding-piece" style="--delay:360ms"><div>{@html icon('file')}<strong>{$t('发布流程.md')}</strong><span>{$t('原文')}</span></div><p><span class="onboarding-source-line">12</span><mark>{$t('发布前，完成测试并逐项检查发布清单。')}</mark></p><span class="onboarding-source-rule"></span></div>
       </div>
      {:else}

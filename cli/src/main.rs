@@ -11,7 +11,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc, Mutex,
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 #[derive(Parser)]
@@ -20,7 +20,7 @@ use std::{
     version,
     args_conflicts_with_subcommands = true,
     subcommand_negates_reqs = true,
-    about = "独立搜索本地项目，也可与 SAG-Desktop 共用知识库",
+    about = "独立搜索本地项目，也可与 SAG Wiki 共用知识库",
     group(clap::ArgGroup::new("match_mode").args(["extended_regexp", "fixed_strings"]))
 )]
 struct Args {
@@ -43,6 +43,7 @@ struct Args {
     /// 最多选择的语义证据块（各段完整返回）；-E/-F 为匹配行数。默认 10，--count 默认统计全部。
     #[arg(short = 'm', long, value_parser = clap::value_parser!(u16).range(1..=100))]
     max_results: Option<u16>,
+    /// 显示原文。语义搜索默认显示；-E/-F 匹配时可显式启用。
     #[arg(short = 'c', long)]
     content: bool,
     #[arg(long)]
@@ -111,7 +112,19 @@ enum CliCommand {
         #[arg(value_parser = ["cli", "claude-code", "codex", "opencode"])]
         target: String,
     },
+    /// 查看后台服务、CLI 接入和模型配置状态。
     Status,
+    /// 列出所有已加入知识库的文件夹及索引状态。
+    List {
+        #[arg(long)]
+        json: bool,
+    },
+    /// 检查当前或指定文件夹的索引覆盖范围。
+    Check {
+        directory: Option<PathBuf>,
+        #[arg(long)]
+        json: bool,
+    },
     /// 管理独立后台服务。
     Service { #[command(subcommand)] action: ServiceCommand },
     /// 配置检索服务。交互模式下隐藏密钥输入。
@@ -119,6 +132,9 @@ enum CliCommand {
     /// 将当前目录或指定目录加入知识库。
     Add {
         directory: Option<PathBuf>,
+        /// 只索引指定扩展名，如 md,txt,html,py,ts；省略时保留已有设置。
+        #[arg(long, value_delimiter = ',', num_args = 1)]
+        types: Option<Vec<String>>,
         #[arg(long)]
         json: bool,
     },
@@ -165,7 +181,7 @@ fn configured(response: Response) -> Result<ModelConfig> {
     }
 }
 fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt>, current:Option<ModelConfig>) -> Result<ModelConfig> {
-    let current=match current{Some(current)=>current,None=>configured(request(Command::Configure { enable: false, url: None, model: None, key: None }, path.clone(), 10, interrupt.clone())?)?};
+    let current=match current{Some(current)=>current,None=>configured(request(Command::Configure { enable: false, url: None, model: None, key: None }, path.clone(), 10, interrupt.clone(), false)?)?};
     if options.if_needed && current.has_key && options.url.is_none() && options.model.is_none() && options.key.is_none() && !options.key_stdin && !options.enable {
         eprintln!("已使用现有 JEV 配置。");
         return Ok(current);
@@ -211,13 +227,13 @@ fn configure(mut options: ConfigOptions, path: PathBuf, interrupt: Arc<Interrupt
     if !options.enable && options.url.is_none() && options.model.is_none() && options.key.is_none() {
         return Ok(current);
     }
-    let result = configured(request(Command::Configure { enable: options.enable, url: options.url, model: options.model, key: options.key }, path, 10, interrupt)?)?;
+    let result = configured(request(Command::Configure { enable: options.enable, url: options.url, model: options.model, key: options.key }, path, 10, interrupt, false)?)?;
     eprintln!("配置已保存。");
     Ok(result)
 }
 fn main() {
     if std::env::args().nth(1).as_deref()==Some("--build-info") {
-        println!("{}",serde_json::json!({"build_id":sag_protocol::BUILD_ID,"channel":sag_protocol::BUILD_CHANNEL,"protocol_version":VERSION}));return;
+        println!("{}",serde_json::to_string(&sag_protocol::BuildInfo::current()).unwrap());return;
     }
     let matches = Args::command().get_matches();
     let mut args = Args::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
@@ -268,13 +284,14 @@ fn main() {
         std::process::exit(1);
     });
     let quiet = args.matching.quiet;
+    let checking = matches!(args.command, Some(CliCommand::Check { .. }));
     let result = run(args, interrupted.clone());
     if let Ok(code) = result { if code != 0 { std::process::exit(code); } }
     else if let Err(e) = result {
         eprintln!("{e:#}");
         std::process::exit(if interrupted.cancelled.load(Ordering::SeqCst) {
             130
-        } else if quiet { 2 } else {
+        } else if quiet || checking { 2 } else {
             1
         });
     }
@@ -302,7 +319,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
     let explicit_patterns = !args.matching.patterns.is_empty() || !args.matching.pattern_files.is_empty();
     if args.command.is_none() {
         if !args.extended_regexp && !args.fixed_strings && interactive() && !args.json {
-            let current=configured(request(Command::Configure{enable:false,url:None,model:None,key:None},cwd.clone(),10,interrupted.clone())?)?;
+            let current=configured(request(Command::Configure{enable:false,url:None,model:None,key:None},cwd.clone(),10,interrupted.clone(),false)?)?;
             if !current.has_key {
             configure(ConfigOptions::default(), cwd.clone(), interrupted.clone(),Some(current))?;
             if args.query.is_none() {
@@ -344,13 +361,17 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
     let (command, path, json, timeout) = match args.command {
         Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..}) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
+        Some(CliCommand::List { json }) => (Command::List, cwd.clone(), json, 10),
+        Some(CliCommand::Check { directory, json }) => (
+            Command::Check, cwd.join(directory.unwrap_or_default()), json, 10,
+        ),
         Some(CliCommand::Config(options)) => {
             let config = configure(options, cwd, interrupted,None)?;
             println!("{}", serde_json::to_string_pretty(&config)?);
             return Ok(0);
         }
-        Some(CliCommand::Add { directory, json }) => (
-            Command::Add,
+        Some(CliCommand::Add { directory, types, json }) => (
+            match types { Some(extensions) => Command::AddWithTypes { extensions }, None => Command::Add },
             cwd.join(directory.unwrap_or_default()),
             json,
             10,
@@ -378,7 +399,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
             }) } else { Command::Search {
                 query: args.query.expect("a bare invocation returns before search"),
                 max_results: args.max_results.unwrap_or(10).into(),
-                content: args.content,
+                content: true,
                 timeout: args.timeout,
             } },
             cwd.join(args.path.or(args.directory).unwrap_or_default()),
@@ -386,21 +407,49 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
             args.timeout,
         ),
     };
-    let response = request(command, path, timeout, interrupted)?;
+    let progress = !json && !args.matching.quiet && interactive()
+        && matches!(&command, Command::Search { .. } | Command::Match(_));
+    let response = request(command, path, timeout, interrupted, progress)?;
     match response {
         Response::Configured(config) => println!("{}", serde_json::to_string_pretty(&config)?),
         Response::Error(error) => bail!("{error}"),
-        Response::Status(status) => println!("{}\nCLI 接入：{}\n当前范围有索引：{}\n索引已就绪：{}\nJEV 已配置：{}\n目录：{}", if status.connected { "已连接 SAG 后台服务" } else { "SAG 后台服务未运行" }, status.enabled, status.allowed, status.index_ready, status.jev_configured, status.path),
+        Response::Status(status) => println!("{}\nCLI 接入：{}\nJEV 已配置：{}", if status.connected { "已连接 SAG 后台服务" } else { "SAG 后台服务未运行" }, status.enabled, status.jev_configured),
+        Response::Roots(roots) => {
+            if json { println!("{}", serde_json::to_string(&roots)?); }
+            else if roots.is_empty() { println!("尚未添加索引目录。请在目标目录运行 sag add。"); }
+            else { print_roots(&roots); }
+        }
+        Response::Checked(output) => {
+            if json { println!("{}", serde_json::to_string(&output)?); }
+            else {
+                println!("目录：{}\n索引覆盖：{}\n索引已就绪：{}\nCLI 接入：{}\n当前目录内已索引文件数：{}",
+                    output.path, match output.coverage {
+                        IndexCoverage::Included => "已在索引目录内",
+                        IndexCoverage::Partial => "仅部分子目录已加入索引",
+                        IndexCoverage::Excluded => "已排除",
+                        IndexCoverage::None => "未加入索引",
+                    }, output.index_ready, output.enabled, output.indexed_files);
+                if let Some(extensions) = &output.extensions { println!("索引格式：{}", extensions.join(",")); }
+                if !output.roots.is_empty() { print_roots(&output.roots); }
+                match output.coverage {
+                    IndexCoverage::None | IndexCoverage::Partial => println!("如需索引整个目录，请在该目录运行 sag add。"),
+                    IndexCoverage::Excluded => println!("请检查忽略规则、目录排除设置或已移除目录记录。"),
+                    IndexCoverage::Included => println!("文件仍受忽略规则、文件类型和目录排除设置限制。"),
+                }
+            }
+            return Ok(if output.coverage == IndexCoverage::Included && output.index_ready
+                && output.enabled && output.indexed_files > 0 { 0 } else { 1 });
+        }
         Response::Added(output) => {
             if json { println!("{}", serde_json::to_string(&output)?); }
             else {
                 println!("已加入知识库：{}", output.path);
                 if output.cli_authorized { println!("CLI 可搜索此目录。"); }
-                else { println!("CLI 接入已关闭，请在 SAG-Desktop 设置中启用。"); }
+                else { println!("CLI 接入已关闭，请在 SAG Wiki 设置中启用。"); }
                 match output.index_status.as_str() {
                     "ready" => println!("索引已就绪，可以运行 sag \"搜索内容\"。"),
-                    "error" => println!("索引失败，请在 SAG-Desktop 查看详情。"),
-                    _ => println!("正在建立索引，请用 sag status 查看进度；就绪后可运行 sag \"搜索内容\"。"),
+                    "error" => println!("索引失败，请在 SAG Wiki 查看详情。"),
+                    _ => println!("正在建立索引，请用 sag check 查看进度；就绪后可运行 sag \"搜索内容\"。"),
                 }
             }
         }
@@ -430,7 +479,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
             relative_results(&mut output.results, &cwd);
             if json { println!("{}", serde_json::to_string(&output)?); }
             else {
-                print_results(&output.results);
+                print_search_results(&output.results);
             }
             if output.truncated { eprintln!("输出已触及长度上限，部分片段未显示。请缩小搜索目录。"); }
         }
@@ -443,6 +492,19 @@ fn relative_results(results: &mut [SearchResult], cwd: &std::path::Path) {
         if let Some(relative) = pathdiff::diff_paths(&item.absolute_path, cwd) {
             item.path = if relative.starts_with("..") { relative.display().to_string() } else { format!("./{}", relative.display()) };
         }
+    }
+}
+fn print_roots(roots: &[sag_protocol::types::Root]) {
+    for root in roots {
+        println!("{}\t{}\t{} 个文件", root.path, match root.status.as_str() {
+            "ready" => "已就绪",
+            "pending" => "等待索引",
+            "indexing" => "正在索引",
+            "partial" => "部分文件索引失败",
+            "error" => "索引失败",
+            other => other,
+        }, root.count);
+        if let Some(error) = &root.error { println!("  {error}"); }
     }
 }
 fn print_results(results: &[SearchResult]) {
@@ -458,26 +520,68 @@ fn print_results(results: &[SearchResult]) {
     }
 }
 
-fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Interrupt>) -> Result<Response> {
+fn print_search_results(results: &[SearchResult]) {
+    let groups: Vec<_> = results.chunk_by(|left, right| {
+        left.absolute_path == right.absolute_path && left.heading == right.heading
+    }).collect();
+    for (index, group) in groups.iter().enumerate() {
+        let item = &group[0];
+        println!("[{}/{}]", index + 1, groups.len());
+        println!("filepath: {}", item.path);
+        if !item.heading.is_empty() {
+            println!("heading: {}", item.heading);
+        }
+        for item in *group {
+            println!("lines: {}-{}", item.start_line, item.end_line);
+            if let Some(content) = &item.content {
+                println!("content:\n{content}");
+            }
+            println!();
+        }
+    }
+}
+
+fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Interrupt>, progress: bool) -> Result<Response> {
     if interrupted.cancelled.load(Ordering::SeqCst) {bail!("操作已取消")}
     let cancel=tokio_util::sync::CancellationToken::new();
     *interrupted.connection.lock().unwrap()=Some(cancel.clone());
     let result=tokio::runtime::Runtime::new()?.block_on(async {
+        let pending = async {
         let data=data_dir()?;
         let client=if matches!(&command,Command::Status) {
             match sag_client::Client::connect(&data).await? {
                 Some(client)=>client,
-                None=>return Ok(Response::Status(Status{protocol_version:VERSION,connected:false,enabled:false,allowed:false,index_ready:false,jev_configured:false,path:path.display().to_string()})),
+                None=>return Ok(Response::Status(Status{protocol_version:VERSION,connected:false,enabled:false,jev_configured:false})),
             }
         } else {sag_client::ensure(&data,&std::env::current_exe()?).await?};
         if matches!(&command,Command::Status) {
             let info=client.info();
             println!("服务版本：{}\n协议版本：{}\n服务进程：{}\n执行文件：{}",info.build_id,info.protocol_version,info.pid,info.executable);
         }
-        tokio::select! {
-            _=cancel.cancelled()=>bail!("操作已取消"),
-            result=client.execute(path,command,Duration::from_secs(timeout))=>result,
+        client.execute(path,command,Duration::from_secs(timeout)).await
+        };
+        tokio::pin!(pending);
+        let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+        let started = Instant::now();
+        let mut timer = tokio::time::interval(Duration::from_millis(100));
+        let mut frame = 0;
+        let result = loop {
+            tokio::select! {
+                biased;
+                _ = cancel.cancelled() => break Err(anyhow::anyhow!("操作已取消")),
+                result = &mut pending => break result,
+                _ = timer.tick(), if progress => {
+                    eprint!("\r{} {:.1}s", frames[frame % frames.len()], started.elapsed().as_secs_f32());
+                    std::io::stderr().flush()?;
+                    frame += 1;
+                }
+            }
+        };
+        if progress {
+            eprint!("\r\x1b[2K");
+            std::io::stderr().flush()?;
         }
+        result
     });
     *interrupted.connection.lock().unwrap()=None;
     result

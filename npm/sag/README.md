@@ -5,11 +5,13 @@ Search local project files with SAG. The desktop app is optional; both use the s
 ```sh
 npm install -g @zleap-ai/sag
 sag
-sag add
+sag add --types md,txt,html,py,js,ts,tsx,json,yaml
 sag "Where is permission checked?"
 sag -E -c '^(ERROR|WARN) [0-9]+' ./logs
 sag -F -c 'validatePermission(' ./src
 ```
+
+The same unversioned install command updates an existing npm installation to the latest release. For Agent setup, follow https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md.
 
 You can also install with `pnpm add -g @zleap-ai/sag` or `bun add -g @zleap-ai/sag`.
 

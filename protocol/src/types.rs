@@ -211,14 +211,51 @@ impl Default for FileTypes {
         Self {
             markdown: true,
             text: true,
-            code: true,
-            config: true,
+            code: false,
+            config: false,
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FolderIndexOptions {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<Vec<String>>,
+    pub file_types: FileTypes,
+    pub convert_other_formats: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversion_formats: Option<Vec<String>>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UpdateSettings {
+    pub source: UpdateSource,
+    pub github_url: String,
+    pub website_url: String,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpdateSource {
+    #[default]
+    Github,
+    Website,
+}
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            source: UpdateSource::Github,
+            github_url: "https://github.com/Zleap-AI/SAG-Wiki".into(),
+            website_url: String::new(),
         }
     }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub updates: UpdateSettings,
+    pub convert_other_formats: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conversion_formats: Option<Vec<String>>,
     #[serde(default)]
     pub retrieval_version: u8,
     pub credential_error: Option<String>,
@@ -232,18 +269,24 @@ pub struct Settings {
     pub show_hidden: bool,
     pub watch: bool,
     pub index_workers: usize,
+    pub conversion_workers: usize,
     pub excluded: Vec<String>,
     pub file_types: FileTypes,
     pub timeout_secs: u64,
     pub answer_context_tokens: usize,
     pub answer_output_tokens: usize,
     pub max_tool_calls: usize,
+    pub search_summary_enabled: bool,
+    pub search_summary_sources: usize,
     pub model_profiles: BTreeMap<String, ModelProfile>,
     pub mcp_servers: Vec<McpServer>,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            updates: UpdateSettings::default(),
+            convert_other_formats: false,
+            conversion_formats: None,
             retrieval_version: crate::RETRIEVAL_VERSION,
             credential_error: None,
             answer: ModelConfig::default(),
@@ -259,9 +302,10 @@ impl Default for Settings {
             language: "zh-CN".into(),
             start_page: "ask".into(),
             editor_size: 15,
-            show_hidden: true,
+            show_hidden: false,
             watch: true,
             index_workers: 8,
+            conversion_workers: 4,
             file_types: FileTypes::default(),
             excluded: [
                 ".git",
@@ -279,6 +323,8 @@ impl Default for Settings {
             answer_context_tokens: 65536,
             answer_output_tokens: 2048,
             max_tool_calls: 10,
+            search_summary_enabled: true,
+            search_summary_sources: 10,
             model_profiles: BTreeMap::new(),
             mcp_servers: vec![],
         }
@@ -330,6 +376,8 @@ pub struct ReasoningBlock {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<i64>,
     pub question: String,
     pub answer: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -384,6 +432,20 @@ pub struct Progress {
 #[cfg(test)]
 mod default_tests {
     use super::*;
+    #[test]
+    fn message_timestamps_preserve_existing_history_without_inventing_dates() {
+        let old = serde_json::json!({
+            "question":"old question","answer":"old answer","evidence":[],
+            "model":"test","scope":[],"references":[],"status":"complete",
+            "error":null,"retrieval_question":"old question"
+        });
+        let mut message: Message = serde_json::from_value(old).unwrap();
+        assert!(message.created_at.is_none());
+        assert!(serde_json::to_value(&message).unwrap().get("created_at").is_none());
+        message.created_at = Some(1_792_368_300_000);
+        let restored: Message = serde_json::from_value(serde_json::to_value(message).unwrap()).unwrap();
+        assert_eq!(restored.created_at, Some(1_792_368_300_000));
+    }
     #[test]
     fn sag2_stays_enabled_for_new_and_existing_model_profiles() {
         assert!(ModelProfile::default().sag2_enabled);

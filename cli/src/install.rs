@@ -69,6 +69,16 @@ fn receipt(path: &Path) -> Result<Option<Receipt>> {
         Err(e) => Err(e.into()),
     }
 }
+fn keep_installed(record: &Receipt) -> Result<bool> {
+    use std::cmp::Ordering;
+    Ok(
+        match sag_protocol::compare_versions(&record.version, sag_protocol::BUILD_VERSION)? {
+            Ordering::Greater => true,
+            Ordering::Equal => record.build_id.as_deref() != Some(sag_protocol::BUILD_ID),
+            Ordering::Less => false,
+        },
+    )
+}
 fn check_owned(path: &Path) -> Result<()> {
     if path.symlink_metadata()?.file_type().is_symlink() {
         bail!("安装位置是符号链接，未修改：{}", path.display())
@@ -125,7 +135,7 @@ fn write_owned(path: &Path, bytes: &[u8]) -> Result<()> {
     record.write_all(&serde_json::to_vec(&Receipt {
         owner: OWNER.into(),
         hash: digest(bytes),
-        version: env!("CARGO_PKG_VERSION").into(),
+        version: sag_protocol::BUILD_VERSION.into(),
         build_id: Some(sag_protocol::BUILD_ID.into()),
         channel: Some(sag_protocol::BUILD_CHANNEL.into()),
     })?)?;
@@ -214,6 +224,17 @@ pub fn harness(home: &Path, name: &str, uninstall: bool) -> Result<PathBuf> {
     }
     Ok(path)
 }
+pub fn export_skill(parent: &Path) -> Result<PathBuf> {
+    let directory = parent.join("sag");
+    fs::create_dir(&directory)
+        .with_context(|| format!("无法创建 Skill 文件夹：{}", directory.display()))?;
+    for (name, contents) in SKILL_FILES {
+        let file = directory.join(name);
+        fs::create_dir_all(file.parent().unwrap())?;
+        fs::write(file, contents)?;
+    }
+    Ok(directory)
+}
 pub fn inspect(name: &str, path: &Path) -> Result<Installation> {
     let installed = path.try_exists()?;
     let owned = if installed {
@@ -279,8 +300,18 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     {
         bail!("开发版不会覆盖已安装的正式版 SAG，请使用独立开发产物")
     }
-    if previous != target && previous.try_exists()? {
+    if previous.try_exists()? {
         check_owned(&previous)?;
+        let installed = receipt(&previous)?.unwrap();
+        if sag_protocol::compare_versions(&installed.version, sag_protocol::BUILD_VERSION)?
+            == std::cmp::Ordering::Greater
+        {
+            bail!(
+                "已安装较新的 SAG {}，当前版本 {} 不会覆盖它",
+                installed.version,
+                sag_protocol::BUILD_VERSION
+            )
+        }
     }
     let bytes = if source == target {
         check_owned(&target)?;
@@ -314,10 +345,19 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
 pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
     let record = crate::cli_protocol::data_dir()?.join("cli-initialized");
     let previous = binary_path(home)?;
+    let installed = inspect("cli", &previous)?.installed;
+    if installed && keep_installed(&receipt(&previous)?.unwrap())? {
+        // A matching version with a different build has no reliable ordering.
+        // Preserve its CLI and Skills rather than letting an older desktop downgrade them.
+        return Ok(());
+    }
     let mut skill_updates = Vec::new();
     for name in HARNESS_NAMES {
         let path = skill_path(home, name)?;
         if inspect(name, &path)?.installed {
+            if keep_installed(&receipt(&path)?.unwrap())? {
+                continue;
+            }
             let directory = path.parent().unwrap();
             let mut changed = false;
             for (file, contents) in SKILL_FILES {
@@ -334,8 +374,7 @@ pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
             }
         }
     }
-    let update_binary =
-        inspect("cli", &previous)?.installed && fs::read(source)? != fs::read(&previous)?;
+    let update_binary = installed && fs::read(source)? != fs::read(&previous)?;
     if !record.try_exists()?
         || update_binary
         || (previous.try_exists()?
@@ -347,4 +386,33 @@ pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
         harness(home, name, false)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::*;
+
+    #[test]
+    fn export_skill_includes_every_bundled_file_without_installation_receipts() {
+        let parent = tempfile::tempdir().unwrap();
+        let directory = export_skill(parent.path()).unwrap();
+        assert_eq!(directory, parent.path().join("sag"));
+        for (name, contents) in SKILL_FILES {
+            let path = directory.join(name);
+            assert_eq!(fs::read_to_string(&path).unwrap(), *contents);
+            assert!(!receipt_path(&path).exists());
+        }
+        assert_eq!(fs::read_dir(directory.join("references")).unwrap().count(), 3);
+    }
+
+    #[test]
+    fn export_skill_preserves_an_existing_folder() {
+        let parent = tempfile::tempdir().unwrap();
+        let directory = parent.path().join("sag");
+        fs::create_dir(&directory).unwrap();
+        fs::write(directory.join("SKILL.md"), "user skill").unwrap();
+        assert!(export_skill(parent.path()).is_err());
+        assert_eq!(fs::read_to_string(directory.join("SKILL.md")).unwrap(), "user skill");
+        assert!(!directory.join("references").exists());
+    }
 }

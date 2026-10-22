@@ -1,0 +1,40 @@
+// @vitest-environment happy-dom
+import {loadDocumentBridge} from './helpers/document-bridge';
+import {afterEach,expect,it,vi} from 'vitest';
+import {mount,tick,unmount} from 'svelte';
+import HtmlDocument from '../src/components/HtmlDocument.svelte';
+let app:ReturnType<typeof mount>;
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';});
+it('保留 HTML 页面样式和 SVG 图形，高亮正文并切换匹配',async()=>{
+ const body='<style>p{color:red}</style><p>早先 Token</p><h2>目标 Token</h2><svg><text x="10" y="20">Token</text></svg><script>Token()</script>';
+ app=mount(HtmlDocument,{target:document.body,props:{body,terms:['Token'],initialMatch:1}});
+ await tick();
+ const frame=document.querySelector('iframe')!;
+ const doc=new DOMParser().parseFromString(frame.getAttribute('srcdoc')!,'text/html');
+ expect(doc.querySelectorAll('mark.search-hit')).toHaveLength(2);
+ expect(doc.querySelectorAll('svg text tspan.search-hit')).toHaveLength(0);
+ expect(doc.querySelector('svg text')?.textContent).toBe('Token');
+ expect([...doc.querySelectorAll('style')].some(style=>style.textContent==='p{color:red}')).toBe(true);
+ expect(doc.querySelector('script .search-hit')).toBeNull();
+ expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
+ expect(doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content')).toContain("script-src 'nonce-");
+ const scroll=vi.fn();doc.querySelectorAll('.search-hit').forEach(mark=>Object.defineProperty(mark,'scrollIntoView',{value:scroll}));
+ loadDocumentBridge(frame,doc);await tick();
+ const contextmenu=new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2});
+ doc.querySelector('p')!.dispatchEvent(contextmenu);
+ expect(contextmenu.defaultPrevented).toBe(true);
+ expect(doc.querySelector('.search-hit.active')?.getAttribute('data-search-match')).toBe('1');
+ expect(document.querySelector('[aria-label="匹配位置"]')?.textContent).toContain('2 / 2');
+ document.querySelector<HTMLButtonElement>('[aria-label="下一处匹配"]')!.click();await tick();
+ expect(doc.querySelector('.search-hit.active')?.getAttribute('data-search-match')).toBe('0');
+ expect(scroll).toHaveBeenCalledWith({block:'center'});
+});
+it('过滤文档脚本、事件处理和跳转代码，保留样式与普通链接',async()=>{
+ app=mount(HtmlDocument,{target:document.body,props:{body:'<meta http-equiv="refresh" content="0;url=https://example.com"><base href="https://example.com"><script>parent.location="https://example.com"</script><p onclick="alert(1)">正文</p><a href="javascript:alert(1)">危险链接</a><iframe srcdoc="<script>alert(1)</script>"></iframe><a href="https://example.org">参考资料</a><style>p{color:red}</style>'}});
+ await tick();const doc=new DOMParser().parseFromString(document.querySelector('iframe')!.getAttribute('srcdoc')!,'text/html');
+ expect(doc.querySelector('script:not([nonce]),base,iframe,object,embed,[onclick]')).toBeNull();
+ expect(doc.querySelector('[http-equiv="refresh"]')).toBeNull();
+ expect(doc.querySelector('a[href^="javascript:"]')).toBeNull();
+ expect(doc.querySelector('a[href="https://example.org"]')).not.toBeNull();
+ expect([...doc.querySelectorAll('style')].some(style=>style.textContent==='p{color:red}')).toBe(true);
+});

@@ -15,7 +15,7 @@ let savedConversation=conversation;
 beforeEach(async()=>{
  savedConversation=conversation;
  invoke.mockImplementation(async(command)=>{
-  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{url:'https://api.302.ai/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://api.302ai.cn/typesafeai/v1',model:'jev',models:[],has_key:false},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:0};
   if(command==='list_conversations')return [savedConversation];
   if(command==='run_query')return new Promise((resolve,reject)=>{resolveQuery=resolve;rejectQuery=reject});
   return [];
@@ -31,6 +31,18 @@ const progress=async(stage:string,delta:string|null=null,id?:string,replace=fals
  listeners.get('query-progress')!({payload:{id:id??query.id,stage,delta,count:0,replace}});await tick();
 };
 describe('回答中的处理进度',()=>{
+ it('缺少问答密钥时直接打开模型设置，关闭后保留当前会话',async()=>{
+  const error='请在设置中填写问答模型 API 密钥';
+  savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',status:'failed',answer:'',error}]};
+  rejectQuery(error);
+  await vi.waitFor(()=>expect(document.querySelector('.settings-error-link')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('.settings-error-link')!.click();await tick();
+  expect(document.querySelector('.settings-nav [aria-current="page"]')?.textContent).toBe('模型设置');
+  expect(document.querySelector('.model-settings-card input[type=password]')).not.toBeNull();
+  document.querySelector<HTMLButtonElement>('[aria-label="关闭设置"]')!.click();await tick();
+  expect(document.querySelector('.settings-dialog')).toBeNull();
+  expect(document.querySelector('.chat-log')?.textContent).toContain('这次问题');
+ });
  it('问答失败时只在回答内显示一次错误',async()=>{
   const error='模型未执行本题所需的工具调用，请重试或更换支持工具调用的模型';
   savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',status:'failed',answer:'',error}]};
@@ -39,6 +51,7 @@ describe('回答中的处理进度',()=>{
   expect([...document.querySelectorAll('.form-error')].filter(node=>node.textContent===error)).toHaveLength(1);
   expect(document.querySelector('.content > .form-error')).toBeNull();
   expect(document.querySelector('[aria-label="重新生成回答"]')).not.toBeNull();
+  expect(document.querySelector('.settings-error-link')).toBeNull();
   setLanguage('en');await tick();
   expect([...document.querySelectorAll('.form-error')].filter(node=>node.textContent===translate(error,'en'))).toHaveLength(1);
   expect(document.querySelector('.content > .form-error')).toBeNull();
@@ -68,6 +81,29 @@ describe('回答中的处理进度',()=>{
   await vi.waitFor(()=>expect(document.querySelector('[title="已有对话"]')).not.toBeNull());
   document.querySelector<HTMLButtonElement>('[title="已有对话"]')!.click();await tick();
   await vi.waitFor(()=>expect(order()).toEqual(expected));
+ });
+ it('思考过程按 Markdown 渲染，流式追加后保持段落和代码结构',async()=>{
+  const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
+  const content='### 核对步骤\n\n先核对 **真实来源**。\n\n1. 搜索文件\n2. 读取原文\n\n```ts\nconst source = "证据";\n```';
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:content,reasoning_block:{answer_offset:0,tool_count:0,content},count:0}});await tick();
+  await vi.waitFor(()=>expect(document.querySelector('.reasoning-text strong')?.textContent).toBe('真实来源'));
+  const thought=document.querySelector('.reasoning-text')!;
+  // Happy DOM's sanitizer drops heading tags; heading structure is also checked in the real-browser preview.
+  expect(thought.textContent).toContain('核对步骤');
+  expect(thought.querySelectorAll('ol li')).toHaveLength(2);
+  expect(thought.querySelector('pre code')?.textContent).toContain('const source = "证据";');
+  const first=thought.querySelector('p');
+  const addition='\n\n然后核对 `版本`。';
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,reasoning_delta:addition,reasoning_block:{answer_offset:0,tool_count:0,content:addition},count:0}});await tick();
+  await vi.waitFor(()=>expect(thought.querySelector('p code')?.textContent).toBe('版本'));
+  expect(thought.querySelector('p')).toBe(first);
+  await progress('正在生成回答','核对完成。');
+  savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer:'核对完成。',reasoning:content+addition}]};
+  resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});await tick();await tick();
+  const toggle=document.querySelector<HTMLButtonElement>('.reasoning-toggle')!;
+  toggle.click();await tick();
+  await vi.waitFor(()=>expect(document.querySelector('.reasoning-text strong')?.textContent).toBe('真实来源'));
+  expect(document.querySelector('.reasoning-text pre code')?.textContent).toContain('const source');
  });
  it('修正回答草稿后，相关思考仍留在新回答前面',async()=>{
   const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;

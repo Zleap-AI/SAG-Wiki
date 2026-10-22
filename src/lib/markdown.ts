@@ -1,4 +1,5 @@
 import {answerEvents} from './answer-events';
+import {mermaidPreview} from './mermaid';
 import {get} from 'svelte/store';
 import {t} from './i18n';
 import type {Candidate,ToolCallRecord,ReasoningBlock} from './types';
@@ -10,7 +11,16 @@ import {splitFrontmatter,protectHtml} from './markdown-source';
 export {splitFrontmatter,protectHtml,restoreHtml} from './markdown-source';
 export function renderMarkdown(text:string,referenceBody?:string):string{
  if(referenceBody){const definitions=parser.instance.lexer(splitFrontmatter(referenceBody).body).filter(token=>token.type==='def').map(token=>token.raw).join('\n\n');if(definitions)text+='\n\n'+definitions;}
- return DOMPurify.sanitize(generateHTML(parser.parse(protectHtml(splitFrontmatter(text).body)),extensions),{ADD_ATTR:['data-source']});
+ const html=DOMPurify.sanitize(generateHTML(parser.parse(protectHtml(splitFrontmatter(text).body)),extensions),{ADD_ATTR:['data-source']});
+ if(!/class="language-mermaid"/i.test(html))return html;
+ const doc=new DOMParser().parseFromString(html,'text/html');
+ for(const code of doc.querySelectorAll('pre > code')){
+  if(!/^language-mermaid$/i.test(code.className))continue;
+  const preview=mermaidPreview(code.textContent!);
+  if(preview.classList.contains('mermaid-error'))code.parentElement!.after(preview);
+  else code.parentElement!.replaceWith(preview);
+ }
+ return doc.body.innerHTML;
 }
 export function markdownCitation(body:string,ranges:{from:number;to:number}[]):string{
  const normalized=body.replace(/\r\n?/g,'\n');
@@ -28,7 +38,7 @@ export function renderAnswer(text:string,evidence:Candidate[],tools:ToolCallReco
  function renderPart(content:string){
  const html=renderMarkdown(content,text);const doc=new DOMParser().parseFromString(html,'text/html');const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);const nodes:Text[]=[];while(walker.nextNode())nodes.push(walker.currentNode as Text);
  for(const node of nodes){
-  if(node.parentElement?.closest('code,pre,a'))continue;
+  if(node.parentElement?.closest('code,pre,a,svg,.mermaid-diagram'))continue;
   const value=node.textContent||'';
   const matches=[...value.matchAll(/\[(\d+)\]/g)].filter(m=>Number(m[1])>0&&Number(m[1])<=evidence.length);
   if(!matches.length)continue;

@@ -2,6 +2,7 @@
  import {tick} from 'svelte';
  import {Button} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
+ import Timestamp from './Timestamp.svelte';
  import Input from './ui/Input.svelte';
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
@@ -23,11 +24,11 @@
   }
  }
 </script>
-<Modal label={$t('搜索历史')} class="history-search-dialog" {onClose}>
- <div class="dialog-head"><h2>{$t('搜索历史')}</h2><Button.Root class="icon-button" aria-label={$t('关闭历史搜索')} onclick={onClose}>{@html icon('close')}</Button.Root></div>
- <div class="history-search-input">{@html icon('search')}<Input data-autofocus aria-label={$t('搜索历史会话')} placeholder={$t('搜索会话标题和内容…')} role="combobox" aria-expanded={true} aria-controls="history-search-results" aria-autocomplete="list" aria-activedescendant={matches[selected]?`history-result-${matches[selected].conversation.id}`:undefined} bind:value={query} oninput={changed} onkeydown={key}/></div>
- <div class="history-search-results" id="history-search-results" role="listbox" aria-label={$t('历史会话')} bind:this={list}>
-  {#each matches as item,i(item.conversation.id)}<Button.Root id={`history-result-${item.conversation.id}`} class="history-search-result" role="option" tabindex={-1} aria-selected={i===selected} onclick={()=>onSelect(item.conversation)}>{@html icon('chat')}<span><strong>{item.conversation.title}</strong><small>{snippet(item.content)}</small></span></Button.Root>
+<Modal label={$t('会话列表')} class="history-search-dialog" {onClose}>
+ <div class="dialog-head"><h2>{$t('会话列表')}</h2><Button.Root class="icon-button" aria-label={$t('关闭会话列表')} onclick={onClose}>{@html icon('close')}</Button.Root></div>
+ <div class="history-search-input">{@html icon('search')}<Input data-autofocus aria-label={$t('搜索会话')} placeholder={$t('搜索会话标题和内容…')} role="combobox" aria-expanded={true} aria-controls="history-search-results" aria-autocomplete="list" aria-activedescendant={matches[selected]?`history-result-${matches[selected].conversation.id}`:undefined} bind:value={query} oninput={changed} onkeydown={key}/></div>
+ <div class="history-search-results" id="history-search-results" role="listbox" aria-label={$t('会话列表')} bind:this={list}>
+  {#each matches as item,i(item.conversation.id)}<Button.Root id={`history-result-${item.conversation.id}`} class="history-search-result" role="option" tabindex={-1} aria-selected={i===selected} onclick={()=>onSelect(item.conversation)}>{@html icon('chat')}<span><strong>{item.conversation.title}</strong><small>{snippet(item.content)}</small></span><Timestamp value={item.conversation.updated}/></Button.Root>
   {:else}<p class="history-search-empty">{$t('没有找到相关会话')}</p>{/each}
  </div>
 </Modal>

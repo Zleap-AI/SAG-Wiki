@@ -34,6 +34,16 @@ export function searchSnippet(text:string,terms:string[]):string{
  const first=textMatches(text,terms)[0];const start=Math.max(0,(first?.from??0)-60),end=Math.min(text.length,start+180);
  return (start?'…':'')+highlightedText(text.slice(start,end),terms)+(end<text.length?'…':'');
 }
+export function searchText(path:string,content:string):string{
+ if(!isHtml(path))return content;
+ const tail=/<\/(style|script)\s*>/i.exec(content);
+ if(tail&&!new RegExp(`<${tail[1]}(?:\\s|>)`,'i').test(content.slice(0,tail.index)))content=content.slice(tail.index+tail[0].length);
+ const doc=new DOMParser().parseFromString(content,'text/html');
+ doc.querySelectorAll('script,style,template,noscript,svg').forEach(node=>node.remove());
+ const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT),parts:string[]=[];
+ while(walker.nextNode())parts.push(walker.currentNode.textContent!);
+ return parts.join(' ');
+}
 // Match rendered text across inline formatting, while keeping paragraphs separate.
 export function highlightedHtml(html:string,terms:string[]):{html:string;count:number}{
  if(!terms.length||!html)return {html,count:0};
@@ -68,7 +78,7 @@ function textBlocks(doc:Document):Text[][]{
  const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT),groups=new Map<Element,Text[]>();
  while(walker.nextNode()){
   const node=walker.currentNode as Text;
-  if(node.parentElement!.closest('script,style,textarea'))continue;
+  if(node.parentElement!.closest('script,style,textarea,svg'))continue;
   const block=node.parentElement!.closest('p,li,pre,td,th,h1,h2,h3,h4,h5,h6,div,blockquote,text')||doc.body;
   const nodes=groups.get(block)||[];nodes.push(node);groups.set(block,nodes);
  }
@@ -91,7 +101,7 @@ export async function citationTerms(candidate:Candidate,body:string):Promise<str
   html=renderMarkdown(markdownCitation(body,ranges));
  }else html=isHtml(candidate.path)?candidate.content:`<pre>${escaped(candidate.content)}</pre>`;
  const doc=new DOMParser().parseFromString(html,'text/html');
- doc.querySelectorAll('script,style,template,noscript').forEach(node=>node.remove());
+ doc.querySelectorAll('script,style,template,noscript,svg').forEach(node=>node.remove());
  return [...new Set(textBlocks(doc).map(nodes=>nodes.map(node=>node.data).join('').trim()).filter(Boolean))];
 }
 

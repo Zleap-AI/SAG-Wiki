@@ -24,7 +24,8 @@ static NAMES: LazyLock<Regex> = LazyLock::new(|| {
     .unwrap()
 });
 static SENTENCES: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?<!\b[A-Z])[.!?]\s+|\n+").unwrap());
+    LazyLock::new(|| Regex::new(r"(?<!\b[A-Z])[.!?]\s+|[。！？]+\s*|\n+").unwrap());
+
 pub fn name_phrases(s: &str) -> Result<Vec<(usize, usize, String)>> {
     NAMES
         .find_iter(s)
@@ -171,6 +172,7 @@ fn rank(mut candidates: Vec<Candidate>) -> Vec<Candidate> {
     });
     candidates
 }
+
 #[derive(serde::Serialize)]
 pub struct SearchOutput {
     pub results: Vec<Candidate>,
@@ -226,7 +228,10 @@ where
 {
     let version = store.version()?;
     if options.max_hops > 2 { bail!("SAG2 V10 最多扩展两轮") }
-    let corpus = crate::sag2_v10::Corpus::new(&store.retrieval_corpus(scope, references)?)?;
+    if cancel.is_cancelled() { bail!("已停止") }
+    progress("正在加载搜索索引", 0);
+    if cancel.is_cancelled() { bail!("已停止") }
+    let corpus = store.retrieval_statistics(scope, references, cancel)?;
     let repaired = corpus.repair(query, |term| store.has_candidate_match(&quote(term), scope, references, &[]))?;
     let expression = match_query(&repaired);
     if expression.is_empty() && references.is_empty() {
@@ -428,6 +433,43 @@ mod tests {
         }
     }
     #[test]
+    fn sentence_boundaries_preserve_english_initials_and_split_chinese() {
+        assert_eq!(
+            sentences("台风登陆。救援开始！人员安全吗？仍在核查").unwrap(),
+            vec!["台风登陆", "救援开始", "人员安全吗", "仍在核查"]
+        );
+        assert_eq!(
+            sentences("J. R. Smith arrived. Help! Why?\nNext").unwrap(),
+            vec!["J. R. Smith arrived", "Help", "Why", "Next"]
+        );
+    }
+    #[test]
+    fn chinese_sentences_do_not_share_expansion_context() {
+        for punctuation in ["。", "！", "？"] {
+            let dir = tempfile::tempdir().unwrap();
+            let files = dir.path().join("files");
+            std::fs::create_dir(&files).unwrap();
+            let content = [
+                "台风登陆福建，救援人员前往沿海",
+                "成都大运会开幕",
+                "母婴设施建设启动",
+            ].join(punctuation);
+            std::fs::write(files.join("news.txt"), &content).unwrap();
+            let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+            let root = store.add_root(&files).unwrap();
+            store.scan(&root, |_| {}).unwrap();
+            let mut seed = c(1);
+            seed.content = content;
+            seed.score = 1.;
+            let terms = expansion_terms(&store, "台风 福建", &[seed], 100).unwrap();
+            let rescue = terms.iter().find(|t| t.term == "救援").unwrap();
+            for word in ["大运会", "母婴"] {
+                let unrelated = terms.iter().find(|t| t.term == word).unwrap();
+                assert!(rescue.score > unrelated.score, "{punctuation}: {word}");
+            }
+        }
+    }
+    #[test]
     fn interleaves_rank_then_term_and_deduplicates() {
         let result = interleave(vec![vec![c(1), c(3), c(4)], vec![c(2), c(3), c(5)]], 5);
         assert_eq!(
@@ -442,6 +484,58 @@ mod tests {
         assert_eq!(names.len(), 3);
         assert!(names[0].2.contains("smith"));
     }
+    #[tokio::test]
+    async fn deep_search_reuses_preparation_and_refreshes_after_index_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let files = dir.path().join("files");
+        std::fs::create_dir(&files).unwrap();
+        let matched = files.join("match.txt");
+        let unrelated = files.join("unrelated.txt");
+        std::fs::write(&matched, "nebula evidence.").unwrap();
+        std::fs::write(&unrelated, "unrelated material.").unwrap();
+        let database = dir.path().join("index.sqlite");
+        let store = Store::open(&database).unwrap();
+        let root = store.add_root(&files).unwrap();
+        store.scan(&root, |_| {}).unwrap();
+        let options = Retrieval { max_hops: 0, ..Default::default() };
+        let cancel = CancellationToken::new();
+        async fn score(mut candidates: Vec<Candidate>, _: Vec<Candidate>) -> Result<Vec<Candidate>> {
+            for candidate in &mut candidates { candidate.score = 0.9; }
+            Ok(candidates)
+        }
+        let first = search(&store, "nebula", &[], &options, &cancel, score, |_, _| {}).await.unwrap();
+        // Statistics saved by indexing survive an application restart.
+        drop(store);
+        let store = Store::open(&database).unwrap();
+        // An unchanged index must reuse statistics without reopening unrelated files.
+        std::fs::remove_file(&unrelated).unwrap();
+        let repeated = search(&store, "nebula", &[], &options, &cancel, score, |_, _| {}).await.unwrap();
+        assert_eq!(serde_json::to_value(&first.results).unwrap(), serde_json::to_value(&repeated.results).unwrap());
+        // Returned passages must still be checked against their original source.
+        std::fs::write(&matched, "changed evidence.").unwrap();
+        assert!(search(&store, "nebula", &[], &options, &cancel, score, |_, _| {}).await.err().unwrap().to_string().contains("文件已修改"));
+        // Another process updating the index must invalidate cached statistics.
+        std::fs::write(&matched, "comet replacement evidence.").unwrap();
+        let writer = Store::open(&database).unwrap();
+        writer.scan(&root, |_| {}).unwrap();
+        let updated = search(&store, "comet", &[], &options, &cancel, score, |_, _| {}).await.unwrap();
+        assert_eq!(updated.results.len(), 1);
+        assert_eq!(updated.results[0].content, "comet replacement evidence.");
+    }
+
+    #[tokio::test]
+    async fn deep_search_reports_preparation_before_reading_and_checks_cancellation() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let cancel = CancellationToken::new();
+        let stages = std::cell::RefCell::new(Vec::new());
+        let output = search(&store, "nebula", &[], &Retrieval::default(), &cancel,
+            |_, _| async { panic!("a cancelled search must not score passages") },
+            |stage, _| { stages.borrow_mut().push(stage.to_owned()); cancel.cancel(); }).await;
+        assert_eq!(stages.borrow().first().map(String::as_str), Some("正在加载搜索索引"));
+        assert_eq!(output.err().unwrap().to_string(), "已停止");
+    }
+
     #[tokio::test]
     async fn deep_search_returns_one_hundred_ranked_files_without_changing_answer_limits() {
         let dir = tempfile::tempdir().unwrap();

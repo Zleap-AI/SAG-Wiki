@@ -20,11 +20,27 @@ beforeEach(async()=>{
 });
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 function key(target:Element,key:string,shiftKey=false){target.dispatchEvent(new KeyboardEvent('keydown',{key,shiftKey,bubbles:true,cancelable:true}))}
+it('侧边栏和内容空白区不弹出浏览器原生右键菜单',()=>{
+ for(const selector of ['.sidebar','.workspace']){
+  const event=new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2});
+  query(selector).dispatchEvent(event);
+  expect(event.defaultPrevented).toBe(true);
+  expect(document.querySelector('[role=menu]')).toBeNull();
+ }
+});
 it('菜单打开时保留组件库的鼠标交互样式',async()=>{
  query<HTMLButtonElement>('.history-more').click();
  await vi.waitFor(()=>expect(document.querySelector('[role=menu]')).not.toBeNull());
  const menu=query('[role=menu]');
  expect(getComputedStyle(menu).pointerEvents).toBe('auto');
+});
+it('菜单内再次右键不会打开浏览器原生菜单',async()=>{
+ query<HTMLButtonElement>('.history-more').click();
+ await vi.waitFor(()=>expect(document.querySelector('[role=menuitem]')).not.toBeNull());
+ const event=new MouseEvent('contextmenu',{bubbles:true,cancelable:true,button:2});
+ query('[role=menuitem]').dispatchEvent(event);
+ expect(event.defaultPrevented).toBe(true);
+ expect(document.querySelectorAll('[role=menu]')).toHaveLength(1);
 });
 it('按钮通过键盘打开菜单，方向键导航并用 Escape 返回触发按钮',async()=>{
  const trigger=query<HTMLButtonElement>('.history-more');trigger.focus();trigger.click();

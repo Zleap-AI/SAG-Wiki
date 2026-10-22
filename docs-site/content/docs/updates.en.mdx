@@ -1,0 +1,141 @@
+---
+title: "Feature updates"
+description: "Major features, releases and workflow changes in chronological order."
+---
+
+This page lists development summaries, published releases and early development records, newest first. Dates use China Standard Time (UTC+8). Historical entries describe behavior at the time; see the relevant feature guide for current instructions.
+
+Published versions link to their official release notes. A development summary does not mean every item was first implemented that day or is included in the latest installer.
+
+## 2026-10-23 · Development summary
+
+### New features
+
+- **Mermaid diagrams**: documents, search previews, citation sources and Q&A can display diagrams. The editor shows SVG by default; hover and select **Edit** to change the source, then select **Preview** to see the result. See [Mermaid diagrams](/en/docs/files#mermaid-diagrams).
+- **Document outline**: the Markdown editor builds an outline from headings. Select a heading to jump to it, follow the highlighted section while scrolling, and see the outline update when headings change. See [Document outline](/en/docs/files#document-outline).
+- **Web clipping**: the browser extension saves page content as local Markdown in Chrome, Edge and macOS Safari. After authorizing a destination folder, saving works without SAG Wiki running. Add that folder to the knowledge base to search its contents. Local test packages are available; saving on a physical Windows machine has not yet been verified. See [Web clipper](/en/docs/web-clipper).
+
+### Changes to existing workflows
+
+- **Built-in document parsing**: Word, PowerPoint, Excel, OpenDocument, RTF, CSV, EPUB and text-based PDFs are parsed locally with built-in anydoc, without installing a conversion component first. Install optional Docling for scanned PDFs and other formats. See [Document formats and conversion](/en/docs/folders#other-formats-and-conversion).
+- **File lists and index status**: switch between **All**, **Indexed** and **Not indexed** inside a folder while retaining access to subfolders. Original files with indexed conversions are recognized as indexed; opening one displays its Markdown conversion. Editing the conversion does not modify the original Office or PDF file. See [File management](/en/docs/files).
+- **New document location**: creating a document inside a folder uses that folder. Creating one from the **Indexed files** overview first asks for a destination. The file is written and indexed after selecting **Save**. See [Create a document](/en/docs/files#create-a-document).
+- **Per-folder indexing settings**: choose file types and conversion formats for a directory and any subdirectories without their own settings. Existing ignore rules are preserved. Reindexing rebuilds only the selected folder's index. See [Per-folder indexing settings](/en/docs/folders#per-folder-index-settings).
+- **Indexing and conversion stages**: directly supported text is processed first, followed by parallel document conversion and indexing of the results. Completed content can be searched while other files are still being processed. Indexing details show the stage, current files and failures, with controls to pause and resume tasks. See [Index progress and history](/en/docs/folders#reindex-and-history).
+
+## 2026-10-22 · 0.1.9
+
+Status: Published. [Official release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.9)
+
+- **Local Jev connections**: accepts both base URLs and complete endpoint URLs, fixing duplicate `/systemone` suffixes that caused connection failures.
+- **No-authentication mode**: desktop and CLI can connect to local Jev services without an API key. Existing configurations continue using API-key authentication.
+- **Credential protection**: preserves credentials separately for each provider and fixes invalid configuration saves that could remove an existing Jev key.
+- **Windows CLI fixes**: resolves command output remaining open after starting the service, and incomplete search-result paths for subdirectories.
+- **Indexing and conversion**: improves resource use, conversion-component installation and progress reporting.
+- **Update-signing migration**: introduces centralized macOS and Windows release signing. Users on 0.1.8 or earlier must manually install 0.1.9 once, then receive in-app updates through the new signing channel. The old channel remains on 0.1.8.
+
+## 2026-10-21 · Documentation and external links
+
+- **External links**: links in documents, citations and HTML reading views open in the system browser, keeping the current conversation and document in the app.
+- **Bilingual documentation**: organizes guides for file management, search, Q&A, models, CLI and Agent setup, with screenshots and setting descriptions.
+- **Help entry**: adds a documentation shortcut to the sidebar, also available when it is collapsed.
+
+## 2026-10-20 · 0.1.8
+
+Status: Published. [Official release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.8)
+
+- **Windows document conversion**: fixes component installation getting stuck and improves handling of PDF conversion failures.
+- **Immediate indexing of conversions**: completed files become searchable while conversion continues, with live file counts and charts.
+- **File-type detection**: prevents PEM key files from being mistaken for Keynote documents and submitted for conversion.
+- **Paths and failure details**: improves Windows path display, identifies individual failed files and provides an action to locate their originals.
+- **File mentions**: the `@` picker adapts to available window space and keeps the keyboard-selected file visible.
+
+## 2026-10-20 · 0.1.7
+
+Status: Published. [Official release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.7)
+
+- **Complete file browsing**: the main file list displays actual files and empty folders, including folders containing only unindexed images or videos.
+- **Index-status filtering**: adds All, Indexed and Not indexed filters. Unindexed files appear dimmed and can open an explanation with access to file settings.
+- **Sidebar and main list**: the sidebar focuses on indexed files and folders; the main list browses the actual directory. Dot-prefixed subfolders stay hidden in the sidebar, while the main list follows hidden-file settings.
+- **Windows installation and removal**: improves application exit, service shutdown and checks for a running CLI. Interactive installation includes language selection.
+
+## 2026-10-20 · 0.1.6
+
+Status: Published. [Official release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.6)
+
+- **In-app updates**: checks at startup, downloads in the background, shows progress, verifies signatures and offers Restart and update. Closing settings does not interrupt a download.
+- **Installer languages**: the Windows installer supports Simplified Chinese, Traditional Chinese and English, initially following the system language with manual selection available.
+- **CLI file-type settings**: adds `sag add --types md,py,ts`. `sag check` displays selected types, and local matching follows folder indexing settings.
+- **Custom Jev endpoints**: supports connection testing and saving custom service URLs.
+- **Folder-removal confirmation**: asks before removing a folder, preserving original files and conversations.
+- **Agent setup guide**: expands Skill installation, configuration, project indexing and verification instructions.
+
+## 2026-10-19 · 0.1.5
+
+Status: Published. [Official release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5)
+
+- **Installer distribution**: provides macOS Apple Silicon and Windows x64 installers.
+- **macOS signing and notarization**: the installer is Developer ID signed, notarized by Apple and includes a stapled notarization ticket.
+- **Version display**: About follows the application version, and the release page includes file checksums.
+- **CLI and Agent installation docs**: adds npm CLI installation and GitHub Skill setup instructions, with copyable installation commands.
+
+## 2026-10-18 · Shared service and Q&A
+
+These are early development records, not a separate published version.
+
+- **Shared background service**: desktop and CLI use an independent SAG service with shared indexes and configuration. CLI remains available after the desktop window closes.
+- **Tool execution details**: displays and saves tool durations, shows retrieval stages in collapsed cards, prioritizes SAG tools for knowledge questions and retains enabled tools on the first turn.
+- **Answer ordering**: completes the first tool decision before displaying the final answer, preserves streamed text around tool calls, and places reasoning in event order.
+- **Source citations**: opens full source documents and returns to the conversation, groups duplicate document references, and shows only cited sources with continuous numbering.
+- **Conversation navigation**: moves conversation history into the main workspace and supports returning to the previous conversation or document workflow.
+- **Retrieval changes**: sets desktop defaults to 50 candidates and one expansion round, improves sentence boundaries and ranking terms, and skips extra preparation for documents without exact matches.
+
+## 2026-10-17 · Standalone CLI and retrieval changes
+
+- **Standalone CLI**: runs independently with a shared desktop core, first-run configuration and npm distribution. The command is renamed from the early `sgrep` name to `sag`.
+- **Local matching**: adds regular expressions, fixed-string matching and grep-style options for case, whole words and context.
+- **Agent guidance**: loads Skill references on demand and documents semantic searches, exact-match follow-ups, focused questions and ignore rules.
+- **Retrieval chunks**: changes the default chunk target to 512 characters and improves section and table context, together with term initialization.
+
+## 2026-10-16 · Models, background operation and files
+
+### Models and Q&A
+
+- **Provider selection**: answer-model presets include OpenAI, DeepSeek, GLM, OpenRouter, 302.AI and custom endpoints. Jev presets include 302.AI, OpenRouter and Typesafe. Selecting a provider fills its URL while keeping credentials separate.
+- **302.AI key completion**: when both models use 302.AI, an empty, unsaved key can be filled from the other field. Saved or manually edited keys remain independent.
+- **Default endpoints and request format**: new Jev configurations use the dedicated 302.AI endpoint and `jev-latest`. Answer-model presets use Chat Completions, with tool and reasoning parameters adapted to model capabilities.
+- **Follow-up tool flow**: obtains needed evidence before generating the answer, fixing temporary answers that were displayed and then cleared for tool use.
+- **Streaming answers**: improves continuous Markdown rendering and scrolling stability. Scrolling upward pauses automatic following; returning to the bottom resumes it.
+
+### Background operation and knowledge-base management
+
+- **Continue after window close**: Windows uses the system tray and macOS uses the menu bar. Q&A, indexing and file watching continue, with menu actions to reopen or quit the app.
+- **Exit and icon fixes**: corrects Windows close-window permissions, retains unsaved-document confirmation, and updates desktop, Start menu and installer icons.
+- **Folder removal and restoration**: CLI can add, authorize and remove project directories. Original files remain, and excluded subdirectories can be restored.
+- **Ignore rules**: indexing and search respect project and nested `.gitignore` and `.sagignore` files with directory and rule precedence.
+- **Local document exploration**: adds relationship graphs, shared terms, source evidence, local exploration, zooming, dragging and navigation without calling the answer model.
+- **CLI and tool settings**: adds native CLI and Agent setup, improves terminal PATH handling, installation-location tracking and connection checks, and separates prompts, model connections and tool permissions.
+
+## 2026-10-15 · Search pagination, onboarding and MCP
+
+- **Quick-search pagination**: groups matches by file, displays 20 files per page and reports the full result count. Only the current page is loaded; failed or canceled paging retains existing results.
+- **Deep-search pagination**: paginates the ranked file list after grouping passages. Changing pages does not repeat retrieval or call a model.
+- **First-run onboarding**: adds four steps covering local files, SAG2 retrieval, source citations and getting started, with mouse, trackpad and keyboard controls. Completion is remembered, and settings can reopen the guide.
+- **Performance and evaluation notes**: documents the indexing measurement and its scope, with expandable paper-benchmark details.
+- **Built-in MCP tools**: expands retrieval into `search`, `list`, `read` and `grep`, selected per model and sharing scope, citation numbering, call limits and context budgets.
+- **Model and external-tool settings**: saves prompts and MCP bindings per model, provides expandable tool configuration, and retains tool arguments, results and errors.
+- **Results and context budgets**: clearly identifies no matches and omitted evidence, while showing sources and passages for matches. Removes the fixed 128000 context-budget ceiling, retaining a minimum of 4096 and default of 65536.
+
+## 2026-10-14 · Initial local knowledge base
+
+- **Local files**: provides an independent desktop app, SQLite indexing, a directory tree, folder-scoped queries and file watching. Removing a registered folder preserves its originals.
+- **Quick and deep search**: keyword search uses local BM25 without a model key; explicitly selecting deep search runs SAG2. Local results remain when deep retrieval is canceled or fails.
+- **Document editing**: supports Markdown editing, save-to-create documents, drafts and external-change checks. Long-text and code retrieval retain source ranges for precise citations.
+- **Q&A and history**: supports model switching, streaming, cancellation, `@` file selection, citations, conversation renaming and restoration.
+- **Model tool calls**: lets the answer model choose retrieval questions, with repeated tool calls, stable citations, context limits and better batching of long Jev requests.
+- **Input-method fix**: confirming a Chinese input candidate no longer submits a question; normal Enter-to-send and Shift+Enter newlines remain available.
+- **Model configuration and credentials**: adds connection tests, model configuration and key management. Local credential files replace repeated system-password prompts in development builds.
+
+## Sources
+
+Published versions follow [GitHub Releases](https://github.com/Zleap-AI/SAG-Wiki/releases). Early entries were compiled from the repository's original changelog, client validation records and commit history. Repeated packaging work, test counts and purely visual adjustments have been combined or omitted.

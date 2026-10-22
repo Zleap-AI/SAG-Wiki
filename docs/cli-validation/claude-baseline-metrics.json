@@ -1,9 +1,0 @@
-{
-  "harness": "claude",
-  "mode": "baseline",
-  "model": "anthropic/claude-sonnet-4.5",
-  "exit_code": 1,
-  "seconds": 0.62,
-  "events": 3,
-  "sag_mentions": 0
-}

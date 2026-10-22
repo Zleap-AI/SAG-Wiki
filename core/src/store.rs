@@ -8,7 +8,7 @@ use std::{
     fs,
     io::Write,
     path::{Path, PathBuf},
-    sync::{Mutex, MutexGuard},
+    sync::{Arc, Mutex, MutexGuard},
     thread,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -26,14 +26,24 @@ struct PreparedFile {
     title: String,
     chunks: Vec<PreparedChunk>,
     explore_terms: Vec<DocumentTerm>,
+    retrieval_terms: HashSet<String>,
 }
 pub struct Store {
+    pub indexing: crate::index_status::IndexControl,
+    pub(crate) docling: Arc<crate::docling::Docling>,
     db: Mutex<Connection>,
     query_readers: Vec<Mutex<Connection>>,
     query_cache: Mutex<QueryCache>,
 }
 const QUERY_WORKERS: usize = 8;
 const QUERY_CACHE_ENTRIES: usize = 256;
+const CORPUS_CACHE_ENTRIES: usize = 8;
+
+#[derive(Clone, Hash, PartialEq, Eq)]
+struct CorpusScope {
+    scope: Vec<String>,
+    references: Vec<String>,
+}
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct CandidateQuery {
@@ -53,6 +63,8 @@ struct QueryCache {
     misses: usize,
     rank_stats: IndexMap<String, Vec<u8>>,
     frequencies: HashMap<String, usize>,
+    corpora: IndexMap<CorpusScope, Arc<crate::sag2_v10::Corpus>>,
+    scope_documents: IndexMap<CorpusScope, Option<Arc<str>>>,
 }
 
 impl QueryCache {
@@ -62,6 +74,8 @@ impl QueryCache {
             self.entries.clear();
             self.rank_stats.clear();
             self.frequencies.clear();
+            self.corpora.clear();
+            self.scope_documents.clear();
             self.version = Some(version);
         }
         true
@@ -187,6 +201,9 @@ impl Store {
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
  CREATE TABLE IF NOT EXISTS root_exclusions(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS index_history(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL,name TEXT NOT NULL,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,completed INTEGER NOT NULL,total INTEGER NOT NULL,status TEXT NOT NULL,error TEXT);
+ CREATE TABLE IF NOT EXISTS conversions(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,output TEXT NOT NULL,output_hash TEXT NOT NULL,valid INTEGER NOT NULL DEFAULT 1);
+ CREATE INDEX IF NOT EXISTS conversions_output ON conversions(output);
  CREATE INDEX IF NOT EXISTS index_issues_root ON index_issues(root);
  CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY AUTOINCREMENT,root TEXT NOT NULL,path TEXT UNIQUE NOT NULL,name TEXT NOT NULL,hash TEXT NOT NULL,mtime INTEGER NOT NULL,size INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS chunks(id INTEGER PRIMARY KEY AUTOINCREMENT,document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,heading TEXT NOT NULL,ranges TEXT NOT NULL,start_line INTEGER NOT NULL,end_line INTEGER NOT NULL,spans TEXT NOT NULL DEFAULT '[]');
@@ -198,6 +215,7 @@ impl Store {
  CREATE TABLE IF NOT EXISTS conversations(id TEXT PRIMARY KEY,title TEXT NOT NULL,messages TEXT NOT NULL,updated INTEGER NOT NULL,deleted INTEGER NOT NULL DEFAULT 0);
  CREATE TABLE IF NOT EXISTS drafts(path TEXT PRIMARY KEY,value TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS metadata(id INTEGER PRIMARY KEY CHECK(id=1),version INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS retrieval_vocabulary(document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,terms TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS explore_summaries(document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,hash TEXT NOT NULL,algorithm INTEGER NOT NULL,terms TEXT NOT NULL);
  INSERT OR IGNORE INTO metadata VALUES(1,0);
 ")?;
@@ -206,6 +224,13 @@ impl Store {
             [],
             |r| r.get(0),
         )?;
+        let has_file_log: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('index_history') WHERE name='file_log')",
+            [], |r| r.get(0),
+        )?;
+        if !has_file_log {
+            db.execute("ALTER TABLE index_history ADD COLUMN file_log TEXT", [])?;
+        }
         if !has_size {
             db.execute(
                 "ALTER TABLE documents ADD COLUMN size INTEGER NOT NULL DEFAULT 0",
@@ -243,7 +268,27 @@ impl Store {
         if schema_version > 0 && schema_version < 7 {
             db.execute_batch("BEGIN; DELETE FROM chunk_fts; DELETE FROM chunks; UPDATE documents SET hash=''; UPDATE roots SET status='pending',error=NULL; UPDATE metadata SET version=version+1; COMMIT;")?;
         }
-        db.pragma_update(None, "user_version", 7)?;
+        if schema_version < 9 && db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM documents WHERE lower(path) GLOB '*.html' OR lower(path) GLOB '*.htm' OR lower(path) GLOB '*.md' OR lower(path) GLOB '*.markdown')",
+            [], |row| row.get::<_, bool>(0),
+        )? {
+            // Refresh document indexes for the expanded embedded-resource filter.
+            // Source files and indexes for other file types remain intact.
+            db.execute_batch("BEGIN;
+                CREATE TEMP TABLE resource_refresh AS SELECT id FROM documents WHERE lower(path) GLOB '*.html' OR lower(path) GLOB '*.htm' OR lower(path) GLOB '*.md' OR lower(path) GLOB '*.markdown';
+                DELETE FROM chunk_fts WHERE rowid IN (SELECT id FROM chunks WHERE document_id IN (SELECT id FROM resource_refresh));
+                DELETE FROM chunks WHERE document_id IN (SELECT id FROM resource_refresh);
+                DELETE FROM retrieval_vocabulary WHERE document_id IN (SELECT id FROM resource_refresh);
+                DELETE FROM explore_summaries WHERE document_id IN (SELECT id FROM resource_refresh);
+                UPDATE documents SET hash='' WHERE id IN (SELECT id FROM resource_refresh);
+                UPDATE roots SET status='pending',error=NULL WHERE path IN (SELECT root FROM documents WHERE id IN (SELECT id FROM resource_refresh));
+                DROP TABLE resource_refresh;
+                UPDATE metadata SET version=version+1;
+                PRAGMA user_version=9;
+                COMMIT;")?;
+        } else {
+            db.pragma_update(None, "user_version", 9)?;
+        }
         let query_readers = (0..QUERY_WORKERS)
             .map(|_| {
                 let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
@@ -254,6 +299,8 @@ impl Store {
             .collect::<Result<Vec<_>>>()?;
         let saved: Option<String> = db.query_row("SELECT value FROM preferences WHERE id=1", [], |r| r.get(0)).optional()?;
         let store = Self {
+            indexing: crate::index_status::IndexControl::default(),
+            docling: Arc::new(crate::docling::Docling::new(path.parent().context("数据库缺少父目录")?)),
             db: Mutex::new(db),
             query_readers,
             query_cache: Mutex::new(QueryCache::default()),
@@ -300,6 +347,7 @@ impl Store {
         }
     }
     pub fn save_settings(&self, s: &Settings) -> Result<()> {
+        anyhow::ensure!(s.search_summary_sources > 0, "自动问答参考数量必须大于 0");
         if !matches!(s.language.as_str(), "zh-CN" | "en") {
             bail!("不支持的界面语言")
         }
@@ -325,6 +373,9 @@ impl Store {
         }
         if !(1..=64).contains(&s.index_workers) {
             bail!("索引并行数应为 1–64")
+        }
+        if !(1..=16).contains(&s.conversion_workers) {
+            bail!("转换并行数应为 1–16")
         }
         let r = &s.retrieval;
         if !(10..=100).contains(&r.candidate_k)
@@ -352,7 +403,7 @@ impl Store {
         let mut db = self.connection();
         let transaction = db.transaction()?;
         transaction.execute("INSERT INTO preferences VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(s)?])?;
-        if previous.file_types != s.file_types || previous.excluded != s.excluded {
+        if previous.file_types != s.file_types || previous.excluded != s.excluded || previous.convert_other_formats != s.convert_other_formats || previous.conversion_formats != s.conversion_formats {
             transaction.execute("UPDATE metadata SET version=version+1", [])?;
         }
         transaction.commit()?;
@@ -374,6 +425,37 @@ impl Store {
             .collect::<rusqlite::Result<_>>()?;
         Ok(rows)
     }
+    pub fn indexed_file_count(&self, directory: &Path) -> Result<usize> {
+        let path = path_text(directory)?;
+        let prefix = format!("{}{}", path.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+        Ok(self.connection().query_row(
+            "SELECT COUNT(*) FROM documents WHERE path=?1 OR instr(path,?2)=1",
+            params![path, prefix], |row| row.get::<_, i64>(0),
+        )? as usize)
+    }
+    pub fn folder_index_options(&self, directory: &Path) -> Result<FolderIndexOptions> {
+        let directory = self.authorize(directory)?;
+        if !directory.is_dir() { bail!("请选择文件夹") }
+        let root = self.roots()?.into_iter().find(|root| directory.starts_with(&root.path)).unwrap();
+        let mut rules = crate::folder_index::Rules::new(Path::new(&root.path), &self.settings()?)?;
+        Ok(rules.directory(&directory)?.clone())
+    }
+    pub fn save_folder_index_options(&self, path: &Path, options: &FolderIndexOptions, rebuild: bool) -> Result<String> {
+        let path = self.authorize(path)?;
+        if !path.is_dir() { bail!("请选择文件夹") }
+        let root = self.roots()?.into_iter().find(|root| path.starts_with(&root.path)).unwrap().path;
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        let status: String = tx.query_row("SELECT status FROM roots WHERE path=?", [&root], |row| row.get(0))?;
+        if status == "pending" || status == "indexing" { bail!("此文件夹正在索引，请完成后再修改索引设置") }
+        crate::folder_index::write(&path, options)?;
+        if rebuild {
+            Self::remove_indexed_under_tx(&tx, &root, &path)?;
+        }
+        tx.execute("UPDATE roots SET status='pending',error=NULL WHERE path=?", [&root])?;
+        tx.commit()?;
+        Ok(root)
+    }
     pub fn prepare_reindex(&self) -> Result<Vec<String>> {
         let mut db = self.connection();
         let tx = db.transaction()?;
@@ -391,6 +473,53 @@ impl Store {
         tx.commit()?;
         Ok(roots)
     }
+    fn reclaim_storage(&self, db: &Connection) -> Result<()> {
+        // Finish active read snapshots before reclaiming pages and truncating WAL.
+        let _readers: Vec<_> = self.query_readers.iter()
+            .map(|reader| reader.lock().expect("query reader mutex poisoned"))
+            .collect();
+        db.execute_batch("VACUUM;").context("数据已删除，但数据库空间回收失败")?;
+        let busy: i64 = db.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+        if busy != 0 { bail!("数据已删除，但数据库日志仍在使用，请稍后再次清除以完成清理") }
+        Ok(())
+    }
+    pub fn remove_all_roots(&self) -> Result<()> {
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        let busy: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM roots WHERE status IN ('pending','indexing'))",
+            [], |row| row.get(0),
+        )?;
+        if busy { bail!("正在索引，请等待当前任务完成后再移除所有文件夹") }
+        tx.execute_batch("DELETE FROM chunk_fts;
+            DELETE FROM documents;
+            DELETE FROM index_issues;
+            DELETE FROM roots;
+            UPDATE metadata SET version=version+1;")?;
+        tx.commit()?;
+        self.reclaim_storage(&db)
+    }
+    pub fn clear_all_data(&self) -> Result<()> {
+        let mut db = self.connection();
+        db.execute_batch("PRAGMA secure_delete=ON;")?;
+        let tx = db.transaction()?;
+        let busy: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM roots WHERE status IN ('pending','indexing'))",
+            [], |row| row.get(0),
+        )?;
+        if busy { bail!("正在索引，请等待当前任务完成后再清除所有数据") }
+        tx.execute_batch("DELETE FROM conversations;
+            DELETE FROM index_history;
+            DELETE FROM drafts;
+            DELETE FROM preferences;
+            DELETE FROM chunk_fts;
+            DELETE FROM documents;
+            DELETE FROM index_issues;
+            DELETE FROM roots;
+            UPDATE metadata SET version=version+1;")?;
+        tx.commit()?;
+        self.reclaim_storage(&db)
+    }
     pub fn excluded_directories(&self) -> Result<Vec<String>> {
         let db = self.connection();
         let mut query = db.prepare("SELECT path FROM root_exclusions ORDER BY path")?;
@@ -398,7 +527,7 @@ impl Store {
         Ok(paths)
     }
     fn path_excluded(db: &Connection, path: &str) -> Result<bool> {
-        Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM root_exclusions WHERE path=?1 OR instr(?1,path || ?2)=1)",
+        Ok(db.query_row("SELECT EXISTS(SELECT 1 FROM root_exclusions e WHERE e.path=?1 OR instr(?1,e.path || ?2)=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=?1 AND (cv.source=e.path OR instr(cv.source,e.path || ?2)=1)))",
             params![path,std::path::MAIN_SEPARATOR.to_string()], |row| row.get(0))?)
     }
     pub fn is_excluded(&self, path: &Path) -> Result<bool> {
@@ -421,14 +550,12 @@ impl Store {
         if !allowed {
             bail!("该路径不在已添加的文件夹内")
         };
-        if self.is_excluded(&canonical)? { bail!("此目录已从知识库移除，请先重新添加") }
+        if self.is_excluded(&canonical)? { bail!("此路径已从知识库移除，请先重新添加") }
         Ok(canonical)
     }
     pub fn add_root(&self, path: &Path) -> Result<String> {
         let path = path.canonicalize().context("无法打开这个文件夹")?;
-        if !path.is_dir() {
-            bail!("请选择文件夹")
-        };
+        if !path.is_dir() && !path.is_file() { bail!("请选择文件或文件夹") }
         let roots = self.roots()?;
         if let Some(r) = roots.iter().find(|r| path.starts_with(&r.path)) {
             let value = path_text(&path)?;
@@ -438,6 +565,9 @@ impl Store {
             if Self::path_excluded(&tx, &value)? { bail!("请先重新添加已移除的上级目录") }
             tx.commit()?;
             return Ok(r.path.clone());
+        };
+        if !path.is_dir() {
+            bail!("请选择文件夹")
         };
         let value = path_text(&path)?;
         let name = path
@@ -473,11 +603,11 @@ impl Store {
         let value = path_text(path)?;
         let roots = self.roots()?;
         if roots.iter().any(|root| root.path == value) { return self.remove_root(&value); }
-        let root = roots.iter().find(|root| path.starts_with(&root.path)).context("此文件夹不在知识库中")?;
-        if !path.is_dir() { bail!("只能移除知识库中的文件夹") }
+        let root = roots.iter().find(|root| path.starts_with(&root.path)).context("此路径不在知识库中")?;
+        if !path.is_dir() && !path.is_file() { bail!("只能移除知识库中的文件或文件夹") }
         let mut db = self.connection();
         let tx = db.transaction()?;
-        if Self::path_excluded(&tx, &value)? { bail!("此文件夹已从知识库移除") }
+        if Self::path_excluded(&tx, &value)? { bail!("此路径已从知识库移除") }
         let prefix = format!("{}{}", value.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
         tx.execute("DELETE FROM root_exclusions WHERE instr(path,?1)=1", [&prefix])?;
         tx.execute("INSERT INTO root_exclusions(path,root) VALUES(?,?)", params![value,root.path])?;
@@ -512,12 +642,12 @@ impl Store {
         for item in fs::read_dir(path)? {
             let item = item?;
             let name = item.file_name().to_string_lossy().to_string();
-            if self.is_excluded(&item.path())? { continue; }
             if !show_hidden && name.starts_with('.') {
                 continue;
             };
             let ty = item.file_type()?;
-            if ty.is_dir() || ty.is_symlink() || text::is_supported(&item.path()) {
+            if ty.is_dir() && self.is_excluded(&item.path())? { continue; }
+            if ty.is_dir() || ty.is_symlink() || ty.is_file() {
                 entries.push(Entry {
                     path: path_text(&item.path())?,
                     name,
@@ -538,6 +668,10 @@ impl Store {
     }
     pub(crate) fn matching_document(&self, path: &Path, matches: impl FnOnce(&str) -> bool) -> Result<Option<Document>> {
         let path = self.authorize(path)?;
+        let path = if crate::docling::is_source(&path) {
+            let output: Option<String> = self.connection().query_row("SELECT output FROM conversions WHERE source=? AND valid=1", [path_text(&path)?], |row| row.get(0)).optional()?;
+            self.authorize(Path::new(&output.context("请启用对应文件类型并完成转换后查看文档")?))?
+        } else { path };
         let raw = fs::read(&path)?;
         let body = crate::document_text::read_borrowed(&path, &raw)?;
         if !matches(&body) { return Ok(None); }
@@ -677,22 +811,92 @@ impl Store {
         }
     }
     pub fn scan(&self, root: &str, progress: impl Fn(IndexProgress)) -> Result<usize> {
-        self.root_status(root, "indexing", None)?;
-        let result = self.scan_inner(root, progress);
+        if !self.begin_indexing(root)? { return Ok(0); }
+        let started_at = now();
+        self.indexing.begin(root);
+        let result = self.indexing.checkpoint().and_then(|_| self.scan_inner(root, Path::new(root), false, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
-            Err(e) => self.root_status(root, "error", Some(&e.to_string()))?,
+            Err(e) if !self.indexing.stopped() => self.root_status(root, "error", Some(&e.to_string()))?,
+            Err(_) => {},
         };
+        let saved = self.record_index_history(root, started_at);
+        self.indexing.finish(root);
+        saved?;
         result
     }
     pub fn update_paths(&self, root: &str, paths: &[PathBuf], progress: impl Fn(IndexProgress)) -> Result<usize> {
-        self.root_status(root, "indexing", None)?;
-        let result = self.update_paths_inner(root, paths, progress);
+        if !self.begin_indexing(root)? { return Ok(0); }
+        let started_at = now();
+        self.indexing.begin(root);
+        let result = self.indexing.checkpoint().and_then(|_| self.update_paths_inner(root, paths, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
-            Err(error) => self.root_status(root, "error", Some(&error.to_string()))?,
+            Err(error) if !self.indexing.stopped() => self.root_status(root, "error", Some(&error.to_string()))?,
+            Err(_) => {},
         }
+        let saved = self.record_index_history(root, started_at);
+        self.indexing.finish(root);
+        saved?;
         result
+    }
+    fn record_index_history(&self, root: &str, started_at: i64) -> Result<()> {
+        let task = self.indexing.task(root);
+        let db = self.connection();
+        let (name, status, error): (String, String, Option<String>) = db.query_row(
+            "SELECT name,status,error FROM roots WHERE path=?", [&task.path],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )?;
+        let status = if self.indexing.stopped() { "stopped" } else { &status };
+        let mut files = self.indexing.log(root);
+        let mut source_query = db.prepare("SELECT source FROM conversions WHERE output=?")?;
+        for file in &mut files {
+            if let Some(source) = source_query.query_row([&file.path], |row| row.get::<_, String>(0)).optional()? {
+                file.path = source;
+            }
+        }
+        let raw = files.iter().map(serde_json::to_string).collect::<serde_json::Result<Vec<_>>>()?.join("\n");
+        let (completed, total) = self.indexing.indexed(root);
+        db.execute("INSERT INTO index_history(path,name,started_at,finished_at,completed,total,status,error,file_log) VALUES(?,?,?,?,?,?,?,?,?)",
+            params![task.path, name, started_at, now(), completed, total, status, error, raw])?;
+        Ok(())
+    }
+    pub fn index_history_log(&self, id: i64) -> Result<sag_protocol::IndexHistoryLog> {
+        let raw = self.connection().query_row("SELECT file_log FROM index_history WHERE id=?", [id], |row| row.get(0))?;
+        Ok(sag_protocol::IndexHistoryLog { raw })
+    }
+    pub fn authorize_index_history_file(&self, id: i64, path: &str) -> Result<PathBuf> {
+        let log = self.index_history_log(id)?;
+        let mut found = false;
+        if let Some(raw) = log.raw {
+            for line in raw.lines() {
+                let file: sag_protocol::IndexFileLog = serde_json::from_str(line)?;
+                found |= file.path == path;
+            }
+        }
+        if !found { bail!("文件不在该次索引记录中") }
+        let path = self.authorize(Path::new(path))?;
+        if !path.is_file() { bail!("原文件已不存在") }
+        Ok(path)
+    }
+    pub fn index_history(&self) -> Result<Vec<sag_protocol::IndexHistory>> {
+        let db = self.connection();
+        let mut query = db.prepare("SELECT id,path,name,started_at,finished_at,completed,total,status,error FROM index_history ORDER BY id DESC LIMIT 100")?;
+        let records = query.query_map([], |row| Ok(sag_protocol::IndexHistory {
+            id: row.get(0)?, path: row.get(1)?, name: row.get(2)?, started_at: row.get(3)?,
+            finished_at: row.get(4)?, completed: row.get(5)?, total: row.get(6)?, status: row.get(7)?, error: row.get(8)?,
+        }))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(records)
+    }
+    pub fn clear_index_history(&self) -> Result<()> {
+        self.connection().execute("DELETE FROM index_history", [])?;
+        Ok(())
+    }
+    fn begin_indexing(&self, root: &str) -> Result<bool> {
+        Ok(self.connection().execute(
+            "UPDATE roots SET status='indexing',error=NULL WHERE path=?",
+            [root],
+        )? > 0)
     }
     fn update_paths_inner(&self, root: &str, paths: &[PathBuf], progress: impl Fn(IndexProgress)) -> Result<usize> {
         let settings = self.settings()?;
@@ -700,13 +904,28 @@ impl Store {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         }
         if paths.iter().any(|path| path.starts_with(root) && ignore_rules::is_rule_file(path)) {
-            return self.scan_inner(root, progress);
+            let directory = if paths.len() == 1 { paths[0].parent().unwrap() } else { Path::new(root) };
+            return self.scan_inner(root, directory, true, progress);
+        }
+        let mut rules = crate::folder_index::Rules::new(Path::new(root), &settings)?;
+        let excluded = self.excluded_directories()?;
+        for path in paths.iter().filter(|path| path.starts_with(root) && !crate::docling::in_output(path)) {
+            let options = rules.file(path)?;
+            let converted_descendants = if path.is_dir() || !path.exists() {
+                let source = path_text(path)?;
+                let prefix = format!("{}{}", source.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+                self.connection().query_row("SELECT EXISTS(SELECT 1 FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1))", params![root,source,prefix], |row| row.get::<_, bool>(0))?
+            } else { false };
+            let new_documents = path.is_dir()
+                && !self.conversion_files(Path::new(root), path, &settings, &excluded)?.0.is_empty();
+            if crate::docling::is_enabled(path, options) || converted_descendants || new_documents {
+                return self.scan_inner(root, Path::new(root), true, progress);
+            }
         }
         let mut ignore = ignore_rules::matcher(Path::new(root));
         enum Work { Directory(PathBuf, Vec<PathBuf>), File(PathBuf), Remove(PathBuf) }
         let mut work = Vec::new();
         let mut total = 0;
-        let excluded = self.excluded_directories()?;
         for path in paths {
             if excluded.iter().any(|directory| path.starts_with(directory)) { continue; }
             let Ok(relative) = path.strip_prefix(root) else { continue; };
@@ -731,10 +950,11 @@ impl Store {
                 work.push(Work::Remove(path.clone()));
                 total += 1;
             } else if metadata.is_dir() {
-                let files = Self::index_files(Path::new(root), path, &settings, &excluded)?;
+                let files = self.index_files(Path::new(root), path, &settings, &excluded, None)?;
                 total += files.len().max(1);
                 work.push(Work::Directory(path.clone(), files));
-            } else if metadata.is_file() && text::is_indexable(path, &settings.file_types) {
+            } else if metadata.is_file() && Self::indexable_path(path, rules.file(path)?)
+                && (!crate::docling::in_output(path) || self.conversion_outputs()?.contains(&path_text(path)?)) {
                 work.push(Work::File(path.clone()));
                 total += 1;
             } else {
@@ -745,14 +965,16 @@ impl Store {
         let mut count = 0;
         let mut completed = 0;
         progress(IndexProgress { count: 0, total });
+        self.indexing.phase(root, "indexing", total);
         for item in work {
+            self.indexing.checkpoint()?;
             match item {
                 Work::Directory(path, files) => {
-                    count += self.scan_directory(root, &path, &files, &settings, true, |p| progress(IndexProgress { count: completed + p.count, total }))?;
+                    count += self.scan_directory(root, &path, &files, &settings, true, None, |p| progress(IndexProgress { count: completed + p.count, total }))?;
                     completed += files.len().max(1);
                 }
                 Work::File(path) => {
-                    if let Some(file) = self.prepare_indexed_file(root, &path, settings.retrieval.chunk_chars, true)? {
+                    if let Some(file) = self.indexing.file(root, &path, || self.prepare_indexed_file(root, &path, settings.retrieval.chunk_chars, true))? {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
                         Self::write_prepared(&tx, root, file)?;
@@ -778,7 +1000,16 @@ impl Store {
         Ok(removed)
     }
     fn remove_indexed_under_tx(tx: &rusqlite::Transaction<'_>, root: &str, path: &Path) -> Result<usize> {
-        let path = path_text(path)?;
+        let source = path_text(path)?;
+        let prefix = format!("{}{}", source.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+        let outputs = {
+            let mut query = tx.prepare("SELECT output FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+            let values = query.query_map(params![root,source,prefix], |row| row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            values
+        };
+        for output in outputs { Self::remove_indexed_under_tx(tx, root, Path::new(&output))?; }
+        tx.execute("UPDATE conversions SET valid=0 WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)", params![root,source,prefix])?;
+        let path = source;
         let prefix = format!("{}{}", path.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?1 AND (d.path=?2 OR instr(d.path,?3)=1))", params![root,path,prefix])?;
         let removed = tx.execute("DELETE FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
@@ -786,44 +1017,230 @@ impl Store {
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
         Ok(removed)
     }
-    fn scan_inner(&self, root: &str, progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn scan_inner(&self, root: &str, directory: &Path, verify: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let settings = self.settings()?;
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         };
-        let files = Self::index_files(Path::new(root), Path::new(root), &settings, &self.excluded_directories()?)?;
-        self.scan_directory(root, Path::new(root), &files, &settings, false, progress)
+        let excluded = self.excluded_directories()?;
+        let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(false))?;
+        let count = self.scan_directory(root, directory, &files, &settings, verify, Some(false), &progress)?;
+        let (sources, convert) = self.conversion_files(Path::new(root), directory, &settings, &excluded)?;
+        let issues = if convert { self.convert_sources(root, directory, &sources, settings.conversion_workers, &progress)? } else { vec![] };
+        let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(true))?;
+        let converted_count = self.scan_directory(root, directory, &files, &settings, false, Some(true), progress)?;
+        for (path, error) in issues {
+            self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![path,root,error])?;
+        }
+        Ok(count + converted_count)
     }
-    fn index_files(root: &Path, directory: &Path, settings: &Settings, excluded: &[String]) -> Result<Vec<PathBuf>> {
+    fn conversion_outputs(&self) -> Result<HashSet<String>> {
+        let db = self.connection();
+        let mut query = db.prepare("SELECT output FROM conversions WHERE valid=1")?;
+        let rows = query.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<_>>()?;
+        Ok(rows)
+    }
+    pub(crate) fn indexable_path(path: &Path, settings: &FolderIndexOptions) -> bool {
+        if crate::docling::in_output(path) {
+            text::is_markdown(path) && crate::docling::is_enabled(Path::new(path.file_stem().unwrap()), settings)
+        } else if crate::docling::is_source(path) {
+            false
+        } else if let Some(extensions) = &settings.extensions {
+            path.extension().and_then(|extension| extension.to_str())
+                .is_some_and(|extension| extensions.iter().any(|selected| selected.eq_ignore_ascii_case(extension)))
+        } else {
+            text::is_indexable(path, &settings.file_types)
+        }
+    }
+    fn conversion_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String]) -> Result<(Vec<PathBuf>, bool)> {
+        let excluded = excluded.to_vec();
+        let names = settings.excluded.clone();
+        let target = directory.to_path_buf();
+        let mut rules = crate::folder_index::Rules::new(root, settings)?;
+        let mut builder = ignore_rules::builder(root);
+        builder.filter_entry(move |entry| entry.depth() == 0 ||
+            (entry.path().starts_with(&target) || target.starts_with(entry.path()))
+            && !crate::docling::in_output(entry.path())
+            && !excluded.iter().any(|path| entry.path().starts_with(path))
+            && !names.iter().any(|name| entry.file_name() == name.as_str())
+            && !(entry.file_type().is_some_and(|kind| kind.is_dir()) && entry.file_name().as_encoded_bytes().starts_with(b".")));
+        let mut files = vec![];
+        for entry in builder.build() {
+            self.indexing.checkpoint()?;
+            let entry = entry?;
+            if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
+            if entry.file_type().is_some_and(|kind| kind.is_dir()) { rules.directory(entry.path())?; }
+            if entry.path().starts_with(directory) && entry.file_type().is_some_and(|kind| kind.is_file())
+                && crate::docling::is_enabled(entry.path(), rules.file(entry.path())?) {
+                files.push(entry.into_path());
+            }
+        }
+        Ok((files, rules.converts_files()))
+    }
+    fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], workers: usize, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
+        let mut issues = vec![];
+        let mut rules = crate::folder_index::Rules::new(Path::new(root), &self.settings()?)?;
+        // Keep ownership beside the derived files so removing/re-adding a library
+        // can reuse them without mistaking user files for disposable output.
+        let metadata_path = crate::docling::output_path(Path::new(root), &Path::new(root).join(".ownership"))?
+            .parent().unwrap().join(".sag-converted.json");
+        if metadata_path.symlink_metadata().is_ok_and(|metadata| metadata.file_type().is_symlink()) {
+            bail!(".sag-converted 转换记录不能是符号链接")
+        }
+        if metadata_path.is_file() {
+            let records: std::collections::BTreeMap<String,(String,String)> = serde_json::from_slice(&fs::read(&metadata_path)?)
+                .context("无法读取 .sag-converted 转换记录")?;
+            for (relative, (source_hash, output_hash)) in records {
+                let source = Path::new(root).join(relative);
+                if !crate::docling::is_source(&source) { bail!("转换记录包含无效的原文件路径") }
+                let output = crate::docling::output_path(Path::new(root), &source)?;
+                self.connection().execute("INSERT OR IGNORE INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?)",
+                    params![path_text(&source)?,root,source_hash,path_text(&output)?,output_hash])?;
+            }
+        }
+        let sources_set: HashSet<_> = sources.iter().map(|path| path_text(path)).collect::<Result<_>>()?;
+        let previous = {
+            let db = self.connection();
+            let scope = path_text(directory)?;
+            let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+            let mut query = db.prepare("SELECT source,output,output_hash FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+            let rows = query.query_map(params![root,scope,prefix], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for (source, output, output_hash) in previous {
+            self.indexing.checkpoint()?;
+            let options = rules.file(Path::new(&source))?;
+            if sources_set.contains(&source) || !crate::docling::is_enabled(Path::new(&source), options) { continue; }
+            let path = Path::new(&output);
+            // Delete only our unchanged derivative; user-edited Markdown is preserved.
+            if path.is_file() && crate::docling::fingerprint(path)? == output_hash {
+                fs::remove_file(path)?;
+            }
+            self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
+            self.remove_indexed(&output)?;
+        }
+        if !sources.is_empty() {
+            self.indexing.phase(root, "converting", sources.len());
+            progress(IndexProgress { count: 0, total: sources.len() });
+        }
+        let next = std::sync::atomic::AtomicUsize::new(0);
+        thread::scope(|scope| -> Result<()> {
+            let (tx, rx) = std::sync::mpsc::channel();
+            let mut handles = Vec::new();
+            for _ in 0..workers.min(sources.len()) {
+                let tx = tx.clone();
+                let next = &next;
+                handles.push(scope.spawn(move || -> Result<()> {
+                    loop {
+                        self.indexing.checkpoint()?;
+                        let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if index >= sources.len() { break; }
+                        let source = &sources[index];
+                        let source_text = path_text(source)?;
+                        let result = (|| -> Result<()> {
+                            let output = crate::docling::output_path(Path::new(root), source)?;
+                            let source_content_hash = crate::docling::fingerprint(source)?;
+                            let source_hash = if crate::docling::is_builtin(source) {
+                                format!("{}:{source_content_hash}", crate::docling::BUILTIN_VERSION)
+                            } else { source_content_hash.clone() };
+                            let previous: Option<(String,String)> = self.connection().query_row(
+                                "SELECT source_hash,output_hash FROM conversions WHERE source=?", [&source_text],
+                                |row| Ok((row.get(0)?,row.get(1)?))).optional()?;
+                            if let Some((previous_source, previous_output)) = &previous {
+                                if output.exists() {
+                                    if previous_source == &source_hash {
+                                        self.connection().execute("UPDATE conversions SET valid=1 WHERE source=?", [&source_text])?;
+                                        return Ok(());
+                                    }
+                                    if crate::docling::fingerprint(&output)? != *previous_output {
+                                        bail!("转换文件已被手动修改，未覆盖：{}", output.display())
+                                    }
+                                }
+                            } else if output.exists() { bail!("转换位置已有文件，未覆盖：{}", output.display()) }
+                            self.indexing.file(root, source, || self.docling.convert(source, &output))?;
+                            if crate::docling::fingerprint(source)? != source_content_hash {
+                                fs::remove_file(&output)?;
+                                bail!("转换期间原文件发生变化，请重新索引")
+                            }
+                            let output_hash = crate::docling::fingerprint(&output)?;
+                            self.connection().execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1", params![source_text,root,source_hash,path_text(&output)?,output_hash])?;
+                            Ok(())
+                        })();
+                        tx.send((source_text, result))?;
+                    }
+                    Ok(())
+                }));
+            }
+            drop(tx);
+            for (index, (source, result)) in rx.into_iter().enumerate() {
+                if let Err(error) = result {
+                    self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
+                    issues.push((source, error.to_string()));
+                }
+                progress(IndexProgress { count: index + 1, total: sources.len() });
+            }
+            for handle in handles { handle.join().expect("conversion worker panicked")?; }
+            Ok(())
+        })?;
+        if metadata_path.parent().unwrap().is_dir() {
+            let db = self.connection();
+            let mut query = db.prepare("SELECT source,source_hash,output_hash FROM conversions WHERE root=?")?;
+            let records = query.query_map([root], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(source, source_hash, output_hash)| {
+                    Ok((Path::new(&source).strip_prefix(root)?.to_string_lossy().into_owned(), (source_hash, output_hash)))
+                }).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
+            let mut file = tempfile::NamedTempFile::new_in(metadata_path.parent().unwrap())?;
+            serde_json::to_writer(file.as_file_mut(), &records)?;
+            file.persist(&metadata_path).map_err(|error| error.error)?;
+        }
+        Ok(issues)
+    }
+    fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<Vec<PathBuf>> {
+        let converted = if converted_only == Some(false) { HashSet::new() } else { self.conversion_outputs()? };
+        let mut rules = crate::folder_index::Rules::new(root, settings)?;
+        let converted_target = crate::docling::output_path(root, &directory.join(".scope"))?.parent().unwrap().to_path_buf();
+        let output_target = converted_target.clone();
         let target = directory.to_path_buf();
         let excluded = excluded.to_vec();
         let names = settings.excluded.clone();
         let mut builder = ignore_rules::builder(root);
         builder.filter_entry(move |entry| {
             let path = entry.path();
-            (path.starts_with(&target) || target.starts_with(path))
+            (if converted_only == Some(true) { path.starts_with(&output_target) || output_target.starts_with(path) }
+             else { path.starts_with(&target) || target.starts_with(path) || path.starts_with(&output_target) || output_target.starts_with(path) })
+                && (converted_only != Some(false) || !crate::docling::in_output(path))
                 && !excluded.iter().any(|removed| path.starts_with(removed))
                 && (entry.depth() == 0 || !(entry.file_type().is_some_and(|ty| ty.is_dir())
-                    && entry.file_name().as_encoded_bytes().starts_with(b"."))
+                    && entry.file_name().as_encoded_bytes().starts_with(b".")
+                    && entry.file_name() != crate::docling::OUTPUT_DIRECTORY)
                     && !names.iter().any(|name| entry.file_name() == name.as_str()))
         });
         let mut files = Vec::new();
         for entry in builder.build() {
+            self.indexing.checkpoint()?;
             let entry = entry?;
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
-            if entry.path().starts_with(directory) && entry.file_type().is_some_and(|ty| ty.is_file())
-                && text::is_indexable(entry.path(), &settings.file_types) {
+            if (entry.path().starts_with(directory) || entry.path().starts_with(&converted_target)) && entry.file_type().is_some_and(|ty| ty.is_file())
+                && converted_only.is_none_or(|converted| converted == crate::docling::in_output(entry.path()))
+                && Self::indexable_path(entry.path(), rules.file(entry.path())?)
+                && (!crate::docling::in_output(entry.path()) || converted.contains(&path_text(entry.path())?)) {
                 files.push(entry.into_path());
             }
         }
         Ok(files)
     }
-    fn scan_directory(&self, root: &str, directory: &Path, files: &[PathBuf], settings: &Settings, verify: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn scan_directory(&self, root: &str, directory: &Path, files: &[PathBuf], settings: &Settings, verify: bool, converted_only: Option<bool>, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let mut seen = HashSet::new();
         let mut count = 0;
         let total = files.len();
-        progress(IndexProgress { count, total });
+        let report = converted_only != Some(true) || total > 0;
+        if report {
+            self.indexing.phase(root, match converted_only { Some(false) => "indexing_native", Some(true) => "indexing_converted", None => "indexing" }, total);
+            progress(IndexProgress { count, total });
+        }
         for batch in files.chunks(256) {
+            self.indexing.checkpoint()?;
             for path in batch {
                 seen.insert(path_text(path)?);
             }
@@ -834,7 +1251,7 @@ impl Store {
                     handles.push(scope.spawn(move || {
                         paths
                             .iter()
-                            .map(|path| self.prepare_indexed_file(root, path, max_chars, verify))
+                            .map(|path| self.indexing.file(root, path, || self.prepare_indexed_file(root, path, max_chars, verify)))
                             .collect::<Result<Vec<_>>>()
                     }));
                 }
@@ -863,24 +1280,29 @@ impl Store {
             let c = self.connection();
             let directory = path_text(directory)?;
             let prefix = format!("{}{}", directory.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-            let mut q = c.prepare("SELECT path FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1) UNION SELECT path FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)")?;
+            let converted_directory = crate::docling::output_path(Path::new(root), &Path::new(&directory).join(".scope"))?.parent().unwrap().to_path_buf();
+            let converted_prefix = format!("{}{}", converted_directory.display(), std::path::MAIN_SEPARATOR);
+            let mut q = c.prepare("SELECT path FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1) UNION SELECT path FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1)")?;
             let rows = q
-                .query_map(params![root,directory,prefix], |r| r.get::<_, String>(0))?
+                .query_map(params![root,directory,prefix,converted_prefix], |r| r.get::<_, String>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
         };
         for p in indexed {
+            self.indexing.checkpoint()?;
+            if converted_only.is_some_and(|converted| converted != crate::docling::in_output(Path::new(&p))) { continue; }
             if !seen.contains(&p) {
                 self.remove_indexed(&p)?
             }
         }
-        progress(IndexProgress { count, total });
+        if report { progress(IndexProgress { count, total }); }
         Ok(count)
     }
     pub fn index_file(&self, root: &str, path: &Path, max_chars: usize) -> Result<bool> {
         let mut ignore = ignore_rules::matcher(Path::new(root));
+        let mut rules = crate::folder_index::Rules::new(Path::new(root), &self.settings()?)?;
         if ignore_rules::is_ignored(&mut ignore, path, false)? || text::in_hidden_directory(Path::new(root), path, false)
-            || !text::is_indexable(path, &self.settings()?.file_types) {
+            || !Self::indexable_path(path, rules.file(path)?) {
             self.remove_indexed(&path_text(path)?)?;
             return Ok(false);
         }
@@ -898,14 +1320,22 @@ impl Store {
         let metadata = fs::metadata(path)?;
         let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
         let size = metadata.len() as i64;
-        let unchanged: bool = self.connection().query_row(
-            "SELECT EXISTS(SELECT 1 FROM documents WHERE path=? AND mtime=? AND size=? AND hash<>'')",
-            params![path_string, mtime, size], |r| r.get(0))?;
+        let previous: Option<(i64, i64, String)> = self.connection().query_row(
+            "SELECT mtime,size,hash FROM documents WHERE path=?",
+            [&path_string], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
+        let unchanged = previous.as_ref().is_some_and(|(modified, length, hash)|
+            *modified == mtime && *length == size && !hash.is_empty());
         if unchanged && !verify {
             return Ok(None);
         }
         let bytes = fs::read(path)?;
         let fingerprint = hash(&bytes);
+        if previous.as_ref().is_some_and(|(_, _, hash)| hash == &fingerprint) {
+            self.connection().execute(
+                "UPDATE documents SET mtime=?,size=? WHERE path=? AND hash=?",
+                params![mtime, size, path_string, fingerprint])?;
+            return Ok(None);
+        }
         let body = body(path, &bytes)?;
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let title = text::index_text(&name);
@@ -917,6 +1347,10 @@ impl Store {
                 chunk,
             })
             .collect();
+        let mut retrieval_terms = crate::sag2_v10::vocabulary(&text::indexable_text(&body, path));
+        for chunk in &chunks {
+            retrieval_terms.extend(crate::sag2_v10::vocabulary(&chunk.chunk.content));
+        }
         let explore_terms = text::explore_summary(path, chunks.iter().map(|chunk| (chunk.chunk.heading.as_str(), chunk.chunk.content.as_str())));
         Ok(Some(PreparedFile {
             path: path_string,
@@ -927,6 +1361,7 @@ impl Store {
             title,
             chunks,
             explore_terms,
+            retrieval_terms,
         }))
     }
     fn prepare_indexed_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
@@ -1005,6 +1440,8 @@ impl Store {
             )?;
             tx.last_insert_rowid()
         };
+        tx.execute("INSERT INTO retrieval_vocabulary(document_id,terms) VALUES(?1,?2) ON CONFLICT(document_id) DO UPDATE SET terms=excluded.terms",
+            params![id, serde_json::to_string(&file.retrieval_terms)?])?;
         tx.execute("INSERT INTO explore_summaries(document_id,hash,algorithm,terms) VALUES(?1,?2,?3,?4) ON CONFLICT(document_id) DO UPDATE SET hash=excluded.hash,algorithm=excluded.algorithm,terms=excluded.terms",
             params![id, file.fingerprint, text::EXPLORE_SUMMARY_VERSION, serde_json::to_string(&file.explore_terms)?])?;
         for prepared in file.chunks {
@@ -1072,14 +1509,14 @@ impl Store {
         let total: usize = connection.query_row("SELECT COUNT(DISTINCT c.document_id)
             FROM chunk_fts JOIN chunks c ON c.id=chunk_fts.rowid JOIN documents d ON d.id=c.document_id
             WHERE chunk_fts MATCH ?1 AND (json_array_length(?2)=0 OR EXISTS(
-                SELECT 1 FROM json_each(?2) s WHERE instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1
+                SELECT 1 FROM json_each(?2) s WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1))
             ))", params![expression, scope], |r| r.get(0))?;
         let page = page.min(total.div_ceil(page_size).max(1));
         let mut statement=connection.prepare("WITH matched AS MATERIALIZED (
             SELECT c.id,c.document_id,bm25(chunk_fts,2,2,1) AS score
             FROM chunk_fts JOIN chunks c ON c.id=chunk_fts.rowid JOIN documents d ON d.id=c.document_id
             WHERE chunk_fts MATCH ?1 AND (json_array_length(?2)=0 OR EXISTS(
-                SELECT 1 FROM json_each(?2) s WHERE instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1
+                SELECT 1 FROM json_each(?2) s WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1))
             ))
         ), ranked AS (
             SELECT id,score,row_number() OVER (PARTITION BY document_id ORDER BY score,id) AS position FROM matched
@@ -1175,7 +1612,10 @@ impl Store {
             rows
         } else {
             let stats = self.rank_statistics(&transaction, version, &key.expression)?;
-            let rows = if stats.is_empty() { vec![] } else { Self::query_candidate_metadata(&transaction, &key, &stats)? };
+            let rows = if stats.is_empty() { vec![] } else {
+                let documents = self.scope_document_ids(&transaction, version, &key.scope, &key.references)?;
+                Self::query_candidate_metadata(&transaction, &key, &stats, documents.as_deref())?
+            };
             self.query_cache.lock().expect("query cache mutex poisoned").insert(version, key, rows.clone());
             rows
         };
@@ -1201,19 +1641,45 @@ impl Store {
         Ok(stats)
     }
 
-    fn query_candidate_metadata(c: &Connection, key: &CandidateQuery, stats: &[u8]) -> Result<Vec<Candidate>> {
+    fn scope_document_ids(&self, connection: &Connection, version: i64, scope: &[String], references: &[String]) -> Result<Option<Arc<str>>> {
+        if scope.is_empty() { return Ok(None); }
+        let key = CorpusScope { scope: scope.to_vec(), references: references.to_vec() };
+        {
+            let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
+            if cache.refresh(version) {
+                if let Some(documents) = cache.scope_documents.shift_remove(&key) {
+                    cache.scope_documents.insert(key, documents.clone());
+                    return Ok(documents);
+                }
+            }
+        }
+        let mut query = connection.prepare("SELECT d.id FROM documents d
+            WHERE (d.path IN (SELECT value FROM json_each(?2)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?2)))) OR EXISTS(
+                SELECT 1 FROM json_each(?1) s
+                WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1))
+            ) ORDER BY d.id")?;
+        let ids = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |row| row.get::<_, i64>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let total: usize = connection.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
+        // A scope covering every indexed document uses the same query as all files.
+        let documents = if ids.len() == total { None } else { Some(Arc::<str>::from(serde_json::to_string(&ids)?)) };
+        let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
+        if cache.version == Some(version) {
+            cache.scope_documents.insert(key, documents.clone());
+            if cache.scope_documents.len() > CORPUS_CACHE_ENTRIES { cache.scope_documents.shift_remove_index(0); }
+        }
+        Ok(documents)
+    }
+
+    fn query_candidate_metadata(c: &Connection, key: &CandidateQuery, stats: &[u8], documents: Option<&str>) -> Result<Vec<Candidate>> {
         let sql = "WITH top_hits AS MATERIALIZED (
-                SELECT rowid,sag_bm25(chunk_fts,?6,2,2,1) AS score FROM chunk_fts
+                SELECT rowid,sag_bm25(chunk_fts,?5,2,2,1) AS score FROM chunk_fts
                 WHERE chunk_fts MATCH ?1
                 AND rowid NOT IN (SELECT value FROM json_each(?2))
-                AND (json_array_length(?3)=0 OR +rowid IN (
-                    SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id
-                    WHERE d.path IN (SELECT value FROM json_each(?4)) OR EXISTS(
-                        SELECT 1 FROM json_each(?3) s
-                        WHERE instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1
-                    )
+                AND (?3 IS NULL OR +rowid IN (
+                    SELECT id FROM chunks WHERE document_id IN (SELECT value FROM json_each(?3))
                 ))
-                ORDER BY score,rowid LIMIT ?5
+                ORDER BY score,rowid LIMIT ?4
             )
             SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,h.score,d.hash,c.spans
             FROM top_hits h JOIN chunks c ON c.id=h.rowid JOIN documents d ON d.id=c.document_id
@@ -1222,8 +1688,7 @@ impl Store {
         let mut values: Vec<rusqlite::types::Value> = vec![
             expression.into(),
             serde_json::to_string(&key.excluded)?.into(),
-            serde_json::to_string(&key.scope)?.into(),
-            serde_json::to_string(&key.references)?.into(),
+            documents.map(str::to_owned).into(),
             (key.limit as i64).into(),
             stats.to_vec().into(),
         ];
@@ -1244,7 +1709,7 @@ impl Store {
                 selected.truncate((idfs.len() as f64 * 0.55).ceil() as usize);
                 let subset = selected.iter().map(|&i| phrases[i]).collect::<Vec<_>>().join(" OR ");
                 let bound = 2.2 * idfs.iter().enumerate().filter(|(i, _)| !selected.contains(i)).map(|(_, idf)| idf).sum::<f64>();
-                let restricted = sql.replace("ORDER BY score,rowid LIMIT ?5", "AND +rowid IN (SELECT rowid FROM chunk_fts WHERE chunk_fts MATCH ?7) ORDER BY score,rowid LIMIT ?5");
+                let restricted = sql.replace("ORDER BY score,rowid LIMIT ?4", "AND +rowid IN (SELECT rowid FROM chunk_fts WHERE chunk_fts MATCH ?6) ORDER BY score,rowid LIMIT ?4");
                 values.push(subset.into());
                 let possible = read(&restricted, &values)?;
                 values.pop();
@@ -1255,19 +1720,21 @@ impl Store {
     }
 
     pub fn has_candidate_match(&self, expression: &str, scope: &[String], references: &[String], excluded: &[i64]) -> Result<bool> {
-        Ok(self.connection().query_row(
+        let mut connection = self.connection();
+        let transaction = connection.transaction()?;
+        let version = transaction.query_row("SELECT version FROM metadata WHERE id=1", [], |row| row.get(0))?;
+        let documents = self.scope_document_ids(&transaction, version, scope, references)?;
+        let found = transaction.query_row(
             "SELECT EXISTS(SELECT 1 FROM chunk_fts WHERE chunk_fts MATCH ?1
                 AND rowid NOT IN (SELECT value FROM json_each(?2))
-                AND (json_array_length(?3)=0 OR +rowid IN (
-                    SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id
-                    WHERE d.path IN (SELECT value FROM json_each(?4)) OR EXISTS(
-                        SELECT 1 FROM json_each(?3) s
-                        WHERE instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1
-                    )
+                AND (?3 IS NULL OR +rowid IN (
+                    SELECT id FROM chunks WHERE document_id IN (SELECT value FROM json_each(?3))
                 )) LIMIT 1)",
-            params![expression, serde_json::to_string(excluded)?, serde_json::to_string(scope)?, serde_json::to_string(references)?],
+            params![expression, serde_json::to_string(excluded)?, documents.as_deref()],
             |row| row.get(0),
-        )?)
+        )?;
+        transaction.commit()?;
+        Ok(found)
     }
     pub fn reference_candidates(
         &self,
@@ -1275,7 +1742,7 @@ impl Store {
         limit: usize,
     ) -> Result<Vec<Candidate>> {
         let c = self.connection();
-        let mut q=c.prepare("SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,0.0,d.hash,c.spans FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.path IN (SELECT value FROM json_each(?1)) ORDER BY c.id LIMIT ?2")?;
+        let mut q=c.prepare("SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,0.0,d.hash,c.spans FROM chunks c JOIN documents d ON d.id=c.document_id WHERE (d.path IN (SELECT value FROM json_each(?1)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?1)))) ORDER BY c.id LIMIT ?2")?;
         let mut rows = q.query(params![serde_json::to_string(references)?, limit as i64])?;
         let mut result = vec![];
         let mut documents = HashMap::new();
@@ -1284,10 +1751,76 @@ impl Store {
         }
         Ok(result)
     }
+    pub(crate) fn retrieval_statistics(
+        &self,
+        scope: &[String],
+        references: &[String],
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<Arc<crate::sag2_v10::Corpus>> {
+        let version = self.version()?;
+        let key = CorpusScope { scope: scope.to_vec(), references: references.to_vec() };
+        {
+            let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
+            if cache.refresh(version) {
+                if let Some(corpus) = cache.corpora.shift_remove(&key) {
+                    cache.corpora.insert(key, corpus.clone());
+                    return Ok(corpus);
+                }
+            }
+        }
+        let rows = {
+            let db = self.connection();
+            let mut query = db.prepare("SELECT d.id,d.name,d.path,d.hash,v.terms,CASE WHEN v.document_id IS NULL THEN (SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) END FROM documents d LEFT JOIN retrieval_vocabulary v ON v.document_id=d.id WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (json_array_length(?1)=0 OR (d.path IN (SELECT value FROM json_each(?2)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?2)))) OR EXISTS(SELECT 1 FROM json_each(?1) s WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1)))) ORDER BY d.id")?;
+            let rows = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| {
+                Ok((r.get::<_, i64>(0)?,r.get::<_, String>(1)?,r.get::<_, String>(2)?,r.get::<_, String>(3)?,r.get::<_, Option<String>>(4)?,r.get::<_, Option<String>>(5)?))
+            })?.collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let mut documents = Vec::with_capacity(rows.len());
+        let mut missing = Vec::new();
+        for (id, title, path, expected, saved, spans) in rows {
+            if cancel.is_cancelled() { bail!("已停止") }
+            let terms = if let Some(saved) = saved {
+                serde_json::from_str(&saved)?
+            } else {
+                // Upgrade an existing index once; new and changed files save this during indexing.
+                let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
+                if hash(&raw) != expected { bail!("文件已修改，请刷新索引：{path}") }
+                let source = body(Path::new(&path), &raw)?;
+                let mut terms = crate::sag2_v10::vocabulary(&text::indexable_text(&source, Path::new(&path)));
+                let passages: Vec<Vec<SourceSpan>> = serde_json::from_str(&spans.unwrap())?;
+                for spans in passages {
+                    terms.extend(crate::sag2_v10::vocabulary(&text::source_content(&source, &spans)));
+                }
+                missing.push((id, serde_json::to_string(&terms)?));
+                terms
+            };
+            documents.push((title, terms));
+        }
+        if cancel.is_cancelled() { bail!("已停止") }
+        let corpus = Arc::new(crate::sag2_v10::Corpus::from_vocabulary(documents)?);
+        {
+            let mut db = self.connection();
+            let tx = db.transaction()?;
+            let current: i64 = tx.query_row("SELECT version FROM metadata WHERE id=1", [], |r| r.get(0))?;
+            if current != version { bail!("索引已更新，请重新查询") }
+            for (id, terms) in missing {
+                tx.execute("INSERT INTO retrieval_vocabulary(document_id,terms) VALUES(?,?) ON CONFLICT(document_id) DO UPDATE SET terms=excluded.terms", params![id, terms])?;
+            }
+            tx.commit()?;
+        }
+        let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
+        if cache.refresh(version) {
+            cache.corpora.insert(key, corpus.clone());
+            if cache.corpora.len() > CORPUS_CACHE_ENTRIES { cache.corpora.shift_remove_index(0); }
+        }
+        Ok(corpus)
+    }
+
     pub fn retrieval_corpus(&self, scope: &[String], references: &[String]) -> Result<Vec<(String, String)>> {
         let rows: Vec<(String, String, String, String)> = {
             let db = self.connection();
-            let mut query = db.prepare("SELECT d.name,d.path,d.hash,(SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) FROM documents d WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (json_array_length(?1)=0 OR d.path IN (SELECT value FROM json_each(?2)) OR EXISTS(SELECT 1 FROM json_each(?1) s WHERE instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1)) ORDER BY d.id")?;
+            let mut query = db.prepare("SELECT d.name,d.path,d.hash,(SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) FROM documents d WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (json_array_length(?1)=0 OR (d.path IN (SELECT value FROM json_each(?2)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?2)))) OR EXISTS(SELECT 1 FROM json_each(?1) s WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1)))) ORDER BY d.id")?;
             let values = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
             values
         };
@@ -1296,7 +1829,7 @@ impl Store {
             if hash(&raw) != expected { bail!("文件已修改，请刷新索引：{path}") }
             let source = body(Path::new(&path), &raw)?;
             let passages: Vec<Vec<SourceSpan>> = serde_json::from_str(&spans)?;
-            let mut vocabulary = source.clone();
+            let mut vocabulary = text::indexable_text(&source, Path::new(&path)).into_owned();
             // Count each document once, including the exact words in its indexed passages.
             // Partial source words can differ from whole-document words in saved indexes.
             for spans in passages {
@@ -1365,6 +1898,15 @@ impl Store {
     }
     pub fn put_conversation(&self, c: &Conversation) -> Result<()> {
         self.connection().execute("INSERT INTO conversations VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET messages=excluded.messages,updated=excluded.updated",params![c.id,c.title,serde_json::to_string(&c.messages)?,c.updated,c.deleted])?;
+        Ok(())
+    }
+    pub fn clear_conversations(&self) -> Result<()> {
+        let connection = self.connection();
+        connection.execute_batch("PRAGMA secure_delete=ON; DELETE FROM conversations;")?;
+        let busy: i64 = connection.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0))?;
+        if busy != 0 {
+            bail!("对话已删除，但数据库日志仍在使用，请稍后再次清空以完成清理")
+        }
         Ok(())
     }
     pub fn edit_conversation(
@@ -1437,6 +1979,128 @@ mod tests {
         db.add_root(&notes).unwrap();
         let notes = notes.canonicalize().unwrap();
         (dir, db, notes)
+    }
+    #[test]
+    fn removed_file_stays_excluded_and_can_be_restored_without_changing_local_data() {
+        let (dir, store, root) = setup();
+        let removed = root.join("removed.txt");
+        let kept = root.join("kept.txt");
+        fs::write(&removed, "sharedmarker removedcontent").unwrap();
+        fs::write(&kept, "sharedmarker keptcontent").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let scoped = store.search_files("sharedmarker", &[path_text(&removed).unwrap()], 10).unwrap();
+        assert_eq!(scoped.len(), 1);
+        assert_eq!(scoped[0].path, path_text(&removed).unwrap());
+        store.remove_path(&removed).unwrap();
+        assert_eq!(fs::read_to_string(&removed).unwrap(), "sharedmarker removedcontent");
+        assert!(store.document(&removed).is_err());
+        assert!(store.entries(&root, true).unwrap().iter().any(|entry| entry.path == path_text(&removed).unwrap()));
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        store.update_paths(root.to_str().unwrap(), &[removed.clone()], |_| {}).unwrap();
+        let matches = store.search_files("sharedmarker", &[], 10).unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].path, path_text(&kept).unwrap());
+        let reopened = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        assert!(reopened.is_excluded(&removed).unwrap());
+        assert_eq!(reopened.add_root(&removed).unwrap(), path_text(&root).unwrap());
+        reopened.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(reopened.search_files("sharedmarker", &[], 10).unwrap().len(), 2);
+        assert_eq!(reopened.roots().unwrap().len(), 1);
+        assert_eq!(fs::read_to_string(&removed).unwrap(), "sharedmarker removedcontent");
+    }
+    #[test]
+    fn remove_all_roots_clears_indexes_and_preserves_files_history_and_settings() {
+        let (_dir, store, root) = setup();
+        let source = root.join("source.txt");
+        fs::write(&source, "uniquetoken original document").unwrap();
+        assert!(store.remove_all_roots().is_err());
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let expression = text::match_query("uniquetoken");
+        assert_eq!(store.candidate_query(&expression, None, &[], &[], &[], 10).unwrap().len(), 1);
+        store.put_conversation(&Conversation {id:"kept".into(), title:"history".into(), messages:vec![], updated:now(), deleted:false}).unwrap();
+        store.put_draft(&Draft {path:source.to_str().unwrap().into(), name:"source.txt".into(), body:"unsaved draft".into(), hash:"original".into(), is_new:false}).unwrap();
+        let settings = serde_json::to_value(store.settings().unwrap()).unwrap();
+        store.remove_all_roots().unwrap();
+        assert!(store.roots().unwrap().is_empty());
+        assert!(store.files().unwrap().is_empty());
+        assert_eq!(store.chunk_count().unwrap(), 0);
+        assert!(store.candidate_query(&expression, None, &[], &[], &[], 10).unwrap().is_empty());
+        assert_eq!(store.conversations().unwrap()[0].id, "kept");
+        assert_eq!(store.drafts().unwrap()[0].body, "unsaved draft");
+        assert_eq!(serde_json::to_value(store.settings().unwrap()).unwrap(), settings);
+        assert_eq!(fs::read_to_string(&source).unwrap(), "uniquetoken original document");
+        // A file event queued before removal cannot recreate an index.
+        assert_eq!(store.update_paths(root.to_str().unwrap(), &[source.clone()], |_| {}).unwrap(), 0);
+        assert_eq!(store.scan(root.to_str().unwrap(), |_| {}).unwrap(), 0);
+        store.add_root(&root).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.search_files("uniquetoken", &[], 10).unwrap().len(), 1);
+        store.root_status(root.to_str().unwrap(), "indexing", None).unwrap();
+        assert!(store.remove_all_roots().is_err());
+        assert_eq!(store.files().unwrap().len(), 1);
+    }
+    #[test]
+    fn clear_all_data_resets_settings_and_drafts_and_preserves_sources() {
+        let (_dir, store, root) = setup();
+        let source = root.join("source.txt");
+        fs::write(&source, "original source text").unwrap();
+        store.put_conversation(&Conversation { id:"hidden".into(),title:"history".into(),messages:vec![],updated:now(),deleted:true }).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.answer.model = "custom-model".into();
+        settings.answer.models = vec!["custom-model".into()];
+        store.save_settings(&settings).unwrap();
+        store.put_draft(&Draft {path:source.to_str().unwrap().into(),name:"source.txt".into(),body:"unsaved draft".into(),hash:"original".into(),is_new:false}).unwrap();
+        assert!(store.clear_all_data().is_err());
+        let count: i64 = store.connection().query_row("SELECT count(*) FROM conversations", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 1, "indexing failure must not delete conversations");
+        assert_eq!(store.settings().unwrap().answer.model, "custom-model");
+        assert_eq!(store.drafts().unwrap().len(), 1);
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        store.clear_all_data().unwrap();
+        assert!(store.roots().unwrap().is_empty());
+        assert!(store.files().unwrap().is_empty());
+        assert_eq!(store.chunk_count().unwrap(), 0);
+        let count: i64 = store.connection().query_row("SELECT count(*) FROM conversations", [], |row| row.get(0)).unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(serde_json::to_value(store.settings().unwrap()).unwrap(), serde_json::to_value(Settings::default()).unwrap());
+        assert!(store.drafts().unwrap().is_empty());
+        assert_eq!(fs::read_to_string(&source).unwrap(), "original source text");
+    }
+    #[test]
+    fn clearing_files_reclaims_sqlite_and_wal_space_without_changing_local_files() {
+        for clear_everything in [false, true] {
+            let (dir, store, root) = setup();
+            let source = root.join("原始文档.md");
+            let contents: String = (0..12_000).map(|i| format!("\n\n第 {i} 项记录。evidence{i} describes the original project requirements, release process and access permissions." )).collect();
+            fs::write(&source, contents.as_bytes()).unwrap();
+            let attachment = root.join("原始附件.bin");
+            fs::write(&attachment, [0, 255, 1, 128, 42]).unwrap();
+            let originals = [(source.clone(), hash(&fs::read(&source).unwrap())), (attachment.clone(), hash(&fs::read(&attachment).unwrap()))];
+            store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+            assert!(!store.search_files("evidence42", &[], 5).unwrap().is_empty());
+            store.put_conversation(&Conversation {id:"kept".into(),title:"history".into(),messages:vec![],updated:now(),deleted:false}).unwrap();
+            let database = dir.path().join("app/db.sqlite");
+            let wal = dir.path().join("app/db.sqlite-wal");
+            let checkpoint: i64 = store.connection().query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |row| row.get(0)).unwrap();
+            assert_eq!(checkpoint, 0);
+            let before = fs::metadata(&database).unwrap().len();
+            assert!(before > 1_000_000, "fixture must allocate a substantial index: {before}");
+            if clear_everything { store.clear_all_data().unwrap(); } else { store.remove_all_roots().unwrap(); }
+            let after = fs::metadata(&database).unwrap().len();
+            let wal_after = fs::metadata(&wal).unwrap().len();
+            eprintln!("clear_all_data={clear_everything}: SQLite {before} -> {after} bytes, WAL {wal_after} bytes");
+            assert!(after < before / 4, "clearing must return disk space immediately: {before} -> {after}");
+            assert_eq!(wal_after, 0, "clearing must truncate the WAL while the application remains open");
+            assert!(store.files().unwrap().is_empty());
+            assert_eq!(store.chunk_count().unwrap(), 0);
+            assert_eq!(store.conversations().unwrap().len(), if clear_everything { 0 } else { 1 });
+            for (path, fingerprint) in &originals { assert_eq!(hash(&fs::read(path).unwrap()), *fingerprint); }
+            let integrity: String = store.connection().query_row("PRAGMA integrity_check", [], |row| row.get(0)).unwrap();
+            assert_eq!(integrity, "ok");
+            store.add_root(&root).unwrap();
+            store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+            assert!(!store.search_files("evidence42", &[], 5).unwrap().is_empty());
+        }
     }
     #[test]
     fn new_settings_use_302_jev_and_keep_saved_provider() {
@@ -1577,6 +2241,23 @@ mod tests {
         assert_eq!(restored.language, "zh-CN");
     }
     #[test]
+    fn search_summary_reference_count_defaults_to_ten_and_has_no_fixed_maximum() {
+        let (dir, store, _) = setup();
+        let mut settings = store.settings().unwrap();
+        assert_eq!(settings.search_summary_sources, 10);
+        for count in [1, 100, 100_000] {
+            settings.search_summary_sources = count;
+            store.save_settings(&settings).unwrap();
+            assert_eq!(store.settings().unwrap().search_summary_sources, count);
+        }
+        let reopened = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        assert_eq!(reopened.settings().unwrap().search_summary_sources, 100_000);
+        settings.search_summary_sources = 0;
+        assert!(store.save_settings(&settings).is_err());
+        let restored: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(restored.search_summary_sources, 10);
+    }
+    #[test]
     fn context_budget_above_128000_persists_without_an_upper_limit() {
         let (dir, store, _) = setup();
         let mut settings = store.settings().unwrap();
@@ -1638,6 +2319,32 @@ mod tests {
         assert_eq!(store.settings().unwrap().max_tool_calls, 7);
     }
     #[test]
+    fn clearing_conversations_removes_hidden_history_and_database_log_bytes() {
+        let (dir, store, _) = setup();
+        let secret = "PURGE_HISTORY_PAYLOAD_7c9d4e";
+        let message: Message = serde_json::from_value(serde_json::json!({
+            "question": secret, "answer": secret, "reasoning": secret, "evidence": [],
+            "model":"test", "scope":[], "references":[], "status":"complete",
+            "error":secret, "retrieval_question":secret,
+            "tool_calls":[{"id":"call", "query":secret, "source_count":0,"result":{"text":secret}}]
+        })).unwrap();
+        for (id, deleted) in [("visible", false), ("hidden", true)] {
+            store.put_conversation(&Conversation {id:id.into(),title:secret.into(),messages:vec![message.clone()],updated:now(),deleted}).unwrap();
+        }
+        let settings = store.settings().unwrap();
+        let roots = store.roots().unwrap();
+        store.clear_conversations().unwrap();
+        assert!(store.conversations().unwrap().is_empty());
+        assert_eq!(store.connection().query_row("SELECT COUNT(*) FROM conversations",[],|row|row.get::<_,i64>(0)).unwrap(),0);
+        for file in ["db.sqlite", "db.sqlite-wal"] {
+            let path = dir.path().join("app").join(file);
+            if path.exists() { assert!(!fs::read(path).unwrap().windows(secret.len()).any(|bytes|bytes==secret.as_bytes())); }
+        }
+        assert_eq!(store.roots().unwrap().len(), roots.len());
+        assert_eq!(store.settings().unwrap().answer.model, settings.answer.model);
+    }
+
+    #[test]
     fn mcp_call_details_survive_history_storage() {
         let (_dir, store, _) = setup();
         let message:Message=serde_json::from_value(serde_json::json!({"question":"test","answer":"failed","evidence":[],"model":"test","scope":[],"references":[],"status":"complete","error":null,"retrieval_question":"test","tool_calls":[{"id":"tool-1","query":"{\"path\":\"sample.txt\"}","source_count":0,"server_name":"local","tool_name":"read","is_error":true,"denied":false,"result":{"isError":true,"content":[{"type":"text","text":"Missing: sample.txt"}]},"error":"Missing: sample.txt"}]})).unwrap();
@@ -1668,6 +2375,7 @@ mod tests {
     fn delete_and_restore_message_keeps_the_rest_of_the_conversation() {
         let (_dir, store, _) = setup();
         let message = Message {
+            created_at: Some(1_792_368_300_000),
             question: "第一问".into(),
             answer: "第一答".into(),
             reasoning: String::new(),
@@ -1702,6 +2410,7 @@ mod tests {
         let restored = store.conversations().unwrap();
         assert_eq!(restored[0].messages.len(), 2);
         assert_eq!(restored[0].messages[0].answer, "第一答");
+        assert_eq!(restored[0].messages[0].created_at, Some(1_792_368_300_000));
         assert!(store.replace_messages("missing", vec![]).is_err());
     }
     #[test]
@@ -1928,6 +2637,50 @@ mod tests {
     }
 
     #[test]
+    fn retrieval_statistics_preserve_ranking_and_scope_and_upgrade_existing_indexes() {
+        let (dir, store, root) = setup();
+        let a = root.join("a");
+        let b = root.join("b");
+        fs::create_dir(&a).unwrap();
+        fs::create_dir(&b).unwrap();
+        let path = a.join("Café.md");
+        fs::write(&path, "# 配置 → 检索\n嵌套文件夹内容列表的第一行提供完整信息。\nStraße CAFÉ alpha evidence.").unwrap();
+        fs::write(b.join("other.md"), "alpha shared evidence. beta unique information.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let cancel = tokio_util::sync::CancellationToken::new();
+        for scope in [vec![], vec![path_text(&a).unwrap()], vec![path_text(&b).unwrap()]] {
+            let original = crate::sag2_v10::Corpus::new(&store.retrieval_corpus(&scope, &[]).unwrap()).unwrap();
+            let cached = store.retrieval_statistics(&scope, &[], &cancel).unwrap();
+            let mut expected = store.candidate_query(&text::match_query("alpha"), None, &scope, &[], &[], 100).unwrap();
+            for candidate in &mut expected { candidate.score = 0.8; }
+            let mut actual = expected.clone();
+            original.diversify(&mut expected);
+            cached.diversify(&mut actual);
+            assert_eq!(serde_json::to_value(actual).unwrap(), serde_json::to_value(expected).unwrap());
+        }
+        // Simulate a pre-upgrade index, including a passage beginning inside a word.
+        let source = fs::read_to_string(&path).unwrap();
+        let start = source.find("文件夹").unwrap();
+        let span = text::Lines::new(&source).span(&source, start, source.len());
+        store.connection().execute("UPDATE chunks SET spans=? WHERE document_id=(SELECT id FROM documents WHERE path=?)", params![serde_json::to_string(&vec![span]).unwrap(), path_text(&path).unwrap()]).unwrap();
+        store.connection().execute("DELETE FROM retrieval_vocabulary", []).unwrap();
+        drop(store);
+        let database = dir.path().join("app/db.sqlite");
+        let store = Store::open(&database).unwrap();
+        let corpus = store.retrieval_statistics(&[], &[], &cancel).unwrap();
+        let mut candidates = store.reference_candidates(&[path_text(&path).unwrap()], 10).unwrap();
+        candidates[0].score = 0.9;
+        corpus.diversify(&mut candidates);
+        let document_count: usize = store.connection().query_row("SELECT COUNT(*) FROM retrieval_vocabulary", [], |r| r.get(0)).unwrap();
+        assert_eq!(document_count, 2);
+        // The backfilled statistics must also survive a restart without original file reads.
+        drop(store);
+        fs::remove_file(&path).unwrap();
+        let reopened = Store::open(&database).unwrap();
+        reopened.retrieval_statistics(&[], &[], &cancel).unwrap();
+    }
+
+    #[test]
     fn plain_text_sentences_use_the_chunk_target() {
         let (_dir, store, root) = setup();
         let path = root.join("sentences.txt");
@@ -1941,6 +2694,9 @@ mod tests {
     #[test]
     fn source_code_and_partial_lines_round_trip_without_writes() {
         let (_d, s, n) = setup();
+        let mut settings = s.settings().unwrap();
+        settings.file_types.code = true;
+        s.save_settings(&settings).unwrap();
         let source = format!(
             "# Python comment\r\n{}\r\nsecret_value = 1234\r\n",
             "variable = '文本'; ".repeat(600)
@@ -2093,6 +2849,46 @@ mod tests {
     }
 
     #[test]
+    fn scoped_queries_keep_directory_boundaries_and_refresh_after_index_changes() {
+        let (dir, store, root) = setup();
+        let first = root.join("first.txt");
+        fs::write(&first, "alpha evidence").unwrap();
+        let root_path = path_text(&root).unwrap();
+        store.scan(&root_path, |_| {}).unwrap();
+        let scope = vec![root_path.clone()];
+        let expression = text::match_query("alpha");
+        let scoped = store.candidate_query(&expression, None, &scope, &[], &[], 10).unwrap();
+        let all = store.candidate_query(&expression, None, &[], &[], &[], 10).unwrap();
+        assert_eq!(serde_json::to_value(&scoped).unwrap(), serde_json::to_value(&all).unwrap());
+
+        let sibling = root.with_file_name(format!("{}-other", root.file_name().unwrap().to_string_lossy()));
+        fs::create_dir(&sibling).unwrap();
+        let second = sibling.join("second.txt");
+        fs::write(&second, "alpha outside evidence").unwrap();
+        let writer = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        let sibling_path = writer.add_root(&sibling).unwrap();
+        writer.scan(&sibling_path, |_| {}).unwrap();
+        let only_first = store.candidate_query(&expression, None, &scope, &[], &[], 10).unwrap();
+        assert_eq!(only_first.len(), 1);
+        assert_eq!(only_first[0].path, path_text(&first).unwrap());
+        let references = vec![path_text(&second).unwrap()];
+        assert_eq!(store.candidate_query(&expression, None, &scope, &references, &[], 10).unwrap().len(), 2);
+
+        let added = root.join("added.txt");
+        fs::write(&added, "alpha added evidence").unwrap();
+        writer.scan(&root_path, |_| {}).unwrap();
+        assert_eq!(store.candidate_query(&expression, None, &scope, &[], &[], 10).unwrap().len(), 2);
+        writer.remove_indexed(&path_text(&first).unwrap()).unwrap();
+        let terms = vec![expression.clone()];
+        let remaining = store.candidate_queries(&expression, &terms, &scope, &[], &[], 10).unwrap();
+        assert_eq!(remaining[0].len(), 1);
+        assert_eq!(remaining[0][0].path, path_text(&added).unwrap());
+        let missing = vec![path_text(&root.join("missing")).unwrap()];
+        assert!(!store.has_candidate_match(&expression, &missing, &[], &[]).unwrap());
+        assert!(store.candidate_query(&expression, None, &missing, &[], &[], 10).unwrap().is_empty());
+    }
+
+    #[test]
     fn query_cache_refreshes_after_another_store_updates_or_removes_documents() {
         let (dir, store, root) = setup();
         let source = root.join("source.txt");
@@ -2140,6 +2936,26 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_events_skip_text_preparation_and_refresh_file_metadata() {
+        let (_dir, store, root) = setup();
+        let path = root.join("unchanged.md");
+        fs::write(&path, "# Guide\nStable searchable content.").unwrap();
+        store.index_file(root.to_str().unwrap(), &path, 512).unwrap();
+        let version = store.version().unwrap();
+        let modified = UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        fs::File::options().write(true).open(&path).unwrap()
+            .set_times(fs::FileTimes::new().set_modified(modified)).unwrap();
+        assert!(store.prepare_file(&path, 512, true).unwrap().is_none());
+        let saved: i64 = store.connection().query_row(
+            "SELECT mtime FROM documents WHERE path=?", [path_text(&path).unwrap()], |row| row.get(0),
+        ).unwrap();
+        assert_eq!(saved, 1_700_000_000_000_000_000);
+        store.update_paths(root.to_str().unwrap(), &[path], |_| {}).unwrap();
+        assert_eq!(store.version().unwrap(), version);
+        assert_eq!(store.search_files("searchable", &[], 10).unwrap().len(), 1);
+    }
+
+    #[test]
     fn manual_reindex_checks_all_roots_and_preserves_unchanged_chunks() {
         let (dir, store, root) = setup();
         let other = dir.path().join("other");
@@ -2174,23 +2990,28 @@ mod tests {
     }
 
     #[test]
-    fn file_type_choices_default_to_all_and_update_only_selected_indexes() {
+    fn file_type_choices_default_to_documents_and_update_only_selected_indexes() {
         let (dir, store, root) = setup();
         let root_path = root.to_str().unwrap();
         let defaults: Settings = serde_json::from_str("{}").unwrap();
-        assert_eq!(defaults.file_types, FileTypes::default());
-        let partial: Settings = serde_json::from_str(r#"{"file_types":{"code":false}}"#).unwrap();
-        assert!(!partial.file_types.code);
-        assert!(partial.file_types.markdown && partial.file_types.text && partial.file_types.config);
+        assert_eq!(defaults.file_types, FileTypes { markdown: true, text: true, code: false, config: false });
+        let partial: Settings = serde_json::from_str(r#"{"file_types":{"code":true}}"#).unwrap();
+        assert!(partial.file_types.code);
+        assert!(partial.file_types.markdown && partial.file_types.text && !partial.file_types.config);
 
         let names = ["notes.md", "notes.rst", "main.py", "page.HTML", "Makefile", "settings.json"];
         for name in names {
             fs::write(root.join(name), format!("filetypemarker {name}")).unwrap();
         }
         store.scan(root_path, |_| {}).unwrap();
-        assert_eq!(store.search_files("filetypemarker", &[], 20).unwrap().len(), 6);
+        assert_eq!(store.search_files("filetypemarker", &[], 20).unwrap().len(), 2);
         let note_id = store.document(&root.join("notes.md")).unwrap().id;
         let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        settings.file_types.config = true;
+        store.save_settings(&settings).unwrap();
+        store.scan(root_path, |_| {}).unwrap();
+        assert_eq!(store.search_files("filetypemarker", &[], 20).unwrap().len(), 6);
         settings.file_types.code = false;
         store.save_settings(&settings).unwrap();
         store.scan(root_path, |_| {}).unwrap();
@@ -2205,6 +3026,7 @@ mod tests {
         drop(store);
         let store = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
         assert!(!store.settings().unwrap().file_types.code);
+        assert!(store.settings().unwrap().file_types.config);
         settings.file_types.code = true;
         store.save_settings(&settings).unwrap();
         store.scan(root_path, |_| {}).unwrap();
@@ -2234,7 +3056,6 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn rtf_search_uses_visible_text_and_exact_citations_without_changing_source() {
         let (_dir, store, root) = setup();
@@ -2245,7 +3066,9 @@ mod tests {
         let results = store.search_files("rtfmarker", &[], 10).unwrap();
         assert_eq!(results.len(), 1);
         let doc = store.document(&path).unwrap();
-        assert_eq!(doc.body, "Release\n星河 rtfmarker LYRA-73492\ncafé 😀");
+        assert!(doc.body.contains("**Release**"));
+        assert!(doc.body.contains("星河 rtfmarker LYRA-73492"));
+        assert!(doc.body.contains("café 😀"));
         let hit = &results[0];
         assert_eq!(hit.content, hit.source_spans.iter().map(|s| &doc.body[s.start_byte..s.end_byte]).collect::<Vec<_>>().join("\n\n"));
         assert!(store.search_files("metadataonlytitle metadataonlyfont", &[], 10).unwrap().is_empty());
@@ -2253,7 +3076,6 @@ mod tests {
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn long_rtf_citations_and_incremental_changes_use_the_same_body() {
         let (_dir, store, root) = setup();
@@ -2266,15 +3088,15 @@ mod tests {
         fs::write(&path, &bytes).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let doc = store.document(&path).unwrap();
-        assert_eq!(doc.body, original);
+        assert!(doc.body.contains(original.lines().nth(1).unwrap()));
         let results = store.search_files("rtfdeepmarker", &[], 10).unwrap();
         assert_eq!(results.len(), 1);
         let hit = &results[0];
         assert!(hit.content.contains("RELEASE-73492"));
         for span in &hit.source_spans {
             assert_eq!(&doc.body[span.start_byte..span.end_byte], hit.content);
-            assert_eq!(span.start_line, 2);
-            let line_start = doc.body.find('\n').unwrap() + 1;
+            assert_eq!(span.start_line, doc.body[..span.start_byte].bytes().filter(|byte| *byte == b'\n').count() + 1);
+            let line_start = doc.body[..span.start_byte].rfind('\n').map_or(0, |index| index + 1);
             assert_eq!(span.start_column, doc.body[line_start..span.start_byte].chars().count() + 1);
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), bytes);
@@ -2286,7 +3108,7 @@ mod tests {
         let renamed = root.join("renamed.rtf");
         fs::rename(&path, &renamed).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path, renamed.clone()], |_| {}).unwrap();
-        assert_eq!(store.search_files("updatedrtfmarker", &[], 10).unwrap()[0].path, renamed.to_str().unwrap());
+        assert_eq!(store.search_files("updatedrtfmarker", &[], 10).unwrap()[0].path, crate::docling::output_path(&root, &renamed).unwrap().to_str().unwrap());
         fs::remove_file(&renamed).unwrap();
         store.update_paths(root.to_str().unwrap(), &[renamed], |_| {}).unwrap();
         assert!(store.search_files("updatedrtfmarker", &[], 10).unwrap().is_empty());
@@ -2395,7 +3217,9 @@ mod tests {
         fs::write(&hidden_file, "hiddenmarker").unwrap();
         fs::write(root.join("visible.md"), "visiblemarker").unwrap();
         fs::write(root.join(".note.md"), "dotfilemarker").unwrap();
-        assert!(store.settings().unwrap().show_hidden);
+        let mut settings = store.settings().unwrap();
+        settings.show_hidden = true;
+        store.save_settings(&settings).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         assert!(store.search_files("hiddenmarker", &[], 10).unwrap().is_empty());
         assert_eq!(store.search_files("visiblemarker", &[], 10).unwrap().len(), 1);
@@ -2469,6 +3293,9 @@ mod tests {
     #[test]
     fn file_index_issues_persist_and_clear_when_the_directory_is_excluded() {
         let (dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        store.save_settings(&settings).unwrap();
         let dependency = root.join("dependencies");
         fs::create_dir(&dependency).unwrap();
         let file = dependency.join("fixture.py");
@@ -2524,6 +3351,95 @@ mod tests {
             .candidate_query(&text::match_query("searchable"), None, &[], &[], &[], 100)
             .unwrap();
         assert_eq!(hits[0].content, source);
+    }
+
+    #[test]
+    fn html_image_data_never_enters_search_or_retrieval_vocabulary() {
+        let (_dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        store.save_settings(&settings).unwrap();
+        let path = root.join("page.html");
+        let source = "<h1>beforemarker</h1><img src=\"data:image/png;base64,imagepayloadmarker\" alt=\"图像说明\"><p>aftermarker 正常正文</p>";
+        fs::write(&path, source).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert!(store.search_files("imagepayloadmarker", &[], 10).unwrap().is_empty());
+        for query in ["beforemarker", "aftermarker", "正常正文", "图像说明"] {
+            let hits = store.candidate_query(&text::match_query(query), None, &[], &[], &[], 10).unwrap();
+            assert!(!hits.is_empty(), "missing {query}");
+            assert!(hits.iter().all(|hit| !hit.content.contains("imagepayloadmarker")));
+        }
+        let vocabulary: String = store.connection().query_row("SELECT terms FROM retrieval_vocabulary", [], |row| row.get(0)).unwrap();
+        assert!(!vocabulary.contains("imagepayloadmarker"));
+        assert!(store.retrieval_corpus(&[], &[]).unwrap().iter().all(|(_, text)| !text.contains("imagepayloadmarker")));
+        store.connection().execute("DELETE FROM retrieval_vocabulary", []).unwrap();
+        store.retrieval_statistics(&[], &[], &tokio_util::sync::CancellationToken::new()).unwrap();
+        let vocabulary: String = store.connection().query_row("SELECT terms FROM retrieval_vocabulary", [], |row| row.get(0)).unwrap();
+        assert!(!vocabulary.contains("imagepayloadmarker"));
+        assert_eq!(store.document(&path).unwrap().body, source);
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
+    }
+
+    #[test]
+    fn embedded_resource_upgrade_reindexes_documents_once() {
+        let (dir, store, root) = setup();
+        let old_path = root.join("page.txt");
+        let html_path = root.join("page.html");
+        fs::write(&old_path, "<p>bodymarker</p><img src='data:image/png;base64,imagepayloadmarker'>").unwrap();
+        fs::write(root.join("keep.txt"), "unaffectedmarker").unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        settings.retrieval.chunk_chars = 900;
+        store.save_settings(&settings).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.search_files("imagepayloadmarker", &[], 10).unwrap().len(), 1);
+        let keep_id = store.search_files("unaffectedmarker", &[], 10).unwrap()[0].id;
+        fs::rename(&old_path, &html_path).unwrap();
+        store.connection().execute("UPDATE documents SET path=?,name='page.html' WHERE path=?", params![path_text(&html_path).unwrap(),path_text(&old_path).unwrap()]).unwrap();
+        store.connection().pragma_update(None, "user_version", 7).unwrap();
+        drop(store);
+        let upgraded = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        assert!(upgraded.search_files("imagepayloadmarker", &[], 10).unwrap().is_empty());
+        assert_eq!(upgraded.search_files("unaffectedmarker", &[], 10).unwrap()[0].id, keep_id);
+        assert_eq!(upgraded.chunk_count().unwrap(), 1);
+        assert_eq!(upgraded.settings().unwrap().retrieval.chunk_chars, 900);
+        assert_eq!(upgraded.roots().unwrap()[0].status, "pending");
+        upgraded.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(upgraded.search_files("bodymarker", &[], 10).unwrap().len(), 1);
+        assert!(upgraded.search_files("imagepayloadmarker", &[], 10).unwrap().is_empty());
+        let count = upgraded.chunk_count().unwrap();
+        drop(upgraded);
+        let reopened = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        assert_eq!(reopened.chunk_count().unwrap(), count);
+        assert_eq!(reopened.roots().unwrap()[0].status, "ready");
+    }
+
+    #[test]
+    fn markdown_resource_upgrade_clears_old_payloads_and_keeps_original_files() {
+        let (dir, store, root) = setup();
+        let old_path = root.join("legacy.txt");
+        let markdown_path = root.join("legacy.md");
+        let body = "正文marker\n<svg><text>svgpayloadmarker</text></svg>\n![图片说明](data:image/png;base64,imagepayloadmarker)\n[附件](data:application/pdf;base64,attachmentpayloadmarker)";
+        fs::write(&old_path, body).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.search_files("imagepayloadmarker", &[], 10).unwrap().len(), 1);
+        fs::rename(&old_path, &markdown_path).unwrap();
+        store.connection().execute("UPDATE documents SET path=?,name='legacy.md' WHERE path=?", params![path_text(&markdown_path).unwrap(),path_text(&old_path).unwrap()]).unwrap();
+        store.connection().pragma_update(None, "user_version", 8).unwrap();
+        drop(store);
+        let upgraded = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        upgraded.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        for marker in ["imagepayloadmarker", "svgpayloadmarker", "attachmentpayloadmarker"] {
+            assert!(upgraded.search_files(marker, &[], 10).unwrap().is_empty(), "retained {marker}");
+            assert!(upgraded.candidate_query(&text::match_query(marker), None, &[], &[], &[], 10).unwrap().is_empty());
+        }
+        assert_eq!(upgraded.search_files("正文marker", &[], 10).unwrap().len(), 1);
+        assert_eq!(fs::read_to_string(&markdown_path).unwrap(), body);
+        let count = upgraded.chunk_count().unwrap();
+        drop(upgraded);
+        let reopened = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        assert_eq!(reopened.chunk_count().unwrap(), count);
+        assert_eq!(reopened.roots().unwrap()[0].status, "ready");
     }
 
     #[test]

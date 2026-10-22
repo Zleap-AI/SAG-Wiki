@@ -1,4 +1,9 @@
 mod cli_commands;
+mod folder_picker;
+mod updates;
+mod web_clipper;
+#[cfg(windows)]
+mod windows_icon;
 #[path = "../../cli/src/install.rs"]
 mod cli_install;
 use sag_client::Client;
@@ -47,10 +52,16 @@ fn output_value(output: Output) -> CommandResult<serde_json::Value> {
         Text(value) => serde_json::to_value(value).map_err(error)?,
         Drafts(value) => serde_json::to_value(value).map_err(error)?,
         Settings(value) => serde_json::to_value(value).map_err(error)?,
+        Docling(value) => serde_json::to_value(value).map_err(error)?,
+        IndexStatus(value) => serde_json::to_value(value).map_err(error)?,
+        IndexHistory(value) => serde_json::to_value(value).map_err(error)?,
+        IndexHistoryLog(value) => serde_json::to_value(value).map_err(error)?,
+        FolderIndexOptions(value) => serde_json::to_value(value).map_err(error)?,
         McpTools(value) => serde_json::to_value(value).map_err(error)?,
         Conversations(value) => serde_json::to_value(value).map_err(error)?,
         Conversation(value) => serde_json::to_value(value).map_err(error)?,
         Query(value) => serde_json::to_value(value).map_err(error)?,
+        SearchSummary(value) => serde_json::to_value(value).map_err(error)?,
         Overview(value) => serde_json::to_value(value).map_err(error)?,
         Graph(value) => serde_json::to_value(value).map_err(error)?,
         Neighbors(value) => serde_json::to_value(value).map_err(error)?,
@@ -105,11 +116,13 @@ fn forward_events(state: Arc<AppState>) {
                 if !client.is_connected() {
                     match Client::connect(&state.data_dir).await {
                         Ok(Some(connected)) => {
-                            if connected.info().build_id != protocol::BUILD_ID {
+                            if let Err(error) = protocol::BuildInfo::from(connected.info())
+                                .check_compatible(&protocol::BuildInfo::current())
+                            {
                                 emit(
                                     &state.app,
                                     "app-error",
-                                    "SAG 服务构建已变更，请重新启动桌面以使用匹配的版本",
+                                    error.to_string(),
                                 );
                                 return;
                             }
@@ -188,14 +201,14 @@ fn tray_menu(app: &tauri::AppHandle, language: &str) -> tauri::Result<Menu<tauri
     let open = MenuItem::with_id(
         app,
         "sag-open",
-        if english { "Open SAG" } else { "打开 SAG" },
+        if english { "Open SAG Wiki" } else { "打开 SAG Wiki" },
         true,
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(
         app,
         "sag-quit",
-        if english { "Quit SAG" } else { "退出 SAG" },
+        if english { "Quit SAG Wiki" } else { "退出 SAG Wiki" },
         true,
         None::<&str>,
     )?;
@@ -219,24 +232,41 @@ remote!(explore_graph(scope:String,request_id:String) => ExploreGraph);
 remote!(explore_neighbors(scope:String,center_id:i64,snapshot:Option<String>,offset:usize,request_id:String) => ExploreNeighbors);
 remote!(explore_evidence(scope:String,snapshot:String,source:i64,target:i64) => ExploreEvidence);
 remote!(add_root(path:String) => AddRoot);
+remote!(add_root_with_options(path:String,options:sag_protocol::types::FolderIndexOptions) => AddRootWithOptions);
+remote!(get_folder_index_options(path:String) => GetFolderIndexOptions);
+remote!(save_folder_index_options(path:String,options:sag_protocol::types::FolderIndexOptions,rebuild:bool) => SaveFolderIndexOptions);
 remote!(remove_root(path:String) => RemoveRoot);
 remote!(list_removed_directories() => RemovedDirectories);
 remote!(refresh_root(path:String) => RefreshRoot);
 remote!(reindex_all() => ReindexAll);
+remote!(get_index_status() => GetIndexStatus);
+remote!(get_index_history() => GetIndexHistory);
+remote!(get_index_history_log(id:i64) => GetIndexHistoryLog);
+remote!(set_conversion_workers(workers:usize) => SetConversionWorkers);
+remote!(clear_index_history() => ClearIndexHistory);
+remote!(set_index_paused(paused:bool) => SetIndexPaused);
+remote!(remove_all_roots() => RemoveAllRoots);
 remote!(save_document(path:String,body:String,expected_hash:Option<String>) => SaveDocument);
 remote!(put_draft(draft:Draft) => PutDraft);
 remote!(list_drafts() => ListDrafts);
 remote!(delete_draft(path:String) => DeleteDraft);
 remote!(get_settings() => GetSettings);
+remote!(get_docling_status() => DoclingStatus);
+remote!(install_docling() => InstallDocling);
+remote!(cancel_docling_install() => CancelDoclingInstall);
+remote!(uninstall_docling() => UninstallDocling);
 remote!(clear_model_key(kind:String) => ClearModelKey);
 remote!(test_model(kind:String,config:ModelConfig,key:String) => TestModel);
 remote!(test_mcp(server:McpServer,credentials:Option<McpCredentials>) => TestMcp);
 remote!(resolve_tool_approval(id:String,allow:bool) => ResolveToolApproval);
 remote!(list_conversations() => ListConversations);
+remote!(clear_conversations() => ClearConversations);
+remote!(clear_all_data() => ClearAllData);
 remote!(edit_conversation(id:String,title:Option<String>,deleted:Option<bool>) => EditConversation);
 remote!(replace_messages(id:String,messages:Vec<Message>) => ReplaceMessages);
 remote!(cancel_query(id:String) => CancelQuery);
 remote!(run_query(query:Query) => RunQuery);
+remote!(summarize_search(id:String,question:String,results:Vec<Candidate>) => SummarizeSearch);
 remote!(load_image(path:String) => LoadImage);
 remote!(get_service_info() => Info);
 
@@ -272,8 +302,85 @@ async fn reveal_path(path: String, state: State<'_, Arc<AppState>>) -> CommandRe
     reveal(Path::new(value.as_str().unwrap())).map_err(error)
 }
 #[tauri::command]
+async fn open_index_history_file(id: i64, path: String, state: State<'_, Arc<AppState>>) -> CommandResult<()> {
+    let value = rpc(&state, Operation::AuthorizeIndexHistoryFile { id, path }).await?;
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = std::process::Command::new("xdg-open");
+    if !command.arg(value.as_str().unwrap()).status().map_err(error)?.success() {
+        return Err("无法用系统默认应用打开原文件".into());
+    }
+    Ok(())
+}
+#[tauri::command]
 fn open_data_directory(state: State<Arc<AppState>>) -> CommandResult<()> {
     reveal(&state.data_dir).map_err(error)
+}
+#[tauri::command]
+fn open_about_link(target: &str) -> CommandResult<()> {
+    let url = match target {
+        "project" => "https://github.com/Zleap-AI/SAG-Wiki",
+        "company" => "https://zleap.com",
+        "docling" => "https://docling.ai/",
+        "302-api-keys" => "https://302.ai/api-keys/list",
+        _ => return Err("未知的关于页面链接".into()),
+    };
+    open_browser_url(url)
+}
+#[tauri::command]
+fn open_external_link(url: &str) -> CommandResult<()> {
+    let url = tauri::Url::parse(url).map_err(error)?;
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        return Err("不支持的外部链接".into());
+    }
+    open_browser_url(url.as_str())
+}
+fn open_browser_url(url: &str) -> CommandResult<()> {
+    #[cfg(target_os = "macos")]
+    let mut command = std::process::Command::new("open");
+    #[cfg(target_os = "windows")]
+    let mut command = {
+        let mut command = std::process::Command::new("rundll32.exe");
+        command.arg("url.dll,FileProtocolHandler");
+        command
+    };
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = std::process::Command::new("xdg-open");
+    if !command.arg(url).status().map_err(error)?.success() {
+        return Err("无法在浏览器中打开链接".into());
+    }
+    Ok(())
+}
+fn internal_navigation(url: &tauri::Url, dev_url: Option<&tauri::Url>) -> bool {
+    (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"))
+        || (url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"))
+        || dev_url.is_some_and(|dev| url.origin() == dev.origin())
+}
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn external_pages_cannot_replace_the_app_or_document() {
+        for address in ["https://psycnet.apa.org/record/2010-07936-005", "https://example.org", "file:///tmp/index.html", "javascript:alert(1)"] {
+            assert!(!internal_navigation(&tauri::Url::parse(address).unwrap(), None));
+        }
+        for address in ["tauri://localhost/", "http://tauri.localhost/index.html", "about:srcdoc#chapter", "about:blank"] {
+            assert!(internal_navigation(&tauri::Url::parse(address).unwrap(), None));
+        }
+        let dev = tauri::Url::parse("http://127.0.0.1:1420").unwrap();
+        assert!(internal_navigation(&dev, Some(&dev)));
+        assert!(!internal_navigation(&tauri::Url::parse("http://127.0.0.1:1433").unwrap(), Some(&dev)));
+        assert!(open_external_link("file:///tmp/index.html").is_err());
+    }
 }
 fn reveal(path: &Path) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
@@ -301,13 +408,37 @@ fn reveal(path: &Path) -> anyhow::Result<()> {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri::plugin::Builder::<tauri::Wry>::new("external-links")
+            .on_navigation(|webview, url| {
+                let app = webview.app_handle();
+                if internal_navigation(url, if cfg!(debug_assertions) { app.config().build.dev_url.as_ref() } else { None }) {
+                    return true;
+                }
+                if let Err(error) = open_external_link(url.as_str()) {
+                    emit(app, "app-error", error);
+                }
+                false
+            }).build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .manage(updates::UpdateSession::default())
         .setup(|app| {
+            #[cfg(windows)]
+            windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
             let data = protocol::data_dir()?;
+            let fresh_library = !data.join("sag.sqlite").try_exists()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             let source = cli_commands::service_source(app.handle(), cli_install_error.is_none())
                 .map_err(anyhow::Error::msg)?;
             let client = tauri::async_runtime::block_on(sag_client::ensure(&data, &source))?;
+            if fresh_library {
+                let documents = dirs::document_dir().ok_or("无法获取文稿目录")?;
+                let root = web_clipper::prepare_default_library(&documents).map_err(anyhow::Error::msg)?;
+                tauri::async_runtime::block_on(client.call(
+                    Operation::AddRoot { path: root.display().to_string() },
+                    Duration::from_secs(30),
+                ))?;
+            }
             let settings = tauri::async_runtime::block_on(
                 client.call(Operation::GetSettings, Duration::from_secs(10)),
             )?;
@@ -318,18 +449,30 @@ pub fn run() {
             let icon = app.default_window_icon().unwrap().clone();
             #[cfg(target_os = "macos")]
             let icon = {
-                // macOS template icons use the logo silhouette, without its white background.
-                let mut rgba = icon.rgba().to_vec();
+                // Crop app-icon padding so the menu-bar silhouette remains readable.
+                let width = icon.width() as usize;
+                let height = icon.height() as usize;
+                let left = width / 8;
+                let top = height / 8;
+                let tray_width = width - 2 * left;
+                let tray_height = height - 2 * top;
+                let mut rgba: Vec<u8> = icon
+                    .rgba()
+                    .chunks_exact(width * 4)
+                    .skip(top)
+                    .take(tray_height)
+                    .flat_map(|row| row[left * 4..(left + tray_width) * 4].iter().copied())
+                    .collect();
                 for pixel in rgba.chunks_exact_mut(4) {
                     pixel[3] = (u16::from(pixel[3]) * (255 - u16::from(pixel[0])) / 255) as u8;
                     pixel[..3].fill(0);
                 }
-                tauri::image::Image::new_owned(rgba, icon.width(), icon.height())
+                tauri::image::Image::new_owned(rgba, tray_width as u32, tray_height as u32)
             };
             TrayIconBuilder::with_id("main")
                 .icon(icon)
                 .icon_as_template(cfg!(target_os = "macos"))
-                .tooltip("SAG")
+                .tooltip("SAG Wiki")
                 .menu(&tray_menu(app.handle(), &settings.language)?)
                 .show_menu_on_left_click(!cfg!(target_os = "windows"))
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -381,14 +524,19 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            web_clipper::get_web_clipper,
+            web_clipper::add_web_clipper_folder,
+            web_clipper::export_web_clipper,
             cli_commands::get_cli_settings,
             cli_commands::save_cli_settings,
             cli_commands::install_cli_integration,
+            cli_commands::download_cli_skill,
             cli_commands::test_cli_connection,
             reveal_main_window,
             quit_application,
             list_roots,
             list_entries,
+            folder_picker::browse_folders,
             list_files,
             read_document,
             explore_overview,
@@ -396,32 +544,55 @@ pub fn run() {
             explore_neighbors,
             explore_evidence,
             add_root,
+            add_root_with_options,
+            get_folder_index_options,
+            save_folder_index_options,
             remove_root,
             list_removed_directories,
             refresh_root,
             reindex_all,
+            get_index_status,
+            get_index_history,
+            get_index_history_log,
+            set_conversion_workers,
+            open_index_history_file,
+            clear_index_history,
+            set_index_paused,
+            remove_all_roots,
             save_document,
             put_draft,
             list_drafts,
             delete_draft,
             get_settings,
+            get_docling_status,
+            install_docling,
+            cancel_docling_install,
+            uninstall_docling,
             save_settings,
             test_model,
             test_mcp,
             resolve_tool_approval,
             clear_model_key,
             list_conversations,
+            clear_conversations,
+            clear_all_data,
             edit_conversation,
             replace_messages,
             cancel_query,
             run_query,
+            summarize_search,
             reveal_path,
             open_data_directory,
+            open_about_link,
+            open_external_link,
+            updates::check_app_update,
+            updates::download_app_update,
+            updates::install_app_update,
             load_image,
             get_service_info
         ])
         .build(tauri::generate_context!())
-        .expect("无法启动 SAG 桌面客户端");
+        .expect("无法启动 SAG Wiki");
     app.run(|app, event| match event {
         tauri::RunEvent::ExitRequested {
             code: None, api, ..

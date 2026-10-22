@@ -38,6 +38,28 @@ fn binary_upgrade_does_not_replace_a_read_only_installation() {
 }
 
 #[test]
+fn older_cli_cannot_downgrade_an_existing_installation() {
+    let home = tempfile::tempdir().unwrap();
+    let run = || Command::new(env!("CARGO_BIN_EXE_sag"))
+        .args(["install", "cli"]).env_clear().env("HOME", home.path())
+        .env("SAG_DATA_DIR", home.path().join("data"))
+        .env("PATH", "/usr/bin:/bin").output().unwrap();
+    assert!(run().status.success());
+    let binary = home.path().join(".local/bin/sag");
+    let record = binary.with_extension("sag-install.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+    value["version"] = "99.0.0".into();
+    fs::write(&record, serde_json::to_vec(&value).unwrap()).unwrap();
+    let before = fs::read(&binary).unwrap();
+    let receipt = fs::read(&record).unwrap();
+    let result = run();
+    assert!(!result.status.success());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("不会覆盖"));
+    assert_eq!(fs::read(binary).unwrap(), before);
+    assert_eq!(fs::read(record).unwrap(), receipt);
+}
+
+#[test]
 #[cfg(debug_assertions)]
 fn development_install_cannot_replace_a_managed_release() {
     let home = tempfile::tempdir().unwrap();
@@ -319,7 +341,7 @@ fn fresh_terminals_find_cli_and_uninstall_preserves_shell_settings() {
                 "{shell} {mode}: {}",
                 String::from_utf8_lossy(&output.stderr)
             );
-            assert!(String::from_utf8_lossy(&output.stdout).contains("sag 0.1.0"));
+            assert!(String::from_utf8_lossy(&output.stdout).contains(concat!("sag ", env!("CARGO_PKG_VERSION"))));
         }
         assert!(run("uninstall").status.success());
         for file in &files {

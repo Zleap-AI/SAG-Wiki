@@ -78,6 +78,11 @@ fn desktop_bootstrap_updates_an_owned_binary_when_commands_are_added() {
     };
     fs::write(&source, "first release").unwrap();
     bootstrap();
+    let record = target.with_extension("sag-install.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+    value["version"] = "0.0.9".into();
+    value["build_id"] = "older-build".into();
+    fs::write(record, serde_json::to_vec(&value).unwrap()).unwrap();
     fs::write(&source, "release with new commands").unwrap();
     bootstrap();
     assert_eq!(fs::read_to_string(&target).unwrap(), "release with new commands");
@@ -117,4 +122,44 @@ fn desktop_bootstrap_repairs_missing_and_outdated_references() {
     assert_eq!(fs::read(&reference).unwrap(), current);
     assert!(directory.join("references/ignores.md").exists());
     assert_eq!(fs::read(directory.join("SKILL.md")).unwrap(), main_before);
+}
+
+#[test]
+fn desktop_bootstrap_preserves_equal_or_newer_cli_and_skills() {
+    for version in [env!("CARGO_PKG_VERSION"), "99.0.0"] {
+        for initialized in [true, false] {
+            let home = tempfile::tempdir().unwrap();
+            let data = home.path().join("data");
+            let source = home.path().join("bundled-cli");
+            fs::write(&source, "older desktop bundle").unwrap();
+            let bootstrap = || Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "desktop_bootstrap_updates_a_renamed_command_and_respects_uninstall"])
+                .env_clear().env("HOME", home.path()).env("SHELL", "/bin/zsh")
+                .env("PATH", "/usr/bin:/bin").env("SAG_DATA_DIR", &data)
+                .env("SAG_BOOTSTRAP_CHILD", "1").env("SAG_BOOTSTRAP_SOURCE", &source)
+                .output().unwrap();
+            assert!(bootstrap().status.success());
+            assert!(Command::new(env!("CARGO_BIN_EXE_sag"))
+                .args(["install", "codex"]).env_clear().env("HOME", home.path())
+                .env("PATH", "/usr/bin:/bin").output().unwrap().status.success());
+            let binary = home.path().join(".local/bin/sag");
+            let skill = home.path().join(".agents/skills/sag/SKILL.md");
+            for (path, contents) in [(&binary, "newer CLI"), (&skill, "newer CLI instructions")] {
+                fs::write(path, contents).unwrap();
+                let record = path.with_extension("sag-install.json");
+                let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+                value["hash"] = format!("{:x}", Sha256::digest(contents)).into();
+                value["version"] = version.into();
+                value["build_id"] = "another-build".into();
+                fs::write(record, serde_json::to_vec(&value).unwrap()).unwrap();
+            }
+            if !initialized {
+                fs::remove_file(data.join("cli-initialized")).unwrap();
+            }
+            let result = bootstrap();
+            assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+            assert_eq!(fs::read_to_string(&binary).unwrap(), "newer CLI", "version={version}, initialized={initialized}");
+            assert_eq!(fs::read_to_string(&skill).unwrap(), "newer CLI instructions");
+        }
+    }
 }

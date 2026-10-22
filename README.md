@@ -1,100 +1,256 @@
-# SAG Desktop
+<p align="center">
+  <img src="docs/assets/readme/sag-wiki-logo.png" alt="SAG-Wiki" width="294" />
+</p>
 
-本地桌面知识库，内置 **SAG2 V10 正式检索算法**。界面沿用已确认的 A 版原型，使用 **Tauri 2 + Rust + SQLite FTS5**；编辑器按需加载，启动时不运行 Node、Python 或本地 Web 服务。
+<h1 align="center">SAG-Wiki</h1>
 
+<p align="center">
+  <strong>English</strong> · <a href="README-CN.md">简体中文</a>
+</p>
 
-界面控件使用 Bits UI（按钮、菜单、弹窗、选择器、开关和复选框），输入框与多行输入采用 shadcn-svelte 的本地组件，并沿用现有样式。动效使用 Svelte 内置过渡，不增加动画依赖；支持系统减少动态效果设置。
+<p align="center">
+  <a href="https://arxiv.org/abs/2610.22588"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2610.22588-18181b" /></a>
+  <a href="https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5"><img alt="SAG-Wiki version" src="https://img.shields.io/badge/SAG--Wiki-v0.1.5-18181b" /></a>
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-3776ab" />
+  <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-339933" />
+  <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-18181b" />
+  <a href="LICENSE"><img alt="License" src="https://img.shields.io/badge/license-MIT-18181b" /></a>
+</p>
 
-## 独立 CLI（桌面端可选）
+<p align="center"><strong>Lightweight and easy. Fast indexing. Precise retrieval.</strong></p>
 
-`sag` 与桌面端连接同一个独立后台服务。关闭桌面后，CLI 仍可使用同一份知识库：
+<p align="center">
+  A lightweight knowledge base for people and agents. Index and search your local files without LLM calls, then ask questions with answers you can trace to the source.
+</p>
 
-```sh
-sh scripts/install.sh  # 从源码安装，需要 Rust；预编译包内使用 sh install.sh
-sag                 # 未配置时自动引导，密钥输入隐藏
-sag add             # 索引当前目录
-sag "权限在哪里检查？"
-sag -E -c '^(ERROR|WARN) [0-9]+' ./logs  # 本地正则匹配
-sag -F -c 'validatePermission(' ./src  # 本地固定字符串匹配
-sag -F -i -w 'token' ./src -C 3       # 忽略大小写、完整单词及上下文
-sag -E -e 'ERROR' -e 'WARN' ./logs -l # 多条件与匹配文件列表
+https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
+
+## Contents
+
+<p align="center">
+  <a href="#project">Project</a> ·
+  <a href="#technology">Technology</a> ·
+  <a href="#user-guide">User Guide</a> ·
+  <a href="#agent-guide">Agent Guide</a> ·
+  <a href="#developer-guide">Developer Guide</a> ·
+  <a href="#community">Community</a>
+</p>
+
+---
+
+<a id="project"></a>
+
+## SAG-Wiki in one minute
+
+| System | Download | Size |
+| --- | --- | --- |
+| macOS | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-macOS-arm64.dmg) | 14.0MB |
+| Windows | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-Windows-x64-setup.exe) | 10.7MB |
+
+**Install for your agent**
+
+```text
+Install https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md and follow its setup flow for my current project.
 ```
 
-安装时可直接传入密钥：`sh install.sh --key '你的密钥'`；也可按默认方式安装，通过隐藏输入完成配置。已配置时保留现有设置。
+The installer size excludes optional document conversion components and recognition models downloaded on demand.
 
-独立 CLI 不依赖桌面框架；预编译包不要求安装编译工具。桌面和 CLI 需要时自动启动服务。`sag service status/stop/restart` 分别查看、停止和重启服务。公共安装地址暂未设置。[安装、配置与命令说明](docs/CLI与Harness使用说明.md)。
+Add a folder to make your documents, notes, and code searchable. Find a passage, ask a question across files, open the source behind an answer, or give your coding agent access to the same knowledge base.
 
-npm 发布包已按 `@zleap-ai/sag` 准备，尚未上传。运行 `node scripts/package-npm-cli.mjs` 生成 npm 安装包；账号登录、发布命令和支持平台见 [npm 发布说明](docs/npm发布说明.md)。
+- **Light:** just **14 MB** to download, with no separate database to install.
+- **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
+- **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
 
-## 在这台 Mac 上打开
+Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. Office, spreadsheets, EPUB and text-based PDFs are parsed locally by built-in anydoc. Install optional Docling only for scanned PDFs and other formats.
 
-双击本目录的 **打开客户端.command**。它使用应用的完整路径，打开本项目生成的 **SAG Desktop.app**，不会按名称寻找电脑里已有的 SAG 个人版。
+### How it compares
 
-应用位置：`src-tauri/target/release/bundle/macos/SAG Desktop.app`。
+| Capability | **SAG-Wiki** | LLM Wiki | Typical vector RAG |
+| --- | --- | --- | --- |
+| Getting started | **Add a local folder** | Have an agent read sources and maintain wiki pages | Import documents, split them, and build a vector index |
+| Preparing knowledge | **No LLM calls or embeddings** | An LLM writes and updates summaries and links | An embedding model encodes document chunks |
+| Knowledge you search | **Original documents, with passage locations** | Generated, interlinked wiki pages | Indexed document chunks |
+| File changes | **Watch local files and update the index** | Have the agent revise affected pages | Update affected chunks and embeddings |
+| Finding information | **SAG2 evidence retrieval across files** | Navigate and query the maintained wiki | Retrieve by vector similarity, optionally with reranking |
+| Everyday use | **Desktop search, cited Q&A, document editing, and relationship exploration** | Agent workflows and a Markdown editor | Depends on the application |
+| Agent access | **CLI and a ready-to-install Skill** | Instructions for maintaining and reading the wiki | Application-specific tools or APIs |
 
-- 新客户端标识：`com.sag.desktop`。
-- 原个人版标识：`ai.zleap.sag`。两个应用及数据目录独立。
-- 新客户端数据：`~/Library/Application Support/com.sag.desktop/sag.sqlite`。
-- 原始文件保留在选中的目录中。移除目录只清理应用索引，源文件仍在原处。
+The comparison uses [Karpathy's LLM Wiki pattern](https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f) and the [standard vector RAG workflow](https://docs.langchain.com/oss/python/deepagents/retrieval). Features vary by implementation.
 
-## SAG2 V10
+---
 
-当前使用 SAG2 V10：仅在名称没有匹配结果时修正拼写；采用必要证据评分；扩展阶段复用历史候选、前轮证据与已有分数；最后在本地做多样性排序，不新增模型请求。问答默认每轮 50 个新候选、10 个扩展起点、20 个扩展词、1 次扩展，共 2 轮评分，返回 10 个片段，片段目标 512 字符。Jev 请求次数不限。深入搜索每轮仍为 100 个新候选，后续文件列表可复用此前已评分命中，不再追加评分。
+<a id="technology"></a>
 
-新配置的 Jev 默认使用 302.AI `https://api.302ai.cn/typesafeai/v1`、`jev-latest`，请求路径为 `/typesafeai/v1/systemone`；已有地址和密钥保持用户配置。旧版未自定义的检索参数自动更新；自定义配置保留，扩展上限为 2 轮。HTTP 499 自动重试，HTTP 500 和超时不计为成功请求。候选超过单批预算时自动分批并合并评分；公共证据与单个候选仍超出预算时明确报错，保留原文。
+## Technology
 
-本地检索默认复用 BM25 查询统计，合并扩展词过滤，最多 8 路并行计算词频，并缓存重复分词。首轮仅在分数上界证明不会改变前列结果时跳过候选；分数公式、权重和排序保持不变。原生评分代码在构建时编译进应用，使用者无需安装 Python、编译器或额外扩展；已有索引无需重建。
+SAG-Wiki runs on **SAG2, our original retrieval method**. It builds a local index without embeddings or LLM calls, then uses Jev evidence scoring and query-time expansion to find supporting passages across documents. LLMs are used when you choose to generate an answer.
 
-## 使用
+https://github.com/user-attachments/assets/bcdf9dbf-7535-41d6-bd22-bde0ea824525
 
-1. 点击左侧文件夹加号，选择本地文件夹。子目录自动纳入，已有父目录时不会重复添加。
-2. 点击文件夹名称浏览内容；只有左侧箭头控制展开。浏览不会修改问答或搜索范围。
-3. 在设置 → 模型设置中选择供应商，再填写模型及密钥。问答模型支持 OpenAI、DeepSeek、GLM、OpenRouter、302.AI 和自定义；Jev 支持 302.AI、OpenRouter 和 Typesafe，两类新配置均默认 302.AI。选择后自动填写接口地址，已有配置保留。两项均使用 302.AI 时，填写一次密钥可补齐另一项空白密钥；已有保存的密钥或手动设置的不同密钥保持独立。密钥保存在当前用户的应用数据目录，不再调用系统钥匙串；macOS 文件权限为 0600。问答与深入搜索需要配置模型服务；普通搜索、文件浏览、编辑和索引可离线使用。
-4. 问答输入框可以选择支持工具调用的问答模型，输入 `@` 引用文件。模型按需调用内置 SAG MCP 的 `search`、`list`、`read`、`grep`，每轮工具调用默认最多三次，可在设置中调整；普通交流可以直接回答。范围默认全部文件，也可通过文件树指定目录。普通搜索直接使用本地 BM25；点击“深入搜索”才执行 SAG2，分析期间保留本地结果。
-   拼音候选确认不会发送；普通回车发送，Shift+Enter 换行。
-5. 新建文档直接进入编辑器，点击保存才创建 `.md`。已有文件手动保存，外部修改冲突时拒绝覆盖。
-6. “问答设置 → 工具绑定”支持粘贴 JSON 导入远程 Streamable HTTP 和本地 stdio 服务，可添加无需密钥的 DeepWiki 示例并测试连接。在“问答设置 → 提示词”分别设置每个问答模型的系统提示词，并独立开关 SAG 内置 MCP 的四个工具、逐项选择外部 MCP 工具。所有工具共用每轮工具调用上限；通用服务默认逐次确认，HTTP 请求头和本地环境变量凭据保存在本机。
-7. “文件设置 → 索引并行数”可设置 1–64，默认 8。文件读取、切分和分词并行执行，按原顺序批量写入 SQLite；设置在下次索引任务生效，修改并行数不会重建已有索引。
-8. “检索设置”可以调整片段目标字符数，默认 512；“问答设置 → 上下文与请求”可以调整回答总上下文。正文按完整句子组合，代码按完整行组合；单句或单行超长时允许超过目标长度。同一标题下的相邻片段保留约 80 字符的完整句子或行作为重叠，上下文较长时也允许超过目标。CLI 显示所属标题并合并重复原文，引用保留精确行列与字节位置。
-9. 最近问答的三个点支持重命名、删除和撤销。顶层目录菜单支持问答、搜索、重新读取和移除；子项可在系统文件管理器中打开。
-10. 关闭窗口后继续在后台运行，问答、索引和文件监听保持工作。Windows 可从系统托盘打开或退出，macOS 可从菜单栏打开或退出，也可点击 Dock 图标重新打开窗口。真正退出时，未保存的文档仍会询问保存、放弃或取消退出。
+<p align="center">
+  <img src="docs/assets/readme/sag2-retrieval-comparison-en.png" alt="SAG2 Recall@10 exceeds SAG and BM25 on high-difficulty MuSiQue, medium-difficulty 2WikiMultiHopQA, and low-difficulty HotpotQA, with relative percentage gains" width="940" />
+</p>
 
-问题、候选原文和所需历史会发送给配置的模型服务。应用没有内置可用密钥，也不会提供演示答案代替真实模型输出。
+<sub>SAG-Wiki is represented by its underlying SAG2 benchmark results. Recall@10 measures evidence recall in the first ten results. SAG2 uses 1,000 questions per benchmark; MuSiQue was used for method development. SAG and BM25 are reference values from the original SAG paper. Difficulty labels are presentation categories; relative gains use the displayed scores.</sub>
 
-## 开发与检查
+**[Read the SAG2 paper](https://arxiv.org/abs/2610.22588)** · For the method, benchmark results, and reproduction code, see **[SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark)**.
+
+---
+
+<a id="user-guide"></a>
+
+## User Guide
+
+| Feature | What you need |
+| --- | --- |
+| File indexing and quick search | Add a folder; no API key needed |
+| SAG2 semantic retrieval | Configure a Jev service and API key |
+| Cited Q&A | Configure an answer model and API key; SAG2 retrieval also requires Jev configuration |
+
+SAG-Wiki itself is free and open source. External service charges depend on your chosen provider. Original files stay on your machine; in-depth retrieval and Q&A send the required questions, document passages, or context to the services you configure.
+
+### 1. Download and add a folder
+
+Download the DMG from the table above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
+
+Install and open SAG-Wiki, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
+
+<p align="center">
+  <img src="docs/assets/readme/product-folders-en.png" alt="Local folders and documents in SAG-Wiki" width="940" />
+</p>
+
+### 2. Search your files
+
+Once indexing finishes, use **Search** to find passages and preview the source. Quick search works locally; configure Jev in **Settings → Models** for in-depth semantic retrieval.
+
+<p align="center">
+  <img src="docs/assets/readme/product-search-en.png" alt="Search results with the matching source passage" width="940" />
+</p>
+
+### 3. Ask questions and check the source
+
+Configure your answer model in **Settings → Models**, then ask in **Chat**. Use `@` to select files, and click a citation to see the passage supporting the answer.
+
+<p align="center">
+  <img src="docs/assets/readme/product-chat-en.png" alt="A question answered with document citations in SAG-Wiki" width="940" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/readme/product-citation-en.png" alt="Opening a citation highlights the original passage" width="940" />
+</p>
+
+---
+
+<a id="agent-guide"></a>
+
+## Agent Guide
+
+Give your agent this one sentence:
+
+```text
+Install https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md and follow its setup flow for my current project.
+```
+
+SAG supports **Claude Code, Codex, and OpenCode**. The Skill includes CLI installation, configuration, project indexing and verification. **The CLI works without SAG Wiki desktop** and shares its settings and knowledge base when the desktop is installed. Existing settings are reused; first-time semantic search needs your own Jev API key, entered privately in a terminal. The GitHub Skill link is the canonical installation entry; the agent retrieves its supporting files from the same directory.
+
+With Node.js 18 or later installed:
 
 ```sh
+npm install -g @zleap-ai/sag
+```
+
+The published **0.1.5** npm package includes **macOS Apple Silicon and Windows x64** binaries. It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
+
+<details>
+<summary>Manual installation and usage</summary>
+
+If `sag` is already installed, reuse it. Otherwise run the npm command above, then verify the command and complete first-time Jev setup in a terminal:
+
+```sh
+sag --version
+sag
+```
+
+Install the linked [Skill folder](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag), including `SKILL.md` and `references/`, at the location for your agent:
+
+| Agent | Skill folder |
+| --- | --- |
+| Codex | `~/.agents/skills/sag/` |
+| Claude Code | `~/.claude/skills/sag/` |
+| OpenCode | `~/.config/opencode/skills/sag/` |
+
+Start a new agent session. In the project you want to search, add the folder and confirm indexing is ready before searching:
+
+```sh
+sag add
+sag check
+sag "Where is permission checked?" . -m 5
+```
+
+See the Skill's [setup guide](cli/skills/sag/references/setup.md#first-use-setup) for the complete agent workflow and the [CLI guide](docs/en/cli-and-harness.md) for other commands.
+
+</details>
+
+---
+
+<a id="developer-guide"></a>
+
+## Developer Guide
+
+The **Rust CLI is the runtime foundation**. The `sag` executable starts a shared local service; both terminal commands and the Tauri desktop connect to it through the same client. Indexing, retrieval, and model configuration live in one core, and remain available after the desktop exits.
+
+```mermaid
+flowchart TD
+    Desktop["Desktop · Svelte + Tauri"] --> Client["sag-client"]
+    Agent["Terminal / Agent · sag CLI"] --> Client
+    Client --> Service["sag service serve · Rust core"]
+    Service --> Local["Local files + SQLite index"]
+    Service --> Jev["Jev · evidence retrieval"]
+    Service --> LLM["LLM · answer generation"]
+```
+
+| Directory | Contents |
+| --- | --- |
+| `src/` | Desktop interface |
+| `src-tauri/` | Desktop system features and service connection |
+| `cli/` | Command-line entry point and Skill installation |
+| `core/` | Indexing, retrieval, and Q&A |
+| `client/`, `protocol/` | Client communication and protocol |
+
+Follow the [environment guide](docs/en/development.md#environment) to prepare Node.js, Rust, and your platform's Tauri development dependencies, then run:
+
+```sh
+git clone https://github.com/Zleap-AI/SAG-Wiki.git
+cd SAG-Wiki
 npm ci
 npm run tauri dev
-npm test
-cargo test --manifest-path core/Cargo.toml
-cargo test --manifest-path cli/Cargo.toml
-cargo test --manifest-path src-tauri/Cargo.toml --lib
-npm run tauri build -- --bundles app
 ```
 
-Windows 在 Windows 开发机上运行 `npm run tauri build`，平台配置使用 NSIS 安装包与自绘标题栏。当前已验证 macOS Apple Silicon 本地构建；Windows 尚未实机验证。
+After changes, run `npm run check` and `npm test`; the [checks section](docs/en/development.md#code-checks) lists all validation commands. See the [development guide](docs/en/development.md), [architecture](docs/en/architecture.md), and [documentation index](docs/en/README.md) for builds and implementation details.
 
-## 文档
+---
 
-- [更新记录](docs/更新记录.md)：近期界面、提示和工具改动。
-- [SAG 内置 MCP 工具](docs/SAG内置MCP工具.md)：四个工具的参数、返回内容和配合方式。
+## Contributing and License
 
-- [客户端实施方案](docs/客户端实施方案.md)：架构与后续实施目标。
-- [原型交互规范](docs/原型交互规范.md)：历次反馈整理后的界面约束。
-- [验证与验收](docs/验证与验收.md)：完整验收清单，未勾选的要求不能视为已通过。
-- [本地开发版验证记录](docs/本地开发版验证记录.md)：已执行检查、实际结果和限制。
-- [真实模型测试报告](docs/真实模型测试报告.md)：真实 Jev 与问答模型在本地文档上的验证结果。
-- [输入法与模型工具调用验证](docs/输入法与模型工具调用验证.md)：输入法确认回车、按需检索及实际调用记录。
-- [MCP 与模型设置验证](docs/MCP与模型设置验证.md)：外部工具接入、模型独立提示词和每轮调用上限。
-- [参考源码清单](docs/参考源码清单.json)：原型及算法的来源。
+Contributions are welcome through [Issues](https://github.com/Zleap-AI/SAG-Wiki/issues) and [Pull Requests](https://github.com/Zleap-AI/SAG-Wiki/pulls). For changes to the application, follow the [development guide](docs/en/development.md); retrieval research and reproduction code live in [SAG-Benchmark](https://github.com/Zleap-AI/SAG-Benchmark).
 
-原型和 SAG2 源项目保持独立，本目录专门保存客户端代码和文档。
+SAG-Wiki is released under the [MIT License](LICENSE). Third-party notices are in [src-tauri/licenses](src-tauri/licenses/).
 
-## 可检索文件
+---
 
-支持 Markdown、TXT、RST，以及常见代码（Python、Rust、JavaScript/TypeScript、Go、Java、C/C++、C#、Swift、Kotlin、Shell、SQL 等）和 JSON、YAML、TOML、XML、INI 等文本配置。Dockerfile、Makefile、CMakeLists.txt 也支持。
+<a id="community"></a>
 
-Markdown 可编辑；其他格式在客户端只读查看，原始文本用于索引。PDF、Word、图片 OCR 和二进制文件尚未支持，`.env` 不自动纳入支持列表。
+## Community
 
-[长文与代码检索验证](docs/长文与代码检索验证.md)。
+Join the SAG community on Discord or WeChat to connect with maintainers and other users.
+
+<table align="center">
+  <tr>
+    <th>Discord</th>
+    <th>WeChat</th>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/assets/readme/discord-community-qr.jpg" alt="SAG Discord community QR code" width="220" /></td>
+    <td align="center"><img src="docs/assets/readme/wechat-community-qr.png" alt="SAG WeChat community QR code" width="220" /></td>
+  </tr>
+</table>

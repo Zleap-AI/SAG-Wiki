@@ -25,6 +25,19 @@ async function chooseEnglish(){
  document.querySelector('[role=option][data-value="en"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
 }
 
+it('shows project and company links in About and opens them outside the app',async()=>{
+ setLanguage('zh-CN');
+ app=mount(SettingsPanel,{target:document.body,props:{value:settings,initial:'about',onSave:vi.fn(),onClose:vi.fn()}});
+ await tick();
+ expect(document.querySelector('.settings-about-note')).toBeNull();
+ const links=[...document.querySelectorAll<HTMLAnchorElement>('.settings-about-links a')];
+ expect(links.map(link=>link.href)).toEqual(['https://github.com/Zleap-AI/SAG-Wiki','https://zleap.com/']);
+ for(const [index,target] of ['project','company'].entries()){
+  expect(links[index].dispatchEvent(new MouseEvent('click',{bubbles:true,cancelable:true}))).toBe(false);
+  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_about_link',{target}));
+ }
+});
+
 it('previews English immediately, persists it on save, and restores Chinese on cancel',async()=>{
  const onSave=vi.fn(),onClose=vi.fn();
  const original={...settings,answer:{...settings.answer,models:['another-model','test']}};

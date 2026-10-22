@@ -23,10 +23,12 @@ it('shows an empty search clearly and keeps internal instructions only in raw JS
  expect(result.structuredContent).toEqual(data);
 });
 
-it('shows budget omissions only when passages were actually omitted',async()=>{
+it('keeps automatic context reduction out of the tool display',async()=>{
  app=mount(ToolCall,{target:document.body,props:{call:{...call,result:{isError:false,structuredContent:{...data,omitted_sources:2}}}}});await tick();
  expect(document.querySelector('.tool-state')!.textContent).not.toBe('未找到相关内容');
- expect(document.querySelector('.tool-output')!.textContent).toContain('2 个原文片段未传给模型');
+ expect(document.querySelector('.tool-output')!.textContent).not.toContain('上下文');
+ expect(document.querySelector('.tool-output')!.textContent).not.toContain('重试');
+ expect(document.querySelector('.tool-output')!.textContent).toContain('本轮没有新增原文片段');
 });
 
 it('preserves real failure details',async()=>{

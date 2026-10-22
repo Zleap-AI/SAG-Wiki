@@ -24,6 +24,6 @@ it('restores a removed folder immediately and keeps it listed if restoration fai
  await vi.waitFor(()=>expect(document.querySelector('[role=alert]')?.textContent).toContain('目录不存在'));
  expect(document.body.textContent).toContain('/project/docs');
  fail=false;document.querySelector<HTMLButtonElement>('button')!.click();
- await vi.waitFor(()=>expect(document.body.textContent).toContain('暂无已移除的子目录。'));
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('暂无已移除的文件和文件夹。'));
  expect(document.querySelector('[role=status]')?.textContent).toContain('正在重新索引');
 });

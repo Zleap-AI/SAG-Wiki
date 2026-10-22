@@ -47,7 +47,10 @@ fn invalid_arguments_fail_but_status_works_without_desktop() {
     }
     let missing = run(&["status"]);
     assert!(missing.status.success(), "{}", String::from_utf8_lossy(&missing.stderr));
-    assert!(String::from_utf8(missing.stdout).unwrap().contains("后台服务未运行"));
+    let status = String::from_utf8(missing.stdout).unwrap();
+    assert!(status.contains("后台服务未运行"));
+    assert!(!status.contains("索引"));
+    assert!(!status.contains("目录："));
 }
 
 #[test]
@@ -62,7 +65,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     let query = "Where is 'quoted' permission\nvalidated?";
     let mut step=0;
     let server=support::serve(home.path(),4,move|request|{
-        let (expected_query,content)=[(query,false),(query,true),(query,true),("status",false)][step];step+=1;
+        let (expected_query,content)=[(query,true),(query,true),(query,true),("status",true)][step];step+=1;
         assert_eq!(request["command"]["query"],expected_query);
         assert_eq!(request["command"]["content"],content);
         assert!(request["path"].as_str().unwrap().ends_with("项目 space/src"));
@@ -83,7 +86,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     assert!(plain.status.success());
     assert_eq!(
         String::from_utf8(plain.stdout).unwrap(),
-        "./src/main.rs:2-4\n标题：部署指南 / 生产环境\n"
+        "[1/1]\nfilepath: ./src/main.rs\nheading: 部署指南 / 生产环境\nlines: 2-4\ncontent:\n原文 'quoted'\nsecond line\n\n"
     );
     let content = Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", home.path())
@@ -106,6 +109,36 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
         .args(["--", "status", "src"])
         .output().unwrap();
     assert!(reserved.status.success(), "{}", String::from_utf8_lossy(&reserved.stderr));
+    server.join().unwrap();
+}
+
+#[test]
+fn semantic_output_groups_passages_by_source_and_labels_each_range() {
+    let data = tempfile::tempdir().unwrap();
+    let cwd = data.path().canonicalize().unwrap();
+    let source = cwd.join("auth.ts");
+    let server = support::serve(data.path(), 1, move |_| {
+        serde_json::json!({"type":"search","data":{
+            "protocol_version":2,"scope":source.parent(),"truncated":false,
+            "results":[
+                {"path":"auth.ts","absolute_path":source,"start_line":10,"end_line":12,"heading":"Session validation","content":"function validate() {\n  return true;\n}"},
+                {"path":"auth.ts","absolute_path":source,"start_line":20,"end_line":20,"heading":"Session validation","content":"validate();"},
+                {"path":"tokens.ts","absolute_path":source.parent().unwrap().join("tokens.ts"),"start_line":3,"end_line":3,"content":"validateToken();"}
+            ]
+        }})
+    });
+    let result = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", data.path())
+        .current_dir(&cwd)
+        .args(["How is a session validated?", "-m", "2"])
+        .output().unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+    assert_eq!(String::from_utf8(result.stdout).unwrap(), concat!(
+        "[1/2]\nfilepath: ./auth.ts\nheading: Session validation\nlines: 10-12\ncontent:\n",
+        "function validate() {\n  return true;\n}\n\n",
+        "lines: 20-20\ncontent:\nvalidate();\n\n",
+        "[2/2]\nfilepath: ./tokens.ts\nlines: 3-3\ncontent:\nvalidateToken();\n\n"
+    ));
     server.join().unwrap();
 }
 

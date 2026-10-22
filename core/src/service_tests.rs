@@ -15,6 +15,7 @@ use tokio::{
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn conversation_rename_is_not_overwritten_by_an_active_answer() {
     let (_dir, client, server) = start().await;
+    let started_at = crate::store::now();
     let hold = Arc::new(AtomicBool::new(true));
     let arrived = Arc::new(AtomicUsize::new(0));
     let (url, model) = model_server(false, hold.clone(), arrived.clone()).await;
@@ -59,6 +60,8 @@ async fn conversation_rename_is_not_overwritten_by_an_active_answer() {
         panic!("conversations")
     };
     assert_eq!(conversations[0].title, "用户重命名");
+    let created_at = conversations[0].messages[0].created_at.unwrap();
+    assert!(created_at >= started_at && created_at <= conversations[0].updated);
     stop(&client, server).await;
     model.abort();
 }
@@ -304,6 +307,93 @@ fn query(id: &str) -> Query {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remove_all_roots_notifies_clients_and_can_add_folders_again() {
+    let (dir, client, server) = start().await;
+    let notes = dir.path().join("notes");
+    std::fs::create_dir(&notes).unwrap();
+    let source = notes.join("kept.txt");
+    std::fs::write(&source, "preserved document").unwrap();
+    call(&client, Operation::AddRoot {path:notes.display().to_string()}).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let Output::Roots(roots) = call(&client, Operation::ListRoots).await else { panic!("roots") };
+            if roots[0].status == "ready" { break; }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }).await.unwrap();
+    let mut events = client.subscribe();
+    assert!(matches!(call(&client, Operation::RemoveAllRoots).await, Output::Unit));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(events.recv().await.unwrap().event, ServiceEvent::DataChanged) { break; }
+        }
+    }).await.unwrap();
+    let Output::Snapshot(snapshot) = call(&client, Operation::Snapshot).await else { panic!("snapshot") };
+    assert!(snapshot.roots.is_empty());
+    assert!(snapshot.files.is_empty());
+    assert_eq!(std::fs::read_to_string(&source).unwrap(), "preserved document");
+    call(&client, Operation::AddRoot {path:notes.display().to_string()}).await;
+    let Output::Roots(roots) = call(&client, Operation::ListRoots).await else { panic!("roots") };
+    assert_eq!(roots.len(), 1);
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clear_all_data_removes_settings_secrets_drafts_and_notifies_all_views() {
+    let (dir, client, server) = start().await;
+    configure(&client, "https://custom.example/v1".into(), true).await;
+    call(&client, Operation::SetAccess {access:Access {enabled:false}}).await;
+    crate::models::save_secret(&dir.path().join("data"), "jev", "test-jev-key").unwrap();
+    crate::models::save_mcp_credentials(&dir.path().join("data"), "unused", &McpCredentials {
+        headers: [("Authorization".into(), "test-mcp-key".into())].into(), ..Default::default()
+    }).unwrap();
+    let notes = dir.path().join("notes");
+    std::fs::create_dir(&notes).unwrap();
+    let source = notes.join("source.txt");
+    std::fs::write(&source, "original file").unwrap();
+    call(&client, Operation::AddRoot { path: notes.display().to_string() }).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let Output::Roots(roots) = call(&client, Operation::ListRoots).await else { panic!("roots") };
+            if roots[0].status == "ready" { break; }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }).await.unwrap();
+    call(&client, Operation::PutDraft {draft:Draft {path:source.display().to_string(),name:"source.txt".into(),body:"draft contents".into(),hash:"original".into(),is_new:false}}).await;
+    let mut events = client.subscribe();
+    assert!(matches!(call(&client, Operation::ClearAllData).await, Output::Unit));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let (mut data, mut history, mut settings) = (false, false, false);
+        while !data || !history || !settings {
+            match events.recv().await.unwrap().event {
+                ServiceEvent::DataChanged => data = true,
+                ServiceEvent::HistoryChanged => history = true,
+                ServiceEvent::SettingsChanged => settings = true,
+                _ => {}
+            }
+        }
+    }).await.unwrap();
+    let Output::Snapshot(snapshot) = call(&client, Operation::Snapshot).await else { panic!("snapshot") };
+    assert!(snapshot.roots.is_empty());
+    assert!(snapshot.files.is_empty());
+    let Output::Conversations(history) = call(&client, Operation::ListConversations).await else { panic!("history") };
+    assert!(history.is_empty());
+    let Output::Settings(settings) = call(&client, Operation::GetSettings).await else {panic!("settings")};
+    assert_eq!(serde_json::to_value(settings).unwrap(), serde_json::to_value(Settings::default()).unwrap());
+    let Output::Drafts(drafts) = call(&client, Operation::ListDrafts).await else {panic!("drafts")};
+    assert!(drafts.is_empty());
+    let credentials:serde_json::Value=serde_json::from_slice(&std::fs::read(dir.path().join("data/credentials.json")).unwrap()).unwrap();
+    assert_eq!(credentials,serde_json::json!({}));
+    let Output::Access(access) = call(&client, Operation::GetAccess).await else {panic!("access")};
+    assert_eq!(access.enabled,Access::default().enabled);
+    assert_eq!(std::fs::read_to_string(source).unwrap(), "original file");
+    stop(&client, server).await;
+    let reopened = crate::store::Store::open(&dir.path().join("data/sag.sqlite")).unwrap();
+    assert!(reopened.drafts().unwrap().is_empty());
+    assert_eq!(serde_json::to_value(reopened.settings().unwrap()).unwrap(), serde_json::to_value(Settings::default()).unwrap());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn shared_service_preserves_large_documents_and_index_events() {
     let (dir, client, server) = start().await;
     let notes = dir.path().join("notes");
@@ -429,17 +519,16 @@ async fn model_server(
                         }
                     }
                 };
-                let routing = body.get("tools").is_none();
-                let delta = if routing {
-                    arrived.fetch_add(1, Ordering::SeqCst);
-                    while hold.load(Ordering::SeqCst) {
-                        tokio::time::sleep(Duration::from_millis(5)).await;
-                    }
-                    serde_json::json!({"content":serde_json::json!({"requires_tool":required}).to_string()})
-                } else if required
+                arrived.fetch_add(1, Ordering::SeqCst);
+                while hold.load(Ordering::SeqCst) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                let delta = if required
                     && !body["messages"]
-                        .to_string()
-                        .contains("external_tool_results")
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .any(|message| message["role"] == "tool")
                 {
                     serde_json::json!({"tool_calls":[{"index":0,"id":"approval-call","type":"function","function":{"name":"mcp_0_0","arguments":"{\"text\":\"hello\"}"}}]})
                 } else {
@@ -625,4 +714,254 @@ async fn tool_approval_is_delivered_only_to_the_requesting_client() {
     assert!(output.conversation.unwrap().messages[0].tool_calls[0].denied);
     stop(&client, server).await;
     model.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn clear_conversations_rejects_active_answers_and_removes_hidden_history() {
+    let (_dir, client, server) = start().await;
+    let hold = Arc::new(AtomicBool::new(true));
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let (url, model) = model_server(false, hold.clone(), arrived.clone()).await;
+    configure(&client, url, false).await;
+    let caller = client.clone();
+    let active = tokio::spawn(async move { caller.call(Operation::RunQuery {query:query("clear-history")}, Duration::from_secs(10)).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while arrived.load(Ordering::SeqCst) == 0 { tokio::time::sleep(Duration::from_millis(5)).await; }
+    }).await.unwrap();
+    let error = client.call(Operation::ClearConversations, Duration::from_secs(5)).await.err().unwrap();
+    assert!(error.to_string().contains("请先停止正在进行的问答"));
+    let error = client.call(Operation::ClearAllData, Duration::from_secs(5)).await.err().unwrap();
+    assert!(error.to_string().contains("请先停止正在进行的问答"));
+    hold.store(false, Ordering::SeqCst);
+    active.await.unwrap().unwrap();
+    call(&client, Operation::EditConversation {id:"clear-history".into(),title:None,deleted:Some(true)}).await;
+    assert!(matches!(call(&client, Operation::ClearConversations).await,Output::Unit));
+    let Output::Conversations(history)=call(&client,Operation::ListConversations).await else {panic!("history")};
+    assert!(history.is_empty());
+    let Output::Query(output)=call(&client,Operation::RunQuery {query:query("new-after-clear")}).await else {panic!("query")};
+    assert_eq!(output.conversation.unwrap().id,"new-after-clear");
+    stop(&client,server).await;
+    model.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn search_summary_streams_without_history_and_respects_limit_disable_and_cancel() {
+    let (dir, client, server) = start().await;
+    let hold = Arc::new(AtomicBool::new(false));
+    let arrived = Arc::new(AtomicUsize::new(0));
+    let (url, model) = model_server(false, hold.clone(), arrived.clone()).await;
+    configure(&client, url, false).await;
+    let notes = dir.path().join("notes");
+    std::fs::create_dir(&notes).unwrap();
+    for index in 0..6 {
+        std::fs::write(notes.join(format!("{index}.txt")), format!("collaboration evidence {index}")).unwrap();
+    }
+    call(&client, Operation::AddRoot { path: notes.display().to_string() }).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let Output::Roots(roots) = call(&client, Operation::ListRoots).await else { panic!("roots") };
+            if roots[0].status == "ready" { break; }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    }).await.unwrap();
+    let mut search = query("search");
+    search.kind = "search".into();
+    search.question = "collaboration".into();
+    let Output::Query(output) = call(&client, Operation::RunQuery { query: search }).await else { panic!("query") };
+    assert_eq!(output.results.len(), 6);
+    let request = |id: &str, count| Operation::SummarizeSearch {
+        id: id.into(), question: "How is collaboration described?".into(),
+        results: output.results[..count].to_vec(),
+    };
+    assert!(client.call(request("empty", 0), Duration::from_secs(5)).await.err().unwrap().to_string().contains("需要搜索结果"));
+    assert_eq!(arrived.load(Ordering::SeqCst), 0);
+    let mut events = client.subscribe();
+    let Output::SearchSummary(summary) = call(&client, request("summary", 6)).await else { panic!("summary") };
+    assert_eq!(summary.text, "完成");
+    assert_eq!(summary.evidence.len(), 6);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if let ServiceEvent::QueryProgress(progress) = events.recv().await.unwrap().event {
+                if progress.id == "summary" {
+                    assert_eq!(progress.delta.as_deref(), Some("完成")); break;
+                }
+            }
+        }
+    }).await.unwrap();
+    assert!(matches!(call(&client, Operation::ListConversations).await, Output::Conversations(history) if history.is_empty()));
+    hold.store(true, Ordering::SeqCst);
+    let caller = client.clone();
+    let pending = request("cancel-summary", 5);
+    let active = tokio::spawn(async move { caller.call(pending, Duration::from_secs(10)).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while arrived.load(Ordering::SeqCst) < 2 { tokio::time::sleep(Duration::from_millis(5)).await; }
+    }).await.unwrap();
+    call(&client, Operation::CancelQuery { id: "cancel-summary".into() }).await;
+    assert!(tokio::time::timeout(Duration::from_secs(1), active).await.unwrap().unwrap().is_err());
+    hold.store(false, Ordering::SeqCst);
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert!(settings.search_summary_enabled);
+    settings.search_summary_enabled = false;
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    assert!(client.call(request("disabled", 5), Duration::from_secs(5)).await.err().unwrap().to_string().contains("已关闭"));
+    assert_eq!(arrived.load(Ordering::SeqCst), 2);
+    let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert!(!settings.search_summary_enabled);
+    stop(&client, server).await;
+    model.abort();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn index_details_support_pause_resume_and_shutdown_over_rpc() {
+    let (dir, client, server) = start().await;
+    let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(settings.conversion_workers, 4);
+    call(&client, Operation::SetConversionWorkers { workers: 2 }).await;
+    let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(settings.conversion_workers, 2);
+    assert!(matches!(call(&client, Operation::SetIndexPaused { paused: true }).await,
+        Output::IndexStatus(status) if status.paused));
+    let root = dir.path().join("notes");
+    std::fs::create_dir(&root).unwrap();
+    std::fs::write(root.join("meeting.md"), "meeting evidence").unwrap();
+    call(&client, Operation::AddRoot { path: root.to_string_lossy().into_owned() }).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::IndexStatus(status) = call(&client, Operation::GetIndexStatus).await else { panic!("index status") };
+            if !status.tasks.is_empty() {
+                assert!(status.paused);
+                assert_eq!(status.tasks[0].path, root.canonicalize().unwrap().to_string_lossy());
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.is_empty()));
+    call(&client, Operation::SetIndexPaused { paused: false }).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len()==1) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::IndexHistory(records) = call(&client, Operation::GetIndexHistory).await else { panic!("index history") };
+            if !records.is_empty() {
+                assert_eq!(records[0].status, "ready");
+                assert_eq!(records[0].completed, 1);
+                let Output::IndexHistoryLog(log) = call(&client, Operation::GetIndexHistoryLog { id: records[0].id }).await else { panic!("index history log") };
+                let file: sag_protocol::IndexFileLog = serde_json::from_str(log.raw.as_ref().unwrap().lines().next().unwrap()).unwrap();
+                assert!(file.path.ends_with("meeting.md"));
+                assert!(matches!(call(&client, Operation::AuthorizeIndexHistoryFile { id: records[0].id, path: file.path.clone() }).await, Output::Text(path) if path == file.path));
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    call(&client, Operation::ClearIndexHistory).await;
+    assert!(matches!(call(&client, Operation::GetIndexHistory).await, Output::IndexHistory(records) if records.is_empty()));
+    assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len()==1));
+    call(&client, Operation::SetIndexPaused { paused: true }).await;
+    call(&client, Operation::ReindexAll).await;
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    call(&client, Operation::ClearIndexHistory).await;
+    assert!(matches!(call(&client, Operation::GetIndexStatus).await, Output::IndexStatus(status) if status.paused && !status.tasks.is_empty()));
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn folder_index_options_apply_through_rpc_and_rebuild_only_the_requested_root() {
+    let (dir, client, server) = start().await;
+    let folder = dir.path().join("local-rules");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("note.md"), "documentation").unwrap();
+    std::fs::write(folder.join("main.py"), "print('local settings')").unwrap();
+    let initial = FolderIndexOptions { extensions: None, file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
+    let Output::Text(root) = call(&client, Operation::AddRootWithOptions { path: folder.to_string_lossy().into_owned(), options: initial.clone() }).await else { panic!("root") };
+    for (options, name) in [
+        (initial.clone(), "note.md"),
+        (FolderIndexOptions { file_types: FileTypes { markdown: false, code: true, ..initial.file_types.clone() }, ..initial.clone() }, "main.py"),
+    ] {
+        if name == "main.py" {
+            call(&client, Operation::SaveFolderIndexOptions { path: root.clone(), options: options.clone(), rebuild: true }).await;
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let Output::Roots(roots) = call(&client, Operation::ListRoots).await else { panic!("roots") };
+                if roots.iter().any(|item| item.path == root && item.status == "ready") { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
+        let Output::Files(files) = call(&client, Operation::ListFiles).await else { panic!("files") };
+        assert_eq!(files.len(), 1);
+        assert!(files[0].path.ends_with(name));
+        let Output::FolderIndexOptions(saved) = call(&client, Operation::GetFolderIndexOptions { path: root.clone() }).await else { panic!("options") };
+        assert_eq!(saved, options);
+    }
+    assert!(folder.join("note.md").exists());
+    assert!(folder.join("main.py").exists());
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn nested_folder_settings_reindex_only_the_selected_subdirectory_over_rpc() {
+    let (dir, client, server) = start().await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.watch = false;
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    let folder = dir.path().join("project");
+    std::fs::create_dir_all(folder.join("papers")).unwrap();
+    std::fs::create_dir_all(folder.join("sibling")).unwrap();
+    std::fs::write(folder.join("papers/note.md"), "paper evidence").unwrap();
+    std::fs::write(folder.join("papers/main.py"), "print('code')").unwrap();
+    std::fs::write(folder.join("sibling/note.md"), "sibling evidence").unwrap();
+    let initial = FolderIndexOptions { extensions: None, file_types: FileTypes { markdown: true, text: false, code: false, config: false }, convert_other_formats: false, conversion_formats: None };
+    let Output::Text(root) = call(&client, Operation::AddRootWithOptions { path: folder.to_string_lossy().into_owned(), options: initial.clone() }).await else { panic!("root") };
+    let child = format!("{root}/papers");
+    let changed = FolderIndexOptions { file_types: FileTypes { markdown: false, code: true, ..initial.file_types.clone() }, ..initial.clone() };
+    for (expected, name) in [(initial, "note.md"), (changed.clone(), "main.py")] {
+        if name == "main.py" {
+            std::fs::write(folder.join("sibling/note.md"), [0xff, 0xfe, 0x00]).unwrap();
+            call(&client, Operation::SaveFolderIndexOptions { path: child.clone(), options: changed.clone(), rebuild: true }).await;
+        }
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let Output::Roots(roots) = call(&client, Operation::ListRoots).await else { panic!("roots") };
+                if roots.iter().any(|item| item.path == root && item.status == "ready") { break; }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        }).await.unwrap();
+        let Output::FolderIndexOptions(saved) = call(&client, Operation::GetFolderIndexOptions { path: child.clone() }).await else { panic!("options") };
+        assert_eq!(saved, expected);
+        let Output::Files(files) = call(&client, Operation::ListFiles).await else { panic!("files") };
+        assert_eq!(files.len(), 2);
+        assert!(files.iter().any(|file| file.path == format!("{child}/{name}")));
+        assert!(files.iter().any(|file| file.path.ends_with("sibling/note.md")));
+    }
+    assert!(folder.join("papers/note.md").exists());
+    assert!(folder.join("papers/main.py").exists());
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn uninstall_docling_over_rpc_updates_status_and_default() {
+    let (dir, client, server) = start().await;
+    let home = dir.path().join("data/docling");
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    let binary = if cfg!(windows) { "docling.exe" } else { "docling" };
+    std::fs::write(home.join("bin").join(binary), "fixture").unwrap();
+    std::fs::write(home.join("ready"), "fixture").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.convert_other_formats = true;
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    let Output::Docling(before) = call(&client, Operation::DoclingStatus).await else { panic!("docling") };
+    assert!(before.installed);
+    let Output::Docling(after) = call(&client, Operation::UninstallDocling).await else { panic!("docling") };
+    assert!(!after.installed);
+    assert_eq!(after.stage, "uninstalled");
+    assert!(!home.exists());
+    let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert!(!settings.convert_other_formats);
+    stop(&client, server).await;
 }
