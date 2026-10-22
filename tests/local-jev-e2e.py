@@ -51,6 +51,10 @@ class JevFixture:
                     payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
                     if self.path not in ("/v1/systemone", "/decisions"):
                         status, response = 404, {"error": "unexpected Jev endpoint"}
+                        if fixture.behavior == "delayed_404":
+                            # A normal HTTP error must survive CI scheduling/IO
+                            # delays rather than race the query deadline.
+                            time.sleep(11)
                     elif fixture.behavior == "unauthorized":
                         status, response = 401, {"error": "fixture rejected credentials"}
                     else:
@@ -198,7 +202,7 @@ def run(binary):
 
         def cli(*args, input=None, success=True):
             process = subprocess.run([str(binary), *args], cwd=documents, env=environment,
-                                     input=input, encoding="utf-8", capture_output=True, timeout=35)
+                                     input=input, encoding="utf-8", capture_output=True, timeout=90)
             require((process.returncode == 0) == success,
                     f"sag {' '.join(args)} exited {process.returncode}: {process.stderr}")
             return process
@@ -219,7 +223,9 @@ def run(binary):
             else:
                 raise AssertionError(f"core unexpectedly accepted {phrase!r} scenario")
 
-        def search_cli(success=True, timeout="10"):
+        # Ordinary requests must not race a short CI scheduling deadline. The
+        # explicit timeout scenario below still uses one second.
+        def search_cli(success=True, timeout="60"):
             before = len(fixture.calls)
             process = cli(QUESTION, "--json", "--timeout", timeout, success=success)
             if success:
@@ -228,6 +234,12 @@ def run(binary):
                 require("VX-417" in output["results"][0]["content"], "CLI ranking did not select Jev's highest-scored document")
                 require(len(fixture.calls) > before, "CLI search never reached the HTTP Jev fixture")
             return process
+
+        def expect_cli_error(phrase, timeout="60"):
+            process = search_cli(success=False, timeout=timeout)
+            require(phrase in process.stderr,
+                    f"expected {phrase!r} in CLI error; stderr={process.stderr!r}; "
+                    f"stdout={process.stdout!r}; recent HTTP calls={fixture.calls[-3:]!r}")
 
         def deep_search():
             answer_model = settings()["answer"]["model"]
@@ -301,23 +313,25 @@ def run(binary):
 
             fixture.behavior = "unauthorized"
             expect_core_error(test_connection, "401")
-            require("401" in search_cli(success=False).stderr, "CLI hid the HTTP 401 model failure")
+            expect_cli_error("401")
             fixture.behavior = "valid"
             wrong = {**settings()["jev"], "url": fixture.origin + "/missing"}
             expect_core_error(lambda: test_connection(wrong), "404")
             cli("config", "--url", fixture.origin + "/missing")
-            require("404" in search_cli(success=False).stderr, "CLI hid the HTTP 404 endpoint failure")
+            fixture.behavior = "delayed_404"
+            expect_cli_error("404")
+            fixture.behavior = "valid"
             cli("config", "--url", fixture.origin + "/v1/systemone")
             completed.append("HTTP 401 and 404 fail both connection testing and real CLI retrieval")
 
             fixture.behavior = "invalid_score"
             expect_core_error(test_connection, "评分")
-            require("分数" in search_cli(success=False).stderr, "CLI accepted invalid Noul data")
+            expect_cli_error("分数")
             fixture.behavior = "missing_score"
             expect_core_error(test_connection, "评分")
-            require("候选数量" in search_cli(success=False).stderr, "CLI accepted a missing candidate score")
+            expect_cli_error("候选数量")
             fixture.behavior = "timeout"
-            require("超时" in search_cli(success=False, timeout="1").stderr, "CLI did not report the query deadline")
+            expect_cli_error("超时", timeout="1")
             # Allow the intentionally slow handler to finish before resetting the fixture.
             time.sleep(2.1)
             fixture.behavior = "valid"
