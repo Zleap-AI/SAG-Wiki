@@ -1,6 +1,6 @@
 export const browserAPI = globalThis.browser ?? globalThis.chrome;
 const en = {
- name:'SAG Web Clipper',save:'Save as Markdown',saving:'Saving…',saved:'Saved',title:'Web Clipper',
+ name:'SAG Web Clipper',save:'Save as Markdown',confirmSave:'Save',cancel:'Cancel',preview:'Markdown preview',loading:'Loading preview…',saving:'Saving…',saved:'Saved',title:'Web Clipper',
  description:'Save webpages as local Markdown files. SAG Wiki does not need to be running.',
  language:'Language',automatic:'Follow browser',directory:'Subfolder under Downloads',
  folderHelp:'Relative to your browser’s download folder. Leave empty to save directly in Downloads. Change the parent folder in browser settings, or choose a location for each save.',
@@ -15,7 +15,7 @@ const en = {
  destination:'Save to',selectedFolder:'Custom folder',browserDownloads:'Downloads folder',chooseFolder:'Choose folder…',noFolder:'No folder selected yet',defaultDestination:'Default folder',otherFolder:'Choose another folder…',changeFolder:'Change folder…',folderIndexNotice:'After choosing another folder, add it in SAG Wiki’s folder management to search its files.',folderRequired:'Choose a save folder in extension settings and click Save settings first.',fileExists:'The file already exists. Save again to create a new filename.',folderSelected:'Save folder updated.',
 };
 const zh = {
- name:'SAG 网页剪藏',save:'保存为 Markdown',saving:'正在保存…',saved:'已保存',title:'网页剪藏',
+ name:'SAG 网页剪藏',save:'保存为 Markdown',confirmSave:'保存',cancel:'取消',preview:'Markdown 预览',loading:'正在加载预览…',saving:'正在保存…',saved:'已保存',title:'网页剪藏',
  description:'将网页保存为本地 Markdown 文件，无需运行 SAG Wiki。',
  language:'语言',automatic:'跟随浏览器',directory:'下载目录下的子文件夹',
  folderHelp:'相对于浏览器的下载目录。留空则直接保存到下载目录。上级目录可在浏览器设置中修改，也可每次选择保存位置。',
