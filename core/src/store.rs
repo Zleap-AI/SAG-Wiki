@@ -3951,6 +3951,33 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         assert_eq!(store.roots().unwrap()[0].status, "ready");
         assert_eq!(store.search_files("lockedmarker", &[], 10).unwrap().len(), 1);
     }
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_sagignore_never_widens_what_gets_indexed() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 { return; }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+        let root_text = store.add_root(&root).unwrap();
+        let private = root.join("private");
+        fs::create_dir(&private).unwrap();
+        fs::write(private.join("salary.md"), "salarymarker").unwrap();
+        fs::write(private.join("notes.md"), "notesmarker").unwrap();
+        let rules = private.join(".sagignore");
+        fs::write(&rules, "salary.md\n").unwrap();
+        store.scan(&root_text, |_| {}).unwrap();
+        assert!(store.search_files("salarymarker", &[], 10).unwrap().is_empty());
+        assert_eq!(store.search_files("notesmarker", &[], 10).unwrap().len(), 1);
+        // The rules file becomes unreadable while the directory stays readable.
+        fs::set_permissions(&rules, fs::Permissions::from_mode(0o000)).unwrap();
+        let full = store.scan(&root_text, |_| {});
+        let partial = store.update_paths(&root_text, &[private.join("salary.md")], |_| {});
+        fs::set_permissions(&rules, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(full.is_err(), "a full scan must fail closed when a rules file cannot be read");
+        assert!(partial.is_err(), "a targeted update must fail closed when a rules file cannot be read");
+        assert!(store.search_files("salarymarker", &[], 10).unwrap().is_empty());
+    }
     #[test]
     fn file_index_issues_persist_and_clear_when_the_directory_is_excluded() {
         let (dir, store, root) = setup();

@@ -45,8 +45,11 @@ fn content(root: &Path) -> Result<String> {
     match fs::read_to_string(root.join(".sagignore")) {
         Ok(content) => Ok(content),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(String::new()),
-        // A directory we cannot enter has no options of its own; the walk reports it as an issue.
-        Err(error) if error.kind() == ErrorKind::PermissionDenied => Ok(String::new()),
+        // A directory we cannot enter has nothing to index, so its missing
+        // options are harmless; the walk records the directory as an issue.
+        // A readable directory whose rules file is unreadable must fail
+        // closed: guessing "no rules" could index files the user excluded.
+        Err(error) if error.kind() == ErrorKind::PermissionDenied && fs::read_dir(root).is_err() => Ok(String::new()),
         Err(error) => Err(error).context("无法读取 .sagignore"),
     }
 }
