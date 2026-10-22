@@ -89,7 +89,7 @@ Q&A uses the configured candidate and result counts. Desktop deep search has a s
 
 ### Q&A and tools
 
-The answer model calls built-in `search`, `list`, `read`, `grep` or configured external MCP tools as needed. Each round shares a tool-call limit and context budget. Tool results carry stable source numbers, and answer citations refer to the corresponding original sources.
+The answer model calls built-in `search`, `list`, `read`, `grep` or configured external MCP tools as needed. Each turn shares a context budget. Tool calls are unlimited by default, with an optional shared limit. Tool results carry stable source numbers, and answer citations refer to the corresponding original sources.
 
 Request failures, context-limit violations, changed files and indexes that are not ready return explicit states without silently switching algorithms. See [Built-in MCP tools](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/en/mcp-tools.md) for the protocol.
 

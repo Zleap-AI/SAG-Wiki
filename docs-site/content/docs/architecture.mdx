@@ -89,7 +89,7 @@ Markdown、普通文本、RTF、Office、表格、EPUB 与文本型 PDF 默认�
 
 ### 问答与工具
 
-回答模型按需调用内置 `search`、`list`、`read`、`grep` 或配置的外部 MCP 工具。每轮共享工具调用次数与上下文预算。工具结果携带稳定来源编号，答案引用对应原文来源。
+回答模型按需调用内置 `search`、`list`、`read`、`grep` 或配置的外部 MCP 工具。每轮共用上下文预算；工具调用次数默认不限制，也可设置共用上限。工具结果携带稳定来源编号，答案引用对应原文来源。
 
 请求失败、上下文超限、文件变化和索引未就绪均返回明确状态，不静默切换算法。更多协议见[SAG 内置 MCP 工具](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/zh-CN/SAG内置MCP工具.md)。
 

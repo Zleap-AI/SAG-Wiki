@@ -289,6 +289,7 @@ pub struct Settings {
     pub timeout_secs: u64,
     pub answer_context_tokens: usize,
     pub answer_output_tokens: usize,
+    /// Maximum tool calls per turn; 0 leaves the number unlimited.
     pub max_tool_calls: usize,
     pub search_summary_enabled: bool,
     pub search_summary_sources: usize,
@@ -337,13 +338,18 @@ impl Default for Settings {
             timeout_secs: 120,
             answer_context_tokens: 65536,
             answer_output_tokens: 2048,
-            max_tool_calls: 10,
+            max_tool_calls: 0,
             search_summary_enabled: true,
             search_summary_sources: 10,
             model_profiles: BTreeMap::new(),
             mcp_servers: vec![],
         }
     }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ContextSummary {
+    pub text: String,
+    pub covered_turns: usize,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AnswerContext {
@@ -358,6 +364,8 @@ pub struct AnswerContext {
     pub elapsed_ms: Option<u64>,
     #[serde(default)]
     pub generation_ms: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<ContextSummary>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolCallRecord {
@@ -487,6 +495,13 @@ mod default_tests {
             65_536
         );
     }
+    #[test]
+    fn tool_call_limit_defaults_to_unlimited() {
+        assert_eq!(Settings::default().max_tool_calls, 0);
+        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().max_tool_calls, 0);
+        assert_eq!(serde_json::from_str::<Settings>(r#"{"max_tool_calls":10}"#).unwrap().max_tool_calls, 10);
+    }
+
     #[test]
     fn retrieval_defaults_to_v10() {
         let expected = serde_json::json!({"candidate_k":50,"seed_k":10,"expansion_term_limit":20,"max_hops":1,"top_k":10,"chunk_chars":512});

@@ -27,7 +27,7 @@ it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
  expect([...document.querySelectorAll('.settings-content h3')].map(item=>item.textContent)).toEqual(['提示词','工具绑定','上下文与请求']);
  await vi.waitFor(()=>expect(query('系统提示词')).not.toBeNull());
  expect(document.querySelector('.model-profile-settings')?.contains(query('配置问答模型'))).toBe(true);
- expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('10');
+ expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('0');
  expect(query('启用 SAG 内置工具').getAttribute('aria-checked')).toBe('true');
  query('启用 SAG 内置工具').click();await tick();
  await input('系统提示词','第一个模型的提示词');
@@ -44,6 +44,17 @@ it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
  const settings=onSave.mock.calls[0][0];expect(settings.max_tool_calls).toBe(5);
  expect(settings.model_profiles.first).toEqual({system_prompt:'第一个模型的提示词',sag2_enabled:false,mcp_servers:['wiki'],mcp_tools:{wiki:['read_wiki_structure']}});
  expect(settings.model_profiles.second).toEqual({system_prompt:'第二个模型的提示词',sag2_enabled:true,mcp_servers:['wiki'],mcp_tools:{wiki:['ask_question']}});
+});
+it('已有的工具调用上限可以设为 0 并保存为不限制',async()=>{
+ const onSave=vi.fn().mockResolvedValue(undefined);
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,max_tool_calls:7},initial:'answer',onClose:()=>{},onSave}});
+ await tick();
+ expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('7');
+ expect(query<HTMLInputElement>('每轮工具调用上限').min).toBe('0');
+ await input('每轮工具调用上限','0');
+ expect(query<HTMLInputElement>('每轮工具调用上限').checkValidity()).toBe(true);
+ await submit();
+ expect(onSave.mock.calls[0][0].max_tool_calls).toBe(0);
 });
 it('模型工具列表默认折叠，切换模型后保持折叠，并保留独立的工具选择',async()=>{
  const onSave=vi.fn().mockResolvedValue(undefined);
