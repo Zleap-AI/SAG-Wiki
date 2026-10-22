@@ -1,6 +1,6 @@
 <script lang="ts">
  import {onMount,onDestroy} from 'svelte';
- import {doclingStatus,openDoclingDownload,refreshDoclingStatus,updateDoclingStatus,documentExtensions,profileForExtension,profileInstalled} from '../lib/docling';
+ import {doclingStatus,openDoclingDownload,refreshDoclingStatus,updateDoclingStatus,profileForExtension,profileInstalled} from '../lib/docling';
  import {Button,Checkbox} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
  import Input from './ui/Input.svelte';
@@ -31,7 +31,8 @@
  $:needsInstall=!preserveLegacyAll&&missingProfiles.length>0;
  async function showDetails(){
   selectionVersion++;revokeInstall();legacyAll=enabled&&formats==null;selectionChanged=false;
-  selected=formats==null?(legacyAll?status.formats.flatMap(([,extensions])=>extensions):documentExtensions(status)):[...formats];
+  // First-time users choose explicitly; a preselected set would silently install every component.
+  selected=formats==null?(legacyAll?status.formats.flatMap(([,extensions])=>extensions):[]):[...formats];
   selectionError='';draftWorkers=workers??1;savedWorkers=draftWorkers;workersReady=workers!==undefined;details=true;
   if(workers===undefined){
    workersLoading=true;
@@ -105,7 +106,8 @@
   <div class="conversion-workers"><label for="conversion-workers"><strong>{$t('转换并行数')}</strong><p>{$t('默认 1，可设为 1–16；实际并行数受共享资源预算约束，所有文件夹共用，下次索引任务生效。')}</p></label><Input id="conversion-workers" aria-label={$t('转换并行数')} type="number" min="1" max="16" required disabled={workersLoading||applying} oninput={invalidateInstall} bind:value={draftWorkers}/></div>
   {#if selectionError}<p class="form-error" role="alert">{$t(selectionError)}</p>{/if}
   {#if uninstallError&&!confirmUninstall}<p class="form-error" role="alert">{$t(uninstallError)}</p>{/if}
-  {#if legacyAll&&!selectionChanged}<p class="settings-help">{$t('沿用原有全部格式范围；仅调整并行数不会安装组件。修改格式选择后，才会确认所需组件。')}</p>{/if}
+  {#if legacyAll&&!selectionChanged}<p class="settings-help">{$t('沿用原有全部格式范围；仅调整并行数不会安装组件。修改格式选择后，才会确认所需组件。')}</p>
+  {:else}<p class="settings-help">{$t('勾选的格式决定要下载的组件：文档格式对应文档组件，音视频格式对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。')}</p>{/if}
   <div class="format-selection-actions"><Button.Root type="button" class="outline" onclick={()=>changeSelection(status.formats.flatMap(([,extensions])=>extensions))}>{$t('全选')}</Button.Root><Button.Root type="button" onclick={()=>changeSelection([])}>{$t('清空选择')}</Button.Root></div>
   {#each status.formats as [label,extensions]}
    <div class="format-group"><strong>{$t(label)}</strong><span class="format-readiness">{$t(extensions.every(extension=>profileInstalled(status,profileForExtension(status,extension)!))?'已就绪':'需安装组件')}</span>
@@ -114,7 +116,7 @@
   {/each}
   <p class="settings-help">{$t('未安装的文件格式会在应用时确认下载；扫描文件不会自动下载。')}</p>
  </div>
- <div class="dialog-footer"><Button.Root type="button" disabled={applying} onclick={closeDetails}>{$t('取消')}</Button.Root><Button.Root type="button" class="primary" disabled={workersLoading||applying||!workersReady} onclick={applyFormats}>{$t(needsInstall?'安装并应用':'应用')}</Button.Root></div>
+ <div class="dialog-footer"><Button.Root type="button" disabled={applying} onclick={closeDetails}>{$t('取消')}</Button.Root><Button.Root type="button" class="primary" disabled={workersLoading||applying||!workersReady||(!preserveLegacyAll&&selected.length===0&&!enabled)} onclick={applyFormats}>{$t(needsInstall?'安装并应用':'应用')}</Button.Root></div>
 </Modal>{/if}
 
 {#if confirmUninstall}<Modal label={$t('卸载 Docling 相关组件')} class="docling-uninstall-dialog" onClose={()=>{if(!uninstalling)confirmUninstall=false}}>

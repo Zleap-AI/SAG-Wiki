@@ -1243,5 +1243,6 @@
   "SAG 服务重连失败：{value0}": "Could not reconnect to the SAG service: {value0}",
   "已完成 {value0} / {value1} 个包": "{value0} of {value1} packages done",
   "最近活动": "Latest activity",
-  "打开安装日志": "Open install log"
+  "打开安装日志": "Open install log",
+  "勾选的格式决定要下载的组件：文档格式对应文档组件，音视频格式对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。": "Your selection decides which components are downloaded: document formats need the document component, audio and video formats need the media component, each several GB. Selecting only what you need shortens the install noticeably."
 }

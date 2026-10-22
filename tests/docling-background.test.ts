@@ -34,7 +34,7 @@ it('从设置开始安装后可关闭详情和设置，进度继续更新，再�
  [...document.querySelectorAll<HTMLButtonElement>('.sidebar-tools button')].find(node=>node.textContent==='设置')!.click();await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(node=>node.textContent==='文件设置')!.click();await tick();
  await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
- button('选择其他格式').click();await tick();
+ button('选择其他格式').click();await tick();button('转换 .pdf').click();await tick();
  await vi.waitFor(()=>expect([...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(node=>node.textContent==='安装并应用')?.disabled).toBe(false));
  [...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(node=>node.textContent==='安装并应用')!.click();await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.docling-dialog:not(.docling-formats-dialog) button')].find(node=>node.textContent==='安装')!.click();
