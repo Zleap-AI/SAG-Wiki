@@ -5,3 +5,6 @@ header img{width:40px;height:40px}
 select{margin:6px 0;padding:4px 8px}
 #state{min-height:3.2em;margin:12px 0}
 button{width:100%}
+.actions{display:flex;gap:8px}
+#action{flex:1}
+#retry{width:auto;white-space:nowrap}

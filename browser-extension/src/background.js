@@ -4,21 +4,20 @@ import {isSafari} from './platform.js';
 import {getDirectory} from './directory.js';
 async function menus() {
  const t = await translator();
- if(!isSafari) await api.action.setBadgeBackgroundColor({color:'#000000'});
  await api.contextMenus.removeAll();
- api.contextMenus.create({id:'save-page',title:t('save'),contexts:['page','selection'],documentUrlPatterns:['http://*/*','https://*/*']});
+ api.contextMenus.create({id:'save-page',title:t('save'),contexts:['page','selection'],documentUrlPatterns:['http://*/*','https://*/*'],...(isSafari?{icons:{16:'icon-16.png',32:'icon-32.png'}}:{})});
 }
 api.runtime.onInstalled.addListener(async () => {
- await api.storage.local.remove(['token','lastResult','lastError']);
+ await api.storage.local.remove(['token','lastResult','lastError','toolbarEnabled']);
  await menus();
 });
 api.runtime.onStartup.addListener(menus);
-api.storage.onChanged.addListener((changes, area) => {if(area === 'local' && changes.language) void menus();});
+api.storage.onChanged.addListener((changes, area) => {
+ if(area!=='local') return;
+ if(changes.language) void menus();
+});
 async function report(result) {
- const t = await translator();
  await api.storage.local.set({lastResult:result});
- await api.action.setBadgeText({text:result.state==='complete'?'✓':result.state==='interrupted'?'!':'…'});
- await api.action.setTitle({title:result.state==='complete'?`${t('savedTo')} ${result.path}`:result.state==='interrupted'?t('downloadFailed')+(result.error?' '+errorMessage(result.error,t):''):t('saving')});
 }
 async function finishDownload(item) {
  if(item.state !== 'complete' && item.state !== 'interrupted') return;
@@ -46,7 +45,6 @@ async function save(clip) {
  const t = await translator();
  if(typeof clip?.title!=='string' || typeof clip.url!=='string' || !/^https?:\/\//.test(clip.url)) throw new Error(t('invalidPage'));
  if(typeof clip.content!=='string' || !clip.content.trim()) throw new Error(t('empty'));
- await api.action.setBadgeText({text:'…'});
  const settings = await api.storage.local.get({folder:defaultFolder,saveAs:false,destination:'default'});
  let folder;
  try {folder=validateFolder(settings.folder);} catch {throw new Error(t('invalidFolder'));}
@@ -81,14 +79,18 @@ async function save(clip) {
  return (await api.storage.local.get('lastResult')).lastResult;
 }
 async function fail(error) {
- await api.action.setBadgeText({text:'!'});
- await api.action.setTitle({title:String(error.message)});
  await api.storage.local.set({lastError:String(error.message)});
 }
-api.contextMenus.onClicked.addListener(async (info,tab) => {
- if(info.menuItemId !== 'save-page') return;
- try {await api.windows.create({url:api.runtime.getURL(`/popup.html?tabId=${tab.id}`),type:'popup',width:520,height:660});}
+async function openPreview(tab) {
+ try {
+  const source=await api.windows.get(tab.windowId);
+  const width=520,height=660;
+  await api.windows.create({url:api.runtime.getURL(`/popup.html?tabId=${tab.id}`),type:'popup',width,height,left:Math.round(source.left+(source.width-width)/2),top:Math.round(source.top+(source.height-height)/2)});
+ }
  catch(error) {await fail(error);}
+}
+api.contextMenus.onClicked.addListener(async (info,tab) => {
+ if(info.menuItemId === 'save-page') await openPreview(tab);
 });
 api.runtime.onMessage.addListener((message, sender, respond) => {
  if(!['preview','save'].includes(message.type) || !sender.url?.startsWith(api.runtime.getURL('/'))) return false;

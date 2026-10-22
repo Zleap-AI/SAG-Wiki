@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 enum ClipFileError: String, Error, LocalizedError {
     case invalidFolder = "invalid-folder"
@@ -14,6 +15,11 @@ enum ClipFileError: String, Error, LocalizedError {
 }
 
 struct ClipFileStore {
+    static var defaultDirectory: URL {
+        let home = URL(fileURLWithPath: String(cString: getpwuid(getuid())!.pointee.pw_dir), isDirectory: true)
+        return home.appendingPathComponent("Documents/sag-wiki/clippings", isDirectory: true)
+    }
+
     static func save(folder: String, filename: String, content: String, downloads: URL) throws -> URL {
         let invalid = CharacterSet(charactersIn: "<>:\"\\|?*").union(.controlCharacters)
         if !folder.isEmpty && folder.components(separatedBy: "/").contains(where: {

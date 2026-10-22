@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import {afterEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import App from '../src/App.svelte';
 import IndexDetails from '../src/components/IndexDetails.svelte';
@@ -9,7 +9,8 @@ vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async(name,handler)=>{listene
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear()});
+beforeEach(()=>localStorage.removeItem('sag.index.dismissed-failures'));
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear();localStorage.removeItem('sag.index.dismissed-failures')});
 it('部分文件索引失败时可查看具体路径，同时显示已索引文件数量',async()=>{
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
@@ -28,6 +29,52 @@ it('部分文件索引失败时可查看具体路径，同时显示已索引文�
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('UTF-16LE');
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('已索引 270 个文件');
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('其他文件可正常检索');
+});
+
+it('关闭部分失败后，重新打开界面不会再次显示相同失败',async()=>{
+ let roots=[
+  {path:'/notes',name:'Notes',status:'partial',count:270,error:'无法读取 /notes/broken.txt'},
+  {path:'/other',name:'Other',status:'ready',count:4,error:null}
+ ];
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='list_roots')return roots;
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ await unmount(app);
+ roots=[{...roots[1],count:5},{...roots[0],count:271}];
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.sidebar')?.textContent).toContain('Notes'));
+ await vi.waitFor(()=>expect(invoke.mock.calls.filter(([command])=>command==='list_roots')).toHaveLength(2));
+ await tick();
+ expect(document.querySelector('.index-status-link')).toBeNull();
+});
+
+it('关闭失败提示后，新一轮索引正常显示进度，相同失败保持隐藏，新的失败再次提醒',async()=>{
+ let root={path:'/notes',name:'Notes',status:'partial',count:270,error:'无法读取 /notes/broken.txt'};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='list_roots')return [root];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ listeners.get('index-progress')!({payload:{path:'/notes',count:0,total:271}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引（0%）'));
+ root={...root,count:271};
+ listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ root={...root,error:'无法读取 /notes/new-failure.txt'};
+ listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
 });
 
 it('索引阶段与百分比放主行，已处理数量和部分失败独立可见，完成后隐藏',async()=>{

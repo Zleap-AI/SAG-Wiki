@@ -6,7 +6,7 @@
 
  let layout:HTMLDivElement,scroller:HTMLDivElement;
  let headings:{element:HTMLElement;text:string;level:number}[]=[];
- let active=0,wide=false,manualExpanded:boolean|null=null;
+ let active=0,wide=false,outlineWidth=232,manualExpanded:boolean|null=null;
  const navigationId='document-outline-'+crypto.randomUUID();
  $:expanded=manualExpanded??wide;
  $:baseLevel=headings.length?Math.min(...headings.map(heading=>heading.level)):1;
@@ -36,7 +36,12 @@
   readHeadings();
   const mutations=new MutationObserver(readHeadings);
   mutations.observe(scroller,{childList:true,subtree:true,characterData:true});
-  const resize=new ResizeObserver(([entry])=>{wide=entry.contentRect.width>=1320;void tick().then(updateActive);});
+  const resize=new ResizeObserver(([entry])=>{
+   const {width}=entry.contentRect;
+   wide=width>=1320;
+   outlineWidth=wide?Math.min(360,(width-800)/2-24):232;
+   void tick().then(updateActive);
+  });
   resize.observe(layout);
   return()=>{mutations.disconnect();resize.disconnect();};
  });
@@ -44,10 +49,9 @@
 
 <div class="document-reading-layout" class:compact-expanded={expanded&&!wide} bind:this={layout}>
  {#if headings.length}
-  <aside class="document-outline" class:expanded aria-label={$t('文档目录')}>
+  <aside class="document-outline" class:expanded style={`--outline-width:${outlineWidth}px`} aria-label={$t('文档目录')}>
    <div class="outline-header">
-    <Button.Root type="button" class="icon-button outline-toggle" aria-label={$t(expanded?'收起文档目录':'展开文档目录')} title={$t(expanded?'收起文档目录':'展开文档目录')} aria-expanded={expanded} aria-controls={navigationId} onclick={()=>manualExpanded=!expanded}>{@html icon(expanded?'back':'bulletList')}</Button.Root>
-    {#if expanded}<span>{$t('文档目录')}</span>{/if}
+    <Button.Root type="button" class="icon-button outline-toggle" aria-label={$t(expanded?'收起文档目录':'展开文档目录')} title={$t(expanded?'收起文档目录':'展开文档目录')} aria-expanded={expanded} aria-controls={navigationId} onclick={()=>manualExpanded=!expanded}>{@html icon(expanded?'chevrons-left':'bulletList')}</Button.Root>
    </div>
    <nav id={navigationId} class="outline-list" aria-label={$t('文档标题')} hidden={!expanded}>
     {#each headings as heading,index}
@@ -65,7 +69,7 @@
  :global(.real-client) .document-sheet{padding:22px 32px 28px}
  :global(.real-client) .document-reading-layout:not(.compact-expanded) .document-outline + .document-sheet{padding-inline:48px}
  .document-outline{position:absolute;inset:0 auto 0 0;display:flex;flex-direction:column;flex-shrink:0;width:48px;min-height:0;padding:16px 8px;pointer-events:none}
- .document-outline.expanded{width:232px;padding-inline:16px 8px}
+ .document-outline.expanded{width:var(--outline-width);padding-inline:16px 8px}
  .compact-expanded .document-outline{position:static}
  .outline-header{display:flex;align-items:center;gap:8px;min-height:32px;flex-shrink:0;margin-bottom:8px;color:var(--color-secondary);font-size:var(--text-caption);pointer-events:auto}
  .outline-header :global(.outline-toggle){display:flex;align-items:center;justify-content:center;width:32px;height:32px;padding:7px;flex-shrink:0}

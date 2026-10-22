@@ -53,7 +53,7 @@ save.onclick=async()=>{
  const kind=destination.value;
  try {
   const directory=validateFolder(folder.value);
-  if(kind!=='downloads') {
+  if(kind!=='downloads' && !(isSafari && kind==='default')) {
    const missing=isSafari?!paths[kind] || (kind==='default' && !handles.default):!handles[kind] || await handles[kind].queryPermission({mode:'readwrite'})!=='granted';
    if(!pending[kind] && missing && !await pickFolder(kind)) return;
    if(pending[kind]) {
@@ -81,7 +81,7 @@ try {
   if(isSafari) {
    const result=await api.runtime.sendNativeMessage('com.sag.webclipper',{action:'status',destination:kind});
    if(result.error) throw new Error(errorMessage(result,t));
-   if(result.path){paths[kind]=result.path;handles[kind]=true;}
+   if(result.path){paths[kind]=result.path;handles[kind]=result.ready!==false;}
   } else {
    handles[kind]=await getDirectory(kind);
    if(kind==='folder') paths.folder=handles.folder?.name || '';

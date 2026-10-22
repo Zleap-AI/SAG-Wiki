@@ -9,7 +9,7 @@ Install Node.js, npm, Rust and the Tauri development dependencies for the target
 
 The repository has five Rust build entry points: `protocol/`, `client/`, `core/`, `cli/` and `src-tauri/`. Implement shared logic in `core/` so desktop and CLI do not maintain separate copies.
 
-## Run the desktop development build
+## Run the desktop app from source
 
 Run from the repository root:
 
@@ -90,6 +90,6 @@ Keep development artifacts, temporary output, logs, screenshots and local data o
 
 ## Web Clipper extension
 
-Run `npm run build:clipper` for Chrome / Edge packages. On macOS with full Xcode, run `npm run build:clipper:safari` for the local Safari test app. Packages are generated in `src-tauri/clipper/` and exported by the desktop app. Safari release distribution requires signing and notarization.
+Run `npm run build:clipper` for Chrome / Edge packages in `src-tauri/clipper/`. On macOS with full Xcode, run `npm run build:clipper:safari` for the local Safari test app in `browser-extension/build/`. Test builds use the separate `com.sag.webclipper.development` identifier so they do not interfere with the installed release.
 
-Desktop builds include Chrome/Edge packages on all platforms and build the Safari package on macOS.
+To prepare the production Safari app, run `node browser-extension/build.mjs --safari --release`, then sign and notarize both the app and its DMG. macOS desktop builds use the notarized installer at `src-tauri/clipper/sag-web-clipper-safari.dmg`, or the path supplied through `SAG_CLIPPER_SAFARI_DMG`, and stop if verification fails. Desktop builds do not overwrite release installers with unsigned test packages.

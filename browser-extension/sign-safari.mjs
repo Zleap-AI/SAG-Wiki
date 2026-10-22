@@ -13,6 +13,8 @@ const bundles = [extension,app].map(bundle=>{
  const plist = execFileSync('codesign',['--display','--entitlements',':-',bundle],{stdio:['pipe','pipe','pipe']});
  const entitlements = JSON.parse(execFileSync('plutil',['-convert','json','-o','-','--','-'],{input:plist,encoding:'utf8'}));
  assert.equal(entitlements['com.apple.security.app-sandbox'],true,`${bundle}: App Sandbox is required`);
+ assert.deepEqual(entitlements['com.apple.security.temporary-exception.files.home-relative-path.read-write'],['/Documents/sag-wiki/'],
+  `${bundle}: default saves require access to Documents/sag-wiki only`);
  if(bundle===app) assert.equal(entitlements['com.apple.security.network.client'],true,
   'Safari setup requires com.apple.security.network.client; omitting it causes a blank window');
  return {bundle,entitlements};

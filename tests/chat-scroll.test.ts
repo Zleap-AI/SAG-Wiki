@@ -92,6 +92,30 @@ it('手动上滚时暂停跟随，回到底部后继续跟随流式输出',async
  delta();await vi.waitFor(()=>expect(log().scrollTop).toBe(bottom()));
 });
 
+it.each(['思考中','正在生成回答'])('%s 时轻微上滚也暂停跟随，主动回到底部后恢复',async stage=>{
+ await openChat();
+ const input=document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;
+ input.value='继续回答';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(invoke.mock.calls.some(([name])=>name==='run_query')).toBe(true));
+ const id=invoke.mock.calls.find(([name])=>name==='run_query')![1].query.id;
+ const delta=()=>listeners.get('query-progress')!({payload:{id,stage,count:0,
+  delta:stage==='思考中'?null:'新增回答。'.repeat(40),
+  reasoning_delta:stage==='思考中'?'新增思考。'.repeat(40):undefined}});
+ delta();await vi.waitFor(()=>expect(log().scrollTop).toBe(bottom()));
+ const readingTop=bottom()-1;
+ log().dispatchEvent(new WheelEvent('wheel',{deltaY:-1}));
+ log().scrollTop=readingTop;log().dispatchEvent(new Event('scroll'));
+ for(let i=0;i<3;i++){
+  delta();await tick();resizeCallbacks.forEach(callback=>callback());
+  await new Promise(requestAnimationFrame);
+  await new Promise(requestAnimationFrame);
+  expect(log().scrollTop).toBe(readingTop);
+ }
+ log().scrollTop=bottom();log().dispatchEvent(new Event('scroll'));
+ delta();await vi.waitFor(()=>expect(log().scrollTop).toBe(bottom()));
+});
+
 it('新对话生成完成并取得历史记录 ID 时，不打断手动阅读位置',async()=>{
  const input=document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;
  input.value='第一条问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();

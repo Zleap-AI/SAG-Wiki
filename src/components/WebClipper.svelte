@@ -17,7 +17,7 @@
    <Button.Root type="button" class="outline" disabled={busy||!packages.includes('safari')} onclick={()=>download('safari')}>{$t('下载 Safari 扩展')}</Button.Root>
   </div>
   <p class="settings-help">{$t('Chrome / Edge：解压安装包，在扩展管理中打开开发者模式，选择“加载已解压的扩展程序”。')}</p>
-  <p class="settings-help">{$t('Safari：解压并打开扩展应用，在 Safari 设置的“扩展”中启用。本地测试版还需在开发者设置中允许未签名的扩展，每次重启 Safari 后重新允许。')}</p>
+  <p class="settings-help">{$t('Safari：打开 DMG，将 SAG Web Clipper 拖入“应用程序”后打开，再到 Safari 设置的“扩展”中启用。')}</p>
   {#if packages.length===0}<p class="settings-help">{$t('当前构建尚未包含扩展安装包。')}</p>{/if}
  </section>
  <section class="settings-group settings-fields">

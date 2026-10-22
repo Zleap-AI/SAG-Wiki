@@ -10,6 +10,7 @@ afterEach(async()=>{await unmount(component);document.body.innerHTML='';vi.reset
 it('downloads extensions without pairing and adds a folder only when requested',async()=>{
  invoke.mockImplementation(async command=>{
   if(command==='get_web_clipper')return {packages:['chrome','safari']};
+  if(command==='export_web_clipper')return '/Downloads/sag-web-clipper-safari.dmg';
   if(command==='add_web_clipper_folder')return '/Downloads/网页剪辑';
   return null;
  });
@@ -21,6 +22,10 @@ it('downloads extensions without pairing and adds a folder only when requested',
  expect(button('下载 Chrome / Edge 扩展').disabled).toBe(false);
  expect(button('下载 Safari 扩展').disabled).toBe(false);
  expect(invoke.mock.calls.map(call=>call[0])).toEqual(['get_web_clipper']);
+ expect(document.body.textContent).toContain('Safari：打开 DMG');
+ button('下载 Safari 扩展').click();
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('/Downloads/sag-web-clipper-safari.dmg'));
+ expect(invoke).toHaveBeenCalledWith('export_web_clipper',{browser:'safari'});
  button('添加剪藏文件夹').click();
  await vi.waitFor(()=>expect(document.body.textContent).toContain('已添加剪藏目录：/Downloads/网页剪辑'));
  expect(invoke).toHaveBeenCalledWith('add_web_clipper_folder',undefined);

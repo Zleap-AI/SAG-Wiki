@@ -10,8 +10,8 @@ export function followChat(node:HTMLElement,[resetKey]:readonly [number,...unkno
  };
  const onScroll=()=>{
   const top=node.scrollTop;
-  if(node.scrollHeight-node.clientHeight-top<=4)following=true;
-  else if(top<lastTop)following=false;
+  if(top<lastTop)following=false;
+  else if(node.scrollHeight-node.clientHeight-top<=4)following=true;
   lastTop=top;
  };
  const onWheel=(event:WheelEvent)=>{

@@ -86,15 +86,22 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
                 reply(["path": target.path], to: context); return
             }
             if action == "status" {
+                if isDefault {
+                    reply(["path": ClipFileStore.defaultDirectory.path, "ready": true], to: context); return
+                }
                 let directory = try savedDirectory(bookmarkKey)
-                reply(["path": (isDefault ? directory?.appendingPathComponent(subfolder, isDirectory: true) : directory)?.path ?? ""], to: context); return
+                let ready = directory?.startAccessingSecurityScopedResource() ?? false
+                defer { if ready { directory?.stopAccessingSecurityScopedResource() } }
+                reply(["path": (isDefault ? directory?.appendingPathComponent(subfolder, isDirectory: true) : directory)?.path ?? "", "ready": ready], to: context); return
             }
             guard action == "save", let folder = message["folder"] as? String,
                   let filename = message["filename"] as? String,
                   let content = message["content"] as? String else { throw ClipFileError.invalidFilename }
             let directory: URL
             let useDownloads = message["useDownloads"] as? Bool == true
-            if useDownloads {
+            if isDefault {
+                directory = ClipFileStore.defaultDirectory
+            } else if useDownloads {
                 directory = try FileManager.default.url(for: .downloadsDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
             } else {
                 guard let selected = try savedDirectory(bookmarkKey), selected.startAccessingSecurityScopedResource() else {
@@ -102,8 +109,8 @@ class SafariWebExtensionHandler: NSObject, NSExtensionRequestHandling {
                 }
                 directory = selected
             }
-            defer { if !useDownloads { directory.stopAccessingSecurityScopedResource() } }
-            let file = try ClipFileStore.save(folder: useDownloads ? folder : subfolder, filename: filename, content: content, downloads: directory)
+            defer { if !useDownloads && !isDefault { directory.stopAccessingSecurityScopedResource() } }
+            let file = try ClipFileStore.save(folder: useDownloads ? folder : "", filename: filename, content: content, downloads: directory)
             reply(["path": file.path], to: context)
         } catch { failure(error, to: context) }
     }

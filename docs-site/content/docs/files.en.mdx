@@ -17,15 +17,19 @@ Documents opened from Q&A or search retain their source page. Use Back after rea
 
 Inside a folder, select the filter beside the file count to cycle through **All**, **Indexed** and **Not indexed**. The filter applies to files at the current level; subfolders remain visible so you can continue browsing.
 
+The folder title, file count and filter stay fixed at the top of the list while you scroll, so they remain visible and usable.
+
+![Folder title and filter remain visible while scrolling](/images/product-files-sticky-en.png)
+
 Files that are not indexed appear gray. Selecting one prompts you to check file formats and conversion settings. Use **Open settings** to review enabled file types. For indexing failures, check the cause in [indexing details](/en/docs/folders#reindex-and-history). Filtering does not change the indexing scope or delete files.
 
 ## Create a document
 
-Click **New document** on the **Files** page. Inside a folder, the new document uses that folder. From the **Indexed files** overview, choose a destination folder first; the first folder in the list is selected by default. If no folders have been added, the app opens the Add folder window first.
+Click **New document** on the **Files** page to open a blank Markdown editor and start writing. If the document is still untitled when you first click **Save**, a filename field opens with the default name selected for replacement. The `.md` extension is added automatically if omitted. If you have already changed the name in the editor, saving does not ask for it again. When creating from the **Indexed files** overview, also choose a destination folder; the first added folder is selected by default. The destination picker shows a folder tree with folder names only. Expand folders to select a subfolder. You can also start writing before any folders are added, then add a folder when saving.
 
-![Choosing a folder for a new document](/images/product-new-document-en.png)
+![Setting a name and folder when saving a new document for the first time](/images/product-new-document-en.png)
 
-Confirm to open the Markdown editor, where you can change the filename and enter content. The file is written to the selected folder when you click **Save**, then its index is updated. Canceling the folder selection does not create a file.
+Confirm the name and destination to write the file and update its index. Canceling keeps the filename and content so you can continue editing. Documents created inside a folder save to that folder: untitled documents ask for a name first, while named documents save directly. Later saves update the existing file directly.
 
 ## Read and edit Markdown
 
@@ -39,13 +43,21 @@ Click the folder name to the left of the filename to view and select the full fo
 
 Saving modifies the local source file. If the app reports an external editing conflict, follow the prompt to avoid overwriting changes from another program. HTML documents open in a reading view; search and citations can locate matching content.
 
+### Ask about the current document
+
+Click **Chat** in the bottom-right corner of a document, enter a question in the single-line field, and select Send on the far right or press `Enter`. The app starts a new conversation, switches to Chat, and automatically references the current file, with the scope limited to that file.
+
+![Ask a question directly from the current document](/images/product-document-question-en.png)
+
+The current model reads content as needed through the SAG file tools; referencing a file does not automatically add its full text to the context. Unsaved changes in an existing document prompt you to save first. New documents must be saved before their file can be referenced. Canceling keeps the question you entered.
+
 ### Document outline
 
 The Markdown editor shows a heading outline on the left, with indentation for heading levels one through six. Click a heading to jump to its section. The current section is highlighted as you scroll, and editing a heading updates the outline. Documents without headings do not show an outline.
 
 ![Heading outline beside a Markdown document](/images/product-document-outline-en.png)
 
-When there is enough room, the outline opens in the margin to the left of the document. Expanding or collapsing it keeps the document centered at the same width. Narrower layouts show an expand button; opening the outline reduces the text area only when space is limited, so it does not cover the content. Your choice is kept for the current document. Navigating the outline does not change the document or mark it as unsaved.
+When there is enough room, the outline opens in the margin to the left of the document and widens with the available space to show more of longer headings. Expanding or collapsing it keeps the document centered at the same width. Narrower layouts show an expand button; opening the outline reduces the text area only when space is limited, so it does not cover the content. Your choice is kept for the current document. Navigating the outline does not change the document or mark it as unsaved.
 
 ### Mermaid diagrams
 

@@ -102,3 +102,18 @@ it('keeps Safari folder choices pending until Save settings',async()=>{
  expect(ui.api.runtime.sendNativeMessage).toHaveBeenLastCalledWith('com.sag.webclipper',{action:'commit',destination:'folder',bookmark:'test-bookmark'});
  expect(ui.element('#folder-notice').hidden).toBe(false);
 });
+
+it('does not require Safari default-folder setup when saving settings',async()=>{
+ const ui=await settings({safari:true});
+ await ui.element('#apply').onclick();
+ expect(ui.api.runtime.sendNativeMessage.mock.calls.every(([,request])=>request.action==='status')).toBe(true);
+ expect(ui.data.destination).toBe('default');
+});
+
+it('has no toolbar setting and saves the remaining Safari preferences',async()=>{
+ const ui=await settings({safari:true});
+ expect(ui.element('#toolbar-enabled')).toBeNull();
+ await ui.element('#apply').onclick();
+ expect(ui.data.toolbarEnabled).toBeUndefined();
+ expect(ui.data.destination).toBe('default');
+});

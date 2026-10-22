@@ -20,17 +20,17 @@ pub struct ClipperSettings {
 }
 
 fn package(app: &tauri::AppHandle, browser: &str) -> CommandResult<PathBuf> {
-    if !matches!(browser, "chrome" | "safari") {
-        return Err("不支持的浏览器".into());
-    }
+    let filename = match browser {
+        "chrome" => "sag-web-clipper-chrome.zip",
+        "safari" => "sag-web-clipper-safari.dmg",
+        _ => return Err("不支持的浏览器".into()),
+    };
     let base = if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
     } else {
         app.path().resource_dir().map_err(error)?
     };
-    Ok(base
-        .join("clipper")
-        .join(format!("sag-web-clipper-{browser}.zip")))
+    Ok(base.join("clipper").join(filename))
 }
 
 #[tauri::command]
