@@ -2,9 +2,9 @@
 
 独立的飞牛 OS 原生应用项目。沿用 SAG Desktop 的 Svelte 界面和 Rust 内核，通过飞牛统一网关运行，提供原生目录授权、索引、搜索、引用问答和 Markdown 编辑。
 
-飞牛版与非飞牛版使用同一产品版本号，当前为 **0.1.9**。平台通过安装包名称区分，不再单独递增飞牛版本。此前 0.2.x 为迁移测试编号，已有修复与功能保留。
+当前源码版本为 **0.1.12**。平台通过安装包名称区分。此前 0.2.x 为迁移测试编号，已有修复与功能保留。
 
-本次发布标记为 `v0.1.9-fnos-agent-guide`，补齐电脑远程接入与 NAS 本机 CLI 的分步指引、Skill 下载及 Agent 安装入口；应用内版本仍为 **0.1.9**。以下链接指向本次安装包。
+`main` 更新后由 GitLab CI 测试、构建并发布 x86-64 / ARM64 FPK。[最新发布](https://gitlab.zexrtq.com/zleap/data/sag-wiki-fnos/-/releases/permalink/latest)包含安装包、SHA-256 和源码提交信息。发布标记包含应用版本、提交号和流水线 ID；FPK 内的应用版本保持源码版本。
 
 ## 使用
 
@@ -12,12 +12,12 @@
 
 下载对应架构的安装包，在飞牛应用中心手动安装。从飞牛桌面打开 SAG Wiki，点击“添加文件夹 → 选择并授权文件夹”，授权后添加索引。
 
-| 架构 | 0.1.9 安装包 | SHA-256 |
+| 架构 | 最新自动构建 FPK | SHA-256 |
 | --- | --- | --- |
-| x86-64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-x86.fpk.sha256) |
-| ARM64 | [下载 FPK](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk) | [校验文件](https://gitlab.zexrtq.com/api/v4/projects/134/packages/generic/sag-wiki-fnos/0.1.9-fnos-agent-guide/sag-desktop-fnos-0.1.9-arm.fpk.sha256) |
+| x86-64 | [下载 FPK](https://gitlab.zexrtq.com/zleap/data/sag-wiki-fnos/-/releases/permalink/latest/downloads/sag-desktop-fnos-x86.fpk) | [校验文件](https://gitlab.zexrtq.com/zleap/data/sag-wiki-fnos/-/releases/permalink/latest/downloads/sag-desktop-fnos-x86.fpk.sha256) |
+| ARM64 | [下载 FPK](https://gitlab.zexrtq.com/zleap/data/sag-wiki-fnos/-/releases/permalink/latest/downloads/sag-desktop-fnos-arm.fpk) | [校验文件](https://gitlab.zexrtq.com/zleap/data/sag-wiki-fnos/-/releases/permalink/latest/downloads/sag-desktop-fnos-arm.fpk.sha256) |
 
-仓库与附件为私有内容，下载需要对应 GitLab 访问权限。已装 0.2.x 迁移测试版的设备会因飞牛版本检查而拒绝直接覆盖为 0.1.9；请保留现有应用数据。
+仓库与附件为私有内容，下载需要对应 GitLab 访问权限。旧的 [0.1.9 指引修订发布](https://gitlab.zexrtq.com/zleap/data/sag-wiki-fnos/-/releases/v0.1.9-fnos-agent-guide)仍保留。已装 0.2.x 迁移测试版的设备会因飞牛版本检查而拒绝直接降级；请保留现有应用数据。
 
 快速搜索不需要模型密钥。SAG2 检索需配置 Jev；问答需配置问答模型。
 
@@ -61,6 +61,38 @@ sag -F "关键词" /vol1/1000/File --json
 也可在网页中执行 `sag install cli`。当前账号的主目录尚未创建时，安装流程会创建该目录并归属当前用户，已有目录权限保持不变。
 
 ## 开发
+
+### 自动构建与发布
+
+`.gitlab-ci.yml` 使用现有 `docker` 标签 Runner：
+
+- `main` push 或在 **Build → Pipelines → New pipeline** 选择 `main` 手动触发：检查、双架构构建、发布。
+- Merge Request 或手动选择其他分支：执行检查和双架构构建，供评审下载安装包，不发布 Release。
+- 自动创建的发布标签不触发新流水线，避免循环。
+
+`checks` 执行前端检查/测试、以非 root 用户运行 Rust workspace 测试，并执行发布脚本测试。`build-fpk` 按 x86 / arm 矩阵构建，核对包内版本、架构、执行权限及二进制；x86 额外运行真实 worker 的 Linux 发布集成测试。任一检查或架构失败都不会执行发布。
+
+`publish-fpk` 使用 GitLab 自动提供的临时 `CI_JOB_TOKEN`，无需配置个人 Token。验证两个架构及 sidecar 后上传 Generic Packages，并逐个下载校验，再创建 Release。包版本/标签形如 `0.1.12-main.<commit8>.<pipeline-id>` / `v0.1.12-main.<commit8>.<pipeline-id>`，重试不会覆盖已有不同内容。流水线 artifacts 保留 30 天；Release 下载指向 Package Registry，不依赖临时 artifacts。`build-info.json` 和 `audit-*.json` 记录源码提交、流水线及二进制哈希。
+
+默认使用 Runner 常用的 `python:3.11` 构建环境，首次安装固定版本的 Rust 并缓存工具链。可通过项目变量 `FPK_BUILD_IMAGE` / `FPK_PUBLISH_IMAGE` 切换为运维提供的私有构建/发布镜像。Rust 组件使用 RsProxy 国内分发镜像，版本固定且由 rustup 校验组件哈希；可用 `RUSTUP_DIST_SERVER` 覆盖下载源。工具链固定为 rustup 1.29.2、Rust 1.99.1、Node 24.13.0、cargo-zigbuild 0.24.0、Zig 0.17.0、官方 fnpack 1.2.3；rustup、Node 与 fnpack 下载有固定 SHA-256 校验。构建工具缓存由检查和架构构建共享，Rust 依赖及编译缓存按任务隔离。CI 构建检查不等于 fnOS 实机验收，ARM64 安装运行仍需相应设备验证。
+
+前端依赖默认使用 npmmirror，可用 `NPM_CONFIG_REGISTRY` 覆盖；`npm ci` 仍校验 lockfile 中的完整性哈希。安装步骤有 10 分钟总超时及进程日志，避免网络故障时持续静默等待。
+
+系统包及 Python 构建工具默认从阿里云公共镜像下载，可用 `DEBIAN_MIRROR` / `PIP_INDEX_URL` 覆盖。APT 保留仓库签名与包哈希验证，下载有请求超时和重试。
+
+Rust crate 依赖使用 RsProxy sparse 镜像，Cargo 按 `Cargo.lock` 校验版本与哈希。可用 `CARGO_REGISTRY_MIRROR` 切换内部 sparse 源，设为空则使用 crates.io；该配置写入 CI 专用的 `CARGO_HOME`。
+
+Release 下载链接使用 `FPK_PUBLIC_API_V4_URL` 指定的对外 HTTPS 地址，Runner 上传仍使用 GitLab 内网 API。项目 CI 变量 `CARGO_NET_RETRY=10` 用于容忍下载源偶发 DNS 失败。
+
+私有构建镜像的预装定义见 `scripts/ci/Dockerfile`：
+
+```sh
+docker build --platform linux/amd64 -f scripts/ci/Dockerfile scripts/ci -t <私有仓库>/sag-wiki-fnos-ci:rust-1.99.1-v1
+```
+
+该镜像预装完整工具链；仓库和 Runner 拉取权限就绪后再切换，当前流水线可使用默认环境运行。
+
+### 本地开发
 
 ```sh
 npm ci
