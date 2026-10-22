@@ -1244,5 +1244,8 @@
   "已完成 {value0} / {value1} 个包": "{value0} of {value1} packages done",
   "最近活动": "Latest activity",
   "打开安装日志": "Open install log",
-  "勾选的格式决定要下载的组件：文档格式对应文档组件，音视频格式对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。": "Your selection decides which components are downloaded: document formats need the document component, audio and video formats need the media component, each several GB. Selecting only what you need shortens the install noticeably."
+  "勾选的格式决定要下载的组件：文档格式对应文档组件，音视频格式对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。": "Your selection decides which components are downloaded: document formats need the document component, audio and video formats need the media component, each several GB. Selecting only what you need shortens the install noticeably.",
+  "尚未生成安装日志": "No install log has been written yet",
+  "正在连接模型服务 {value0}…": "Connecting to the model service {value0}…",
+  "无法连接模型服务 {value0}：{value1}。请检查网络或代理；如需镜像，可在启动前设置 HF_ENDPOINT 环境变量（例如 https://hf-mirror.com）。": "Could not connect to the model service {value0}: {value1}. Check your network or proxy; to use a mirror, set the HF_ENDPOINT environment variable before launching (for example https://hf-mirror.com)."
 }

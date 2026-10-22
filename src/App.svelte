@@ -74,7 +74,7 @@
  $:indexFailureText=roots.length>0&&roots.every(root=>root.status==='error')?$t('读取失败'):$t('部分失败');
  let onboardingOpen=false;
  let startupError='',retrying=false;
- async function loadWorkspace(){startupError='';settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.credential_error)notify(settings.credential_error);searchHistory=JSON.parse(localStorage.getItem('sag.search.history')??'[]');view=settings.start_page;await Promise.all([refresh(),history()]);}
+ async function loadWorkspace(){startupError='';settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.credential_error)notify(settings.credential_error);searchHistory=JSON.parse(localStorage.getItem('sag.search.history')??'[]');view=settings.start_page;await Promise.all([refresh(),history()]);startupError='';}
  async function retryStartup(){if(retrying)return;retrying=true;loading=true;try{await loadWorkspace();onboardingOpen=localStorage.getItem('sag.onboarding.seen')!=='1';}catch(e){startupError=String(e)}finally{retrying=false;loading=false}}
  function closeOnboarding(){localStorage.setItem('sag.onboarding.seen','1');onboardingOpen=false;}
  let historySearchOpen=false,folderPickerOpen=false;

@@ -1765,11 +1765,15 @@ impl Store {
         ])?;
         let mut results = vec![];
         let mut documents = HashMap::new();
+        let mut skipped = 0;
         while let Some(row) = rows.next()? {
-            if let Some(candidate) = candidate_from_row(row, results.len(), &mut documents)? {
-                results.push(candidate);
+            match candidate_from_row(row, results.len(), &mut documents)? {
+                Some(candidate) => results.push(candidate),
+                None => skipped += 1,
             }
         }
+        // Stale or unreadable files were dropped from this page; keep the count honest.
+        let total = total.saturating_sub(skipped);
         Ok((results, SearchPagination { total, page, page_size }))
     }
     pub fn candidate_query(
@@ -3918,8 +3922,11 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         fs::write(&path, bytes).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path.clone()], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "partial");
-        // A changed file is left out of results instead of failing the whole search.
-        assert!(store.search_files("recoveredmarker", &[], 10).unwrap().is_empty());
+        // A changed file is left out of results instead of failing the whole search,
+        // and the reported total excludes it.
+        let (hits, pagination) = store.search_files_page("recoveredmarker", &[], 1, 10).unwrap();
+        assert!(hits.is_empty());
+        assert_eq!(pagination.total, 0);
         fs::remove_file(&path).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "ready");

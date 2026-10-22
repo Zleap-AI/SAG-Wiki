@@ -36,3 +36,17 @@ it('shows the connection error with a retry button instead of a blank workspace'
  expect(invoke).toHaveBeenCalledWith('get_settings',undefined);
  expect(attempts).toBe(2);
 });
+
+it('clears a transient startup error once the workspace loads',async()=>{
+ localStorage.setItem('sag.onboarding.seen','1');
+ let fire:((e:{payload:string})=>void)|null=null;
+ const {listen}=await import('@tauri-apps/api/event');
+ (listen as unknown as {mockImplementation:(f:(name:string,cb:(e:{payload:string})=>void)=>Promise<()=>void>)=>void}).mockImplementation(async(name,cb)=>{if(name==='app-error')fire=cb;return()=>{}});
+ invoke.mockImplementation(async(command)=>{
+  if(command==='get_settings'){fire?.({payload:'SAG 服务协议版本 1 与客户端 2 不兼容'});return settings;}
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await settle();
+ expect(document.querySelector('.startup-error')).toBeNull();
+});
