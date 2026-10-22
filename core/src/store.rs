@@ -169,8 +169,8 @@ fn body(path: &Path, bytes: &[u8]) -> Result<String> {
 fn candidate_from_row(
     r: &rusqlite::Row<'_>,
     order: usize,
-    documents: &mut HashMap<i64, String>,
-) -> Result<Candidate> {
+    documents: &mut HashMap<i64, Option<String>>,
+) -> Result<Option<Candidate>> {
     hydrate_candidate(candidate_metadata(r, order)?, documents)
 }
 
@@ -194,21 +194,41 @@ fn candidate_metadata(r: &rusqlite::Row<'_>, order: usize) -> Result<Candidate> 
     })
 }
 
-fn hydrate_candidate(
-    mut candidate: Candidate,
-    documents: &mut HashMap<i64, String>,
-) -> Result<Candidate> {
-    let path = &candidate.path;
-    let source = match documents.entry(candidate.document_id) {
-        MapEntry::Occupied(entry) => entry.into_mut(),
-        MapEntry::Vacant(entry) => {
-            let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
-            if hash(&raw) != candidate.hash {
-                bail!("文件已修改，请刷新索引：{path}")
-            }
-            entry.insert(body(Path::new(path), &raw)?)
+/// Reads a document only when its content still matches the indexed hash.
+///
+/// A document whose file is unreadable (unmounted drive, permission change)
+/// or whose content no longer matches the indexed hash is skipped rather
+/// than failing the whole query: one stale file must not hide every other
+/// result. The watcher or a manual refresh brings the index back in sync.
+fn read_indexed_source(path: &str, expected: &str) -> Option<String> {
+    let raw = match fs::read(path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            eprintln!("跳过无法读取的原文件：{path}：{error}");
+            return None;
         }
     };
+    if hash(&raw) != expected {
+        eprintln!("跳过已修改但尚未重新索引的文件：{path}");
+        return None;
+    }
+    match body(Path::new(path), &raw) {
+        Ok(text) => Some(text),
+        Err(error) => {
+            eprintln!("跳过无法解码的原文件：{path}：{error}");
+            None
+        }
+    }
+}
+fn hydrate_candidate(
+    mut candidate: Candidate,
+    documents: &mut HashMap<i64, Option<String>>,
+) -> Result<Option<Candidate>> {
+    let source = match documents.entry(candidate.document_id) {
+        MapEntry::Occupied(entry) => entry.into_mut(),
+        MapEntry::Vacant(entry) => entry.insert(read_indexed_source(&candidate.path, &candidate.hash)),
+    };
+    let Some(source) = source else { return Ok(None) };
     let lines: Vec<&str> = source
         .split('\n')
         .map(|l| l.trim_end_matches('\r'))
@@ -222,7 +242,7 @@ fn hydrate_candidate(
             .collect::<Vec<_>>()
             .join("\n\n")
     };
-    Ok(candidate)
+    Ok(Some(candidate))
 }
 unsafe extern "C" {
     fn sag_register_rank(db: *mut rusqlite::ffi::sqlite3) -> std::os::raw::c_int;
@@ -1715,7 +1735,9 @@ impl Store {
         let mut results = vec![];
         let mut documents = HashMap::new();
         while let Some(row) = rows.next()? {
-            results.push(candidate_from_row(row, results.len(), &mut documents)?);
+            if let Some(candidate) = candidate_from_row(row, results.len(), &mut documents)? {
+                results.push(candidate);
+            }
         }
         Ok((results, SearchPagination { total, page, page_size }))
     }
@@ -1802,7 +1824,13 @@ impl Store {
         transaction.commit()?;
         drop(connection);
         let mut documents = HashMap::new();
-        metadata.into_iter().map(|candidate| hydrate_candidate(candidate, &mut documents)).collect()
+        let mut hydrated = Vec::with_capacity(metadata.len());
+        for candidate in metadata {
+            if let Some(candidate) = hydrate_candidate(candidate, &mut documents)? {
+                hydrated.push(candidate);
+            }
+        }
+        Ok(hydrated)
     }
 
     fn rank_statistics(&self, connection: &Connection, version: i64, expression: &str) -> Result<Vec<u8>> {
@@ -1927,7 +1955,9 @@ impl Store {
         let mut result = vec![];
         let mut documents = HashMap::new();
         while let Some(row) = rows.next()? {
-            result.push(candidate_from_row(row, result.len(), &mut documents)?);
+            if let Some(candidate) = candidate_from_row(row, result.len(), &mut documents)? {
+                result.push(candidate);
+            }
         }
         Ok(result)
     }
@@ -1964,9 +1994,9 @@ impl Store {
                 serde_json::from_str(&saved)?
             } else {
                 // Upgrade an existing index once; new and changed files save this during indexing.
-                let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
-                if hash(&raw) != expected { bail!("文件已修改，请刷新索引：{path}") }
-                let source = body(Path::new(&path), &raw)?;
+                // A file that is unreadable or changed since indexing is left out of the statistics
+                // instead of failing the query; the next index update restores it.
+                let Some(source) = read_indexed_source(&path, &expected) else { continue };
                 let mut terms = crate::sag2_v10::vocabulary(&text::indexable_text(&source, Path::new(&path)));
                 let passages: Vec<Vec<SourceSpan>> = serde_json::from_str(&spans.unwrap())?;
                 for spans in passages {
@@ -2004,10 +2034,9 @@ impl Store {
             let values = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
             values
         };
-        rows.into_iter().map(|(title,path,expected,spans)| {
-            let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
-            if hash(&raw) != expected { bail!("文件已修改，请刷新索引：{path}") }
-            let source = body(Path::new(&path), &raw)?;
+        rows.into_iter().filter_map(|(title,path,expected,spans)| {
+            let source = read_indexed_source(&path, &expected)?;
+            Some((|| -> Result<(String, String)> {
             let passages: Vec<Vec<SourceSpan>> = serde_json::from_str(&spans)?;
             let mut vocabulary = text::indexable_text(&source, Path::new(&path)).into_owned();
             // Count each document once, including the exact words in its indexed passages.
@@ -2017,6 +2046,7 @@ impl Store {
                 vocabulary.push_str(&text::source_content(&source, &spans));
             }
             Ok((title, vocabulary))
+            })())
         }).collect()
     }
 
@@ -3470,8 +3500,8 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let expression = text::match_query("alpha");
         assert_eq!(store.candidate_query(&expression, None, &[], &[], &[], 100).unwrap().len(), 1);
         fs::write(&source, "beta replacement source").unwrap();
-        // Even a cache hit must validate the original file.
-        assert!(store.candidate_query(&expression, None, &[], &[], &[], 100).is_err());
+        // Even a cache hit must validate the original file; a changed file is left out.
+        assert!(store.candidate_query(&expression, None, &[], &[], &[], 100).unwrap().is_empty());
         let writer = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
         writer.update_paths(root.to_str().unwrap(), &[source.clone()], |_| {}).unwrap();
         assert!(store.candidate_query(&expression, None, &[], &[], &[], 100).unwrap().is_empty());
@@ -3857,7 +3887,8 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         fs::write(&path, bytes).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path.clone()], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "partial");
-        assert!(store.search_files("recoveredmarker", &[], 10).unwrap_err().to_string().contains("文件已修改"));
+        // A changed file is left out of results instead of failing the whole search.
+        assert!(store.search_files("recoveredmarker", &[], 10).unwrap().is_empty());
         fs::remove_file(&path).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "ready");
@@ -4039,13 +4070,19 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
                 .len(),
             1
         );
-        assert!(store
-            .candidate_query(&expression, None, &[], &[], &[], 100)
-            .is_err());
+        // The removed file drops out of a wider query without failing it.
+        assert_eq!(
+            store
+                .candidate_query(&expression, None, &[], &[], &[], 100)
+                .unwrap()
+                .len(),
+            1
+        );
         fs::write(&best, "modified needle").unwrap();
         assert!(store
             .candidate_query(&expression, None, &[], &[], &[], 1)
-            .is_err());
+            .unwrap()
+            .is_empty());
     }
 
     #[test]
