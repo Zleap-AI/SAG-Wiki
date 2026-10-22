@@ -2,7 +2,7 @@
 mod support;
 
 use serde_json::Value;
-use std::{fs, process::Command};
+use std::{fs, path::Path, process::Command};
 
 #[test]
 fn list_and_check_distinguish_parent_coverage_exclusions_and_empty_directories() {
@@ -144,7 +144,7 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     assert_eq!(files.len(), 3);
     assert!(files.iter().any(|path| path.ends_with("readme.MD")));
     assert!(files.iter().any(|path| path.ends_with("main.py")));
-    assert!(files.iter().any(|path| path.ends_with("child/main.ts")));
+    assert!(files.iter().any(|path| Path::new(path).ends_with("child/main.ts")));
     assert!(run(&["add"]).status.success());
     assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
     assert!(String::from_utf8(run(&["check"]).stdout).unwrap().contains("原生索引格式：md,py,ts"));
@@ -159,7 +159,7 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
     let files = matches();
     assert_eq!(files.len(), 3);
-    assert!(files.iter().any(|path| path.ends_with("child/main.js")));
+    assert!(files.iter().any(|path| Path::new(path).ends_with("child/main.js")));
     assert!(!files.iter().any(|path| path.ends_with("main.ts")));
     assert!(files.iter().any(|path| path.ends_with("main.py")));
 
@@ -171,7 +171,7 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     let files = matches();
     assert!(files.iter().any(|path| path.ends_with("page.html")));
     assert!(files.iter().any(|path| path.ends_with("settings.json")));
-    assert!(files.iter().any(|path| path.ends_with("child/main.js")));
+    assert!(files.iter().any(|path| Path::new(path).ends_with("child/main.js")));
     for (name, content) in sources { assert_eq!(fs::read_to_string(project.join(name)).unwrap(), content); }
     let rules = fs::read_to_string(project.join(".sagignore")).unwrap();
     assert!(rules.starts_with("# User rule\nignored.ts\n"));
@@ -181,6 +181,6 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     let files = store.files().unwrap();
     assert_eq!(files.len(), 3);
     for name in ["page.html", "settings.json", "child/main.js"] {
-        assert!(files.iter().any(|file| file.path.ends_with(name)), "missing index entry: {name}");
+        assert!(files.iter().any(|file| Path::new(&file.path).ends_with(name)), "missing index entry: {name}");
     }
 }

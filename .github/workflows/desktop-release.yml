@@ -1,0 +1,225 @@
+name: Desktop build and release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    tags: ['v*']
+  workflow_dispatch:
+
+# Building an untrusted pull request must never require a signing secret or a
+# token that can write to the repository. Only the release job gains write access.
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: '0'
+  RUST_BACKTRACE: '1'
+  # Native tests create their own async runtimes and child processes. Bound
+  # concurrent tests on the small hosted runners without reducing coverage.
+  RUST_TEST_THREADS: '2'
+  PYTHONUTF8: '1'
+
+jobs:
+  validate:
+    name: Validate release source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.source.outputs.version }}
+      commit: ${{ steps.source.outputs.commit }}
+    steps:
+      - name: Check out the event commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.13.0'
+      - name: Validate versions, commit and release tag
+        id: source
+        run: node scripts/release.mjs validate
+      - name: Test release validation and signing
+        run: node --test scripts/release.node-test.mjs
+
+  build:
+    name: Build and test ${{ matrix.platform }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - platform: windows
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      TARGET_TRIPLE: ${{ matrix.target }}
+      RELEASE_PLATFORM: ${{ matrix.platform }}
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+    steps:
+      - name: Check out the validated commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.13.0'
+          cache: npm
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.9'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.98.1'
+          targets: ${{ matrix.target }}
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+      - name: Run frontend tests
+        run: npm test
+      - name: Run native tests with locked dependencies
+        run: |
+          cargo test --locked --manifest-path protocol/Cargo.toml --target-dir cli/target
+          cargo test --locked --manifest-path client/Cargo.toml --target-dir cli/target
+          cargo test --locked --manifest-path core/Cargo.toml --target-dir cli/target
+          # Fail within a bounded regression test if daemon pipes leak again,
+          # before running CLI tests that collect complete subprocess output.
+          cargo test --locked --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
+          cargo test --locked --manifest-path cli/Cargo.toml -- --nocapture
+          cargo test --locked --manifest-path src-tauri/Cargo.toml
+      # Ordinary bundles have no updater signing enabled. The release job signs
+      # the exact artifacts produced and tested here, without rebuilding them.
+      - name: Free debug test outputs before production compilation
+        run: |
+          node --input-type=module -e "import {rmSync} from 'node:fs'; for (const path of ['cli/target/debug', 'src-tauri/target/debug']) rmSync(path, {recursive:true, force:true});"
+      - name: Build unsigned desktop installers
+        run: |
+          config_args=()
+          if [[ "$RELEASE_PLATFORM" == windows ]]; then
+            config_args=(--config src-tauri/tauri.windows.conf.json)
+          fi
+          npm run tauri -- build --ci --target "$TARGET_TRIPLE" "${config_args[@]}" -- --locked
+      - name: Verify the actual macOS application bundle
+        if: matrix.platform == 'macos'
+        run: |
+          export SAG_DESKTOP_BUNDLE="$PWD/src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app"
+          python -m unittest discover -s tests -p desktop_bundle_test.py
+      - name: Exercise local Jev through the actual macOS bundle CLI
+        if: matrix.platform == 'macos'
+        run: python tests/local-jev-e2e.py --binary "src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app/Contents/Resources/bin/sag"
+      - name: Stage artifacts and record their source and digests
+        run: node scripts/release.mjs stage --platform "$RELEASE_PLATFORM" --target "$TARGET_TRIPLE"
+      - name: Install and exercise the Windows package
+        id: windows-smoke
+        if: matrix.platform == 'windows'
+        shell: pwsh
+        run: |
+          & ./scripts/smoke-windows.ps1 -Installer "release-artifacts/windows/SAG-Wiki-$env:RELEASE_VERSION-Windows-x64-setup.exe" -Version $env:RELEASE_VERSION
+      - name: Exercise local Jev through the installed Windows package CLI
+        if: matrix.platform == 'windows'
+        env:
+          INSTALLED_CLI: ${{ steps.windows-smoke.outputs.cli }}
+        run: python tests/local-jev-e2e.py --binary "$INSTALLED_CLI"
+      - name: Upload only staged public artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: desktop-${{ matrix.platform }}-${{ github.sha }}
+          path: release-artifacts/${{ matrix.platform }}/
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+
+  release:
+    name: Sign and create a draft release
+    needs: [validate, build]
+    if: github.repository == 'Zleap-AI/SAG-Wiki' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment:
+      name: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the validated release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.13.0'
+      - name: Require protected release environment and an unpublished tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release.mjs verify-environment
+          node scripts/release.mjs validate
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            echo 'An existing release must be inspected and removed explicitly before retrying.' >&2
+            exit 1
+          fi
+      - name: Install locked signing tools before granting access to the key
+        run: npm ci --ignore-scripts
+      - name: Download macOS artifacts from this run
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-macos-${{ github.sha }}
+          path: release-artifacts/macos
+      - name: Download Windows artifacts from this run
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: desktop-windows-${{ github.sha }}
+          path: release-artifacts/windows
+      - name: Verify artifacts, sign updates and assemble the release
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: node scripts/release.mjs assemble --input release-artifacts --output "releases/$RELEASE_VERSION/updates"
+      - name: Attest the final public release artifacts
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: releases/${{ needs.validate.outputs.version }}/updates/*
+      - name: Create a draft release without replacing existing assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$RELEASE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --target "$RELEASE_COMMIT" \
+            --draft \
+            --title "SAG Wiki $RELEASE_VERSION" \
+            --notes-file "releases/$RELEASE_VERSION/updates/release-notes.md" \
+            "releases/$RELEASE_VERSION/updates/"*
+          {
+            echo "Draft release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
+            echo 'Review both platform installers, signatures and provenance before publishing.'
+          } >> "$GITHUB_STEP_SUMMARY"

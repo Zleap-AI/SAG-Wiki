@@ -10,7 +10,7 @@
 
 <p align="center">
   <a href="https://arxiv.org/abs/2610.22588"><img alt="Paper" src="https://img.shields.io/badge/paper-arXiv%3A2610.22588-18181b" /></a>
-  <a href="https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5"><img alt="SAG-Wiki version" src="https://img.shields.io/badge/SAG--Wiki-v0.1.5-18181b" /></a>
+  <a href="https://github.com/Zleap-AI/SAG-Wiki/releases/latest"><img alt="SAG-Wiki version" src="https://img.shields.io/github/v/release/Zleap-AI/SAG-Wiki?label=SAG-Wiki&amp;color=18181b" /></a>
   <img alt="Rust" src="https://img.shields.io/badge/Rust-2021-3776ab" />
   <img alt="Tauri" src="https://img.shields.io/badge/Tauri-2-339933" />
   <img alt="Svelte" src="https://img.shields.io/badge/Svelte-5-18181b" />

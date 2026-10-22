@@ -899,7 +899,16 @@ pub(crate) mod tests {
         let remaining = tools.execute("list", json!({"offset":1})).await.unwrap();
         let mut joined = first.data["items"].as_array().unwrap().clone();
         joined.extend(remaining.data["items"].as_array().unwrap().clone());
-        assert_eq!(joined, *all.data["items"].as_array().unwrap());
+        let mut expected = all.data["items"].as_array().unwrap().clone();
+        // NTFS can publish directory timestamp updates after fixture creation.
+        // Independent list calls are not a snapshot of mutable directory times.
+        for item in joined.iter_mut().chain(expected.iter_mut()) {
+            assert!(item["modified_ms"].is_u64());
+            if item["type"] == "directory" {
+                item.as_object_mut().unwrap().remove("modified_ms");
+            }
+        }
+        assert_eq!(joined, expected);
         let code = tools
             .execute("list", json!({"pattern":"**/*.rs"}))
             .await

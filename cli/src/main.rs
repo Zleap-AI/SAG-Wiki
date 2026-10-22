@@ -321,7 +321,9 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         }
         return Ok(0);
     }
-    let cwd = std::env::current_dir()?;
+    // Match the canonical absolute paths returned by the service. On Windows
+    // they carry a verbatim prefix, which pathdiff cannot mix with plain cwd.
+    let cwd = std::env::current_dir()?.canonicalize()?;
     let explicit_patterns = !args.matching.patterns.is_empty() || !args.matching.pattern_files.is_empty();
     if args.command.is_none() {
         if !args.extended_regexp && !args.fixed_strings && interactive() && !args.json {
