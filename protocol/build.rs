@@ -36,6 +36,7 @@ fn main() {
         "protocol/src",
         "client/src",
         "core/src",
+        "core/assets",
         "core/native",
         "core/build.rs",
         "cli/src",
@@ -48,6 +49,7 @@ fn main() {
         "cli/Cargo.toml",
         "cli/Cargo.lock",
         "src-tauri/Cargo.toml",
+        "scripts/docling",
     ] {
         let path = root.join(name);
         println!("cargo:rerun-if-changed={}", path.display());

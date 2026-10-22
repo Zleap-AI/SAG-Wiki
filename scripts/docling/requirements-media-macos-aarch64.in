@@ -1,0 +1,12 @@
+# macOS resolver generation requires MACOSX_DEPLOYMENT_TARGET=14.0 (CPython 3.12).
+# Official Docling media pipelines; optional diarization is not enabled.
+# Audio/video share ASR and FFmpeg. No PDF/OCR models are downloaded here.
+docling-slim[standard]==2.140.0
+mlx-whisper==0.4.3
+mlx==0.32.4
+mlx-metal==0.32.4
+numba==0.68.0
+llvmlite==0.50.0
+tiktoken==0.14.0
+more-itertools==11.2.1
+imageio-ffmpeg==0.6.0

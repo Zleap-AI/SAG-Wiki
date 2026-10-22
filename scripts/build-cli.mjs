@@ -2,7 +2,7 @@ import {spawnSync} from 'node:child_process';
 import {copyFileSync, mkdirSync, writeFileSync} from 'node:fs';
 const debug = process.argv.includes('--debug');
 const target = debug ? undefined : process.env.TAURI_ENV_TARGET_TRIPLE;
-const args=['build',...(debug?[]:['--release']),'--manifest-path','cli/Cargo.toml',...(target?['--target',target]:[])];
+const args=['build','--locked',...(debug?[]:['--release']),'--manifest-path','cli/Cargo.toml',...(target?['--target',target]:[])];
 const build=spawnSync('cargo',args,{stdio:'inherit'});
 if(build.status!==0)process.exit(build.status??1);
 const windows=target?target.includes('windows'):process.platform==='win32';

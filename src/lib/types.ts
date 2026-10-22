@@ -30,7 +30,8 @@ export type QueryOutput={terms:string[];elapsed_ms?:number;results:Candidate[];p
 
 export type CliAccess={enabled:boolean};
 
-export type DoclingStatus={installed:boolean;running:boolean;stage:string;message:string;downloaded:number;total:number|null;percent?:number|null;error:string|null;formats:[string,string[]][]};
+export type DoclingProfile='documents'|'media';
+export type DoclingStatus={installed:boolean;running:boolean;stage:string;message:string;downloaded:number;total:number|null;percent?:number|null;error:string|null;formats:[string,string[]][];profiles?:{id:DoclingProfile;installed:boolean;extensions:string[]}[];requested_profiles?:DoclingProfile[]};
 
 export type IndexTask={path:string;stage:string;completed:number;total:number;files:string[]};
 export type IndexStatus={paused:boolean;tasks:IndexTask[]};
