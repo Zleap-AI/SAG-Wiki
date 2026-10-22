@@ -72,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix='sag-publish-') as directory:
             return target, temporary, response
 
         for name, owner, permissions in [('owned.md', ALICE, acl((APP, 6))),
+                                         ('owned.markdown', ALICE, acl((APP, 6))),
+                                         ('owned.MARKDOWN', ALICE, acl((APP, 6))),
                                          ('shared.md', BOB, acl((APP, 6), (ALICE, 6)))]:
             target, temporary, result = publish(name, 'original', owner, permissions)
             assert result == {'ok': True}, result
@@ -81,12 +83,13 @@ with tempfile.TemporaryDirectory(prefix='sag-publish-') as directory:
             assert os.getxattr(target, 'system.posix_acl_access') == permissions
             print('PASS owner/group/mode/ACL preserved:', name)
 
-        target, temporary, result = publish('new.md')
-        assert result == {'ok': True}, result
-        assert (target.stat().st_uid, target.stat().st_gid) == (ALICE, ALICE)
-        assert target.read_text() == 'updated'
-        assert os.getxattr(target, 'system.posix_acl_access') == acl((APP, 6))
-        print('PASS new document belongs to NAS user')
+        for name in ['new.md', 'new.markdown', 'new.MARKDOWN']:
+            target, temporary, result = publish(name)
+            assert result == {'ok': True}, result
+            assert (target.stat().st_uid, target.stat().st_gid) == (ALICE, ALICE)
+            assert target.read_text() == 'updated'
+            assert os.getxattr(target, 'system.posix_acl_access') == acl((APP, 6))
+            print('PASS new document belongs to NAS user:', name)
 
         target, temporary, result = publish('new.md')
         assert 'error' in result and target.read_text() == 'updated'

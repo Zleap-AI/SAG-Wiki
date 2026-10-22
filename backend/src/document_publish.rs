@@ -36,7 +36,7 @@ pub fn prepare(request: &Request, app_uid: u32, user_gid: u32) -> Result<std::fs
     let parent = request.target.parent().context("文档缺少父目录")?.canonicalize()?;
     if request.temporary.parent().context("临时文件缺少父目录")?.canonicalize()? != parent
         || !request.temporary.file_name().is_some_and(|name| name.to_string_lossy().starts_with(".sag-save-"))
-        || request.target.extension().is_none_or(|extension| !extension.eq_ignore_ascii_case("md")) {
+        || !sag_core::text::is_markdown(&request.target) {
         bail!("文档发布路径无效");
     }
     let temporary = std::fs::OpenOptions::new().read(true).write(true)
