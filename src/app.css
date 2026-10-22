@@ -17,4 +17,4 @@ html,body,#app{height:100%;overflow:hidden}body{background:var(--color-paper)}.d
 
 .tool-duration{font-size:var(--text-caption);color:var(--color-secondary);font-variant-numeric:tabular-nums;white-space:nowrap}
 
-.answer .settings-error-link,.search-page .settings-error-link{margin-left:8px;padding:0;color:var(--color-accent);font:inherit;text-decoration:underline;text-underline-offset:3px}
+.answer .settings-error-link,.search-page .settings-error-link{margin-left:8px;padding:0;color:var(--color-accent);font:inherit;text-decoration:underline;text-underline-offset:3px}.startup-error{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:520px;margin:0 auto}.startup-error>p:first-child{font-size:15px;font-weight:550;color:var(--color-ink)}.startup-error-detail{font-size:12px;overflow-wrap:anywhere;white-space:pre-line}.startup-error-hint{font-size:12px;color:var(--color-muted)}

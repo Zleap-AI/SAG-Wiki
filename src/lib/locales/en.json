@@ -1236,5 +1236,9 @@
   "鉴权方式": "Authentication",
   "Jev 鉴权方式": "Jev authentication",
   "API Key": "API Key",
-  "无需鉴权": "No authentication"
+  "无需鉴权": "No authentication",
+  "无法连接本地 SAG 服务": "Could not connect to the local SAG service",
+  "如果旧版本的 SAG 服务仍在运行，请先在终端执行 sag service stop，然后重试。": "If an older SAG service is still running, run sag service stop in a terminal, then retry.",
+  "重试": "Retry",
+  "SAG 服务重连失败：{value0}": "Could not reconnect to the SAG service: {value0}"
 }
