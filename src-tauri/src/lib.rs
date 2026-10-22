@@ -334,6 +334,14 @@ async fn reveal_path(path: String, state: State<'_, Arc<AppState>>) -> CommandRe
     reveal(Path::new(value.as_str().unwrap())).map_err(error)
 }
 #[tauri::command]
+async fn reveal_docling_log(state: State<'_, Arc<AppState>>) -> CommandResult<()> {
+    let log = state.data_dir.join("docling").join("install-diagnostics.log");
+    if !log.is_file() {
+        return Err("尚未生成安装日志".into());
+    }
+    reveal(&log).map_err(error)
+}
+#[tauri::command]
 async fn open_index_history_file(id: i64, path: String, state: State<'_, Arc<AppState>>) -> CommandResult<()> {
     let value = rpc(&state, Operation::AuthorizeIndexHistoryFile { id, path }).await?;
     #[cfg(target_os = "macos")]
@@ -556,6 +564,7 @@ pub fn run() {
             run_query,
             summarize_search,
             reveal_path,
+            reveal_docling_log,
             open_data_directory,
             open_about_link,
             updates::check_app_update,

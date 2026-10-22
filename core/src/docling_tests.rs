@@ -918,6 +918,36 @@ fn live_download_progress_is_visible_before_a_carriage_return_line_finishes() {
 }
 
 #[test]
+fn pipe_mode_uv_output_reports_progress_per_package() {
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Docling::new(temp.path());
+    converter.progress("dependencies", "installing");
+    converter.update_download_line(b"Resolved 111 packages in 1.51s");
+    assert_eq!(converter.status().total, None);
+    converter.update_download_line(b"Downloading torch (121.4MiB)");
+    converter.update_download_line(b"Downloading numpy (5.2MiB)");
+    let status = converter.status();
+    assert_eq!(status.packages_total, 2);
+    assert_eq!(status.packages_done, 0);
+    assert_eq!(status.downloaded, 0);
+    assert_eq!(status.total, Some((121.4 * 1048576.0) as u64 + (5.2 * 1048576.0) as u64));
+    converter.update_download_line(b" Downloaded numpy");
+    let status = converter.status();
+    assert_eq!(status.packages_done, 1);
+    assert_eq!(status.downloaded, (5.2 * 1048576.0) as u64);
+    assert!(status.message.contains("Downloaded numpy"));
+    converter.update_download_line(b"Prepared 111 packages in 16.05s");
+    let status = converter.status();
+    assert_eq!(status.packages_done, 2);
+    assert_eq!(status.downloaded, status.total.unwrap());
+    // A new step starts from zero.
+    converter.progress("models", "models");
+    let status = converter.status();
+    assert_eq!(status.packages_total, 0);
+    assert_eq!(status.total, None);
+}
+
+#[test]
 fn terminal_download_frames_include_all_active_packages_and_model_percentages() {
     let temp = tempfile::tempdir().unwrap();
     let converter = Docling::new(temp.path());

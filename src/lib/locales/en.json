@@ -1240,5 +1240,8 @@
   "无法连接本地 SAG 服务": "Could not connect to the local SAG service",
   "如果旧版本的 SAG 服务仍在运行，请先在终端执行 sag service stop，然后重试。": "If an older SAG service is still running, run sag service stop in a terminal, then retry.",
   "重试": "Retry",
-  "SAG 服务重连失败：{value0}": "Could not reconnect to the SAG service: {value0}"
+  "SAG 服务重连失败：{value0}": "Could not reconnect to the SAG service: {value0}",
+  "已完成 {value0} / {value1} 个包": "{value0} of {value1} packages done",
+  "最近活动": "Latest activity",
+  "打开安装日志": "Open install log"
 }

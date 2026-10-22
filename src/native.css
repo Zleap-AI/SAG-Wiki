@@ -431,4 +431,4 @@ input,select,textarea{font-size:var(--text-ui)}
 
 .real-client .sidebar-tools .docling-progress{flex:1;min-width:0;padding:4px 2px;font-size:11px;color:var(--color-secondary);justify-content:center}
 .real-client .docling-progress>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.real-client.compact-sidebar .docling-progress{display:none}
+.real-client.compact-sidebar .docling-progress{flex:none;width:36px;padding:4px 0}.real-client.compact-sidebar .docling-progress>span{font-size:10px}
