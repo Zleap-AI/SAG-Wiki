@@ -24,3 +24,12 @@ core/target/
 
 protocol/target/
 client/target/
+
+browser-extension/node_modules/
+browser-extension/dist/
+src-tauri/clipper/
+docs-site/node_modules/
+docs-site/.next/
+docs-site/.source/
+docs-site/qa/
+browser-extension/build/

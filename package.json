@@ -13,9 +13,13 @@
     "package:windows": "tauri build --config src-tauri/tauri.windows.conf.json",
     "build:cli:dev": "node scripts/build-cli.mjs --debug",
     "package:updates": "node scripts/package-updates.mjs",
+    "build:clipper": "npm --prefix browser-extension ci --ignore-scripts && npm --prefix browser-extension run build",
+    "build:clipper:safari": "npm --prefix browser-extension ci --ignore-scripts && npm --prefix browser-extension run build -- --safari",
+    "build:clipper:desktop": "npm --prefix browser-extension ci --ignore-scripts && node browser-extension/build.mjs --desktop",
     "test:component": "python3 -m unittest discover -s tests -p package_docling_component_test.py",
     "package:macos": "tauri build && npm run test:desktop-package",
-    "test:desktop-package": "python3 -m unittest discover -s tests -p desktop_bundle_test.py"
+    "test:desktop-package": "python3 -m unittest discover -s tests -p desktop_bundle_test.py",
+    "pretest": "npm run build:clipper"
   },
   "dependencies": {
     "@lucide/icons": "1.56.0",

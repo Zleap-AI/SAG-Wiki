@@ -24,7 +24,8 @@
       "licenses/GRAPH-VIEW.txt": "licenses/GRAPH-VIEW.txt",
       "icons/windows/icon.ico": "icons/sag-rounded-v2.ico",
       "bin/sag.exe": "bin/sag.exe",
-      "licenses/PELE.txt": "licenses/PELE.txt"
+      "licenses/PELE.txt": "licenses/PELE.txt",
+      "clipper/sag-web-clipper-chrome.zip": "clipper/sag-web-clipper-chrome.zip"
     },
     "windows": {
       "nsis": {
