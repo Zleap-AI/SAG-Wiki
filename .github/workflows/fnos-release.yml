@@ -1,0 +1,135 @@
+name: fnOS x86 build and release
+
+on:
+  pull_request:
+    branches: [fnos/develop]
+  push:
+    branches: [fnos/develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fnos-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_BUILD_JOBS: '2'
+  RUST_TEST_THREADS: '2'
+  RUSTUP_TOOLCHAIN: '1.99.1'
+  RUSTUP_DIST_SERVER: https://static.rust-lang.org
+  RUSTUP_UPDATE_ROOT: https://static.rust-lang.org/rustup
+  CARGO_REGISTRY_MIRROR: ''
+  DEBIAN_MIRROR: https://deb.debian.org/debian
+  PIP_INDEX_URL: https://pypi.org/simple
+  NPM_CONFIG_REGISTRY: https://registry.npmjs.org
+  FPK_ARCH: x86
+
+jobs:
+  build:
+    name: Test and build fnOS x86
+    if: >-
+      github.repository == 'Zleap-AI/SAG-Wiki' &&
+      (github.event_name == 'pull_request' || github.ref == 'refs/heads/fnos/develop' ||
+      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/fnos-v')))
+    runs-on: ubuntu-24.04
+    container: python:3.11.14-bookworm
+    timeout-minutes: 120
+    steps:
+      - name: Check out event source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Configure build paths
+        run: |
+          {
+            echo "CI_PROJECT_DIR=$GITHUB_WORKSPACE"
+            echo "CARGO_HOME=$GITHUB_WORKSPACE/.cargo-ci"
+            echo "RUSTUP_HOME=$GITHUB_WORKSPACE/.rustup-ci"
+          } >> "$GITHUB_ENV"
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+      - name: Validate source and platform versions
+        run: python3 scripts/ci/github_fpk.py source
+      - name: Restore pinned build tools
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            .rustup-ci
+            .ci-tools
+            .cargo-ci
+          key: fnos-x86-tools-${{ runner.os }}-${{ hashFiles('scripts/ci/setup.sh', 'Cargo.lock') }}
+      - name: Test and package x86 only
+        run: |
+          source scripts/ci/setup.sh build
+          bash scripts/ci/install-frontend.sh
+          npm test
+          npm run build
+          python3 -m unittest discover -s tests -p 'test_*fpk*.py'
+          bash scripts/ci/test-workspace.sh
+          rm -rf target/debug
+          npm run package:fnos -- --arch x86
+          python3 tests/fnos-document-publish.py target/x86_64-unknown-linux-gnu/release/sag-fnos-worker
+          python3 scripts/ci/github_fpk.py verify --binary-directory target/x86_64-unknown-linux-gnu/release
+      - name: Upload verified x86 artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: fnos-x86-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            release/sag-desktop-fnos-*-x86.fpk
+            release/sag-desktop-fnos-*-x86.fpk.sha256
+            release/audit-x86.json
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  required:
+    name: fnos-required
+    if: always()
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require all checks and x86 build
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: test "$BUILD_RESULT" = success
+
+  publish:
+    name: Publish verified fnOS x86
+    needs: [build, required]
+    if: >-
+      github.repository == 'Zleap-AI/SAG-Wiki' &&
+      ((github.ref == 'refs/heads/fnos/develop' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')) ||
+      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/fnos-v')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: fnos-release
+    concurrency:
+      group: fnos-release-publication
+      cancel-in-progress: false
+    permissions:
+      contents: write
+    steps:
+      - name: Check out exact build source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download this run's x86 artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: fnos-x86-${{ github.sha }}-${{ github.run_id }}
+          path: release
+      - name: Publish without replacing assets or desktop Latest
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/ci/github_fpk.py publish

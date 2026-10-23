@@ -64,7 +64,12 @@ if [[ "${1:-}" == build ]]; then
   ln -sf "$zig_binary" "$tools_dir/python/bin/zig"
   export PATH="$tools_dir/python/bin:$PATH"
   cargo install cargo-zigbuild --version 0.24.0 --locked
-  rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
+  case "${FPK_ARCH:-all}" in
+    x86) rustup target add x86_64-unknown-linux-gnu ;;
+    arm) rustup target add aarch64-unknown-linux-gnu ;;
+    all) rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu ;;
+    *) echo 'Unsupported FPK_ARCH' >&2; return 1 ;;
+  esac
   mkdir -p tools
   curl --fail --location --retry 3 --silent --show-error \
     https://static2.fnnas.com/fnpack/fnpack-1.2.3-linux-amd64 -o tools/fnpack

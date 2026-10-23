@@ -1,3 +1,5 @@
+> fnOS development now lives in [Zleap-AI/SAG-Wiki · fnos/develop](https://github.com/Zleap-AI/SAG-Wiki/tree/fnos/develop). GitHub builds x86-64 FPKs only; look for `fnos-` tags in [Releases](https://github.com/Zleap-AI/SAG-Wiki/releases). Windows/macOS development stays on `main`. See [CONTRIBUTING.md](CONTRIBUTING.md) for release and synchronization rules.
+
 # SAG Desktop for fnOS
 
 独立的飞牛 OS 原生应用项目。沿用 SAG Desktop 的 Svelte 界面和 Rust 内核，通过飞牛统一网关运行，提供原生目录授权、索引、搜索、引用问答和 Markdown 编辑。
