@@ -27,6 +27,8 @@
 
 https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
+源码新增文档目录、Mermaid 预览、当前文档问答、长会话摘要和独立网页剪藏。操作说明见[双语文档站](docs-site/README.md)，扩展构建见[网页剪藏说明](browser-extension/README.md)。这些新增功能尚未发布，下方下载链接仍指向已发布版本。
+
 ## 目录
 
 <p align="center">

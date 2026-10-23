@@ -1,0 +1,52 @@
+---
+title: "Installation"
+description: "Use the desktop app or install the standalone CLI."
+---
+
+## Desktop app
+
+Installers for **0.1.9** are available below.
+
+| System | Architecture | Download |
+| --- | --- | --- |
+| macOS | Apple Silicon | [Download DMG](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-macOS-arm64.dmg) |
+| Windows | x64 | [Download installer](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-Windows-x64-setup.exe) |
+
+On macOS, open the DMG and drag SAG Wiki into Applications. On Windows, run the installer and follow its steps. The installer offers Simplified Chinese, Traditional Chinese and English.
+
+[All releases and release notes](https://github.com/Zleap-AI/SAG-Wiki/releases)
+
+## CLI only
+
+Node.js 18 or later is required. The npm package includes native binaries for macOS Apple Silicon and Windows x64. No Rust toolchain or source build is needed.
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+Installing the CLI does not install the desktop app. Continue with [Agent integration](/en/docs/agents) or the [CLI reference](/en/docs/cli).
+
+## Updates
+
+Users on 0.1.8 or earlier must manually install 0.1.9 once to move to the new update-signing channel.
+
+Use in-app updates or download a newer desktop installer. Update an npm-managed CLI with `npm install -g @zleap-ai/sag`.
+
+<Callout title="Files and settings">Upgrades normally preserve original files, knowledge base settings and conversations. Before removing data, distinguish the index from your original documents.</Callout>
+
+## About and software updates
+
+![Installed version and software updates; version 0.1.8 shown](/images/product-about-en.png)
+
+Location: **Settings → About**. This page shows the installed version and links to the open-source project and developer.
+
+The app checks for updates at startup. Select **Check updates** to check manually. Review release notes when a new version is found, select **Download update**, and wait for verification. The action then becomes **Restart and update**.
+
+- Continue using the app during download; closing Settings does not interrupt it.
+- Handle unsaved documents before installation, following the save or cancel prompt.
+- Exiting the whole app requires an unfinished download to start again.
+- Failures display an error. Recheck or download the full installer from GitHub.
+- Updates replace application files while preserving the knowledge base, conversations and originals.
+
+About shows the installed program version. Documentation download links point to released installers.

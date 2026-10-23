@@ -1,0 +1,83 @@
+---
+title: "Q&A"
+description: "Ask about your files and verify answers against their sources."
+---
+
+## Start a conversation
+
+Open Q&A and send your question. Type `@` to select a file. The scope selector controls which documents can be retrieved.
+
+![An answer with citations](/images/product-chat-en.png)
+
+During generation, reasoning, intermediate text and tool calls appear in order. When the final answer starts, the details collapse, leaving only an elapsed-time row and a divider above the answer. Select the row to expand the details again.
+
+If the local service connection temporarily fails, the app reports the error and keeps reconnecting. New questions continue to show streamed text and tool progress after the connection recovers.
+
+![Processing details collapsed above the final answer](/images/product-answer-process-en.png)
+
+While content is being generated, the page follows the latest output. Scrolling up pauses this behavior and preserves your reading position, even for a small movement. Scrolling back to the bottom resumes following.
+
+Answers display Markdown headings, tables, block quotes, ordered and unordered lists, task lists, links and code blocks. Wide tables and code blocks scroll horizontally, and citation numbers remain clickable.
+
+![Markdown tables, quotes and lists in answers](/images/product-answer-markdown-en.png)
+
+Code blocks marked `mermaid` in answers are rendered locally as diagrams. Invalid syntax keeps the source visible and displays an error. See [Mermaid diagrams](/en/docs/files#mermaid-diagrams) for supported types and an example.
+
+## Open a citation
+
+Click a citation number to open the full document in the side panel, automatically positioned at and highlighting the referenced passage. HTML and Markdown are supported.
+
+The file path appears in gray below the file name. Long paths are truncated; hover over the path to see it in full.
+
+![Source document opened from a citation](/images/product-citation-en.png)
+
+Citations help you verify the answer. Read the surrounding context when information is incomplete or contradictory. If you open the standalone document view, Back returns to the conversation.
+
+## Manage conversations
+
+Return to the conversation list to switch chats or start a new one. New conversations use separate context while previous chats remain in history.
+
+History that has not yet been summarized includes previous questions, final answers and compact tool records. Each tool record keeps its name, status and the first 500 characters of its result. Reasoning, tool arguments and intermediate text are excluded from the next turn. The full record remains available in the interface.
+
+The app checks the context budget before each model request, including during tool use. When content grows too large, the current answer model produces a summary covering the task, user constraints, confirmed facts and evidence, completed work, remaining questions and next steps. That summary replaces older content. The most recent exchange and complete tool call are retained when space permits.
+
+Very long histories are summarized in batches and merged. The summary is saved with the conversation for later turns. Summarization makes additional model requests without counting as tool calls. A failed summary reports an error and preserves the original records. Full questions, answers, tool records and source passages remain stored locally and are not overwritten by the summary.
+
+## Configure an answer model
+
+Enter your provider endpoint, model and API key in settings. Configure Jev as well for semantic retrieval. Jev finds evidence; the answer model composes the response.
+
+## Q&A settings in detail
+
+Location: **Settings → Q&A settings**. Select the answer model you want to configure first.
+
+![Reasoning effort and system prompt per model](/images/product-chat-settings-en.png)
+
+### Settings saved per model
+
+| Setting | Purpose | Notes |
+| --- | --- | --- |
+| Reasoning effort | Choose a supported reasoning level | Options depend on the model and service. Higher effort usually takes longer; use Default when unsupported. |
+| System prompt | Specify role, language, style or task requirements | Applies only to the selected model. Blank uses the built-in prompt; clear it to restore that prompt. |
+| Built-in SAG tools | Allow local search, reading, matching, time and calculations | Disable the group or individual tools. Semantic search also requires Jev. |
+| External MCP bindings | Select external servers and tools for the model | Connection details are shared; bindings and enabled tools are per model. |
+
+Use the reasoning options actually shown by the UI. Some models offer Off, Low, Medium, High or Max. Unsupported means the specific model/service combination has no mapped reasoning parameter; it does not mean the model is unusable. Restore Default in that case.
+
+A system prompt does not replace connection settings or add tool support to an incompatible model. See [MCP and tool bindings](/en/docs/mcp) for setup, testing and confirmations.
+
+### Request settings shared by all models
+
+| Setting | Default / range | Effect |
+| --- | --- | --- |
+| Tool calls per turn | 10 / 0–100 | The default is 10. Set 0 to opt into unlimited calls. Values from 1 to 100 cap the total SAG and external MCP calls during one Q&A turn. At that limit, the model answers from available results and identifies what remains unconfirmed. |
+| Answer context budget (tokens) | 65536 / minimum 4096 | Controls input including the question, history, tool records and citations. No fixed maximum; set it within the model's actual capacity. History or material may be reduced to fit. |
+| Request timeout | 120 seconds / 10–600 seconds | How long to wait for service requests. A short timeout can interrupt slow models; a long one delays failure feedback. |
+
+The context budget is not an output-length setting; output length is controlled by the model service. Entering a value beyond the provider limit does not expand model capacity and may cause failure.
+
+The tool-call limit differs from SAG2 expansion rounds. One `search` call can contain several retrieval rounds and Jev requests.
+
+### Save and verify
+
+After saving, send a new question and check the selected model, tool calls and citations. When changing models, verify that model's prompt, reasoning and tools instead of assuming it inherits the previous model's configuration.

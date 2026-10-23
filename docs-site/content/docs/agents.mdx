@@ -1,0 +1,70 @@
+---
+title: "Agent 接入"
+description: "让 Agent 使用 SAG Wiki 的项目检索能力。"
+---
+
+## 一句话安装
+
+把下面整段发送给 Claude Code、Codex 或 OpenCode：
+
+```text
+请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
+```
+
+Skill 会指导 Agent 检查 CLI、安装配套 Skill、配置 Jev、添加当前项目并验证一次检索。无需安装桌面端。
+
+<Callout title="密钥配置">首次语义检索需要 Jev API Key。请在本机交互式终端中输入，不要把密钥发送到聊天。</Callout>
+
+## 手动安装 CLI
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+sag
+```
+
+`sag` 会在首次运行时引导 Jev 配置。已有安装和配置会复用。
+
+## 在当前项目中使用
+
+```sh
+sag add --types md,txt,html,py,js,ts,tsx,json,yaml
+sag check
+sag "这个项目如何处理登录与权限？" . -m 5
+```
+
+按项目的实际文件类型调整 `--types`。待索引就绪后再搜索。结果包含文件、位置和相关内容，Agent 可据此进一步阅读原文。
+
+## Skill 安装位置
+
+| Agent | 用户级目录 |
+| --- | --- |
+| Codex | `~/.agents/skills/sag/` |
+| Claude Code | `~/.claude/skills/sag/` |
+| OpenCode | `~/.config/opencode/skills/sag/` |
+
+Skill 需同时包含 `SKILL.md` 和 `references/` 中的配套文件。以 [GitHub Skill](https://github.com/Zleap-AI/SAG-Wiki/tree/main/cli/skills/sag) 为准。
+
+## 与桌面端共用
+
+Agent 通过 CLI 调用 SAG。桌面与 CLI 共用配置、目录和索引，无需重复建库。使用相关片段开展任务，可以减少把整份文档直接放入上下文的需要；具体 Token 消耗与效率取决于任务和 Agent 的用法。
+
+## 桌面中的 CLI 设置
+
+入口：右上角的插头图标 **接入 Agent**，或 **设置 → CLI 设置**。悬停在图标上可查看名称。
+
+![CLI 服务与 Agent Skill 安装入口](/images/product-cli-settings-cn.png)
+
+| 项目 | 作用 | 如何使用 |
+| --- | --- | --- |
+| 启用 CLI | 允许 CLI 访问共享本地服务 | 首次桌面启动会自动安装并启用；修改开关后保存设置。 |
+| 测试连接 | 检查 CLI 与服务连接状态 | 开关有未保存变化时先保存，再测试。连接成功不等于项目已经完成索引。 |
+| Claude Code / Codex / OpenCode 安装 | 安装对应 Agent 的 SAG Skill | 点击安装；已安装时可卸载。新开 Agent 会话后加载。 |
+| 复制安装命令 | 复制 `sag install` 命令 | 在本地终端运行，或交给对应 Agent 执行。 |
+| 其他 → 下载 SAG Skill | 保存完整 Skill 文件夹 | 手动放入其他 Agent 的 Skills 目录。 |
+| Skill 安装指南 | 显示安装步骤和实际保存位置 | 需要确认 Skill 装到哪里时展开。 |
+| CLI 使用指南 | 查看基本命令、项目范围与状态检查 | 更完整说明见 [CLI 命令](/zh/docs/cli)。 |
+
+不需要给每个目录另选 CLI 授权范围；搜索仍限于当前路径内已加入知识库的内容，并遵守排除规则。关闭 CLI 开关会影响 Agent 接入，不会删除原文件或已建索引。
+
+从 GitHub 链接安装时，按链接中的最新 setup 流程获取完整 Skill；桌面附带的 Skill 是该安装版本内置的副本。

@@ -27,6 +27,8 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
+Source builds also include document outlines, Mermaid previews, document-scoped questions, conversation summarization, and a standalone web clipper. See the [bilingual documentation](docs-site/README.md) and [extension build guide](browser-extension/README.md). These additions are unreleased; download links below still refer to the published version.
+
 ## Contents
 
 <p align="center">

@@ -1,0 +1,29 @@
+{
+  "title": "SAG Wiki",
+  "pages": [
+    "---Get started---",
+    "index",
+    "sag2",
+    "quick-start",
+    "installation",
+    "updates",
+    "---Features---",
+    "folders",
+    "search",
+    "chat",
+    "files",
+    "web-clipper",
+    "---Agent & CLI---",
+    "agents",
+    "cli",
+    "---Settings---",
+    "preferences",
+    "models",
+    "mcp",
+    "privacy",
+    "---Developers & help---",
+    "architecture",
+    "development",
+    "faq"
+  ]
+}

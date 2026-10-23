@@ -1,0 +1,52 @@
+---
+title: "下载安装"
+description: "桌面端与独立 CLI，两种使用方式。"
+---
+
+## 桌面端
+
+当前提供 **0.1.9** 安装包。
+
+| 系统 | 架构 | 下载 |
+| --- | --- | --- |
+| macOS | Apple Silicon | [下载 DMG](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-macOS-arm64.dmg) |
+| Windows | x64 | [下载安装器](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-Windows-x64-setup.exe) |
+
+macOS：打开 DMG，将 SAG Wiki 拖入 Applications，然后启动应用。Windows：运行安装器，按提示完成安装。安装器提供简体中文、繁体中文和英文。
+
+[查看所有版本与更新说明](https://github.com/Zleap-AI/SAG-Wiki/releases)
+
+## 只安装 CLI
+
+需要 Node.js 18 或更高版本。npm 包包含 macOS Apple Silicon 和 Windows x64 原生程序，无需 Rust 或源码编译。
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+安装 CLI 不会安装桌面端。继续阅读 [Agent 接入](/zh/docs/agents)或 [CLI 命令](/zh/docs/cli)。
+
+## 更新
+
+0.1.8 及更早版本需手动安装一次 0.1.9，之后使用新的签名通道继续应用内更新。
+
+桌面端可通过应用内更新获取后续版本，也可手动下载新安装包。npm 安装的 CLI 通过同一条 `npm install -g @zleap-ai/sag` 命令更新。
+
+<Callout title="文件与配置">升级通常保留原文件、知识库配置和会话记录。卸载或清理前，请确认操作的是索引数据还是原始文档。</Callout>
+
+## 关于与软件更新
+
+入口：**设置 → 关于**。这里显示当前安装版本，并提供开源项目与开发公司链接。
+
+![关于页面的版本号与软件更新入口，图示为 0.1.8](/images/product-about-cn.png)
+
+应用启动时检查更新，也可以点击 **检查更新** 手动查询。发现新版本后查看更新说明，选择 **下载更新**；下载完成并通过校验后，按钮变为 **重启并更新**。
+
+- 下载期间可以继续使用应用，关闭设置页不会中断下载。
+- 重启安装前先处理未保存文档，按界面提示保存或取消。
+- 退出整个应用后，未完成的下载需要重新开始。
+- 更新失败时会显示错误，可重新检查或前往 GitHub 下载完整安装包。
+- 更新替换应用文件，保留知识库、会话及本地原文件。
+
+关于页显示的是当前安装程序版本。文档中的下载链接指向已发布的安装包。

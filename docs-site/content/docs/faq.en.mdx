@@ -1,0 +1,35 @@
+---
+title: "Troubleshooting"
+description: "Checks for installation, configuration and search issues."
+---
+
+## Can I use it without an API key?
+
+Yes, for indexing, browsing and local quick search. Semantic retrieval needs Jev configuration; generating answers needs an answer model.
+
+## Are my original files copied or uploaded?
+
+Adding a directory does not move original files. Indexes and metadata are stored locally. Deep search and Q&A send the required question and passages to configured services. Check the relevant component documentation for optional conversion behavior.
+
+## Why is a file missing from search?
+
+Confirm the folder is registered and indexing is ready. Then check file-type settings, ignore rules and excluded subfolders. From the CLI:
+
+```sh
+sag list
+sag check
+```
+
+A directory with zero indexed files has no searchable content.
+
+## Why is the sag command missing?
+
+Check that Node.js and npm are installed, then run `npm install -g @zleap-ai/sag`. Reopen your terminal and check `sag --version`. The npm package supports macOS Apple Silicon and Windows x64.
+
+## Can the CLI work after the desktop app closes?
+
+Yes. Both use the same independent local service. Normal operations connect to or start it when required. `sag service status` only checks status and does not start it.
+
+## How do I report an issue?
+
+Include your OS, app or CLI version, reproduction steps, expected behavior and actual result in [GitHub Issues](https://github.com/Zleap-AI/SAG-Wiki/issues). Hide keys and sensitive file contents in screenshots.

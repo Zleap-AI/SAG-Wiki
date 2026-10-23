@@ -1,0 +1,95 @@
+---
+title: "开发指南"
+description: "准备开发环境与运行源码。"
+---
+
+## 环境
+
+需要 Node.js、npm、Rust 和目标平台的 Tauri 开发依赖。前端依赖通过 `package-lock.json` 固定，Rust 依赖通过各 crate 的 `Cargo.lock` 固定。
+
+仓库包含五个 Rust 构建入口：`protocol/`、`client/`、`core/`、`cli/`、`src-tauri/`。修改共享逻辑时，在 `core/` 中实现，避免在桌面和 CLI 中各写一份。
+
+## 从源码运行桌面应用
+
+在仓库根目录执行：
+
+```sh
+npm ci
+npm run tauri dev
+```
+
+Tauri 开发命令会先构建 debug CLI，再启动 Vite 和桌面后端。前端改动使用热更新；Rust 改动需要重新编译后端。日常界面开发不需要反复生成安装包。
+
+只启动前端开发服务器：
+
+```sh
+npm run dev
+```
+
+前端服务器不能替代 Tauri 的本地文件与检索接口。验证完整桌面流程时使用 Tauri 开发入口。
+
+## 构建 CLI
+
+```sh
+npm run build:cli:dev
+npm run build:cli
+```
+
+前者生成 debug CLI，后者生成 release CLI。开发产物放在 `src-tauri/bin/development/`，正式产物放在 `src-tauri/bin/`；macOS 产物会执行签名步骤。
+
+需要把当前构建安装到用户终端时，显式执行：
+
+```sh
+./src-tauri/bin/sag install cli
+sag --version
+```
+
+安装器检查归属、校验值和构建渠道，以暂存文件校验后原子替换。开发桌面不自动更新正式 CLI；开发 CLI 也拒绝覆盖已登记的正式安装。Rust 源码变更后重新执行 `npm run build:cli:dev`，让桌面和服务使用相同构建身份，再重新启动桌面。
+
+## 构建桌面应用
+
+```sh
+npm run build
+npm run tauri build
+```
+
+Windows 使用：
+
+```sh
+npm run package:windows
+```
+
+使用目标平台对应的系统依赖和签名配置。可分发产物与原生 CLI 来自同一版本源码。npm 分发见[npm 发布](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/zh-CN/npm发布说明.md)。
+
+## 代码检查
+
+```sh
+npm run check
+npm test
+cargo test --manifest-path protocol/Cargo.toml
+cargo test --manifest-path client/Cargo.toml
+cargo test --manifest-path core/Cargo.toml
+cargo test --manifest-path cli/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml --lib
+```
+
+桌面构建与检查依赖本地 CLI 资源时，先执行 `npm run build:cli:dev`。用独立数据目录进行手动开发检查，避免影响日常知识库：
+
+```sh
+SAG_DATA_DIR=/path/to/dev-data npm run tauri dev
+SAG_DATA_DIR=/path/to/dev-data ./src-tauri/bin/development/sag service status
+```
+
+桌面与 CLI 共用同一份开发数据时，设置相同的 `SAG_DATA_DIR`。服务退出后会按需启动，退出桌面不会停止服务；测试结束可执行 `sag service stop`。需要模型服务的功能使用开发者自行配置的凭据；纯索引和本地匹配不需要 API 密钥。
+
+## 文档与仓库边界
+
+`docs/` 保存当前架构、开发指南、接口说明与明确标记的设计计划。实现变化时更新相应文档，避免追加多份相互冲突的历史说明。
+
+开发产物、临时输出、日志、截图和本地数据不提交到文档目录。凭据与用户知识库不进入发布包。自动化测试代码及必要 fixture 保留在各自的测试目录。
+
+## 网页剪藏扩展
+
+运行 `npm run build:clipper` 构建 Chrome / Edge 扩展包，产物位于 `src-tauri/clipper/`。macOS 安装完整 Xcode 后，可运行 `npm run build:clipper:safari` 构建 Safari 本地测试应用，产物位于 `browser-extension/build/`。测试版使用独立的 `com.sag.webclipper.development` 标识，避免干扰已安装的正式扩展。
+
+准备正式 Safari 应用时，运行 `node browser-extension/build.mjs --safari --release`，再完成应用和 DMG 的签名、公证。macOS 桌面端构建使用 `src-tauri/clipper/sag-web-clipper-safari.dmg` 中已公证的安装包，也可通过 `SAG_CLIPPER_SAFARI_DMG` 指定路径；校验未通过时停止构建。桌面端构建不会用未签名测试包覆盖正式包。
