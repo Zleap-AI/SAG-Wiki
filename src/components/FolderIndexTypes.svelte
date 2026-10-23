@@ -6,7 +6,7 @@
  import OtherFormats from './OtherFormats.svelte';
  export let value:FolderIndexOptions;
  export let disabled=false;
- const types:[keyof FileTypes,string,string][]=[['markdown','Markdown','.md · .markdown'],['text','文本与 RTF','.txt · .rst · .rtf'],['code','代码','Python · JavaScript · Rust · HTML · CSS'],['config','配置文件','JSON · YAML · TOML · XML · INI']];
+ const types:[keyof FileTypes,string,string][]=[['markdown','Markdown','.md · .markdown'],['text','文本与文档','.txt · .rtf · .docx · .pptx · .xlsx · .odt · .epub · .pdf'],['code','代码','.py · .js · .ts · .rs · .html · .css'],['config','配置文件','.json · .yaml · .toml · .xml · .ini']];
 </script>
 <fieldset {disabled} class="folder-index-types">
  {#if value.extensions}<p>{value.extensions.map(extension=>`.${extension}`).join(' · ')}</p>{/if}

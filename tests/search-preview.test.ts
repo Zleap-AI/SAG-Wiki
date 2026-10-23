@@ -58,7 +58,7 @@ it('HTML 右侧预览和打开文档都渲染页面，保留样式、图片、�
   expect([...rendered.querySelectorAll('style')].some(style=>style.textContent==='h1{color:red}')).toBe(true);
   expect(rendered.querySelector('img')!.getAttribute('src')).toBe('data:image/png;base64,QUJD');
   expect(rendered.querySelector('a')!.getAttribute('href')).toBe('about:srcdoc#content');
-  expect(frame.getAttribute('sandbox')).toBe('allow-same-origin');expect(frame.title).toBe('HTML 文档');
+  expect(frame.getAttribute('sandbox')).toBe('allow-scripts');expect(frame.title).toBe('HTML 文档');
  }
 });
 it('预览和打开文档均定位到检索片段，而非全文较早的相同词',async()=>{

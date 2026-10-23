@@ -377,6 +377,14 @@ fn open_about_link(target: &str) -> CommandResult<()> {
     };
     open_browser_url(url)
 }
+#[tauri::command]
+fn open_external_link(url: &str) -> CommandResult<()> {
+    let url = tauri::Url::parse(url).map_err(error)?;
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        return Err("不支持的外部链接".into());
+    }
+    open_browser_url(url.as_str())
+}
 fn open_browser_url(url: &str) -> CommandResult<()> {
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
@@ -392,6 +400,30 @@ fn open_browser_url(url: &str) -> CommandResult<()> {
         return Err("无法在浏览器中打开链接".into());
     }
     Ok(())
+}
+fn internal_navigation(url: &tauri::Url, dev_url: Option<&tauri::Url>) -> bool {
+    (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"))
+        || (url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"))
+        || dev_url.is_some_and(|dev| url.origin() == dev.origin())
+}
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn external_pages_cannot_replace_the_app_or_document() {
+        for address in ["https://psycnet.apa.org/record/2010-07936-005", "https://example.org", "file:///tmp/index.html", "javascript:alert(1)"] {
+            assert!(!internal_navigation(&tauri::Url::parse(address).unwrap(), None));
+        }
+        for address in ["tauri://localhost/", "http://tauri.localhost/index.html", "about:srcdoc#chapter", "about:blank"] {
+            assert!(internal_navigation(&tauri::Url::parse(address).unwrap(), None));
+        }
+        let dev = tauri::Url::parse("http://127.0.0.1:1420").unwrap();
+        assert!(internal_navigation(&dev, Some(&dev)));
+        assert!(!internal_navigation(&tauri::Url::parse("http://127.0.0.1:1433").unwrap(), Some(&dev)));
+        assert!(open_external_link("file:///tmp/index.html").is_err());
+    }
 }
 fn reveal(path: &Path) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
@@ -419,6 +451,17 @@ fn reveal(path: &Path) -> anyhow::Result<()> {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri::plugin::Builder::<tauri::Wry>::new("external-links")
+            .on_navigation(|webview, url| {
+                let app = webview.app_handle();
+                if internal_navigation(url, if cfg!(debug_assertions) { app.config().build.dev_url.as_ref() } else { None }) {
+                    return true;
+                }
+                if let Err(error) = open_external_link(url.as_str()) {
+                    emit(app, "app-error", error);
+                }
+                false
+            }).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::UpdateSession::default())
@@ -570,6 +613,7 @@ pub fn run() {
             reveal_docling_log,
             open_data_directory,
             open_about_link,
+            open_external_link,
             updates::check_app_update,
             updates::download_app_update,
             updates::install_app_update,

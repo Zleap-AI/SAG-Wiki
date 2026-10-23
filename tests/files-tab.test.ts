@@ -73,7 +73,7 @@ it('文件标签从总览逐层进入，保留未索引文件，原文返回所�
  await vi.waitFor(()=>expect(fileTab().getAttribute('aria-current')).toBe('page'));
  expect(document.querySelector('.folder-browser h1')?.textContent).toBe('已索引文件');
  expect(document.querySelector('.folder-count')?.textContent).toBe('1 个文件夹 · 2 个已索引文件');
- expect(document.querySelector('.library-folder-title .library-folder-action')?.textContent).toBe('添加文件夹');
+ expect([...document.querySelectorAll('.library-folder-title .library-folder-action')].map(button=>button.textContent)).toEqual(['新建文档','添加文件夹']);
  expect(document.querySelector('.workspace-header .library-folder-action')).toBeNull();
  expect(document.querySelector('.file-stats-heading strong')?.textContent).toBe('2');
  document.querySelector<HTMLButtonElement>('.library-index-details')!.click();

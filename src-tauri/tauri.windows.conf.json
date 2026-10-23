@@ -23,11 +23,16 @@
       "licenses/MORPHDOM.txt": "licenses/MORPHDOM.txt",
       "licenses/GRAPH-VIEW.txt": "licenses/GRAPH-VIEW.txt",
       "icons/windows/icon.ico": "icons/sag-rounded-v2.ico",
-      "bin/sag.exe": "bin/sag.exe"
+      "bin/sag.exe": "bin/sag.exe",
+      "licenses/PELE.txt": "licenses/PELE.txt"
     },
     "windows": {
       "nsis": {
-        "languages": ["English", "SimpChinese", "TradChinese"],
+        "languages": [
+          "English",
+          "SimpChinese",
+          "TradChinese"
+        ],
         "displayLanguageSelector": true,
         "installerHooks": "windows/installer-hooks.nsh",
         "installerIcon": "icons/windows/icon.ico",

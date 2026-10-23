@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import {afterEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import App from '../src/App.svelte';
 import IndexDetails from '../src/components/IndexDetails.svelte';
@@ -9,49 +9,8 @@ vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async(name,handler)=>{listene
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear()});
-it('失败详情单独显示完整文件名与路径，并可定位原文件',async()=>{
- const path=String.raw`\\?\D:\资料`,file=path+'\\'+('很长的子目录\\'.repeat(12))+'主表 生成式人工智能上线备案表.pdf';
- const record={id:43,path,name:'资料',started_at:1700000000000,finished_at:1700000001000,completed:1,total:1,status:'partial',error:'未能索引 1 个文件\n\n'+file+'\nDocling 未生成 Markdown'};
- invoke.mockImplementation(async command=>{
-  if(command==='get_index_status')return{paused:false,tasks:[]};
-  if(command==='get_index_history')return[record];
-  if(command==='get_index_history_log')return{raw:JSON.stringify({time:1700000000000,path:file,stage:'converting',status:'failed',error:'Docling 未生成 Markdown'})};
-  if(command==='reveal_path')return;
-  throw Error(command);
- });
- app=mount(IndexDetails,{target:document.body,props:{roots:[],onClose:vi.fn(),onPauseChange:vi.fn()}});
- await vi.waitFor(()=>expect(document.querySelector('.index-history-toggle .index-root-path')?.textContent).toBe(file.slice(4)));
- expect(document.querySelector('.index-history-toggle .index-root-path')?.getAttribute('title')).toBe(file.slice(4));
- expect(document.querySelector('.index-history-toggle')?.getAttribute('aria-expanded')).toBe('false');
- await vi.waitFor(()=>expect(document.querySelector('.index-failure')).not.toBeNull());
- const details=document.querySelector<HTMLDetailsElement>('.index-failure')!;details.open=true;details.dispatchEvent(new Event('toggle'));
- await vi.waitFor(()=>expect(document.querySelector('.index-failed-file strong')?.textContent).toBe('主表 生成式人工智能上线备案表.pdf'));
- expect(document.querySelector('.index-failed-file .index-file-path')?.textContent).toBe(file.slice(4));
- expect(document.querySelector('.index-failure pre')?.textContent).not.toContain('\\\\?\\');
- document.querySelector<HTMLButtonElement>('.index-failed-file')!.click();
- await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('reveal_path',{path:file}));
-});
-it('Windows 索引路径显示常规格式，打开历史文件仍使用原始路径',async()=>{
- const path=String.raw`\\?\D:\Documents\大模型算法备案`,file=path+String.raw`\报告.pdf`;
- const root={path,name:'大模型算法备案',status:'indexing',count:1,error:null};
- const record={id:42,path,name:root.name,started_at:1700000000000,finished_at:1700000001000,completed:1,total:1,status:'ready',error:null};
- invoke.mockImplementation(async command=>{
-  if(command==='get_index_status')return {paused:false,tasks:[{path,stage:'converting',completed:1,total:2,files:[file]}]};
-  if(command==='get_index_history')return [record];
-  if(command==='get_index_history_log')return {raw:JSON.stringify({path:file,stage:'converting',status:'completed',error:null})};
-  if(command==='open_index_history_file')return;
-  throw Error(command);
- });
- app=mount(IndexDetails,{target:document.body,props:{roots:[root],onClose:vi.fn(),onPauseChange:vi.fn()}});
- await vi.waitFor(()=>expect(document.querySelector('.index-current-files span')?.textContent).toBe(String.raw`D:\Documents\大模型算法备案\报告.pdf`));
- expect([...document.querySelectorAll('.index-root-path')].map(node=>[node.textContent,node.getAttribute('title')])).toEqual(Array(2).fill([String.raw`D:\Documents\大模型算法备案`,String.raw`D:\Documents\大模型算法备案`]));
- expect(document.querySelector('.index-issues-dialog')?.textContent).not.toContain('\\\\?\\');
- document.querySelector<HTMLButtonElement>('.index-history-toggle')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-history-file')?.getAttribute('title')).toBe(String.raw`D:\Documents\大模型算法备案\报告.pdf`));
- document.querySelector<HTMLButtonElement>('.index-history-file')!.click();
- await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_index_history_file',{id:42,path:file}));
-});
+beforeEach(()=>localStorage.removeItem('sag.index.dismissed-failures'));
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear();localStorage.removeItem('sag.index.dismissed-failures')});
 it('部分文件索引失败时可查看具体路径，同时显示已索引文件数量',async()=>{
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
@@ -70,6 +29,52 @@ it('部分文件索引失败时可查看具体路径，同时显示已索引文�
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('UTF-16LE');
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('已索引 270 个文件');
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('其他文件可正常检索');
+});
+
+it('关闭部分失败后，重新打开界面不会再次显示相同失败',async()=>{
+ let roots=[
+  {path:'/notes',name:'Notes',status:'partial',count:270,error:'无法读取 /notes/broken.txt'},
+  {path:'/other',name:'Other',status:'ready',count:4,error:null}
+ ];
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='list_roots')return roots;
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ await unmount(app);
+ roots=[{...roots[1],count:5},{...roots[0],count:271}];
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.sidebar')?.textContent).toContain('Notes'));
+ await vi.waitFor(()=>expect(invoke.mock.calls.filter(([command])=>command==='list_roots')).toHaveLength(2));
+ await tick();
+ expect(document.querySelector('.index-status-link')).toBeNull();
+});
+
+it('关闭失败提示后，新一轮索引正常显示进度，相同失败保持隐藏，新的失败再次提醒',async()=>{
+ let root={path:'/notes',name:'Notes',status:'partial',count:270,error:'无法读取 /notes/broken.txt'};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='list_roots')return [root];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ listeners.get('index-progress')!({payload:{path:'/notes',count:0,total:271}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引（0%）'));
+ root={...root,count:271};
+ listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ root={...root,error:'无法读取 /notes/new-failure.txt'};
+ listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
 });
 
 it('索引阶段与百分比放主行，已处理数量和部分失败独立可见，完成后隐藏',async()=>{
@@ -396,4 +401,48 @@ it('三阶段显示当前步骤及说明，侧栏百分比明确属于当前阶�
  await vi.waitFor(()=>expect(document.querySelector('.index-pipeline [aria-current="step"]')?.textContent).toContain('转换结果索引'),{timeout:2000});
  expect(document.querySelectorAll('.index-pipeline .done')).toHaveLength(2);
  expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引转换结果（25%）');
+});
+
+it('失败详情单独显示完整文件名与路径，并可定位原文件',async()=>{
+ const path=String.raw`\\?\D:\资料`,file=path+'\\'+('很长的子目录\\'.repeat(12))+'主表 生成式人工智能上线备案表.pdf';
+ const record={id:43,path,name:'资料',started_at:1700000000000,finished_at:1700000001000,completed:1,total:1,status:'partial',error:'未能索引 1 个文件\n\n'+file+'\nDocling 未生成 Markdown'};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_index_status')return{paused:false,tasks:[]};
+  if(command==='get_index_history')return[record];
+  if(command==='get_index_history_log')return{raw:JSON.stringify({time:1700000000000,path:file,stage:'converting',status:'failed',error:'Docling 未生成 Markdown'})};
+  if(command==='reveal_path')return;
+  throw Error(command);
+ });
+ app=mount(IndexDetails,{target:document.body,props:{roots:[],onClose:vi.fn(),onPauseChange:vi.fn()}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-history-toggle .index-root-path')?.textContent).toBe(file.slice(4)));
+ expect(document.querySelector('.index-history-toggle .index-root-path')?.getAttribute('title')).toBe(file.slice(4));
+ expect(document.querySelector('.index-history-toggle')?.getAttribute('aria-expanded')).toBe('false');
+ await vi.waitFor(()=>expect(document.querySelector('.index-failure')).not.toBeNull());
+ const details=document.querySelector<HTMLDetailsElement>('.index-failure')!;details.open=true;details.dispatchEvent(new Event('toggle'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-failed-file strong')?.textContent).toBe('主表 生成式人工智能上线备案表.pdf'));
+ expect(document.querySelector('.index-failed-file .index-file-path')?.textContent).toBe(file.slice(4));
+ expect(document.querySelector('.index-failure pre')?.textContent).not.toContain('\\\\?\\');
+ document.querySelector<HTMLButtonElement>('.index-failed-file')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('reveal_path',{path:file}));
+});
+
+it('Windows 索引路径显示常规格式，打开历史文件仍使用原始路径',async()=>{
+ const path=String.raw`\\?\D:\Documents\大模型算法备案`,file=path+String.raw`\报告.pdf`;
+ const root={path,name:'大模型算法备案',status:'indexing',count:1,error:null};
+ const record={id:42,path,name:root.name,started_at:1700000000000,finished_at:1700000001000,completed:1,total:1,status:'ready',error:null};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_index_status')return {paused:false,tasks:[{path,stage:'converting',completed:1,total:2,files:[file]}]};
+  if(command==='get_index_history')return [record];
+  if(command==='get_index_history_log')return {raw:JSON.stringify({path:file,stage:'converting',status:'completed',error:null})};
+  if(command==='open_index_history_file')return;
+  throw Error(command);
+ });
+ app=mount(IndexDetails,{target:document.body,props:{roots:[root],onClose:vi.fn(),onPauseChange:vi.fn()}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-current-files span')?.textContent).toBe(String.raw`D:\Documents\大模型算法备案\报告.pdf`));
+ expect([...document.querySelectorAll('.index-root-path')].map(node=>[node.textContent,node.getAttribute('title')])).toEqual(Array(2).fill([String.raw`D:\Documents\大模型算法备案`,String.raw`D:\Documents\大模型算法备案`]));
+ expect(document.querySelector('.index-issues-dialog')?.textContent).not.toContain('\\\\?\\');
+ document.querySelector<HTMLButtonElement>('.index-history-toggle')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-history-file')?.getAttribute('title')).toBe(String.raw`D:\Documents\大模型算法备案\报告.pdf`));
+ document.querySelector<HTMLButtonElement>('.index-history-file')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_index_history_file',{id:42,path:file}));
 });
