@@ -223,6 +223,32 @@ it('取消移除保持绑定，确认后撤销恢复所有模型的工具选择'
  button('撤销移除').click();await tick();expect(document.querySelectorAll('.mcp-server')).toHaveLength(1);
  await submit();expect(onSave.mock.calls[0][0].model_profiles).toEqual(profiles);expect(onSave.mock.calls[0][0].mcp_servers).toEqual([server]);
 });
+it('移除提示四秒后消失，不会恢复服务或提前保存',async()=>{
+ const onSave=vi.fn().mockResolvedValue(undefined);
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave}});
+ await tick();button('移除服务').click();await tick();
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+ button('确认移除').click();await tick();
+ await vi.advanceTimersByTimeAsync(3999);await tick();
+ expect(document.querySelector('.mcp-feedback')?.textContent).toContain('已移除 DeepWiki');expect(button('撤销移除')).toBeDefined();
+ await vi.advanceTimersByTimeAsync(1);await tick();
+ expect(document.querySelector('.mcp-feedback')).toBeNull();expect(button('撤销移除')).toBeUndefined();
+ expect(document.querySelectorAll('.mcp-server')).toHaveLength(0);expect(onSave).not.toHaveBeenCalled();
+ await submit();expect(onSave.mock.calls[0][0].mcp_servers).toEqual([]);
+});
+it('连续移除重新计时，撤销后的成功提示也会消失',async()=>{
+ const second={...server,id:'docs',name:'Docs'};
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,mcp_servers:[server,second]},initial:'answer',onClose:()=>{},onSave:vi.fn()}});
+ await tick();button('移除服务').click();await tick();
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout']});
+ button('确认移除').click();await tick();await vi.advanceTimersByTimeAsync(3000);
+ button('移除服务').click();await tick();button('确认移除').click();await tick();
+ await vi.advanceTimersByTimeAsync(1000);await tick();expect(document.querySelector('.mcp-feedback')?.textContent).toContain('已移除 Docs');
+ button('撤销移除').click();await tick();expect(document.querySelector('.mcp-feedback')?.textContent).toContain('已恢复 Docs');
+ await vi.advanceTimersByTimeAsync(3999);await tick();expect(document.querySelector('.mcp-feedback')?.textContent).toContain('已恢复 Docs');
+ await vi.advanceTimersByTimeAsync(1);await tick();expect(document.querySelector('.mcp-feedback')).toBeNull();
+ expect([...document.querySelectorAll('.mcp-card-name strong')].map(el=>el.textContent)).toEqual(['Docs']);
+});
 it('支持标准mcpServers、VS Code servers、单服务配置，拒绝无效配置',()=>{
  expect(parseMcpImport('{"servers":{"docs":{"type":"http","url":"https://example.com/mcp"}}}')[0].server.name).toBe('docs');
  expect(parseMcpImport('{"name":"Local","command":"python3","args":["server.py"]}')[0].server).toMatchObject({name:'Local',transport:'stdio',command:'python3',args:['server.py']});

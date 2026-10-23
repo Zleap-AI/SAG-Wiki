@@ -24,6 +24,7 @@
  let active='',importOpen=false,importText='',importError='',status='',statusError=false;
  let addDraft:McpServer|null=null,removing:McpServer|null=null;
  let removed:{server:McpServer;index:number;draft:string;restoreBindings:void|(()=>void)}|null=null;
+ let removalNoticeVisible=false,removalTimer:ReturnType<typeof setTimeout>|undefined;
  let addedIds=new Set<string>();
  let statusTimer:ReturnType<typeof setTimeout>|undefined;
  const addedTimers=new Map<string,ReturnType<typeof setTimeout>>();
@@ -39,7 +40,7 @@
    addedTimers.set(id,setTimeout(()=>{addedIds=new Set([...addedIds].filter(value=>value!==id));addedTimers.delete(id)},4000));
   }
  }
- onDestroy(()=>{clearTimeout(statusTimer);for(const timer of addedTimers.values())clearTimeout(timer)});
+ onDestroy(()=>{clearTimeout(statusTimer);clearTimeout(removalTimer);for(const timer of addedTimers.values())clearTimeout(timer)});
  const cards=new Map<string,HTMLElement>();
  function registerCard(node:HTMLElement,id:string){cards.set(id,node);return{destroy(){cards.delete(id)}}}
  async function reveal(id:string){await tick();cards.get(id)?.scrollIntoView?.({block:'nearest',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});cards.get(id)?.querySelector<HTMLButtonElement>('.model-tool-refresh')?.focus({preventScroll:true});}
@@ -51,13 +52,15 @@
   if(!removing||testing===removing.id)return;
   const server=removing;
   removed={server,index:servers.findIndex(item=>item.id===server.id),draft:drafts[server.id]??'',restoreBindings:onRemove(server.id)};
+  clearTimeout(removalTimer);removalNoticeVisible=true;removalTimer=setTimeout(()=>removalNoticeVisible=false,4000);
   servers=servers.filter(item=>item.id!==server.id);delete drafts[server.id];drafts={...drafts};
   if(active===server.id)active='';removing=null;showStatus('');
  }
  function undoRemove(){
   if(!removed)return;
   try{checkName(removed.server.name)}catch(e){showStatus($t(String(e)),true);return;}
-  const item=removed;servers=[...servers.slice(0,item.index),item.server,...servers.slice(item.index)];drafts={...drafts,[item.server.id]:item.draft};item.restoreBindings?.();removed=null;showStatus($t('已恢复 {value0}。',{value0:item.server.name}));void reveal(item.server.id);
+  clearTimeout(removalTimer);removalNoticeVisible=false;
+  const item=removed;servers=[...servers.slice(0,item.index),item.server,...servers.slice(item.index)];drafts={...drafts,[item.server.id]:item.draft};item.restoreBindings?.();removed=null;showStatus($t('已恢复 {value0}。',{value0:item.server.name}),false,true);void reveal(item.server.id);
  }
  function importConfig(){
   importError='';
@@ -75,7 +78,7 @@
 <p class="settings-help">{$t("添加或导入 MCP 服务，测试连接后为当前模型启用并选择工具。")}</p>
 <div class="mcp-toolbar"><Button.Root type="button" class="outline" onclick={()=>add()}>{$t("添加服务")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>{importOpen=true;importError=''}}>{$t("导入 JSON")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>add(true)}>{$t("添加 DeepWiki 示例")}</Button.Root></div>
 {#if status}<div class="mcp-feedback" class:mcp-feedback-error={statusError} role="status" out:fade={feedbackFade}><span>{#if !statusError}{@html icon('check')}{/if}{status}</span></div>{/if}
-{#if removed}<div class="mcp-feedback" role="status"><span>{@html icon('check')}{$t('已移除 {value0}，保存设置后生效。',{value0:removed.server.name})}</span><Button.Root type="button" class="settings-text-button" onclick={undoRemove}>{$t('撤销移除')}</Button.Root></div>{/if}
+{#if removed&&removalNoticeVisible}<div class="mcp-feedback" role="status" out:fade={feedbackFade}><span>{@html icon('check')}{$t('已移除 {value0}，保存设置后生效。',{value0:removed.server.name})}</span><Button.Root type="button" class="settings-text-button" onclick={undoRemove}>{$t('撤销移除')}</Button.Root></div>{/if}
 {#key model}<SagTools {profile} onChange={value=>profile=value}/>{/key}
 {#each servers as server(server.id)}
  {@const bound=profile.mcp_servers.includes(server.id)}
