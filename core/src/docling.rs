@@ -31,7 +31,7 @@ const FORMATS: &[(&str, &str)] = &[
     ("Excel / CSV", "xlsx xlsm xltx xltm xls xlt csv"),
     ("OpenDocument", "odt ott ods ots odp otp"),
     ("Apple iWork", "pages key numbers"),
-    ("图片", "jpg jpeg png tif tiff bmp webp gif"),
+    ("图片与扫描件（OCR）", "jpg jpeg png tif tiff bmp webp gif"),
     (
         "网页与文本",
         "html htm xhtml mhtml mht md markdown txt text qmd rmd adoc asciidoc asc vtt tex latex",
