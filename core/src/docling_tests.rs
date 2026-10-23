@@ -619,7 +619,7 @@ fn completed_conversions_are_searchable_before_the_conversion_phase_finishes() {
         fs::write(&output, "streamingevidence").unwrap();
         records.insert(
             name,
-            (fingerprint(&source).unwrap(), fingerprint(&output).unwrap()),
+            (format!("{}:{}", crate::anydoc::CACHE_VERSION, fingerprint(&source).unwrap()), fingerprint(&output).unwrap()),
         );
     }
     fs::write(
@@ -1771,4 +1771,146 @@ fn installation_status_preserves_nested_probe_error_diagnostics() {
     assert!(error.contains("组件离线转换验收失败"), "{error}");
     assert!(error.contains("missing OCR model diagnostic"), "{error}");
     assert!(!status.installed);
+}
+
+#[test]
+fn built_in_documents_follow_source_updates_and_migrate_old_conversion_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("library");
+    fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let source = root.join("中文.csv");
+    let bytes = "姓名,内容\n张三,nativewordevidence\n";
+    fs::write(&source, bytes).unwrap();
+    let root_text = store.add_root(&root).unwrap();
+    store.scan(&root_text, |_| {}).unwrap();
+    assert!(!store.docling.installed());
+    assert_eq!(
+        store
+            .search_files("nativewordevidence", &[], 5)
+            .unwrap()
+            .len(),
+        1
+    );
+    let output = output_path(&root, &source).unwrap();
+    assert!(fs::read_to_string(&output).unwrap().contains("张三"));
+    store
+        .connection()
+        .execute(
+            "UPDATE conversions SET source_hash=? WHERE source=?",
+            rusqlite::params![fingerprint(&source).unwrap(), source.to_str().unwrap()],
+        )
+        .unwrap();
+    store.scan(&root_text, |_| {}).unwrap();
+    let source_hash: String = store
+        .connection()
+        .query_row(
+            "SELECT source_hash FROM conversions WHERE source=?",
+            [source.to_str().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(source_hash.starts_with("anydoc-0.2.4:"));
+    fs::write(&source, "姓名,内容\n李四,updatednativeevidence\n").unwrap();
+    store
+        .update_paths(&root_text, &[source.clone()], |_| {})
+        .unwrap();
+    assert!(store
+        .search_files("nativewordevidence", &[], 5)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store
+            .search_files("updatednativeevidence", &[], 5)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(source.exists());
+}
+
+#[test]
+fn built_in_parsers_convert_each_format_without_installing_components() {
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Docling::new(temp.path());
+    let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/anydoc");
+    for (fixture, name) in [
+        ("doc-text.doc", "word.doc"),
+        ("docx-text.docx", "word.docx"),
+        ("ppt-handmade-sparsenotes.ppt", "slides.ppt"),
+        ("pptx-pres.pptx", "slides.pptx"),
+        ("xls-sheet.xls", "sheet.xls"),
+        ("xlsx-sheet.xlsx", "sheet.xlsx"),
+        ("xlsb-handmade-sheet.xlsb", "sheet.xlsb"),
+        ("odt-text.odt", "text.odt"),
+        ("ods-sheet.ods", "sheet.ods"),
+        ("odp-pres.odp", "slides.odp"),
+        ("epub-book.epub", "book.epub"),
+        ("csv-sheet.csv", "sheet.csv"),
+        ("pdf-text.pdf", "text.pdf"),
+    ] {
+        let source = temp.path().join(name);
+        let bytes = fs::read(fixtures.join(fixture)).unwrap();
+        fs::write(&source, &bytes).unwrap();
+        let output = output_path(temp.path(), &source).unwrap();
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        converter
+            .convert(&source, &output)
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+        assert!(!fs::read_to_string(output)
+            .unwrap()
+            .trim()
+            .is_empty());
+        assert_eq!(fs::read(&source).unwrap(), bytes);
+    }
+    assert!(!converter.home.exists());
+}
+
+#[test]
+fn converter_cache_upgrade_failure_keeps_unchanged_source_evidence() {
+    // A previous OCR installation produced valid text; the runtime was later removed.
+    // Updating the built-in converter must not hide that text if the source is unchanged.
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let root = store.add_root(&library).unwrap();
+    let source = Path::new(&root).join("scan.pdf");
+    fs::write(&source, include_bytes!("../tests/fixtures/anydoc/pdf-handmade-scanned.pdf")).unwrap();
+    let output = output_path(Path::new(&root), &source).unwrap();
+    fs::create_dir_all(output.parent().unwrap()).unwrap();
+    fs::write(&output, "previousocrcacheevidence").unwrap();
+    let records = std::collections::BTreeMap::from([("scan.pdf", (fingerprint(&source).unwrap(), fingerprint(&output).unwrap()))]);
+    let ownership = output_path(Path::new(&root), &Path::new(&root).join(".ownership")).unwrap().parent().unwrap().join(".sag-converted.json");
+    fs::write(ownership, serde_json::to_vec(&records).unwrap()).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(fs::read_to_string(&output).unwrap(), "previousocrcacheevidence");
+    assert_eq!(store.search_files("previousocrcacheevidence", &[], 5).unwrap().len(), 1);
+    assert!(store.document(&source).unwrap().body.contains("previousocrcacheevidence"));
+    assert!(store.roots().unwrap()[0].error.as_ref().unwrap().contains("OCR"));
+}
+
+#[test]
+fn converter_cache_hit_keeps_user_edits_and_version_change_does_not_overwrite_them() {
+    let temp = tempfile::tempdir().unwrap();
+    let library = temp.path().join("library");
+    fs::create_dir(&library).unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let source = library.join("data.csv");
+    fs::write(&source, "name,value\nalpha,originalcacheevidence\n").unwrap();
+    let root = store.add_root(&library).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    let source = Path::new(&root).join("data.csv");
+    let output = output_path(Path::new(&root), &source).unwrap();
+    let before = fs::metadata(&output).unwrap().modified().unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(fs::metadata(&output).unwrap().modified().unwrap(), before);
+    fs::write(&output, "usereditedcacheevidence").unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(store.search_files("usereditedcacheevidence", &[], 5).unwrap().len(), 1);
+    store.connection().execute("UPDATE conversions SET source_hash=? WHERE source=?", rusqlite::params![fingerprint(&source).unwrap(), source.to_str().unwrap()]).unwrap();
+    store.scan(&root, |_| {}).unwrap();
+    assert_eq!(fs::read_to_string(&output).unwrap(), "usereditedcacheevidence");
+    assert!(store.roots().unwrap()[0].error.as_ref().unwrap().contains("手动修改"));
 }

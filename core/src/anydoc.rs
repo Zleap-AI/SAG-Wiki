@@ -15,6 +15,8 @@ pub const EXTENSIONS: &[&str] = &[
     "pdf", "doc", "docx", "docm", "ppt", "pps", "pot", "pptx", "pptm", "ppsx", "ppsm",
     "xls", "xlsx", "xlsm", "xlsb", "csv", "odt", "ods", "odp", "epub",
 ];
+/// Bump when the parser or our normalization changes so cached conversions are rebuilt.
+pub const CACHE_VERSION: &str = "anydoc-0.2.4:adapter-1";
 const INPUT_LIMIT: u64 = 512 * 1024 * 1024;
 const OUTPUT_LIMIT: usize = 64 * 1024 * 1024;
 const TIMEOUT: Duration = Duration::from_secs(120);

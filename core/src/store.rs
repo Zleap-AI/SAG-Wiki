@@ -1226,14 +1226,22 @@ impl Store {
                         let source = &sources[index];
                         let source_text = path_text(source)?;
                         let mut converted = false;
+                        let mut unchanged_previous = None;
                         let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
-                            let source_hash = crate::docling::fingerprint(source)?;
-                            let previous: Option<(String,String)> = self.connection().query_row(
-                                "SELECT source_hash,output_hash FROM conversions WHERE source=?", [&source_text],
-                                |row| Ok((row.get(0)?,row.get(1)?))).optional()?;
-                            if let Some((previous_source, previous_output)) = &previous {
+                            let source_content_hash = crate::docling::fingerprint(source)?;
+                            let source_hash = if crate::anydoc::handles(source) {
+                                format!("{}:{source_content_hash}", crate::anydoc::CACHE_VERSION)
+                            } else { source_content_hash.clone() };
+                            let previous: Option<(String,String,bool)> = self.connection().query_row(
+                                "SELECT source_hash,output_hash,valid FROM conversions WHERE source=?", [&source_text],
+                                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
+                            if let Some((previous_source, previous_output, valid)) = &previous {
                                 if output.exists() {
+                                    let previous_content = previous_source.rsplit(':').next().unwrap_or(previous_source);
+                                    if *valid && previous_content == source_content_hash {
+                                        unchanged_previous = Some(source_content_hash.clone());
+                                    }
                                     if previous_source == &source_hash {
                                         self.connection().execute("UPDATE conversions SET valid=1 WHERE source=?", [&source_text])?;
                                         return Ok(true);
@@ -1253,15 +1261,17 @@ impl Store {
                             // Pause between conversion and acceptance without retaining an
                             // "active file" entry or a database lock.
                             self.indexing.checkpoint()?;
-                            if let Err(error) = self.publish_converted_file(root, source, &source_hash, &output, staged,
-                                previous.as_ref().map(|(_, hash)| hash.as_str()), settings.retrieval.chunk_chars) {
+                            if let Err(error) = self.publish_converted_file(root, source, &source_hash, &source_content_hash, &output, staged,
+                                previous.as_ref().map(|(_, hash, _)| hash.as_str()), settings.retrieval.chunk_chars) {
                                 // Keep successful history stages stable; add a failed entry
                                 // only when acceptance rejects an otherwise converted file.
                                 self.indexing.file(root, source, || Err::<(), _>(error))?;
                             }
                             Ok(false)
                         })();
-                        let preserve_previous = converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
+                        let source_unchanged = unchanged_previous.as_ref().is_some_and(|hash|
+                            crate::docling::fingerprint(source).is_ok_and(|current| &current == hash));
+                        let preserve_previous = source_unchanged || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
                         tx.send((source_text, result, preserve_previous))?;
                     }
                     Ok(())
@@ -1303,7 +1313,7 @@ impl Store {
         }
         Ok(issues)
     }
-    fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, output: &Path,
+    fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, source_content_hash: &str, output: &Path,
         staged: tempfile::TempPath, previous_hash: Option<&str>, max_chars: usize) -> Result<()> {
         let reserved = preparation_reservation(&staged);
         let permit = self.text_preparation.reserve(reserved, || self.indexing.stopped())?;
@@ -1311,7 +1321,7 @@ impl Store {
             .context("转换文件准备未生成完整索引")?;
         prepared._permit = Some(permit);
         self.indexing.checkpoint()?;
-        if crate::docling::fingerprint(source)? != source_hash {
+        if crate::docling::fingerprint(source)? != source_content_hash {
             bail!("转换期间原文件发生变化，请重新索引")
         }
         let backup = if output.exists() {
