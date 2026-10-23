@@ -1,3 +1,5 @@
+> 飞牛版在 [`fnos/develop`](https://github.com/Zleap-AI/SAG-Wiki/tree/fnos/develop) 开发，发布 x86 FPK；本分支维护 Windows/macOS。详见 [贡献与发布规范](CONTRIBUTING.md)。
+
 <p align="center">
   <img src="docs/assets/readme/sag-wiki-logo.png" alt="SAG-Wiki" width="294" />
 </p>
