@@ -1,0 +1,49 @@
+name: PR E2E
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-e2e-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  e2e:
+    name: E2E ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+            binary: cli/target/debug/sag
+          - platform: windows
+            runner: windows-2025
+            binary: cli/target/debug/sag.exe
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_INCREMENTAL: '0'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.9'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.98.1'
+      # Only compile the CLI needed by E2E, without Tauri or installers.
+      - name: Prepare E2E executable
+        run: cargo build --locked --manifest-path cli/Cargo.toml
+      - name: Exercise real service and CLI with local Jev fixture
+        run: python tests/local-jev-e2e.py --binary "${{ matrix.binary }}"

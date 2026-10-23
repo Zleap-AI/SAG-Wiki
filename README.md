@@ -5,7 +5,7 @@
 <h1 align="center">SAG-Wiki</h1>
 
 <p align="center">
-  <strong>English</strong> · <a href="README-CN.md">简体中文</a>
+  <strong>English</strong> · <a href="README-CN.md">简体中文</a> · <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
@@ -24,6 +24,8 @@
 </p>
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
+
+Source builds also include document outlines, Mermaid previews, document-scoped questions, conversation summarization, and a standalone web clipper. See the [bilingual documentation](docs-site/README.md) and [extension build guide](browser-extension/README.md). These additions are unreleased; download links below still refer to the published version.
 
 ## Contents
 
@@ -44,8 +46,10 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 | System | Download | Size |
 | --- | --- | --- |
-| macOS | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-macOS-arm64.dmg) | 14.0MB |
-| Windows | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-Windows-x64-setup.exe) | 10.7MB |
+| macOS | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-macOS-arm64.dmg) | 14.4MB |
+| Windows | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-Windows-x64-setup.exe) | 10.9MB |
+
+**Upgrading from 0.1.8 or earlier:** manually install 0.1.9 once to switch to the new update signing key. Future versions can use in-app updates. [Migration details](docs/en/app-update-publishing.md).
 
 **Install for your agent**
 
@@ -61,7 +65,7 @@ Add a folder to make your documents, notes, and code searchable. Find a passage,
 - **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
 - **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
 
-Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. Office, spreadsheets, EPUB and text-based PDFs are parsed locally by built-in anydoc. Install optional Docling only for scanned PDFs and other formats.
+Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. PDF, Office, and EPUB documents convert out of the box; image recognition and audio/video transcription are optional components.
 
 ### How it compares
 

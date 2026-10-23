@@ -32,13 +32,17 @@ it('音频选择先确认媒体组件，不把文档已安装当作媒体已就�
  expect(applied()).toEqual({enabled:true,formats:['mp3']});
 });
 
-it('首次未安装默认只选文档，PDF只安装documents且完成按钮应用本次选择',async()=>{
+it('首次未安装默认不选任何格式，勾选PDF只安装documents且完成按钮应用本次选择',async()=>{
  let current={...initial,installed:false,profiles:initial.profiles.map(profile=>({...profile,installed:false}))};
  invoke.mockImplementation(async command=>{if(command==='install_docling_profiles')current={...current,running:true,stage:'runtime'};return current;});
  app=mount(Harness,{target:document.body});
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
  find('选择其他格式').click();await tick();
+ expect(find('转换 .pdf').getAttribute('aria-checked')).toBe('false');
+ expect(button('应用').disabled).toBe(true);
+ find('转换 .pdf').click();await tick();
  expect(find('转换 .pdf').getAttribute('aria-checked')).toBe('true');
+ expect(button('安装并应用').disabled).toBe(false);
  const pdfChoice=find('转换 .pdf');
  expect(find('转换 .mp3').getAttribute('aria-checked')).toBe('false');
  expect(find('转换 .mp4').getAttribute('aria-checked')).toBe('false');
@@ -125,7 +129,7 @@ it('媒体后台失败后重新打开保持媒体重试目标，文档就绪不�
 it('英文媒体确认完整且首次不会为音视频预选下载',async()=>{
  setLanguage('en');invoke.mockResolvedValue({...initial,installed:false,profiles:initial.profiles.map(profile=>({...profile,installed:false}))});
  app=mount(Harness,{target:document.body});
- await vi.waitFor(()=>expect(find('Select other formats')?.disabled).toBe(false));find('Select other formats').click();await tick();button('Install and apply').click();await tick();
+ await vi.waitFor(()=>expect(find('Select other formats')?.disabled).toBe(false));find('Select other formats').click();await tick();find('Convert .pdf').click();await tick();button('Install and apply').click();await tick();
  expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog) [role="checkbox"]')).toBeNull();
  expect(document.body.textContent).not.toMatch(/[\u3400-\u9fff]/);
  expect(invoke.mock.calls.some(([name])=>name==='install_docling_profiles'||name==='install_docling')).toBe(false);
@@ -140,4 +144,13 @@ it('旧状态读取晚于卸载结果返回时，不能把组件重新显示为�
  finish(initial);await tick();await Promise.resolve();await tick();
  find('选择其他格式').click();await tick();expect(document.querySelector<HTMLButtonElement>('.uninstall-docling')?.disabled).toBe(true);
  expect(applied().enabled).toBe(false);
+});
+
+it('旧版全部格式偏好打开对话框时不预选任何组件格式',async()=>{
+ invoke.mockResolvedValue({...initial,installed:true});
+ app=mount(Harness,{target:document.body,props:{enabled:true,formats:null}});
+ await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();
+ expect(find('转换 .mp3').getAttribute('aria-checked')).toBe('false');
+ expect(find('转换 .mp4').getAttribute('aria-checked')).toBe('false');
+ expect(document.body.textContent).toContain('沿用原有全部格式范围');
 });

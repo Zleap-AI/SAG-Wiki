@@ -1,8 +1,6 @@
 name: Desktop build and release
 
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
   workflow_dispatch:
@@ -53,6 +51,22 @@ jobs:
       - name: Test release validation and signing
         run: node --test scripts/release.node-test.mjs
 
+  documentation:
+    name: Build bilingual documentation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.13.0'
+          cache: npm
+          cache-dependency-path: docs-site/package-lock.json
+      - run: npm --prefix docs-site ci
+      - run: npm --prefix docs-site run build
+
   build:
     name: Build and test ${{ matrix.platform }}
     needs: validate
@@ -96,6 +110,23 @@ jobs:
         run: npm ci
       - name: Run frontend tests
         run: npm test
+      - name: Test Safari native saving and build development installer
+        if: matrix.platform == 'macos'
+        run: |
+          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/ClipFileStoreTests.swift -o "$RUNNER_TEMP/clip-file-tests"
+          "$RUNNER_TEMP/clip-file-tests"
+          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/DefaultDirectoryTests.swift -o "$RUNNER_TEMP/clip-default-tests"
+          "$RUNNER_TEMP/clip-default-tests"
+          node --test scripts/clipper-build.node-test.mjs
+          npm run build:clipper:safari
+      - name: Upload Safari development installer for acceptance
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: safari-development-${{ github.sha }}
+          path: browser-extension/build/sag-web-clipper-safari-development.dmg
+          if-no-files-found: error
+          retention-days: 14
       - name: Run native tests with locked dependencies
         run: |
           cargo test --locked --manifest-path protocol/Cargo.toml --target-dir cli/target
@@ -150,7 +181,7 @@ jobs:
 
   release:
     name: Sign and create a draft release
-    needs: [validate, build]
+    needs: [validate, build, documentation]
     if: github.repository == 'Zleap-AI/SAG-Wiki' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     timeout-minutes: 20

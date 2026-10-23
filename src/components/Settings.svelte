@@ -34,7 +34,7 @@
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
- let settings={...structuredClone(value),updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??10,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false;
  async function openAboutLink(event:MouseEvent,target:'project'|'company'|'302-api-keys'){event.preventDefault();error='';try{await api('open_about_link',{target})}catch(e){error=String(e)}}
  let languageSaved=false;
@@ -76,6 +76,18 @@
    settings={...settings,mcp_servers:settings.mcp_servers.map(item=>item.id===server.id?{...item,tools}:item)};
   }catch(error){mcpErrors={...mcpErrors,[server.id]:$t(String(error))}}finally{mcpTesting=''}
  }
+ function removeMcp(id:string){
+  const bindings=Object.entries(settings.model_profiles).map(([model,profile])=>({model,index:profile.mcp_servers.indexOf(id),tools:profile.mcp_tools?.[id]?.slice()}));
+  for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}
+  return ()=>{
+   for(const binding of bindings){
+    const profile=settings.model_profiles[binding.model];if(!profile)continue;
+    if(binding.index>=0&&!profile.mcp_servers.includes(id))profile.mcp_servers.splice(Math.min(binding.index,profile.mcp_servers.length),0,id);
+    if(binding.tools){profile.mcp_tools??={};profile.mcp_tools[id]=binding.tools;}
+   }
+   settings={...settings};
+  };
+ }
  async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
@@ -106,7 +118,7 @@
      </section>
      <section class="settings-type-preview"><span>{$t("正文预览")}</span><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
     {:else if page==='files'}
-     <div class="settings-info-box">{$t("内置解析 Markdown、文本、RTF、Office、PDF 与电子书。扫描 PDF、图片、音视频等可按需安装 Docling。")}</div>
+     <div class="settings-info-box">{$t("支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件，并内置转换 PDF、Office、EPUB 等文档。首次加入无需模型预处理。")}</div>
      <section class="settings-group file-types">
       <IndexSettings settingsChanged={indexSettingsChanged}/>
       {#each fileTypeOptions as [kind,label,description]}
@@ -161,12 +173,12 @@
      <section class="settings-group settings-fields model-tools-settings">
       <div class="settings-group-heading"><h3>{$t("工具绑定")}</h3></div>
       {#if settings.model_profiles[profileModel]}
-        <McpSettings model={profileModel} bind:profile={settings.model_profiles[profileModel]} bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={id=>{for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}}}/>
+        <McpSettings model={profileModel} bind:profile={settings.model_profiles[profileModel]} bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={removeMcp}/>
       {/if}
      </section>
      <section class="settings-group settings-fields model-request-settings">
       <div class="settings-group-heading"><h3>{$t("上下文与请求")}</h3></div>
-      <div class="setting-row"><label for="max-tool-calls"><strong>{$t("每轮工具调用上限")}</strong><p>{$t("默认 0，表示不限制；SAG 和 MCP 合计")}</p></label><Input id="max-tool-calls" aria-label={$t("每轮工具调用上限")} type="number" min="0" max="100" required bind:value={settings.max_tool_calls}/></div>
+      <div class="setting-row"><label for="max-tool-calls"><strong>{$t("每轮工具调用上限")}</strong><p>{$t("默认 10 次；0 表示不限制，SAG 和 MCP 合计")}</p></label><Input id="max-tool-calls" aria-label={$t("每轮工具调用上限")} type="number" min="0" max="100" required bind:value={settings.max_tool_calls}/></div>
       <div class="setting-row"><label for="answer-context"><strong>{$t("回答上下文预算（tokens）")}</strong><p>{$t("控制问题、历史、工具记录和引用的输入规模。默认 64K，无固定最大值，请按模型支持的上下文大小填写。输出长度由模型服务决定。")}</p></label><Input id="answer-context" aria-label={$t("回答上下文预算（tokens）")} type="number" min="4096" step="1" required bind:value={settings.answer_context_tokens}/></div>
       <div class="setting-row"><label for="model-timeout"><strong>{$t("请求超时")}</strong><p>{$t("单位：秒")}</p></label><Input id="model-timeout" aria-label={$t("请求超时")} type="number" min="10" max="600" bind:value={settings.timeout_secs}/></div>
      </section>

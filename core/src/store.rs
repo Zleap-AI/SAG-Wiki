@@ -169,8 +169,8 @@ fn body(path: &Path, bytes: &[u8]) -> Result<String> {
 fn candidate_from_row(
     r: &rusqlite::Row<'_>,
     order: usize,
-    documents: &mut HashMap<i64, String>,
-) -> Result<Candidate> {
+    documents: &mut HashMap<i64, Option<String>>,
+) -> Result<Option<Candidate>> {
     hydrate_candidate(candidate_metadata(r, order)?, documents)
 }
 
@@ -194,21 +194,42 @@ fn candidate_metadata(r: &rusqlite::Row<'_>, order: usize) -> Result<Candidate> 
     })
 }
 
-fn hydrate_candidate(
-    mut candidate: Candidate,
-    documents: &mut HashMap<i64, String>,
-) -> Result<Candidate> {
-    let path = &candidate.path;
-    let source = match documents.entry(candidate.document_id) {
-        MapEntry::Occupied(entry) => entry.into_mut(),
-        MapEntry::Vacant(entry) => {
-            let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
-            if hash(&raw) != candidate.hash {
-                bail!("文件已修改，请刷新索引：{path}")
-            }
-            entry.insert(body(Path::new(path), &raw)?)
+/// Loads the current source text for a candidate's document.
+///
+/// A document whose file is unreadable (unmounted drive, permission change)
+/// or whose content no longer matches the indexed hash is skipped rather
+/// than failing the whole query: one stale file must not hide every other
+/// result. The watcher or a manual refresh brings the index back in sync.
+/// Reads a document only when its content still matches the indexed hash.
+fn read_indexed_source(path: &str, expected: &str) -> Option<String> {
+    let raw = match fs::read(path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            eprintln!("跳过无法读取的原文件：{path}：{error}");
+            return None;
         }
     };
+    if hash(&raw) != expected {
+        eprintln!("跳过已修改但尚未重新索引的文件：{path}");
+        return None;
+    }
+    match body(Path::new(path), &raw) {
+        Ok(text) => Some(text),
+        Err(error) => {
+            eprintln!("跳过无法解码的原文件：{path}：{error}");
+            None
+        }
+    }
+}
+fn hydrate_candidate(
+    mut candidate: Candidate,
+    documents: &mut HashMap<i64, Option<String>>,
+) -> Result<Option<Candidate>> {
+    let source = match documents.entry(candidate.document_id) {
+        MapEntry::Occupied(entry) => entry.into_mut(),
+        MapEntry::Vacant(entry) => entry.insert(read_indexed_source(&candidate.path, &candidate.hash)),
+    };
+    let Some(source) = source else { return Ok(None) };
     let lines: Vec<&str> = source
         .split('\n')
         .map(|l| l.trim_end_matches('\r'))
@@ -222,7 +243,7 @@ fn hydrate_candidate(
             .collect::<Vec<_>>()
             .join("\n\n")
     };
-    Ok(candidate)
+    Ok(Some(candidate))
 }
 unsafe extern "C" {
     fn sag_register_rank(db: *mut rusqlite::ffi::sqlite3) -> std::os::raw::c_int;
@@ -730,7 +751,7 @@ impl Store {
         let path = self.authorize(path)?;
         let path = if crate::docling::is_source(&path) {
             let output: Option<String> = self.connection().query_row("SELECT output FROM conversions WHERE source=? AND valid=1", [path_text(&path)?], |row| row.get(0)).optional()?;
-            self.authorize(Path::new(&output.context("请启用对应文件类型并完成转换后查看文档")?))?
+            self.authorize(Path::new(&output.context("请启用其他格式并完成转换后查看文档")?))?
         } else { path };
         let raw = fs::read(&path)?;
         let body = crate::document_text::read_borrowed(&path, &raw)?;
@@ -874,7 +895,7 @@ impl Store {
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
-        let result = self.indexing.checkpoint().and_then(|_| self.scan_inner(root, Path::new(root), false, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
+        let result = self.indexing.checkpoint().and_then(|_| self.scan_inner(root, Path::new(root), |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
             Err(e) if !self.indexing.stopped() => self.root_status(root, "error", Some(&e.to_string()))?,
@@ -965,21 +986,26 @@ impl Store {
         }
         if paths.iter().any(|path| path.starts_with(root) && ignore_rules::is_rule_file(path)) {
             let directory = if paths.len() == 1 { paths[0].parent().unwrap() } else { Path::new(root) };
-            return self.scan_inner(root, directory, true, progress);
+            return self.scan_inner(root, directory, progress);
         }
         let mut rules = crate::folder_index::Rules::new(Path::new(root), &settings)?;
         let excluded = self.excluded_directories()?;
         for path in paths.iter().filter(|path| path.starts_with(root) && !crate::docling::in_output(path)) {
             let options = rules.file(path)?;
-            let converted_descendants = if path.is_dir() || !path.exists() {
-                let source = path_text(path)?;
-                let prefix = format!("{}{}", source.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-                self.connection().query_row("SELECT EXISTS(SELECT 1 FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1))", params![root,source,prefix], |row| row.get::<_, bool>(0))?
-            } else { false };
-            let new_documents = path.is_dir()
-                && !self.conversion_files(Path::new(root), path, &settings, &excluded)?.0.is_empty();
-            if crate::docling::is_enabled(path, options) || converted_descendants || new_documents {
-                return self.scan_inner(root, Path::new(root), true, progress);
+            // A changed source needs the conversion pass. Directories keep the
+            // previous rule: only folders that opted into component conversion
+            // rescan from the root; built-in sources inside them are picked up
+            // by the per-directory walk below.
+            if crate::docling::is_source(path) && crate::docling::should_convert(path, options)
+                || options.convert_other_formats && (path.is_dir() || !path.exists()) {
+                return self.scan_inner(root, Path::new(root), progress);
+            }
+            // Built-in formats are always converted, so a new or moved directory that
+            // holds a convertible source needs the conversion pass for that subtree.
+            if path.is_dir() && walkdir::WalkDir::new(path).follow_links(false).into_iter()
+                .filter_map(Result::ok)
+                .any(|entry| entry.file_type().is_file() && crate::anydoc::handles(entry.path()) && !crate::docling::in_output(entry.path())) {
+                return self.scan_inner(root, path, progress);
             }
         }
         let mut ignore = ignore_rules::matcher(Path::new(root));
@@ -1078,14 +1104,14 @@ impl Store {
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
         Ok(removed)
     }
-    fn scan_inner(&self, root: &str, directory: &Path, verify: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn scan_inner(&self, root: &str, directory: &Path, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let settings = self.settings()?;
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         };
         let excluded = self.excluded_directories()?;
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(false))?;
-        let count = self.scan_directory(root, directory, &files, &settings, verify, Some(false), &progress)?;
+        let count = self.scan_directory(root, directory, &files, &settings, false, Some(false), &progress)?;
         let (sources, convert) = self.conversion_files(Path::new(root), directory, &settings, &excluded)?;
         let issues = if convert { self.convert_sources(root, directory, &sources, &settings, &progress)? } else { vec![] };
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(true))?;
@@ -1103,9 +1129,7 @@ impl Store {
     }
     pub(crate) fn indexable_path(path: &Path, settings: &FolderIndexOptions) -> bool {
         if crate::docling::in_output(path) {
-            text::is_markdown(path) && crate::docling::is_enabled(Path::new(path.file_stem().unwrap()), settings)
-        } else if crate::docling::is_source(path) {
-            false
+            text::is_markdown(path) && crate::docling::should_convert(&path.with_extension(""), settings)
         } else if let Some(extensions) = &settings.extensions {
             path.extension().and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extensions.iter().any(|selected| selected.eq_ignore_ascii_case(extension)))
@@ -1128,21 +1152,21 @@ impl Store {
         let mut files = vec![];
         for entry in builder.build() {
             self.indexing.checkpoint()?;
-            let entry = entry?;
+            let Some(entry) = self.walk_entry(root, entry)? else { continue };
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
             if entry.file_type().is_some_and(|kind| kind.is_dir()) { rules.directory(entry.path())?; }
             if entry.path().starts_with(directory) && entry.file_type().is_some_and(|kind| kind.is_file())
-                && crate::docling::is_enabled(entry.path(), rules.file(entry.path())?)
-                && !crate::docling::is_pem_key(entry.path())? {
+                && crate::docling::is_source(entry.path()) && !crate::docling::is_pem_key(entry.path())?
+                && crate::docling::should_convert(entry.path(), rules.file(entry.path())?) {
                 files.push(entry.into_path());
             }
         }
-        Ok((files, rules.converts_files()))
+        let convert = rules.converts_files() || !files.is_empty();
+        Ok((files, convert))
     }
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
-        let workers = settings.conversion_workers;
         let mut issues = vec![];
-        let mut rules = crate::folder_index::Rules::new(Path::new(root), settings)?;
+        let mut rules = crate::folder_index::Rules::new(Path::new(root), &self.settings()?)?;
         // Keep ownership beside the derived files so removing/re-adding a library
         // can reuse them without mistaking user files for disposable output.
         let metadata_path = crate::docling::output_path(Path::new(root), &Path::new(root).join(".ownership"))?
@@ -1176,7 +1200,7 @@ impl Store {
         for (source, output, output_hash) in previous {
             self.indexing.checkpoint()?;
             let options = rules.file(Path::new(&source))?;
-            if sources_set.contains(&source) || !crate::docling::is_enabled(Path::new(&source), options) { continue; }
+            if sources_set.contains(&source) || !crate::docling::should_convert(Path::new(&source), options) { continue; }
             let path = Path::new(&output);
             // Delete only our unchanged derivative; user-edited Markdown is preserved.
             if path.is_file() && crate::docling::fingerprint(path)? == output_hash {
@@ -1185,15 +1209,13 @@ impl Store {
             self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
             self.remove_indexed(&output)?;
         }
-        if !sources.is_empty() {
-            self.indexing.phase(root, "converting", sources.len());
-            progress(IndexProgress { count: 0, total: sources.len() });
-        }
+        self.indexing.phase(root, "converting", sources.len());
+        progress(IndexProgress { count: 0, total: sources.len() });
         let next = std::sync::atomic::AtomicUsize::new(0);
         thread::scope(|scope| -> Result<()> {
             let (tx, rx) = std::sync::mpsc::channel();
             let mut handles = Vec::new();
-            for _ in 0..workers.min(sources.len()) {
+            for _ in 0..settings.conversion_workers.min(sources.len()) {
                 let tx = tx.clone();
                 let next = &next;
                 handles.push(scope.spawn(move || -> Result<()> {
@@ -1204,17 +1226,22 @@ impl Store {
                         let source = &sources[index];
                         let source_text = path_text(source)?;
                         let mut converted = false;
+                        let mut unchanged_previous = None;
                         let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
                             let source_content_hash = crate::docling::fingerprint(source)?;
-                            let source_hash = if crate::docling::is_builtin(source) {
-                                format!("{}:{source_content_hash}", crate::docling::BUILTIN_VERSION)
+                            let source_hash = if crate::anydoc::handles(source) {
+                                format!("{}:{source_content_hash}", crate::anydoc::CACHE_VERSION)
                             } else { source_content_hash.clone() };
-                            let previous: Option<(String,String)> = self.connection().query_row(
-                                "SELECT source_hash,output_hash FROM conversions WHERE source=?", [&source_text],
-                                |row| Ok((row.get(0)?,row.get(1)?))).optional()?;
-                            if let Some((previous_source, previous_output)) = &previous {
+                            let previous: Option<(String,String,bool)> = self.connection().query_row(
+                                "SELECT source_hash,output_hash,valid FROM conversions WHERE source=?", [&source_text],
+                                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
+                            if let Some((previous_source, previous_output, valid)) = &previous {
                                 if output.exists() {
+                                    let previous_content = previous_source.rsplit(':').next().unwrap_or(previous_source);
+                                    if *valid && previous_content == source_content_hash {
+                                        unchanged_previous = Some(source_content_hash.clone());
+                                    }
                                     if previous_source == &source_hash {
                                         self.connection().execute("UPDATE conversions SET valid=1 WHERE source=?", [&source_text])?;
                                         return Ok(true);
@@ -1235,14 +1262,16 @@ impl Store {
                             // "active file" entry or a database lock.
                             self.indexing.checkpoint()?;
                             if let Err(error) = self.publish_converted_file(root, source, &source_hash, &source_content_hash, &output, staged,
-                                previous.as_ref().map(|(_, hash)| hash.as_str()), settings.retrieval.chunk_chars) {
+                                previous.as_ref().map(|(_, hash, _)| hash.as_str()), settings.retrieval.chunk_chars) {
                                 // Keep successful history stages stable; add a failed entry
                                 // only when acceptance rejects an otherwise converted file.
                                 self.indexing.file(root, source, || Err::<(), _>(error))?;
                             }
                             Ok(false)
                         })();
-                        let preserve_previous = converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
+                        let source_unchanged = unchanged_previous.as_ref().is_some_and(|hash|
+                            crate::docling::fingerprint(source).is_ok_and(|current| &current == hash));
+                        let preserve_previous = source_unchanged || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
                         tx.send((source_text, result, preserve_previous))?;
                     }
                     Ok(())
@@ -1335,6 +1364,33 @@ impl Store {
         }
         Ok(())
     }
+    /// Resolves one walk entry. A directory that cannot be listed (macOS privacy
+    /// protection, foreign ownership, Windows ACLs) is recorded as an index issue
+    /// and skipped so the rest of the folder still gets indexed.
+    fn walk_entry(&self, root: &Path, entry: std::result::Result<ignore::DirEntry, ignore::Error>) -> Result<Option<ignore::DirEntry>> {
+        let error = match entry {
+            Ok(entry) => return Ok(Some(entry)),
+            Err(error) => error,
+        };
+        let Some(io) = error.io_error() else { return Err(error.into()) };
+        if !matches!(io.kind(), std::io::ErrorKind::PermissionDenied | std::io::ErrorKind::NotFound) {
+            return Err(error.into());
+        }
+        let path = match &error {
+            ignore::Error::WithPath { path, .. } => path.clone(),
+            ignore::Error::WithDepth { err, .. } => match err.as_ref() {
+                ignore::Error::WithPath { path, .. } => path.clone(),
+                _ => root.to_path_buf(),
+            },
+            _ => root.to_path_buf(),
+        };
+        eprintln!("跳过无法读取的目录：{}：{io}", path.display());
+        self.connection().execute(
+            "INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error",
+            params![path_text(&path)?, path_text(root)?, format!("无法读取目录：{io}")],
+        )?;
+        Ok(None)
+    }
     fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<Vec<PathBuf>> {
         let converted = if converted_only == Some(false) { HashSet::new() } else { self.conversion_outputs()? };
         let mut rules = crate::folder_index::Rules::new(root, settings)?;
@@ -1358,7 +1414,7 @@ impl Store {
         let mut files = Vec::new();
         for entry in builder.build() {
             self.indexing.checkpoint()?;
-            let entry = entry?;
+            let Some(entry) = self.walk_entry(root, entry)? else { continue };
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
             if (entry.path().starts_with(directory) || entry.path().starts_with(&converted_target)) && entry.file_type().is_some_and(|ty| ty.is_file())
                 && converted_only.is_none_or(|converted| converted == crate::docling::in_output(entry.path()))
@@ -1433,6 +1489,9 @@ impl Store {
         for p in indexed {
             self.indexing.checkpoint()?;
             if converted_only.is_some_and(|converted| converted != crate::docling::in_output(Path::new(&p))) { continue; }
+            // An issue recorded for a directory the walk could not enter stays until the
+            // directory becomes readable again or disappears.
+            if Path::new(&p).is_dir() && fs::read_dir(&p).is_err() { continue; }
             if !seen.contains(&p) {
                 self.remove_indexed(&p)?
             }
@@ -1727,9 +1786,15 @@ impl Store {
         ])?;
         let mut results = vec![];
         let mut documents = HashMap::new();
+        let mut skipped = 0;
         while let Some(row) = rows.next()? {
-            results.push(candidate_from_row(row, results.len(), &mut documents)?);
+            match candidate_from_row(row, results.len(), &mut documents)? {
+                Some(candidate) => results.push(candidate),
+                None => skipped += 1,
+            }
         }
+        // Stale or unreadable files were dropped from this page; keep the count honest.
+        let total = total.saturating_sub(skipped);
         Ok((results, SearchPagination { total, page, page_size }))
     }
     pub fn candidate_query(
@@ -1815,7 +1880,13 @@ impl Store {
         transaction.commit()?;
         drop(connection);
         let mut documents = HashMap::new();
-        metadata.into_iter().map(|candidate| hydrate_candidate(candidate, &mut documents)).collect()
+        let mut hydrated = Vec::with_capacity(metadata.len());
+        for candidate in metadata {
+            if let Some(candidate) = hydrate_candidate(candidate, &mut documents)? {
+                hydrated.push(candidate);
+            }
+        }
+        Ok(hydrated)
     }
 
     fn rank_statistics(&self, connection: &Connection, version: i64, expression: &str) -> Result<Vec<u8>> {
@@ -1940,7 +2011,9 @@ impl Store {
         let mut result = vec![];
         let mut documents = HashMap::new();
         while let Some(row) = rows.next()? {
-            result.push(candidate_from_row(row, result.len(), &mut documents)?);
+            if let Some(candidate) = candidate_from_row(row, result.len(), &mut documents)? {
+                result.push(candidate);
+            }
         }
         Ok(result)
     }
@@ -1977,9 +2050,9 @@ impl Store {
                 serde_json::from_str(&saved)?
             } else {
                 // Upgrade an existing index once; new and changed files save this during indexing.
-                let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
-                if hash(&raw) != expected { bail!("文件已修改，请刷新索引：{path}") }
-                let source = body(Path::new(&path), &raw)?;
+                // A file that is unreadable or changed since indexing is left out of the statistics
+                // instead of failing the query; the next index update restores it.
+                let Some(source) = read_indexed_source(&path, &expected) else { continue };
                 let mut terms = crate::sag2_v10::vocabulary(&text::indexable_text(&source, Path::new(&path)));
                 let passages: Vec<Vec<SourceSpan>> = serde_json::from_str(&spans.unwrap())?;
                 for spans in passages {
@@ -2017,10 +2090,9 @@ impl Store {
             let values = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
             values
         };
-        rows.into_iter().map(|(title,path,expected,spans)| {
-            let raw = fs::read(&path).with_context(|| format!("无法读取原文件：{path}"))?;
-            if hash(&raw) != expected { bail!("文件已修改，请刷新索引：{path}") }
-            let source = body(Path::new(&path), &raw)?;
+        rows.into_iter().filter_map(|(title,path,expected,spans)| {
+            let source = read_indexed_source(&path, &expected)?;
+            Some((|| -> Result<(String, String)> {
             let passages: Vec<Vec<SourceSpan>> = serde_json::from_str(&spans)?;
             let mut vocabulary = text::indexable_text(&source, Path::new(&path)).into_owned();
             // Count each document once, including the exact words in its indexed passages.
@@ -2030,6 +2102,7 @@ impl Store {
                 vocabulary.push_str(&text::source_content(&source, &spans));
             }
             Ok((title, vocabulary))
+            })())
         }).collect()
     }
 
@@ -2126,12 +2199,20 @@ impl Store {
         }
         Ok(())
     }
-    pub fn replace_messages(&self, id: &str, messages: Vec<Message>) -> Result<Conversation> {
+    pub fn replace_messages(&self, id: &str, mut messages: Vec<Message>) -> Result<Conversation> {
         let mut conversation = self
             .conversations()?
             .into_iter()
             .find(|c| c.id == id)
             .context("对话不存在")?;
+        // Summaries refer to absolute positions and content in the previous
+        // transcript. Deleting, editing, reordering or restoring messages makes
+        // those references unsafe; rebuild from the retained raw messages.
+        for message in &mut messages {
+            if let Some(context) = &mut message.context {
+                context.summary = None;
+            }
+        }
         conversation.messages = messages;
         conversation.updated = now();
         self.put_conversation(&conversation)?;
@@ -2204,12 +2285,12 @@ cat "$source" > "$output"
     fn converted_text_resource_failure_preserves_readable_previous_markdown_and_index() {
         let (_dir, store, root) = converted_text_fixture();
         fs::create_dir(root.join("nested")).unwrap();
-        let source = root.join("nested/report.eml");
+        let source = root.join("nested/report.docx");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
         let previous = fs::read(&output).unwrap();
-        assert!(std::str::from_utf8(&previous).unwrap().contains("../../nested/report.eml"));
+        assert!(std::str::from_utf8(&previous).unwrap().contains("../../nested/report.docx"));
         let previous_hash = hash(&previous);
         fs::write(&source, "unbrokenword ".repeat(25_000)).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
@@ -2224,14 +2305,14 @@ cat "$source" > "$output"
         assert_eq!(store.document(&source).unwrap().body.as_bytes(), previous);
         assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
         let names: Vec<_> = fs::read_dir(output.parent().unwrap()).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
-        assert_eq!(names, vec!["report.eml.md"]);
+        assert_eq!(names, vec!["report.docx.md"]);
     }
 
     #[cfg(unix)]
     #[test]
     fn converted_text_database_failure_rolls_back_markdown_and_index_together() {
         let (_dir, store, root) = converted_text_fixture();
-        let source = root.join("report.eml");
+        let source = root.join("report.docx");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
@@ -2254,7 +2335,7 @@ cat "$source" > "$output"
     #[test]
     fn converted_text_commit_failure_restores_the_published_markdown() {
         let (_dir, store, root) = converted_text_fixture();
-        let source = root.join("report.eml");
+        let source = root.join("report.docx");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
@@ -2276,7 +2357,7 @@ cat "$source" > "$output"
     #[test]
     fn converted_text_cancel_during_paused_acceptance_removes_staging_and_keeps_old_markdown() {
         let (dir, store, root) = converted_text_fixture();
-        let source = root.join("report.eml");
+        let source = root.join("report.docx");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
@@ -2696,7 +2777,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn model_profiles_and_tool_limit_persist_and_validate() {
         let (_dir, store, _) = setup();
         let mut settings = store.settings().unwrap();
-        assert_eq!(settings.max_tool_calls, 0);
+        assert_eq!(settings.max_tool_calls, 10);
         settings.mcp_servers.push(McpServer {
             id: "wiki".into(),
             name: "Wiki".into(),
@@ -3486,8 +3567,8 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let expression = text::match_query("alpha");
         assert_eq!(store.candidate_query(&expression, None, &[], &[], &[], 100).unwrap().len(), 1);
         fs::write(&source, "beta replacement source").unwrap();
-        // Even a cache hit must validate the original file.
-        assert!(store.candidate_query(&expression, None, &[], &[], &[], 100).is_err());
+        // Even a cache hit must validate the original file; a changed file is left out.
+        assert!(store.candidate_query(&expression, None, &[], &[], &[], 100).unwrap().is_empty());
         let writer = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
         writer.update_paths(root.to_str().unwrap(), &[source.clone()], |_| {}).unwrap();
         assert!(store.candidate_query(&expression, None, &[], &[], &[], 100).unwrap().is_empty());
@@ -3645,6 +3726,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         }
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn rtf_search_uses_visible_text_and_exact_citations_without_changing_source() {
         let (_dir, store, root) = setup();
@@ -3655,9 +3737,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let results = store.search_files("rtfmarker", &[], 10).unwrap();
         assert_eq!(results.len(), 1);
         let doc = store.document(&path).unwrap();
-        assert!(doc.body.contains("**Release**"));
-        assert!(doc.body.contains("星河 rtfmarker LYRA-73492"));
-        assert!(doc.body.contains("café 😀"));
+        assert_eq!(doc.body, "Release\n星河 rtfmarker LYRA-73492\ncafé 😀");
         let hit = &results[0];
         assert_eq!(hit.content, hit.source_spans.iter().map(|s| &doc.body[s.start_byte..s.end_byte]).collect::<Vec<_>>().join("\n\n"));
         assert!(store.search_files("metadataonlytitle metadataonlyfont", &[], 10).unwrap().is_empty());
@@ -3665,6 +3745,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
 
+    #[cfg(target_os = "macos")]
     #[test]
     fn long_rtf_citations_and_incremental_changes_use_the_same_body() {
         let (_dir, store, root) = setup();
@@ -3677,15 +3758,15 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         fs::write(&path, &bytes).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let doc = store.document(&path).unwrap();
-        assert!(doc.body.contains(original.lines().nth(1).unwrap()));
+        assert_eq!(doc.body, original);
         let results = store.search_files("rtfdeepmarker", &[], 10).unwrap();
         assert_eq!(results.len(), 1);
         let hit = &results[0];
         assert!(hit.content.contains("RELEASE-73492"));
         for span in &hit.source_spans {
             assert_eq!(&doc.body[span.start_byte..span.end_byte], hit.content);
-            assert_eq!(span.start_line, doc.body[..span.start_byte].bytes().filter(|byte| *byte == b'\n').count() + 1);
-            let line_start = doc.body[..span.start_byte].rfind('\n').map_or(0, |index| index + 1);
+            assert_eq!(span.start_line, 2);
+            let line_start = doc.body.find('\n').unwrap() + 1;
             assert_eq!(span.start_column, doc.body[line_start..span.start_byte].chars().count() + 1);
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), bytes);
@@ -3697,7 +3778,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let renamed = root.join("renamed.rtf");
         fs::rename(&path, &renamed).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path, renamed.clone()], |_| {}).unwrap();
-        assert_eq!(store.search_files("updatedrtfmarker", &[], 10).unwrap()[0].path, crate::docling::output_path(&root, &renamed).unwrap().to_str().unwrap());
+        assert_eq!(store.search_files("updatedrtfmarker", &[], 10).unwrap()[0].path, renamed.to_str().unwrap());
         fs::remove_file(&renamed).unwrap();
         store.update_paths(root.to_str().unwrap(), &[renamed], |_| {}).unwrap();
         assert!(store.search_files("updatedrtfmarker", &[], 10).unwrap().is_empty());
@@ -3873,12 +3954,69 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         fs::write(&path, bytes).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path.clone()], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "partial");
-        assert!(store.search_files("recoveredmarker", &[], 10).unwrap_err().to_string().contains("文件已修改"));
+        // A changed file is left out of results instead of failing the whole search,
+        // and the reported total excludes it.
+        let (hits, pagination) = store.search_files_page("recoveredmarker", &[], 1, 10).unwrap();
+        assert!(hits.is_empty());
+        assert_eq!(pagination.total, 0);
         fs::remove_file(&path).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path], |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "ready");
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_subdirectory_is_reported_and_the_rest_of_the_folder_is_indexed() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 { return; }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+        let root_text = store.add_root(&root).unwrap();
+        fs::write(root.join("open.md"), "readablemarker").unwrap();
+        let locked = root.join("locked");
+        fs::create_dir(&locked).unwrap();
+        fs::write(locked.join("inside.md"), "lockedmarker").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let result = store.scan(&root_text, |_| {});
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        result.unwrap();
+        assert_eq!(store.search_files("readablemarker", &[], 10).unwrap().len(), 1);
+        let state = &store.roots().unwrap()[0];
+        assert_eq!(state.status, "partial");
+        assert!(state.error.as_ref().unwrap().contains("locked"), "{:?}", state.error);
+        // Once the directory becomes readable again a rescan clears the issue.
+        store.scan(&root_text, |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        assert_eq!(store.search_files("lockedmarker", &[], 10).unwrap().len(), 1);
+    }
+    #[cfg(unix)]
+    #[test]
+    fn an_unreadable_sagignore_never_widens_what_gets_indexed() {
+        use std::os::unix::fs::PermissionsExt;
+        if unsafe { libc::geteuid() } == 0 { return; }
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+        let root_text = store.add_root(&root).unwrap();
+        let private = root.join("private");
+        fs::create_dir(&private).unwrap();
+        fs::write(private.join("salary.md"), "salarymarker").unwrap();
+        fs::write(private.join("notes.md"), "notesmarker").unwrap();
+        let rules = private.join(".sagignore");
+        fs::write(&rules, "salary.md\n").unwrap();
+        store.scan(&root_text, |_| {}).unwrap();
+        assert!(store.search_files("salarymarker", &[], 10).unwrap().is_empty());
+        assert_eq!(store.search_files("notesmarker", &[], 10).unwrap().len(), 1);
+        // The rules file becomes unreadable while the directory stays readable.
+        fs::set_permissions(&rules, fs::Permissions::from_mode(0o000)).unwrap();
+        let full = store.scan(&root_text, |_| {});
+        let partial = store.update_paths(&root_text, &[private.join("salary.md")], |_| {});
+        fs::set_permissions(&rules, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(full.is_err(), "a full scan must fail closed when a rules file cannot be read");
+        assert!(partial.is_err(), "a targeted update must fail closed when a rules file cannot be read");
+        assert!(store.search_files("salarymarker", &[], 10).unwrap().is_empty());
+    }
     #[test]
     fn file_index_issues_persist_and_clear_when_the_directory_is_excluded() {
         let (dir, store, root) = setup();
@@ -4055,13 +4193,19 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
                 .len(),
             1
         );
-        assert!(store
-            .candidate_query(&expression, None, &[], &[], &[], 100)
-            .is_err());
+        // The removed file drops out of a wider query without failing it.
+        assert_eq!(
+            store
+                .candidate_query(&expression, None, &[], &[], &[], 100)
+                .unwrap()
+                .len(),
+            1
+        );
         fs::write(&best, "modified needle").unwrap();
         assert!(store
             .candidate_query(&expression, None, &[], &[], &[], 1)
-            .is_err());
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

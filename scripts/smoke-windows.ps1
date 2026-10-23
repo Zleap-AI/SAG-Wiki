@@ -85,6 +85,16 @@ try {
     if ($desktopVersion -notmatch ('^' + [regex]::Escape($Version) + '(?:\.0)?$')) {
         throw "Desktop executable version $desktopVersion does not match $Version."
     }
+    $clipperPath = Join-Path $installDirectory 'clipper\sag-web-clipper-chrome.zip'
+    if (-not (Test-Path -LiteralPath $clipperPath)) { throw 'Installed Chrome/Edge extension package is missing.' }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $clipperArchive = [IO.Compression.ZipFile]::OpenRead($clipperPath)
+    try {
+        foreach ($name in @('manifest.json', 'background.js', 'extract.js', 'popup.html', 'options.html')) {
+            $entry = $clipperArchive.GetEntry($name)
+            if (-not $entry -or $entry.Length -eq 0) { throw "Installed clipper entry is missing: $name" }
+        }
+    } finally { $clipperArchive.Dispose() }
     $cliVersion = (& $cliPath --version | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $cliVersion -ne "sag $Version") {
         throw "Installed CLI version check failed: $cliVersion"

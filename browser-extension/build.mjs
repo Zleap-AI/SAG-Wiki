@@ -1,6 +1,6 @@
 import {build} from 'esbuild';
 import {zipSync} from 'fflate';
-import {cp, mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {access, cp, mkdir, readdir, readFile, rm, writeFile} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
@@ -71,6 +71,12 @@ if(process.argv.includes('--desktop') && process.platform==='darwin') {
  const target=path.join(packages,'sag-web-clipper-safari.dmg');
  if(process.env.SAG_CLIPPER_SAFARI_DMG)await cp(process.env.SAG_CLIPPER_SAFARI_DMG,target);
  // Desktop releases must preserve a notarized installer, never replace it with a local test build.
- execFileSync('spctl',['--assess','--type','open','--context','context:primary-signature',target],{stdio:'inherit'});
+ let available=true;
+ try { await access(target); } catch (error) {
+  available=false;
+  if(error.code!=='ENOENT'||process.env.SAG_REQUIRE_SAFARI_CLIPPER==='1')throw error;
+  console.log('Safari installer not supplied; desktop Safari export is disabled.');
+ }
+ if(available)execFileSync('spctl',['--assess','--type','open','--context','context:primary-signature',target],{stdio:'inherit'});
 }
 console.log(`Extension packages: ${packages}`);

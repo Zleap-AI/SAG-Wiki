@@ -5,8 +5,19 @@ use std::{
 };
 
 const GIB: u64 = 1024 * 1024 * 1024;
-static GLOBAL: LazyLock<Budget> =
-    LazyLock::new(|| Budget::new((physical_memory() / 4).clamp(256 * 1024 * 1024, 12 * GIB)));
+/// Memory each conversion may use. Docling with OCR peaks above 2 GiB even
+/// on a one-page PDF (the macOS footprint includes GPU mappings), so a
+/// single job must always get this much when the machine can spare it.
+const JOB_BYTES: u64 = 4 * GIB;
+static GLOBAL: LazyLock<Budget> = LazyLock::new(|| Budget::new(budget_for(physical_memory())));
+/// Total conversion budget: a quarter of physical memory for parallelism,
+/// but never below one full job as long as 2 GiB stay free for the rest of
+/// the system. An 8 GiB machine therefore runs one 4 GiB job instead of
+/// killing every conversion at 2 GiB.
+fn budget_for(physical: u64) -> u64 {
+    let floor = JOB_BYTES.min(physical.saturating_sub(2 * GIB)).max(256 * 1024 * 1024);
+    (physical / 4).max(floor).min(12 * GIB)
+}
 pub struct Budget {
     maximum: u64,
     used: Mutex<u64>,
@@ -54,10 +65,10 @@ impl Drop for Permit<'_> {
 }
 #[cfg(test)]
 pub(crate) fn parallelism() -> usize {
-    (GLOBAL.maximum / (4 * GIB).min(GLOBAL.maximum)) as usize
+    (GLOBAL.maximum / JOB_BYTES.min(GLOBAL.maximum)) as usize
 }
 pub fn acquire(cancel: &dyn Fn() -> bool) -> Result<Permit<'static>, Failure> {
-    GLOBAL.acquire(4 * GIB, cancel)
+    GLOBAL.acquire(JOB_BYTES, cancel)
 }
 fn physical_memory() -> u64 {
     #[cfg(target_os = "macos")]
@@ -108,12 +119,20 @@ fn physical_memory() -> u64 {
             return status.physical;
         }
     }
-    // Unknown machines get one conservative 1 GiB reservation and limit.
-    4 * GIB
+    // Unknown machines get one full job.
+    6 * GIB
 }
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn small_machines_still_admit_one_full_conversion_job() {
+        assert_eq!(budget_for(8 * GIB), 4 * GIB);
+        assert_eq!(budget_for(16 * GIB), 4 * GIB);
+        assert_eq!(budget_for(4 * GIB), 2 * GIB);
+        assert_eq!(budget_for(64 * GIB), 12 * GIB);
+        assert_eq!(budget_for(1 * GIB), 256 * 1024 * 1024);
+    }
     #[test]
     fn waiting_admission_is_cancelled_and_drop_releases_the_reservation() {
         let budget = Budget::new(10);
