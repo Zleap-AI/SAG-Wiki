@@ -105,7 +105,7 @@ class GitHub:
         request = urllib.request.Request(url, data=data, method=method, headers=headers)
         try:
             with self.opener.open(request, timeout=180) as response:
-                return json.load(response)
+                return None if response.status == 204 else json.load(response)
         except urllib.error.HTTPError as error:
             if method == 'GET' and error.code == 404:
                 return None
@@ -131,6 +131,19 @@ def publish(root, env, client=None):
                     name=f'SAG Wiki fnOS {info["version"]}' + (' (development)' if info['prerelease'] else ''),
                     body=body, prerelease=info['prerelease'])
     release = client.request('GET', '/releases/tags/' + encoded)
+    if not release:
+        # The by-tag API excludes drafts. List authenticated releases to recover
+        # an interrupted upload without creating a second draft for the tag.
+        matches, page = [], 1
+        while True:
+            batch = client.request('GET', f'/releases?per_page=100&page={page}')
+            matches.extend(item for item in batch if item['tag_name'] == tag)
+            if len(batch) < 100:
+                break
+            page += 1
+        if len(matches) > 1:
+            raise ValueError('Multiple releases for tag; inspect before retrying')
+        release = matches[0] if matches else None
     if release:
         if any(release.get(k) != v for k, v in expected.items()):
             raise ValueError('Existing release differs; refusing overwrite')
@@ -142,10 +155,19 @@ def publish(root, env, client=None):
     names = [a['name'] for a in assets]
     if len(names) != len(set(names)) or set(names) - files.keys():
         raise ValueError('Existing release assets differ')
+    starters = []
     for asset in assets:
+        if (release['draft'] and asset.get('state') == 'starter' and
+                asset['size'] == 0 and asset.get('digest') is None):
+            starters.append(asset)
+            continue
         data = files[asset['name']]
         if asset.get('digest') != 'sha256:' + digest(data) or asset['size'] != len(data):
             raise ValueError('Existing asset bytes differ; refusing overwrite')
+    # Validate every completed asset before deleting only empty upload remnants.
+    for asset in starters:
+        client.request('DELETE', f'/releases/assets/{asset["id"]}')
+        names.remove(asset['name'])
     missing = files.keys() - set(names)
     if missing and not release['draft']:
         raise ValueError('Published release is incomplete; refusing mutation')

@@ -125,17 +125,25 @@ class GitHubServer:
                 if '/commits/' in path.path:
                     result = {'sha': state.sha}
                 elif self.command == 'GET' and '/releases/tags/' in path.path:
-                    status, result = (200, state.release) if state.release else (404, {})
+                    status, result = (200, state.release) if state.release and not state.release['draft'] else (404, {})
+                elif self.command == 'GET' and path.path.endswith('/releases'):
+                    result = [state.release] if state.release else []
                 elif self.command == 'POST' and path.path.endswith('/releases'):
                     state.release = dict(json.loads(data), id=1, assets=[])
                     result = state.release
                 elif self.command == 'POST' and path.path.endswith('/assets'):
-                    if state.fail_upload: status = 500
+                    if state.fail_upload:
+                        status = 502
+                        name = urllib.parse.parse_qs(path.query)['name'][0]
+                        state.release['assets'].append(dict(id=99, name=name, size=0, digest=None, state='starter'))
                     else:
                         name = urllib.parse.parse_qs(path.query)['name'][0]
                         state.files[name] = data
                         result = dict(name=name, size=len(data), digest='sha256:'+hashlib.sha256(data).hexdigest())
                         state.release['assets'].append(result)
+                elif self.command == 'DELETE' and path.path.endswith('/releases/assets/99'):
+                    state.release['assets'] = [a for a in state.release['assets'] if a.get('id') != 99]
+                    self.send_response(204); self.end_headers(); return
                 elif self.command == 'PATCH':
                     state.release.update(json.loads(data)); result = state.release
                 elif path.path.endswith('/releases/1'):
@@ -143,7 +151,7 @@ class GitHubServer:
                 else: status = 404
                 self.send_response(status); self.end_headers()
                 self.wfile.write(json.dumps(result).encode())
-            do_GET = do_POST = do_PATCH = handle_request
+            do_GET = do_POST = do_PATCH = do_DELETE = handle_request
         self.server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
     def __enter__(self): self.thread.start(); return self
@@ -184,6 +192,8 @@ class PublicationTests(SourceTests):
             server.fail_upload = False
             self.ci.publish(self.root, self.env, server.client(self.ci))
             self.assertFalse(server.release['draft'])
+            self.assertEqual(sum(verb == 'DELETE' for verb, _ in server.mutations), 1)
+            self.assertEqual(sum(verb == 'POST' and path.endswith('/releases') for verb, path in server.mutations), 1)
 
     def test_redirect_and_wrong_source_do_not_publish(self):
         self.fixture_assets()
