@@ -117,12 +117,13 @@ def publish(root, env, client=None):
     client = client or GitHub(env['GITHUB_TOKEN'])
     tag = info['tag_name']
     encoded = urllib.parse.quote(tag, safe='')
-    existing_tag = client.request('GET', '/commits/' + encoded)
-    if not existing_tag:
+    # Missing commit-ish values return 422; the reference API gives a precise 404.
+    existing_ref = client.request('GET', '/git/ref/tags/' + encoded)
+    if not existing_ref:
         if not info['prerelease']:
             raise ValueError('Formal tag must already exist')
         client.request('POST', '/git/refs', {'ref': 'refs/tags/' + tag, 'sha': info['commit']})
-        existing_tag = client.request('GET', '/commits/' + encoded)
+    existing_tag = client.request('GET', '/commits/' + encoded)
     if not existing_tag or existing_tag['sha'] != info['commit']:
         raise ValueError('Release tag differs from source')
     body = (f'Source: `{info["commit"]}`\n\nRun: {info["run_url"]}\n\n'

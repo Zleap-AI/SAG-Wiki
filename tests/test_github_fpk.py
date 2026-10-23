@@ -110,6 +110,7 @@ class GitHubServer:
     def __init__(self, sha):
         self.sha, self.release, self.files = sha, None, {}
         self.mutations, self.fail_upload, self.redirect = [], False, None
+        self.tag_exists = True
         state = self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self, *args): pass
@@ -123,7 +124,12 @@ class GitHubServer:
                 status, result = 200, {}
                 if self.command != 'GET': state.mutations.append((self.command, path.path))
                 if '/commits/' in path.path:
-                    result = {'sha': state.sha}
+                    status, result = (200, {'sha': state.sha}) if state.tag_exists else (422, {})
+                elif self.command == 'GET' and '/git/ref/tags/' in path.path:
+                    status, result = (200, {'object': {'type': 'commit', 'sha': state.sha}}) if state.tag_exists else (404, {})
+                elif self.command == 'POST' and path.path.endswith('/git/refs'):
+                    state.tag_exists = True
+                    result = {'object': {'type': 'commit', 'sha': state.sha}}
                 elif self.command == 'GET' and '/releases/tags/' in path.path:
                     status, result = (200, state.release) if state.release and not state.release['draft'] else (404, {})
                 elif self.command == 'GET' and path.path.endswith('/releases'):
@@ -181,6 +187,15 @@ class PublicationTests(SourceTests):
             with self.assertRaisesRegex(ValueError, 'differ'):
                 self.ci.publish(self.root, self.env, server.client(self.ci))
             self.assertEqual(len(server.mutations), before)
+
+    def test_first_release_creates_missing_tag_without_commit_lookup_422(self):
+        self.fixture_assets()
+        with GitHubServer(self.sha) as server:
+            server.tag_exists = False
+            self.ci.publish(self.root, self.env, server.client(self.ci))
+            self.assertTrue(server.tag_exists)
+            self.assertFalse(server.release['draft'])
+            self.assertEqual(sum(path.endswith('/git/refs') for _, path in server.mutations), 1)
 
     def test_failed_upload_keeps_draft_and_can_resume(self):
         self.fixture_assets()
