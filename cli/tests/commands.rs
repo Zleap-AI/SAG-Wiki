@@ -55,20 +55,23 @@ fn invalid_arguments_fail_but_status_works_without_desktop() {
 
 #[test]
 fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
-    use std::fs;
+    use std::{fs, path::Path};
     let home = tempfile::tempdir().unwrap();
     let cwd = home.path().join("项目 space");
     fs::create_dir_all(cwd.join("src")).unwrap();
     let cwd = cwd.canonicalize().unwrap();
-    let path = cwd.join("src/main.rs");
+    #[cfg(windows)]
+    assert!(matches!(cwd.components().next(), Some(std::path::Component::Prefix(prefix)) if prefix.kind().is_verbatim()));
+    let path = cwd.join("src").join("main.rs");
     let server_path = path.clone();
     let query = "Where is 'quoted' permission\nvalidated?";
+    let relative_path = format!("./{}", Path::new("src").join("main.rs").display());
     let mut step=0;
     let server=support::serve(home.path(),4,move|request|{
         let (expected_query,content)=[(query,true),(query,true),(query,true),("status",true)][step];step+=1;
         assert_eq!(request["command"]["query"],expected_query);
         assert_eq!(request["command"]["content"],content);
-        assert!(request["path"].as_str().unwrap().ends_with("项目 space/src"));
+        assert!(Path::new(request["path"].as_str().unwrap()).ends_with("项目 space/src"));
         let mut item=serde_json::json!({"path":"./main.rs","absolute_path":server_path,"start_line":2,"end_line":4,"heading":"部署指南 / 生产环境"});
         if content{item["content"]=serde_json::json!("原文 'quoted'\nsecond line");}
         serde_json::json!({"type":"search","data":{"protocol_version":2,"scope":server_path.parent(),"results":[item],"truncated":false}})
@@ -83,10 +86,10 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
             .unwrap()
     };
     let plain = run(&[]);
-    assert!(plain.status.success());
+    assert!(plain.status.success(), "{}", String::from_utf8_lossy(&plain.stderr));
     assert_eq!(
         String::from_utf8(plain.stdout).unwrap(),
-        "[1/1]\nfilepath: ./src/main.rs\nheading: 部署指南 / 生产环境\nlines: 2-4\ncontent:\n原文 'quoted'\nsecond line\n\n"
+        format!("[1/1]\nfilepath: {relative_path}\nheading: 部署指南 / 生产环境\nlines: 2-4\ncontent:\n原文 'quoted'\nsecond line\n\n")
     );
     let content = Command::new(env!("CARGO_BIN_EXE_sag"))
         .env("SAG_DATA_DIR", home.path())
@@ -100,7 +103,7 @@ fn cli_formats_json_and_text_without_changing_locations_or_query_arguments() {
     let json = run(&["-c", "--json"]);
     assert!(json.status.success());
     let value: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
-    assert_eq!(value["results"][0]["path"], "./src/main.rs");
+    assert_eq!(value["results"][0]["path"], relative_path);
     assert_eq!(value["results"][0]["absolute_path"], path.to_str().unwrap());
     assert_eq!(value["results"][0]["heading"], "部署指南 / 生产环境");
     let reserved = Command::new(env!("CARGO_BIN_EXE_sag"))

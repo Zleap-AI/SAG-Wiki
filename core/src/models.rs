@@ -1,4 +1,4 @@
-use crate::types::{Candidate, ModelConfig};
+use crate::types::{Candidate, ModelAuthMode, ModelConfig};
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::{stream, StreamExt, TryStreamExt};
 use reqwest::Client;
@@ -39,6 +39,13 @@ pub fn secret(dir: &std::path::Path, kind: &str) -> Result<String> {
 }
 pub fn has_secret(dir: &std::path::Path, kind: &str) -> Result<bool> {
     Ok(credentials(dir)?.contains_key(kind))
+}
+pub fn jev_secret(dir: &std::path::Path, config: &ModelConfig) -> Result<String> {
+    if config.auth_mode == ModelAuthMode::None {
+        Ok(String::new())
+    } else {
+        secret(dir, "jev")
+    }
 }
 pub fn clear_secrets(dir: &std::path::Path) -> Result<()> {
     write_credentials(dir, &Default::default())
@@ -83,7 +90,8 @@ pub fn clear_secret(dir: &std::path::Path, kind: &str) -> Result<()> {
 }
 pub fn check_key_provider(previous: &ModelConfig, next: &ModelConfig, key: &str, has_saved_key: bool) -> Result<()> {
     if has_saved_key && key.trim().is_empty()
-        && reqwest::Url::parse(&previous.url)?.origin() != reqwest::Url::parse(&next.url)?.origin()
+        && (previous.auth_mode == ModelAuthMode::None
+            || reqwest::Url::parse(&previous.url)?.origin() != reqwest::Url::parse(&next.url)?.origin())
     {
         bail!("切换供应商后，请填写对应的 API 密钥。")
     }
@@ -91,15 +99,17 @@ pub fn check_key_provider(previous: &ModelConfig, next: &ModelConfig, key: &str,
 }
 
 pub fn endpoint(config: &ModelConfig, jev: bool) -> String {
-    let base = config.url.trim_end_matches('/');
-    if jev && base.ends_with("/decisions") || !jev && base.ends_with("/chat/completions") {
-        base.into()
-    } else {
-        format!(
-            "{base}/{}",
-            if jev { "systemone" } else { "chat/completions" }
-        )
-    }
+    let Ok(mut url) = reqwest::Url::parse(config.url.trim()) else { return config.url.clone(); };
+    let path = url.path().trim_end_matches('/');
+    let complete = if jev { path.ends_with("/decisions") || path.ends_with("/systemone") }
+        else { path.ends_with("/chat/completions") };
+    let path = if complete { path.to_owned() }
+        else { format!("{path}/{}", if jev { "systemone" } else { "chat/completions" }) };
+    url.set_path(&path);
+    url.into()
+}
+fn redact(message: &str, key: &str) -> String {
+    if key.is_empty() { message.to_owned() } else { message.replace(key, "[已隐藏]") }
 }
 fn cancelled() -> anyhow::Error {
     anyhow!("已停止")
@@ -136,7 +146,9 @@ async fn request(
     let mut attempt = 0;
     let mut failures = 0;
     loop {
-        let response = tokio::select! {_ = cancel.cancelled()=>return Err(cancelled()),result=client.post(url).bearer_auth(key).timeout(std::time::Duration::from_secs(timeout)).json(payload).send()=>result};
+        let request = client.post(url).timeout(std::time::Duration::from_secs(timeout)).json(payload);
+        let request = if key.is_empty() { request } else { request.bearer_auth(key) };
+        let response = tokio::select! {_ = cancel.cancelled()=>return Err(cancelled()),result=request.send()=>result};
         match response {
             Ok(response) => {
                 if response.status().is_success() {
@@ -156,11 +168,7 @@ async fn request(
                 } else {
                     String::from_utf8(body.to_vec()).context("模型错误响应不是有效的 UTF-8")?
                 };
-                let detail = text
-                    .chars()
-                    .take(500)
-                    .collect::<String>()
-                    .replace(key, "[已隐藏]");
+                let detail = redact(&text.chars().take(500).collect::<String>(), key);
                 if !retry || status.as_u16() != 499 && failures == 3 {
                     return Err(RequestError {
                         status: status.as_u16(),
@@ -175,7 +183,7 @@ async fn request(
                 if failures == 3 || !(e.is_timeout() || e.is_connect() || e.is_request()) {
                     return Err(anyhow!(
                         "模型连接失败：{}",
-                        e.to_string().replace(key, "[已隐藏]")
+                        redact(&e.to_string(), key)
                     ));
                 }
                 failures += 1;
@@ -220,16 +228,19 @@ pub fn jev_batches(
     }).collect::<Vec<_>>();
     let state = encode_state(evidence);
     let base = estimate(&Value::String(state.clone())) + 1024;
+    if base + 64 > 32000 {
+        bail!("已有证据超过上下文预算。请减少扩展起点或调整切分；原文未截断。")
+    }
     let mut size = base;
     let mut questions = serde_json::Map::new();
     let mut items = vec![];
     let mut batches = vec![];
     for (c, question, n) in prepared {
         if base + n > 32000 {
-            bail!(
-                "候选片段 {} 超过单候选上下文预算。请减少扩展起点或调整切分；原文未截断。",
-                c.id
-            )
+            // One oversized passage (a table or a file without sentence
+            // breaks) cannot be scored; leaving it out keeps the query alive.
+            eprintln!("跳过超过单候选上下文预算的片段 {}：{}", c.id, c.path);
+            continue;
         }
         if size + n > 32000 {
             batches.push((
@@ -260,6 +271,7 @@ pub async fn score(
     timeout: u64,
     cancel: &CancellationToken,
 ) -> Result<Vec<Candidate>> {
+    let key = if config.auth_mode == ModelAuthMode::None { "" } else { key };
     let batches = jev_batches(query, candidates, evidence, &config.model)?;
     let url = endpoint(config, true);
     let result: Vec<Vec<Candidate>> = stream::iter(batches.into_iter().map(|(payload, items)| {
@@ -677,6 +689,7 @@ pub async fn test_connection(
     key: &str,
     timeout: u64,
 ) -> Result<String> {
+    let key = if kind == "jev" && config.auth_mode == ModelAuthMode::None { "" } else { key };
     let cancel = CancellationToken::new();
     let payload = if kind == "jev" {
         json!({"model":config.model,"state":"Connection test","questions":{"test":{"type":"noul","instructions":{"question":"Is this a connection test?"},"criteria":{"true":"It is a connection test.","false":"It is not a connection test."}}}})
@@ -938,10 +951,63 @@ mod tests {
         assert_eq!(endpoint(&c, true), c.url);
     }
     #[test]
+    fn local_jev_urls_preserve_complete_endpoints_and_query_parameters() {
+        for (input, expected) in [
+            ("http://localhost:8000/v1", "http://localhost:8000/v1/systemone"),
+            ("http://localhost:8000/v1/", "http://localhost:8000/v1/systemone"),
+            ("http://localhost:8000/v1/systemone", "http://localhost:8000/v1/systemone"),
+            ("http://localhost:8000/v1/systemone/", "http://localhost:8000/v1/systemone"),
+            ("http://localhost:8000/decisions/?route=local", "http://localhost:8000/decisions?route=local"),
+            ("http://localhost:8000/v1?route=local", "http://localhost:8000/v1/systemone?route=local"),
+        ] {
+            let config = ModelConfig { url: input.into(), ..Default::default() };
+            assert_eq!(endpoint(&config, true), expected, "{input}");
+        }
+    }
+    #[tokio::test]
+    async fn local_jev_without_auth_does_not_send_a_supplied_key() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1/systemone", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut bytes = vec![];
+            let mut part = [0; 8192];
+            loop {
+                let count = socket.read(&mut part).unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&part[..count]);
+                if let Some(end) = bytes.windows(4).position(|p| p == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..end]);
+                    let length = headers.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length: ").and_then(|n| n.parse::<usize>().ok())).unwrap();
+                    if bytes.len() >= end + 4 + length {
+                        let body = r#"{"answers":{"test":{"type":"noul","noul":1.0}}}"#;
+                        write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                        return headers.to_ascii_lowercase();
+                    }
+                }
+            }
+        });
+        let config: ModelConfig = serde_json::from_value(json!({"url":url,"model":"local-jev","auth_mode":"none"})).unwrap();
+        test_connection(&Client::new(), "jev", &config, "stale-provider-key", 5).await.unwrap();
+        let headers = server.join().unwrap();
+        assert!(headers.starts_with("post /v1/systemone http/1.1"), "{headers}");
+        assert!(!headers.contains("authorization:"), "{headers}");
+    }
+    #[test]
     fn v10_rejects_oversized_evidence_without_truncation() {
         let evidence = (1..=20).map(|id| candidate(id, "历史内容 alpha beta gamma\n".repeat(400))).collect::<Vec<_>>();
         let error = jev_batches("query", vec![candidate(50, "当前候选".into())], &evidence, "jev-latest").unwrap_err();
         assert!(error.to_string().contains("原文未截断"));
+    }
+    #[test]
+    fn v10_skips_an_oversized_candidate_and_scores_the_rest() {
+        let huge = candidate(1, "无句号的长文本 ".repeat(20000));
+        let normal = candidate(2, "正常片段".into());
+        let batches = jev_batches("query", vec![huge, normal], &[], "jev-latest").unwrap();
+        let ids: Vec<_> = batches.iter().flat_map(|(_, items)| items.iter().map(|c| c.id)).collect();
+        assert_eq!(ids, vec![2]);
     }
     #[test]
     fn v10_batches_large_rounds_without_losing_candidates_or_shared_evidence() {

@@ -1,5 +1,5 @@
 appname=sag-desktop-fnos
-version=0.1.12
+version=0.1.13
 display_name=SAG Wiki
 desc=在飞牛上索引、搜索和编辑已授权文档，支持带引用的问答。
 platform=x86

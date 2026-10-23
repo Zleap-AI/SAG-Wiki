@@ -139,6 +139,7 @@ pub struct EventEnvelope {
 #[serde(tag = "operation", content = "args", rename_all = "snake_case")]
 pub enum Operation {
     DoclingStatus,
+    DoclingInstallLog,
     InstallDocling,
     CancelDoclingInstall,
     UninstallDocling,
@@ -322,7 +323,15 @@ pub struct DoclingStatus {
     #[serde(default)]
     pub percent: Option<f64>,
     pub error: Option<String>,
+    /// Packages finished and known in the current step (pipe-mode uv output).
+    #[serde(default)]
+    pub packages_done: u32,
+    #[serde(default)]
+    pub packages_total: u32,
     pub formats: Vec<(String, Vec<String>)>,
+    /// Converted in process; never needs a component.
+    #[serde(default)]
+    pub builtin_formats: Vec<(String, Vec<String>)>,
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "frame", rename_all = "snake_case")]

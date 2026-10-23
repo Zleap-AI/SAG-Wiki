@@ -11,6 +11,8 @@ use std::{
 pub const OUTPUT_DIRECTORY: &str = ".sag-converted";
 const VERSION: &str = "2.140.0";
 const UV_VERSION: &str = "0.12.1";
+/// Installation output kept on disk for support; the in-memory status only holds the tail.
+const DIAGNOSTIC_LIMIT: u64 = 8 * 1024 * 1024;
 
 // Pinned to Docling's FormatToExtensions. Existing native text formats stay native.
 const FORMATS: &[(&str, &str)] = &[
@@ -27,11 +29,43 @@ const FORMATS: &[(&str, &str)] = &[
         ("电子书与邮件", "epub eml msg boxnote"),
         ("结构化文档", "xml nxml xbrl dclg dclx json tar.gz ebc ebcdic afp"),
     ];
+/// Formats that need the downloaded Docling component. Formats the built-in
+/// converter handles are listed by [`builtin_formats`] instead.
 pub fn formats() -> Vec<(String, Vec<String>)> {
+    grouped_formats(|ext| !crate::anydoc::handles_extension(ext))
+}
+/// Formats converted in process without any download.
+pub fn builtin_formats() -> Vec<(String, Vec<String>)> {
+    grouped_formats(crate::anydoc::handles_extension)
+}
+fn grouped_formats(select: impl Fn(&str) -> bool) -> Vec<(String, Vec<String>)> {
     FORMATS.iter().filter_map(|(name, extensions)| {
-        let extensions: Vec<_> = extensions.split_whitespace().filter(|ext| is_source(Path::new(&format!("file.{ext}")))).map(str::to_owned).collect();
+        let extensions: Vec<_> = extensions.split_whitespace()
+            .filter(|ext| is_source(Path::new(&format!("file.{ext}"))) && select(ext))
+            .map(str::to_owned).collect();
         (!extensions.is_empty()).then(|| ((*name).into(), extensions))
     }).collect()
+}
+/// Whether a source should be converted under the given folder options:
+/// built-in formats always are; component formats only when the user
+/// enabled and selected them.
+pub fn should_convert(path: &Path, options: &crate::types::FolderIndexOptions) -> bool {
+    crate::anydoc::handles(path)
+        || options.convert_other_formats && is_selected(path, &options.conversion_formats)
+}
+fn is_image(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {
+        matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png" | "tif" | "tiff" | "bmp" | "webp" | "gif")
+    })
+}
+/// A `.key` file holding a PEM private key is not a Keynote document.
+pub fn is_pem_key(path: &Path) -> Result<bool> {
+    if !path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("key")) {
+        return Ok(false);
+    }
+    let mut header = [0; 32];
+    let length = fs::File::open(path)?.read(&mut header)?;
+    Ok(header[..length].starts_with(b"-----BEGIN "))
 }
 
 pub fn is_source(path: &Path) -> bool {
@@ -54,13 +88,56 @@ pub fn in_output(path: &Path) -> bool {
 pub struct Docling {
     home: PathBuf,
     status: Mutex<DoclingStatus>,
+    /// Per-package byte accounting for uv's non-TTY output, which only
+    /// prints one line when a download starts and one when it finishes.
+    packages: Mutex<Packages>,
     cancel: AtomicBool,
     usage: RwLock<()>,
+}
+#[derive(Default)]
+struct Packages {
+    sizes: std::collections::BTreeMap<String, u64>,
+    done: std::collections::BTreeSet<String>,
+}
+impl Packages {
+    fn clear(&mut self) { self.sizes.clear(); self.done.clear(); }
+    fn total(&self) -> u64 { self.sizes.values().sum() }
+    fn downloaded(&self) -> u64 { self.done.iter().filter_map(|name| self.sizes.get(name)).sum() }
+}
+fn byte_scale(unit: &str) -> f64 {
+    match unit.to_ascii_lowercase().as_str() {
+        "kib" => 1024.0, "mib" => 1048576.0, "gib" => 1073741824.0,
+        "kb" => 1000.0, "mb" => 1e6, "gb" => 1e9, _ => 1.0,
+    }
 }
 
 impl Docling {
     pub fn new(data: &Path) -> Self {
-        Self { home: data.join("docling"), status: Mutex::new(DoclingStatus::default()), cancel: AtomicBool::new(false), usage: RwLock::new(()) }
+        Self { home: data.join("docling"), status: Mutex::new(DoclingStatus::default()), packages: Mutex::new(Packages::default()), cancel: AtomicBool::new(false), usage: RwLock::new(()) }
+    }
+    /// Installation output of the current or last install, for support requests.
+    pub fn install_log(&self) -> Result<String> {
+        let path = self.home.join("install-diagnostics.log");
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => bail!("尚未生成安装日志"),
+            Err(error) => return Err(error.into()),
+        };
+        let start = bytes.len().saturating_sub(64 * 1024);
+        Ok(String::from_utf8_lossy(&bytes[start..]).into_owned())
+    }
+    /// Checks that the chosen component formats can actually be converted.
+    /// `None` keeps a legacy "all formats" choice; built-in formats always
+    /// work and component formats are reported per file during indexing.
+    pub fn require_formats(&self, extensions: &Option<Vec<String>>) -> Result<()> {
+        let Some(extensions) = extensions else { return Ok(()) };
+        for extension in extensions {
+            let extension = extension.to_ascii_lowercase();
+            if crate::anydoc::handles_extension(&extension) { continue; }
+            if !is_source(Path::new(&format!("file.{extension}"))) { bail!("不支持的转换格式：{extension}") }
+            if !self.installed() { bail!("所选格式需要先安装 Docling 组件") }
+        }
+        Ok(())
     }
     fn binary(&self, name: &str) -> PathBuf {
         self.home.join("bin").join(if cfg!(windows) { format!("{name}.exe") } else { name.into() })
@@ -72,6 +149,7 @@ impl Docling {
         let mut status = self.status.lock().unwrap().clone();
         status.installed = self.installed();
         status.formats = formats();
+        status.builtin_formats = builtin_formats();
         status
     }
     pub fn cancel(&self) { self.cancel.store(true, Ordering::Relaxed); }
@@ -85,18 +163,22 @@ impl Docling {
     }
 
     fn progress(&self, stage: &str, message: impl Into<String>) {
+        self.packages.lock().unwrap().clear();
         let mut status = self.status.lock().unwrap();
         status.stage = stage.into();
         status.message = message.into();
         status.downloaded = 0;
         status.total = None;
         status.percent = None;
+        status.packages_done = 0;
+        status.packages_total = 0;
     }
     pub fn start(self: &Arc<Self>) -> Result<()> {
         let mut status = self.status.lock().unwrap();
         if status.running { bail!("Docling 正在下载") }
         if self.installed() { return Ok(()); }
         self.cancel.store(false, Ordering::Relaxed);
+        self.packages.lock().unwrap().clear();
         *status = DoclingStatus { running: true, stage: "runtime".into(), ..Default::default() };
         drop(status);
         let this = self.clone();
@@ -125,6 +207,9 @@ impl Docling {
             .env("UV_CACHE_DIR", self.home.join("cache"))
             .env("HF_HOME", self.home.join("huggingface"))
             .env("PYTHONUNBUFFERED", "1")
+            // Docling writes UTF-8; keep file and stderr decoding independent of the locale.
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .env("NO_COLOR", "1");
         if cfg!(target_os = "linux") || cfg!(target_os = "windows") {
             command.env("UV_TORCH_BACKEND", "cpu");
@@ -141,6 +226,7 @@ impl Docling {
     }
     fn install(&self) -> Result<()> {
         fs::create_dir_all(&self.home)?;
+        fs::write(self.home.join("install-diagnostics.log"), [])?;
         let uv = self.bootstrap_uv()?;
         self.progress("runtime", "正在下载 Python 运行环境…");
         self.run(self.command(&uv).args(["python", "install", "3.12"]), true)?;
@@ -167,6 +253,7 @@ impl Docling {
         }
         fs::copy(ffmpeg.context("音视频组件中缺少 ffmpeg")?, self.binary("ffmpeg"))?;
         self.progress("models", "正在下载文档识别模型…");
+        self.check_model_host()?;
         self.run(self.command(self.binary("docling-tools"))
             .args(["models", "download", "layout", "tableformer", "rapidocr"])
             .arg("--output-dir").arg(self.home.join("models")), true)?;
@@ -174,6 +261,32 @@ impl Docling {
         if self.cancel.load(Ordering::Relaxed) { bail!("已取消下载，可稍后重试") }
         fs::write(self.home.join("ready"), VERSION)?;
         Ok(())
+    }
+    /// Fails fast when the model host is unreachable. Without this the
+    /// Hugging Face client retries silently and the user watches a frozen
+    /// 0% for up to half an hour before any error appears.
+    fn check_model_host(&self) -> Result<()> {
+        let endpoint = std::env::var("HF_ENDPOINT").ok().filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "https://huggingface.co".into());
+        let url = format!("{}/api/models/docling-project/docling-layout-heron", endpoint.trim_end_matches('/'));
+        self.status.lock().unwrap().message = format!("正在连接模型服务 {endpoint}…");
+        let probe: Result<std::result::Result<(), reqwest::Error>> = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(15)).build()?;
+            let request = client.head(&url).send();
+            tokio::pin!(request);
+            loop {
+                tokio::select! {
+                    result = &mut request => break Ok(result.map(|_| ())),
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        if self.cancel.load(Ordering::Relaxed) { bail!("已取消下载，可稍后重试") }
+                    }
+                }
+            }
+        });
+        match probe? {
+            Ok(()) => Ok(()),
+            Err(error) => bail!("无法连接模型服务 {endpoint}：{error}。请检查 NAS 网络或代理；如需镜像，可在应用环境中设置 HF_ENDPOINT（例如 https://hf-mirror.com）。"),
+        }
     }
     fn bootstrap_uv(&self) -> Result<PathBuf> {
         let executable = self.home.join(if cfg!(windows) { "uv.exe" } else { "uv" });
@@ -253,6 +366,10 @@ impl Docling {
         static PERCENT: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\b([0-9]{1,3}(?:\.[0-9]+)?)%").unwrap());
         static BAR: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"\s+-{3,}\s+").unwrap());
         static SPACING: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r" {2,}").unwrap());
+        // uv without a TTY: "Downloading torch (121.4MiB)" then " Downloaded torch".
+        static STARTED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?im)^\s*Downloading\s+(\S+)\s+\(([0-9]+(?:\.[0-9]+)?)\s*(KiB|MiB|GiB|kB|MB|GB|B)\)").unwrap());
+        static FINISHED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?im)^\s*Downloaded\s+(\S+)\s*$").unwrap());
+        static SETTLED: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(r"(?im)^\s*(?:Prepared|Installed)\s+[0-9]+\s+packages?").unwrap());
         let text = String::from_utf8_lossy(raw);
         let clean = ANSI.replace_all(&text, "");
         let clean = BAR.replace_all(&clean, ": ");
@@ -263,20 +380,36 @@ impl Docling {
         status.downloaded = 0;
         status.total = None;
         status.percent = None;
+        let mut packages = self.packages.lock().unwrap();
+        for started in STARTED.captures_iter(&clean) {
+            let bytes = (started[2].parse::<f64>().unwrap() * byte_scale(&started[3])) as u64;
+            packages.sizes.insert(started[1].to_owned(), bytes);
+        }
+        for finished in FINISHED.captures_iter(&clean) {
+            let name = finished[1].to_owned();
+            packages.sizes.entry(name.clone()).or_insert(0);
+            packages.done.insert(name);
+        }
+        if SETTLED.is_match(&clean) {
+            let names: Vec<_> = packages.sizes.keys().cloned().collect();
+            packages.done.extend(names);
+        }
         let downloads: Vec<_> = BYTES.captures_iter(&clean).collect();
         if !downloads.is_empty() {
-            let scale = |unit: &str| match unit.to_ascii_lowercase().as_str() {
-                "kib" => 1024.0, "mib" => 1048576.0, "gib" => 1073741824.0,
-                "kb" => 1000.0, "mb" => 1e6, "gb" => 1e9, _ => 1.0,
-            };
-            status.downloaded = downloads.iter().map(|bytes| (bytes[1].parse::<f64>().unwrap() * scale(&bytes[2])) as u64).sum();
-            status.total = Some(downloads.iter().map(|bytes| (bytes[3].parse::<f64>().unwrap() * scale(&bytes[4])) as u64).sum());
+            status.downloaded = downloads.iter().map(|bytes| (bytes[1].parse::<f64>().unwrap() * byte_scale(&bytes[2])) as u64).sum();
+            status.total = Some(downloads.iter().map(|bytes| (bytes[3].parse::<f64>().unwrap() * byte_scale(&bytes[4])) as u64).sum());
             status.percent = None;
         } else if let Some(percent) = PERCENT.captures(&clean) {
             status.percent = Some(percent[1].parse::<f64>().unwrap().min(100.0));
             status.total = None;
             status.downloaded = 0;
+        } else if !packages.sizes.is_empty() {
+            status.downloaded = packages.downloaded();
+            status.total = Some(packages.total());
+            status.percent = None;
         }
+        status.packages_done = packages.done.len() as u32;
+        status.packages_total = packages.sizes.len() as u32;
         clean
     }
     fn run(&self, command: &mut Command, installing: bool) -> Result<()> {
@@ -315,10 +448,25 @@ impl Docling {
             }
         });
         let mut lines = std::collections::VecDeque::new();
+        let mut diagnostics = if installing {
+            fs::create_dir_all(&self.home)?;
+            Some(fs::OpenOptions::new().create(true).append(true).open(self.home.join("install-diagnostics.log"))?)
+        } else { None };
+        let mut remaining = match &diagnostics { Some(file) => DIAGNOSTIC_LIMIT.saturating_sub(file.metadata()?.len()), None => 0 };
+        let mut record = |line: &[u8]| {
+            if let Some(file) = &mut diagnostics {
+                if remaining >= line.len() as u64 + 1 {
+                    let _ = file.write_all(line);
+                    let _ = file.write_all(b"\n");
+                    remaining -= line.len() as u64 + 1;
+                }
+            }
+        };
         let outcome = (|| -> Result<_> {
             loop {
                 while let Ok(line) = rx.try_recv() {
                     let line = line?;
+                    record(&line);
                     let clean = if installing { self.update_download_line(&line) } else { String::from_utf8_lossy(&line).into_owned() };
                     if !clean.is_empty() { lines.push_back(clean); if lines.len() > 8 { lines.pop_front(); } }
                 }
@@ -345,6 +493,7 @@ impl Docling {
         handle.join().expect("Docling output reader panicked");
         for line in rx {
             let line = line?;
+            record(&line);
             let clean = if installing { self.update_download_line(&line) } else { String::from_utf8_lossy(&line).into_owned() };
             if !clean.is_empty() { lines.push_back(clean); if lines.len()>8 {lines.pop_front();} }
         }
@@ -353,18 +502,53 @@ impl Docling {
         Ok(())
     }
     pub fn convert(&self, source: &Path, output: &Path) -> Result<()> {
-        let _usage = self.usage.read().unwrap();
-        if !self.installed() { bail!("请在文件设置中下载 Docling 后重试") }
+        self.convert_cancellable(source, output, || false)
+    }
+    /// Converts one source. Built-in formats are handled in process by anydoc;
+    /// a scan that needs OCR, or a document anydoc cannot read, is handed to
+    /// the Docling component when it is installed.
+    pub fn convert_cancellable(&self, source: &Path, output: &Path, cancel: impl Fn() -> bool) -> Result<()> {
         let parent = output.parent().context("转换文件缺少父目录")?;
         fs::create_dir_all(parent)?;
         // Atomic publication: partial/failed conversion must never become indexed Markdown.
         let staging = tempfile::tempdir_in(parent)?;
         let temporary = staging.path().join("document.md");
+        let mut handoff = None;
+        if crate::anydoc::handles(source) {
+            match crate::anydoc::convert(source, &temporary, &cancel) {
+                Ok(crate::anydoc::Outcome::Converted) => return self.publish(source, output, &temporary),
+                Ok(crate::anydoc::Outcome::NeedsOcr(detail)) => {
+                    if !self.installed() {
+                        bail!("扫描件需要 OCR（{detail}），请在文件设置中安装 Docling 组件后重试")
+                    }
+                    handoff = Some(format!("内置转换需要 OCR：{detail}"));
+                }
+                Err(error) if crate::anydoc::is_handoff_error(&error) && self.installed() => {
+                    handoff = Some(format!("内置转换失败：{error:#}"));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        let _usage = self.usage.read().unwrap();
+        if !self.installed() {
+            if handoff.is_some() || is_image(source) { bail!("请在文件设置中安装 Docling 组件后重试") }
+            bail!("此格式需要 Docling 组件，请在文件设置中安装 Docling 后重试")
+        }
+        if let Some(reason) = &handoff {
+            eprintln!("{}：交给 Docling 组件转换（{reason}）", source.display());
+        }
+        if cancel() { bail!("已停止转换，未发布输出") }
         self.run(self.command(self.binary("docling"))
             .arg(source).args(["--to", "md", "--image-export-mode", "placeholder", "--abort-on-error", "--document-timeout", "300"])
             .arg("--artifacts-path").arg(self.home.join("models"))
             .arg("--output-file").arg(&temporary), false)?;
-        let content = fs::read_to_string(&temporary).context("Docling 未生成 Markdown")?;
+        if cancel() { bail!("已停止转换，未发布输出") }
+        self.publish(source, output, &temporary)
+    }
+    /// Publishes converted Markdown with a relative link back to its source.
+    fn publish(&self, source: &Path, output: &Path, temporary: &Path) -> Result<()> {
+        let parent = output.parent().context("转换文件缺少父目录")?;
+        let content = fs::read_to_string(temporary).context("Docling 未生成 Markdown")?;
         if content.trim().is_empty() { bail!("Docling 未提取到正文") }
         let mut file = tempfile::NamedTempFile::new_in(parent)?;
         // Relative source link survives moving the whole knowledge folder.

@@ -292,6 +292,126 @@ async fn stop(client: &Client, task: tokio::task::JoinHandle<anyhow::Result<()>>
         .unwrap()
         .unwrap();
 }
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn jev_auth_mode_cannot_disable_answer_provider_key_protection() {
+    let (dir, client, server) = start().await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    let previous_url = settings.answer.url.clone();
+    crate::models::save_secret(&dir.path().join("data"), "answer", "previous-answer-key").unwrap();
+    settings.answer = serde_json::from_value(serde_json::json!({
+        "url":"http://127.0.0.1:1/v1", "model":"local-model", "auth_mode":"none"
+    })).unwrap();
+    let result = client.call(Operation::SaveSettings {
+        settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
+    }, Duration::from_secs(5)).await;
+    assert!(result.is_err(), "Jev-only auth mode was accepted for the answer model");
+    let result = client.call(Operation::TestModel {
+        kind: "answer".into(), config: settings.answer, key: String::new(),
+    }, Duration::from_secs(5)).await;
+    assert!(result.err().unwrap().to_string().contains("问答模型"));
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.answer.url, previous_url);
+    assert_eq!(crate::models::secret(&dir.path().join("data"), "answer").unwrap(), "previous-answer-key");
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn invalid_local_jev_settings_do_not_remove_the_saved_key() {
+    let (dir, client, server) = start().await;
+    crate::models::save_secret(&dir.path().join("data"), "jev", "previous-jev-key").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.jev.auth_mode = ModelAuthMode::None;
+    settings.retrieval.candidate_k = 0;
+    let result = client.call(Operation::SaveSettings {
+        settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
+    }, Duration::from_secs(5)).await;
+    assert!(result.is_err());
+    assert_eq!(crate::models::secret(&dir.path().join("data"), "jev").unwrap(), "previous-jev-key");
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.jev.auth_mode, ModelAuthMode::Bearer);
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_jev_without_auth_saves_and_drops_the_previous_key() {
+    let (dir, client, server) = start().await;
+    crate::models::save_secret(&dir.path().join("data"), "jev", "previous-jev-key").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.jev.url = "http://127.0.0.1:8000/v1".into();
+    settings.jev.model = "local-jev".into();
+    settings.jev.auth_mode = ModelAuthMode::None;
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.jev.auth_mode, ModelAuthMode::None);
+    assert!(!saved.jev.has_key);
+    assert!(!crate::models::has_secret(&dir.path().join("data"), "jev").unwrap());
+    assert!(saved.jev.is_configured());
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn changing_only_conversion_formats_rescans_cached_selected_sources() {
+    let (dir, client, server) = start().await;
+    let home = dir.path().join("data/docling");
+    std::fs::create_dir_all(home.join("bin")).unwrap();
+    std::fs::write(home.join("bin").join("docling"), "fixture").unwrap();
+    std::fs::write(home.join("ready"), "2.140.0").unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.convert_other_formats = true;
+    settings.conversion_formats = Some(vec![]);
+    settings.watch = false;
+    call(&client, Operation::SaveSettings { settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    let folder = dir.path().join("selected-cache");
+    std::fs::create_dir(&folder).unwrap();
+    let source = folder.join("cached.pages");
+    std::fs::write(&source, "original").unwrap();
+    let output = crate::docling::output_path(&folder, &source).unwrap();
+    std::fs::create_dir_all(output.parent().unwrap()).unwrap();
+    std::fs::write(&output, "cachedselectedevidence.").unwrap();
+    let ownership = std::collections::BTreeMap::from([("cached.pages", (crate::docling::fingerprint(&source).unwrap(), crate::docling::fingerprint(&output).unwrap()))]);
+    std::fs::write(output.parent().unwrap().join(".sag-converted.json"), serde_json::to_vec(&ownership).unwrap()).unwrap();
+    let Output::Text(root) = call(&client, Operation::AddRoot { path: folder.to_string_lossy().into_owned() }).await else { panic!("root") };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(call(&client, Operation::ListRoots).await, Output::Roots(roots) if roots.iter().any(|item| item.path == root && item.status == "ready")) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.is_empty()));
+    settings.conversion_formats = Some(vec!["pages".into()]);
+    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("cached.pages.md")) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("changing the conversion selection must schedule a scan without a watcher event");
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn builtin_formats_are_enabled_without_a_component_and_component_formats_are_validated() {
+    let (dir, client, server) = start().await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.convert_other_formats = true;
+    settings.conversion_formats = Some(vec!["png".into()]);
+    let rejected = client.call(Operation::SaveSettings { settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }, Duration::from_secs(5)).await;
+    assert!(rejected.is_err(), "a component format must not be enabled without the component");
+    assert!(!dir.path().join("data/docling").exists(), "saving settings must never download a component");
+    let folder = dir.path().join("builtin");
+    std::fs::create_dir(&folder).unwrap();
+    std::fs::write(folder.join("note.docx"), crate::anydoc::tests::docx("rpcbuiltinmarker")).unwrap();
+    let Output::Text(root) = call(&client, Operation::AddRoot { path: folder.to_string_lossy().into_owned() }).await else { panic!("root") };
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if matches!(call(&client, Operation::ListRoots).await, Output::Roots(roots) if roots.iter().any(|item| item.path == root && item.status == "ready")) { break; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("note.docx.md")));
+    stop(&client, server).await;
+}
+
 fn query(id: &str) -> Query {
     Query {
         id: id.into(),
@@ -864,7 +984,19 @@ async fn index_details_support_pause_resume_and_shutdown_over_rpc() {
     assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len()==1));
     call(&client, Operation::SetIndexPaused { paused: true }).await;
     call(&client, Operation::ReindexAll).await;
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    // ReindexAll queues work; wait for the worker to enter its paused scan
+    // before testing that clearing history preserves that active task.
+    let root_path = root.canonicalize().unwrap().to_string_lossy().into_owned();
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::IndexStatus(status) = call(&client, Operation::GetIndexStatus).await else { panic!("index status") };
+            assert!(status.paused);
+            if status.tasks.iter().any(|task| task.path == root_path && task.stage == "scanning") {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.expect("queued reindex should reach its paused scan");
     call(&client, Operation::ClearIndexHistory).await;
     assert!(matches!(call(&client, Operation::GetIndexStatus).await, Output::IndexStatus(status) if status.paused && !status.tasks.is_empty()));
     stop(&client, server).await;

@@ -2,7 +2,7 @@
 
 独立的飞牛 OS 原生应用项目。沿用 SAG Desktop 的 Svelte 界面和 Rust 内核，通过飞牛统一网关运行，提供原生目录授权、索引、搜索、引用问答和 Markdown 编辑。
 
-当前源码版本为 **0.1.12**。平台通过安装包名称区分。此前 0.2.x 为迁移测试编号，已有修复与功能保留。
+当前源码版本为 **0.1.13**。平台通过安装包名称区分。此前 0.2.x 为迁移测试编号，已有修复与功能保留。0.1.13 同步了桌面端 `main` 分支（GitHub Zleap-AI/SAG-Wiki）的修复与功能：内置 PDF、Office、EPUB 转换，本地 Jev 无鉴权接入，检索跳过已变更或不可读文件，不可读子目录不再中断索引，以及组件安装进度、模型源连通性和安装日志。
 
 `main` 更新后由 GitLab CI 测试、构建并发布 x86-64 / ARM64 FPK。[最新发布](https://gitlab.zexrtq.com/zleap/data/sag-wiki-fnos/-/releases/permalink/latest)包含安装包、SHA-256 和源码提交信息。发布标记包含应用版本、提交号和流水线 ID；FPK 内的应用版本保持源码版本。
 
@@ -34,9 +34,9 @@
 
 ## 范围
 
-保留 Markdown、文本、RTF、代码、配置文件、SAG2 检索、引用问答和编辑能力。PDF、Office 等格式通过 Docling 自动转换；MCP 支持远程 HTTP 与本地 stdio；CLI 保留原版搜索、匹配、配置、索引管理、服务管理和 Agent Skill 安装命令。应用升级、启停和桌面入口由飞牛管理。
+保留 Markdown、文本、RTF、代码、配置文件、SAG2 检索、引用问答和编辑能力。PDF、Word、PowerPoint、Excel/CSV、OpenDocument、EPUB 由内置 anydoc 转换器在应用进程内转换，无需下载组件；图片识别、扫描件 OCR、音视频转写及 iWork 等其他格式通过 Docling 组件按需转换。MCP 支持远程 HTTP 与本地 stdio；CLI 保留原版搜索、匹配、配置、索引管理、服务管理和 Agent Skill 安装命令，并支持 `sag config --auth none` 接入无鉴权的本地 Jev。应用升级、启停和桌面入口由飞牛管理。
 
-在“设置 → 文件设置 → 其他格式”安装 Docling，选择格式和转换并行数。组件按飞牛用户单独保存，转换在 NAS 上执行，原文件保留，Markdown 输出到原目录内的 `.sag-converted/`。转换输出为当前用户设置文件访问权限；读取转换文件时同时检查原文件权限；只读目录可复用已有转换结果，创建、覆盖、删除分别检查权限。
+内置格式添加文件夹后自动转换。在“设置 → 文件设置 → 其他格式”勾选需要组件的格式时会提示安装 Docling，并可查看安装进度、各包下载状态和安装日志；安装前先检查模型服务可达性，无法连接时立即报错并提示 `HF_ENDPOINT` 镜像。扫描件在未安装组件时记为索引问题，不会自动下载。组件按飞牛用户单独保存，转换在 NAS 上执行，原文件保留，Markdown 输出到原目录内的 `.sag-converted/`。转换输出为当前用户设置文件访问权限；读取转换文件时同时检查原文件权限；只读目录可复用已有转换结果，创建、覆盖、删除分别检查权限。
 
 在“设置 → 问答设置 → 工具绑定”添加或导入 stdio 配置，填写 NAS 上的启动命令、参数和环境变量，再测试连接并绑定工具。可执行文件和对应运行环境需要已在 NAS 安装。命令以当前飞牛登录用户的 UID 和用户组运行；每个用户有独立工作目录，只接收显式配置的环境变量。
 
@@ -72,7 +72,7 @@ sag -F "关键词" /vol1/1000/File --json
 
 `checks` 执行前端检查/测试、以非 root 用户运行 Rust workspace 测试，并执行发布脚本测试。`build-fpk` 按 x86 / arm 矩阵构建，核对包内版本、架构、执行权限及二进制；x86 额外运行真实 worker 的 Linux 发布集成测试。任一检查或架构失败都不会执行发布。
 
-`publish-fpk` 使用 GitLab 自动提供的临时 `CI_JOB_TOKEN`，无需配置个人 Token。验证两个架构及 sidecar 后上传 Generic Packages，并逐个下载校验，再创建 Release。包版本/标签形如 `0.1.12-main.<commit8>.<pipeline-id>` / `v0.1.12-main.<commit8>.<pipeline-id>`，重试不会覆盖已有不同内容。流水线 artifacts 保留 30 天；Release 下载指向 Package Registry，不依赖临时 artifacts。`build-info.json` 和 `audit-*.json` 记录源码提交、流水线及二进制哈希。
+`publish-fpk` 使用 GitLab 自动提供的临时 `CI_JOB_TOKEN`，无需配置个人 Token。验证两个架构及 sidecar 后上传 Generic Packages，并逐个下载校验，再创建 Release。包版本/标签形如 `0.1.13-main.<commit8>.<pipeline-id>` / `v0.1.13-main.<commit8>.<pipeline-id>`，重试不会覆盖已有不同内容。流水线 artifacts 保留 30 天；Release 下载指向 Package Registry，不依赖临时 artifacts。`build-info.json` 和 `audit-*.json` 记录源码提交、流水线及二进制哈希。
 
 默认使用 Runner 常用的 `python:3.11` 构建环境，首次安装固定版本的 Rust 并缓存工具链。可通过项目变量 `FPK_BUILD_IMAGE` / `FPK_PUBLISH_IMAGE` 切换为运维提供的私有构建/发布镜像。Rust 组件使用 RsProxy 国内分发镜像，版本固定且由 rustup 校验组件哈希；可用 `RUSTUP_DIST_SERVER` 覆盖下载源。工具链固定为 rustup 1.29.2、Rust 1.99.1、Node 24.13.0、cargo-zigbuild 0.24.0、Zig 0.17.0、官方 fnpack 1.2.3；rustup、Node 与 fnpack 下载有固定 SHA-256 校验。构建工具缓存由检查和架构构建共享，Rust 依赖及编译缓存按任务隔离。CI 构建检查不等于 fnOS 实机验收，ARM64 安装运行仍需相应设备验证。
 

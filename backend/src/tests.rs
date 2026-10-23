@@ -409,7 +409,7 @@ async fn cli_uses_web_index_permissions_access_switch_and_user_lifecycle() {
     f.denied.lock().unwrap().clear();
     service.cli.configure(sag_protocol::Access {enabled:false}).unwrap();
     assert!(call(1000, f.a.clone(), matching()).await.is_err());
-    call(1000, f.a.clone(), Command::Configure {enable:true,url:None,model:None,key:None}).await.unwrap();
+    call(1000, f.a.clone(), Command::Configure {enable:true,url:None,model:None,key:None,auth_mode:None}).await.unwrap();
     assert!(service.cli.access().enabled);
     std::fs::write(f.a.join(".sagignore"), "# retained rules\n").unwrap();
     f.denied.lock().unwrap().insert(f.a.join(".sagignore").display().to_string());

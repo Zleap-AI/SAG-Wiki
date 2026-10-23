@@ -2,7 +2,7 @@ mod support;
 use std::{
     fs,
     io::Write,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Output, Stdio},
 };
 
@@ -155,7 +155,7 @@ fn multiple_patterns_and_ordered_file_filters_share_one_search() {
     assert_eq!(multiple["results"].as_array().unwrap().len(), 3);
     let file = p.json(&["-F", "-f", "patterns", "src", "--json"]);
     assert_eq!(file["results"].as_array().unwrap().len(), 1);
-    assert_eq!(file["results"][0]["path"], "./src/code.rs");
+    assert_eq!(Path::new(file["results"][0]["path"].as_str().unwrap()), Path::new("./src/code.rs"));
     let excluded = p.json(&["-F", "dog", "--include=*.txt", "--exclude=a*", "--json"]);
     assert_eq!(excluded["results"].as_array().unwrap().len(), 1);
     assert_eq!(excluded["results"][0]["path"], "./b.txt");

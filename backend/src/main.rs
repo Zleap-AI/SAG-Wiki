@@ -151,6 +151,7 @@ fn operation(request: &Rpc) -> Result<Operation> {
     let command = match request.command.as_str() {
         "get_service_info" => "info",
         "get_docling_status" => "docling_status",
+        "get_docling_install_log" => "docling_install_log",
         "list_removed_directories" => "removed_directories",
         "list_roots" | "list_entries" | "list_files" | "read_document" | "save_document" |
         "add_root" | "add_root_with_options" | "get_folder_index_options" | "save_folder_index_options" |

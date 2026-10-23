@@ -5,6 +5,7 @@ import { cp, mkdir, mkdtemp, readFile, realpath, writeFile } from 'node:fs/promi
 import { resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { chromium } from 'playwright';
+import { zipSync, strToU8 } from 'fflate';
 
 // Only this test fixture simulates fnOS. The application has no development bypass.
 const base = await realpath(await mkdtemp('/tmp/fnos-web-'));
@@ -16,6 +17,14 @@ await mkdir(files);
 await cp('dist', resolve(app, 'www'), { recursive: true });
 await writeFile(resolve(files, '飞牛测试.md'), '# 飞牛文件测试\n\n原生接口检索标记 nativefnosmarker。\n');
 await writeFile(resolve(files, '只读.md'), '# 只读文档\n\n不得覆盖。\n');
+// Built-in conversion fixtures: a minimal Word document and a GBK-free CSV need no Docling component.
+const docx = zipSync({
+  '[Content_Types].xml': strToU8('<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'),
+  '_rels/.rels': strToU8('<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>'),
+  'word/document.xml': strToU8('<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>飞牛内置转换验证 builtindocxmarker</w:t></w:r></w:p></w:body></w:document>'),
+});
+await writeFile(resolve(files, '验收报告.docx'), docx);
+await writeFile(resolve(files, '型号清单.csv'), '型号,价格\nBCD-215,1999\nbuiltincsvmarker,1\n');
 let authorized = false;
 const nativeCalls = [];
 const nativeSocket = resolve(base, 'native.sock');
@@ -105,10 +114,38 @@ try{
     const response=await fetch(root+'api/rpc',{method:'POST',headers:{'Content-Type':'application/json','x-test-uid':uid},body:JSON.stringify({command,args,session:'12345678-1234-4234-8234-123456789abc'})});
     return {status:response.status,body:await response.json()};
   };
-  for(let i=0;i<100;i++){const result=await rpc('list_files');if(result.body.length===2)break;await page.waitForTimeout(100);}
-  assert.equal((await rpc('list_files')).body.length,2);
+  for(let i=0;i<200;i++){const result=await rpc('list_files');if(result.body.length===4)break;await page.waitForTimeout(100);}
+  const indexedFiles=(await rpc('list_files')).body.map(file=>file.path);
+  assert.equal(indexedFiles.length,4,JSON.stringify(indexedFiles));
+  assert(indexedFiles.some(path=>path.endsWith('/.sag-converted/验收报告.docx.md')),'built-in Word conversion must be indexed without Docling');
+  assert(indexedFiles.some(path=>path.endsWith('/.sag-converted/型号清单.csv.md')),'built-in CSV conversion must be indexed without Docling');
+  assert.match(await readFile(resolve(files,'.sag-converted/验收报告.docx.md'),'utf8'),/builtindocxmarker/);
+  assert.equal((await rpc('get_docling_status')).body.installed,false,'built-in conversion must not require the Docling component');
+  const missingLog=await rpc('get_docling_install_log');
+  assert.equal(missingLog.status,400);assert.match(missingLog.body.error,/尚未生成安装日志/);
+  assert.equal((await rpc('list_roots')).body[0].status,'ready');
+  const converted=await rpc('run_query',{query:{id:'12345678-1234-4234-8234-1234567890ab',kind:'search',question:'builtindocxmarker',scope:[],references:[],model:'',conversation_id:null,replace_from:null,page:1}});
+  assert.equal(converted.status,200,JSON.stringify(converted.body));
+  assert.equal(converted.body.results.length,1);
+  assert.match(converted.body.results[0].path,/验收报告\.docx\.md$/);
+  console.log('Built-in document conversion indexed');
   const settings=(await rpc('get_settings')).body;
   assert.equal((await rpc('save_settings',{settings:{...settings,search_summary_enabled:false},answerKey:'',jevKey:'',mcpCredentials:null})).status,200);
+  // A local Jev without authentication is accepted, and the answer model may not use that mode.
+  const localJev={...settings,search_summary_enabled:false,jev:{...settings.jev,url:'http://127.0.0.1:8000/v1',model:'local-jev',auth_mode:'none'}};
+  assert.equal((await rpc('save_settings',{settings:localJev,answerKey:'',jevKey:'',mcpCredentials:null})).status,200);
+  const savedJev=(await rpc('get_settings')).body;
+  assert.equal(savedJev.jev.auth_mode,'none');assert.equal(savedJev.jev.has_key,false);
+  const rejected=await rpc('save_settings',{settings:{...savedJev,answer:{...savedJev.answer,auth_mode:'none'}},answerKey:'',jevKey:'',mcpCredentials:null});
+  assert.equal(rejected.status,400);assert.match(rejected.body.error,/问答模型/);
+  // A source changed after indexing is left out of search instead of failing it.
+  await writeFile(resolve(files,'只读.md'),'# 只读文档\n\n不得覆盖。nativefnosmarker stale\n');
+  const staleSearch=await rpc('run_query',{query:{id:'12345678-1234-4234-8234-1234567890ac',kind:'search',question:'不得覆盖',scope:[],references:[],model:'',conversation_id:null,replace_from:null,page:1}});
+  assert.equal(staleSearch.status,200,JSON.stringify(staleSearch.body));
+  assert.equal(staleSearch.body.results.length,0);assert.equal(staleSearch.body.pagination.total,0);
+  await writeFile(resolve(files,'只读.md'),'# 只读文档\n\n不得覆盖。\n');
+  for(let i=0;i<100;i++){const result=await rpc('run_query',{query:{id:'12345678-1234-4234-8234-1234567890ad',kind:'search',question:'不得覆盖',scope:[],references:[],model:'',conversation_id:null,replace_from:null,page:1}});if(result.body.results?.length===1)break;await page.waitForTimeout(100);}
+  console.log('Stale source skipped and Jev auth mode saved');
   await page.locator('.workspace-switch').getByRole('button',{name:'搜索',exact:true}).click();
   await page.getByLabel('搜索模式',{exact:true}).click();
   await page.getByRole('option',{name:'快速',exact:true}).click();
@@ -129,7 +166,9 @@ try{
   assert.equal(denied.status,400);assert.match(await readFile(resolve(files,'只读.md'),'utf8'),/不得覆盖/);
   assert.deepEqual((await rpc('list_roots',{},'1001')).body,[]);
   assert.equal((await rpc('read_document',{path:resolve(files,'飞牛测试.md')},'1001')).status,400);
-  await page.getByRole('button',{name:'飞牛设置',exact:true}).click();
+  // The header entry is now 接入 Agent; fnOS settings live in the settings navigation.
+  await page.locator('.sidebar-tools').getByRole('button',{name:'设置',exact:true}).click();
+  await page.locator('.settings-nav').getByRole('button',{name:'飞牛设置',exact:true}).click();
   await page.getByText('我的文件/知识库',{exact:true}).waitFor();
   const folderRow=page.getByRole('list',{name:'已授权目录'}).getByRole('listitem');
   assert.equal(await folderRow.count(),1);
@@ -144,22 +183,31 @@ try{
   assert.equal(await page.getByRole('alert').filter({hasText:'Host bridge'}).count(),0);
   await page.screenshot({path:'.local/qa/fnos-settings.png',fullPage:true,animations:'disabled'});
   await page.locator('.settings-nav').getByRole('button',{name:'文件设置',exact:true}).click();
-  await page.getByRole('button',{name:'安装 Docling',exact:true}).click();
+  await page.getByRole('button',{name:'选择其他格式',exact:true}).click();
+  const formatDialog=page.getByRole('dialog',{name:'选择其他格式',exact:true});
+  await formatDialog.waitFor();
+  const builtin=await formatDialog.getByRole('region',{name:'内置转换格式'}).innerText();
+  assert.match(builtin,/无需下载/);assert.match(builtin,/\.pdf/);assert.match(builtin,/\.docx/);
+  assert.equal(await page.getByRole('checkbox',{name:'转换 .pdf',exact:true}).count(),0,'built-in formats are not offered as component downloads');
+  // Picking a component format asks to install Docling first instead of applying silently.
+  await page.getByRole('checkbox',{name:'转换 .pages',exact:true}).check();
+  await page.getByRole('button',{name:'安装并应用',exact:true}).click();
   await page.getByRole('dialog',{name:'下载文档解析组件'}).waitFor();
   await page.screenshot({path:'.local/qa/fnos-docling-download.png',fullPage:true,animations:'disabled'});
-  await page.getByRole('button',{name:'关闭下载详情',exact:true}).click();
+  await page.getByRole('dialog',{name:'下载文档解析组件'}).getByRole('button',{name:'取消',exact:true}).click();
+  await page.getByRole('dialog',{name:'下载文档解析组件'}).waitFor({state:'hidden'});
+  await formatDialog.getByRole('button',{name:'取消',exact:true}).click();
   // UI fixture only: real installation and conversion run separately in Linux.
   const component=resolve(base,'data/users/1000/docling');
   await mkdir(resolve(component,'bin'),{recursive:true});
   await writeFile(resolve(component,'ready'),'2.140.0');
   await writeFile(resolve(component,'bin/docling'),'#!/bin/sh\nexit 0\n');
-  await page.getByRole('button',{name:'选择其他格式',exact:true}).waitFor();
   await page.getByRole('button',{name:'选择其他格式',exact:true}).click();
-  await page.getByRole('checkbox',{name:'转换 .pdf',exact:true}).uncheck();
-  await page.getByRole('checkbox',{name:'转换 .pdf',exact:true}).check();
+  await page.getByRole('checkbox',{name:'转换 .pages',exact:true}).check();
   await page.getByRole('spinbutton',{name:'转换并行数',exact:true}).fill('2');
   await page.screenshot({path:'.local/qa/fnos-docling-formats.png',fullPage:true,animations:'disabled'});
   await page.getByRole('button',{name:'应用',exact:true}).click();
+  await formatDialog.waitFor({state:'hidden'});
   await page.locator('.settings-nav').getByRole('button',{name:'问答设置',exact:true}).click();
   await page.getByRole('button',{name:'导入 JSON',exact:true}).click();
   await page.getByRole('textbox',{name:'MCP JSON 配置',exact:true}).fill(JSON.stringify({mcpServers:{'本地工具示例':{command:'python3',args:['/path/to/server.py']}}}));
@@ -171,7 +219,7 @@ try{
     assert.deepEqual(errors,[]);
   assert(nativeCalls.some(call=>call.req==='trim.file.checkUserACL'));
   assert(nativeCalls.some(call=>call.req==='trim.file.convertPath'));
-  console.log(JSON.stringify({result:'passed',checks:['browser authorization callback','native ACL','indexing','search preview','editor save','read-only denial','user isolation','Docling installation dialog and format selection','stdio MCP import and command fields'],nativeCalls:nativeCalls.length,screenshots:['.local/qa/fnos-search.png','.local/qa/fnos-settings.png']},null,2));
+  console.log(JSON.stringify({result:'passed',checks:['browser authorization callback','native ACL','indexing','built-in Word/CSV conversion without Docling','stale source skipped in search','local Jev without authentication','search preview','editor save','read-only denial','user isolation','Docling install prompt, built-in format list and component selection','stdio MCP import and command fields'],nativeCalls:nativeCalls.length,screenshots:['.local/qa/fnos-search.png','.local/qa/fnos-settings.png']},null,2));
   }
 }catch(error){console.error(error,serverLog);throw error;}
 finally{
