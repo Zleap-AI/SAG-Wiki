@@ -76,6 +76,18 @@
    settings={...settings,mcp_servers:settings.mcp_servers.map(item=>item.id===server.id?{...item,tools}:item)};
   }catch(error){mcpErrors={...mcpErrors,[server.id]:$t(String(error))}}finally{mcpTesting=''}
  }
+ function removeMcp(id:string){
+  const bindings=Object.entries(settings.model_profiles).map(([model,profile])=>({model,index:profile.mcp_servers.indexOf(id),tools:profile.mcp_tools?.[id]?.slice()}));
+  for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}
+  return ()=>{
+   for(const binding of bindings){
+    const profile=settings.model_profiles[binding.model];if(!profile)continue;
+    if(binding.index>=0&&!profile.mcp_servers.includes(id))profile.mcp_servers.splice(Math.min(binding.index,profile.mcp_servers.length),0,id);
+    if(binding.tools){profile.mcp_tools??={};profile.mcp_tools[id]=binding.tools;}
+   }
+   settings={...settings};
+  };
+ }
  async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
@@ -161,7 +173,7 @@
      <section class="settings-group settings-fields model-tools-settings">
       <div class="settings-group-heading"><h3>{$t("工具绑定")}</h3></div>
       {#if settings.model_profiles[profileModel]}
-        <McpSettings model={profileModel} bind:profile={settings.model_profiles[profileModel]} bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={id=>{for(const profile of Object.values(settings.model_profiles)){profile.mcp_servers=profile.mcp_servers.filter(serverId=>serverId!==id);delete profile.mcp_tools?.[id]}}}/>
+        <McpSettings model={profileModel} bind:profile={settings.model_profiles[profileModel]} bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={removeMcp}/>
       {/if}
      </section>
      <section class="settings-group settings-fields model-request-settings">
