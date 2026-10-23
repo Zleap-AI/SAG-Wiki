@@ -49,7 +49,7 @@ jobs:
         id: source
         run: node scripts/release.mjs validate
       - name: Test release validation and signing
-        run: node --test scripts/release.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs
 
   documentation:
     name: Build bilingual documentation

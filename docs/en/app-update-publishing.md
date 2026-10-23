@@ -45,7 +45,7 @@ The configured single-maintainer policy lets `luoshuai990529` request a release 
 ## Build and release flow
 
 1. Update desktop and CLI versions, lock files and Changelog in a PR. Merge the PR into `main` only after review and unsigned CI checks pass.
-2. PR jobs build macOS arm64 and Windows x64 installers and the bundled CLI from the same commit, run tests and the local Jev protocol E2E. These jobs receive no signing secrets.
+2. PR checks compile the CLI and run the local Jev protocol E2E on macOS and Windows. They do not build desktop installers. After a push to `main`, or on manual dispatch, **Desktop build and release** runs release validation, documentation builds, unit/component tests, desktop packaging and installer checks from the same commit. Build jobs receive no signing secrets. PR E2E does not replace desktop installation, upgrade and data-preservation acceptance.
 3. Create `vX.Y.Z` at the validated `main` commit, then run **Request desktop release** from `main` with that tag. Pushing a tag alone does not start signing. The request dispatches the tag workflow as `github-actions[bot]`; it never creates or moves tags. The workflow rejects mismatched versions and tags outside `main`.
 4. After both platforms pass, the protected `release` job requires its reviewer. It signs the exact built update packages with Environment secrets, binds signatures to the release version, verifies signatures, checks platform metadata has the same commit/version, and generates checksums and update manifests.
 5. The workflow creates a **draft** GitHub Release with installers, signed update packages, manifests and build provenance. It does not automatically promote a partially built release.
@@ -58,9 +58,12 @@ For example, from the reviewed, clean `main` checkout:
 git fetch origin main --tags
 node scripts/release.mjs validate
 release_commit=$(git rev-parse origin/main)
-git tag -a v0.1.9 "$release_commit" -m 'SAG Wiki 0.1.9'
-git push origin refs/tags/v0.1.9
-gh workflow run request-release.yml --repo Zleap-AI/SAG-Wiki --ref main -f tag=v0.1.9
+test "$(git rev-parse HEAD)" = "$release_commit" || exit 1
+release_version=$(node -p "require('./package.json').version")
+release_tag="v${release_version}"
+git tag -a "$release_tag" "$release_commit" -m "SAG Wiki $release_version"
+git push origin "refs/tags/$release_tag"
+gh workflow run request-release.yml --repo Zleap-AI/SAG-Wiki --ref main -f tag="$release_tag"
 ```
 
 If the tag already exists, keep it unchanged and run only the request command. Inspect the resulting run actor before approval; it must be `github-actions[bot]`.
@@ -77,14 +80,15 @@ gh attestation verify /path/to/downloaded-installer -R Zleap-AI/SAG-Wiki
 
 Checksums establish byte identity; an attestation identifies build source and workflow. Neither replaces signature validation or an installation check. Hosted-runner smoke checks do not establish acceptance on every supported customer machine.
 
-After an authorized release reviewer inspects the assets and release notes:
+After an authorized release reviewer inspects the assets and release notes, reuse the reviewed `release_tag` from the creation step. In a new shell, explicitly set it to that reviewed tag; do not derive it again from a potentially changed checkout:
 
 ```sh
-gh release view v0.1.9 --repo Zleap-AI/SAG-Wiki
-gh release edit v0.1.9 --repo Zleap-AI/SAG-Wiki --draft=false --latest
+: "${release_tag:?Set release_tag to the reviewed release tag before publishing}"
+gh release view "$release_tag" --repo Zleap-AI/SAG-Wiki
+gh release edit "$release_tag" --repo Zleap-AI/SAG-Wiki --draft=false --latest
 ```
 
-Check public download URLs and update manifests after promotion. Update README download links and sizes only when new assets are publicly available.
+After promotion, verify public installer URLs and update manifests. README links to the latest stable Release, and the installation page reads its version, download URLs and actual asset sizes when opened. No version configuration or download-documentation PR is required.
 
 ## 0.1.9 key migration
 
