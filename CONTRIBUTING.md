@@ -22,3 +22,9 @@ For a stable release, bump package/lock, backend/CLI Cargo versions and packagin
 All fnOS releases explicitly opt out of GitHub Latest. Desktop auto-update depends on the repository's Latest desktop release and `latest-v2.json`; do not mark a fnOS release as Latest manually. Find fnOS packages by their `fnos-` tags in [Releases](https://github.com/Zleap-AI/SAG-Wiki/releases).
 
 The desktop signing Environment remains `release`; fnOS uses `fnos-release` with no desktop signing keys. CI success does not substitute for x86 device install/upgrade and data-preservation acceptance.
+
+## Desktop PR checks
+
+Pull requests to `main` require `E2E macos` and `E2E windows`. These run the real CLI/service indexing and retrieval flow against a local Jev protocol fixture. They compile only the CLI test executable, not the desktop application or installers; they do not exercise the desktop GUI or real model inference.
+
+Desktop builds, unit/component tests, documentation builds, installer smoke tests and release validation remain in `Desktop build and release`, triggered after pushes to `main` or by manual dispatch. Keep the required status check names in branch protection aligned with `pr-e2e.yml`.
