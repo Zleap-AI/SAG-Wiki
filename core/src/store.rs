@@ -422,8 +422,8 @@ impl Store {
         if !matches!(s.language.as_str(), "zh-CN" | "en") {
             bail!("不支持的界面语言")
         }
-        if !(1..=100).contains(&s.max_tool_calls) {
-            bail!("每轮工具调用上限应为 1–100")
+        if s.max_tool_calls > 100 {
+            bail!("每轮工具调用上限应为 0–100，0 表示不限制")
         }
         let mut ids = HashSet::new();
         for server in &s.mcp_servers {
@@ -2189,12 +2189,20 @@ impl Store {
         }
         Ok(())
     }
-    pub fn replace_messages(&self, id: &str, messages: Vec<Message>) -> Result<Conversation> {
+    pub fn replace_messages(&self, id: &str, mut messages: Vec<Message>) -> Result<Conversation> {
         let mut conversation = self
             .conversations()?
             .into_iter()
             .find(|c| c.id == id)
             .context("对话不存在")?;
+        // Summaries refer to absolute positions and content in the previous
+        // transcript. Deleting, editing, reordering or restoring messages makes
+        // those references unsafe; rebuild from the retained raw messages.
+        for message in &mut messages {
+            if let Some(context) = &mut message.context {
+                context.summary = None;
+            }
+        }
         conversation.messages = messages;
         conversation.updated = now();
         self.put_conversation(&conversation)?;
@@ -2796,11 +2804,14 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
             vec!["read_wiki_structure"]
         );
         settings.max_tool_calls = 0;
+        store.save_settings(&settings).unwrap();
+        assert_eq!(store.settings().unwrap().max_tool_calls, 0);
+        settings.max_tool_calls = 101;
         assert!(store.save_settings(&settings).is_err());
         settings.max_tool_calls = 3;
         settings.mcp_servers.clear();
         assert!(store.save_settings(&settings).is_err());
-        assert_eq!(store.settings().unwrap().max_tool_calls, 7);
+        assert_eq!(store.settings().unwrap().max_tool_calls, 0);
     }
     #[test]
     fn clearing_conversations_removes_hidden_history_and_database_log_bytes() {

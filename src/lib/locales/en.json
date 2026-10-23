@@ -1272,5 +1272,12 @@
   "深入（需配置 Jev）": "Deep (needs Jev)",
   "扫描件需要图片识别组件": "This scan needs the image recognition component",
   "这个文件没有文字层，需要安装图片识别（OCR）组件后才能转换。": "This file has no text layer. Install the image recognition (OCR) component to convert it.",
-  "索引时出错：{value0}": "Indexing failed: {value0}"
+  "索引时出错：{value0}": "Indexing failed: {value0}",
+  "正在压缩上下文": "Summarizing conversation context",
+  "上下文压缩失败，原始记录已保留": "Context summarization failed. The original records have been preserved.",
+  "上下文压缩失败，原始记录已保留：{value0}": "Context summarization failed. The original records have been preserved: {value0}",
+  "模型生成的上下文摘要仍超过预算，原始记录已保留": "The generated summary still exceeds the context budget. The original records have been preserved.",
+  "系统提示词、工具定义或查询范围超过上下文预算，请调整配置": "The system prompt, tool definitions, or query scope exceed the context budget. Adjust the configuration.",
+  "每轮工具调用上限应为 0–100，0 表示不限制": "Tool calls per turn must be between 0 and 100; 0 means unlimited",
+  "默认 10 次；0 表示不限制，SAG 和 MCP 合计": "Default: 10 calls; 0 means unlimited, shared by SAG and MCP"
 }

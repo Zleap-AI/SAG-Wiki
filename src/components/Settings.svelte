@@ -165,7 +165,7 @@
      </section>
      <section class="settings-group settings-fields model-request-settings">
       <div class="settings-group-heading"><h3>{$t("上下文与请求")}</h3></div>
-      <div class="setting-row"><label for="max-tool-calls"><strong>{$t("每轮工具调用上限")}</strong><p>{$t("SAG2 和 MCP 合计，默认 10 次")}</p></label><Input id="max-tool-calls" aria-label={$t("每轮工具调用上限")} type="number" min="1" max="100" required bind:value={settings.max_tool_calls}/></div>
+      <div class="setting-row"><label for="max-tool-calls"><strong>{$t("每轮工具调用上限")}</strong><p>{$t("默认 10 次；0 表示不限制，SAG 和 MCP 合计")}</p></label><Input id="max-tool-calls" aria-label={$t("每轮工具调用上限")} type="number" min="0" max="100" required bind:value={settings.max_tool_calls}/></div>
       <div class="setting-row"><label for="answer-context"><strong>{$t("回答上下文预算（tokens）")}</strong><p>{$t("控制问题、历史、工具记录和引用的输入规模。默认 64K，无固定最大值，请按模型支持的上下文大小填写。输出长度由模型服务决定。")}</p></label><Input id="answer-context" aria-label={$t("回答上下文预算（tokens）")} type="number" min="4096" step="1" required bind:value={settings.answer_context_tokens}/></div>
       <div class="setting-row"><label for="model-timeout"><strong>{$t("请求超时")}</strong><p>{$t("单位：秒")}</p></label><Input id="model-timeout" aria-label={$t("请求超时")} type="number" min="10" max="600" bind:value={settings.timeout_secs}/></div>
      </section>

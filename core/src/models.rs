@@ -474,6 +474,7 @@ pub fn prepare_answer(
         output_tokens: None,
         elapsed_ms: None,
         generation_ms: None,
+        summary: None,
     };
     Ok(AnswerPlan {
         payload: payload(config, messages, true)?,
@@ -528,6 +529,7 @@ pub fn prepare_search_summary(
             limit, reserved_output: output, estimated_input: message_tokens(&messages),
             omitted_sources: evidence.len() - selected.len(), omitted_history: 0,
             input_tokens: None, output_tokens: None, elapsed_ms: None, generation_ms: None,
+            summary: None,
         },
         payload: payload(config, messages, true)?,
         evidence: selected,
