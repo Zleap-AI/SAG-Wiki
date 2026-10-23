@@ -1,5 +1,3 @@
-> fnOS development lives on [`fnos/develop`](https://github.com/Zleap-AI/SAG-Wiki/tree/fnos/develop), with x86 FPK releases. This branch maintains Windows/macOS. See [contribution and release rules](CONTRIBUTING.md).
-
 <p align="center">
   <img src="docs/assets/readme/sag-wiki-logo.png" alt="SAG-Wiki" width="294" />
 </p>
