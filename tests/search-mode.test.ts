@@ -8,9 +8,9 @@ vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';localStorage.clear();vi.clearAllMocks()});
 async function setup(){
- invoke.mockImplementation(async(command)=>command==='get_settings'?{theme:'light',start_page:'search',editor_size:15,answer:{model:'test',models:['test']}}:command==='run_query'?{results:[],terms:[],trace:[],conversation:null}:[]);
+ invoke.mockImplementation(async(command)=>command==='get_settings'?{theme:'light',start_page:'search',editor_size:15,answer:{model:'test',models:['test'],has_key:false},jev:{model:'jev',has_key:true}}:command==='summarize_search'?{text:'',evidence:[]}:command==='run_query'?{results:[],terms:[],trace:[],conversation:null}:[]);
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="搜索关键词"]')).not.toBeNull());
  const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;
@@ -18,6 +18,7 @@ async function setup(){
  return input;
 }
 it('搜索默认直接使用深入模式',async()=>{
+ localStorage.removeItem('sag.search.mode');
  const input=await setup();
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
  expect(invoke.mock.calls.find(([command])=>command==='run_query')![1].query.kind).toBe('deep_search');
@@ -56,4 +57,16 @@ it('一百个文件分五页展示，合并同一文件的命中并保持后端�
  expect(document.querySelector<HTMLButtonElement>('[aria-label="下一页"]')!.disabled).toBe(true);
  expect(document.querySelector('.search-summary')!.textContent).toContain('100 个文件');
  expect(invoke.mock.calls.filter(([command])=>command==='run_query')).toHaveLength(1);
+});
+
+it('未配置 Jev 时默认改用快速模式，并提示深入需要配置',async()=>{
+ localStorage.removeItem('sag.search.mode');
+ invoke.mockImplementation(async(command)=>command==='get_settings'?{theme:'light',start_page:'search',editor_size:15,answer:{model:'test',models:['test'],has_key:true},jev:{model:'',has_key:false}}:command==='run_query'?{results:[],terms:[],trace:[],conversation:null,elapsed_ms:1,pagination:{total:0,page:1,page_size:20}}:[]);
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="搜索关键词"]')).not.toBeNull());
+ const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;
+ input.value='octx';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
+ expect(invoke.mock.calls.find(([command])=>command==='run_query')![1].query.kind).toBe('search');
+ expect(document.querySelector<HTMLElement>('.search-mode')?.textContent).toContain('快速');
 });

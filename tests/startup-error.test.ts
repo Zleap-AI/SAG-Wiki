@@ -50,3 +50,15 @@ it('clears a transient startup error once the workspace loads',async()=>{
  await settle();
  expect(document.querySelector('.startup-error')).toBeNull();
 });
+
+it('registers every service listener even when the first load fails',async()=>{
+ localStorage.setItem('sag.onboarding.seen','1');
+ const names:string[]=[];
+ const {listen}=await import('@tauri-apps/api/event');
+ (listen as unknown as {mockImplementation:(f:(name:string)=>Promise<()=>void>)=>void}).mockImplementation(async(name)=>{names.push(name);return()=>{}});
+ invoke.mockImplementation(async(command)=>{if(command==='get_settings')throw new Error('SAG 服务未启动');return [];});
+ app=mount(App,{target:document.body});
+ await settle();
+ expect(document.querySelector('.startup-error')).not.toBeNull();
+ for(const name of ['history-changed','settings-changed','tool-approval','query-progress','app-error','index-progress'])expect(names,name).toContain(name);
+});

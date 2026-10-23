@@ -12,7 +12,7 @@ afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMoc
 const hit={id:1,document_id:1,path:'/files/open-octx.md',title:'open-octx.md',heading:'',content:'OCTX 是一种格式。第二处 octx。',start_line:1,end_line:1,source_ranges:[[1,1]],source_spans:[],bm25:-1,score:0,order:0,hash:'same'};
 async function setup(pending=false,mode='deep_search',paginated=false,deepResults?:typeof hit[]){
  invoke.mockImplementation(async(command,args)=>{
-  if(command==='get_settings')return {theme:'light',start_page:'search',editor_size:15,answer:{url:'https://example.com/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:false},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:0};
+  if(command==='get_settings')return {theme:'light',start_page:'search',editor_size:15,answer:{url:'https://example.com/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:true},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:0};
   if(command==='run_query'){
    if(pending)return new Promise(()=>{});
    const page=args.query.page??1;

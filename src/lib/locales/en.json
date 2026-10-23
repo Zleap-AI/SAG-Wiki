@@ -1265,5 +1265,12 @@
   "已停止转换，未发布输出": "Conversion stopped; nothing was published",
   "文档超过 512 MiB 转换输入限制": "The document exceeds the 512 MiB conversion input limit",
   "转换输出超过 64 MiB 限制": "The converted output exceeds the 64 MiB limit",
-  "此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试": "This format needs the Docling document component. Install the image recognition component in File settings and retry"
+  "此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试": "This format needs the Docling document component. Install the image recognition component in File settings and retry",
+  "图片与扫描件（OCR）": "Images and scans (OCR)",
+  "问答需要先配置模型。": "Configure a model before asking questions.",
+  "未配置 Jev 时只能使用本地快速检索；深入检索与多跳问答需要先配置。": "Without Jev only local quick search is available; deep search and multi-hop answers need it configured.",
+  "深入（需配置 Jev）": "Deep (needs Jev)",
+  "扫描件需要图片识别组件": "This scan needs the image recognition component",
+  "这个文件没有文字层，需要安装图片识别（OCR）组件后才能转换。": "This file has no text layer. Install the image recognition (OCR) component to convert it.",
+  "索引时出错：{value0}": "Indexing failed: {value0}"
 }
