@@ -1,0 +1,14 @@
+name: fnOS x86 build and release
+# Register the dispatchable workflow on the default branch. The implementation
+# is versioned on fnos/develop; this branch cannot build or publish FPKs.
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  select-fnos-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: |
+          echo 'Select fnos/develop for a development build, or use Request fnOS release for a reviewed fnos-vX.Y.Z tag.'
+          exit 1
