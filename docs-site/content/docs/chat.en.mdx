@@ -11,6 +11,8 @@ Open Q&A and send your question. Type `@` to select a file. The scope selector c
 
 During generation, reasoning, intermediate text and tool calls appear in order. When the final answer starts, the details collapse, leaving only an elapsed-time row and a divider above the answer. Select the row to expand the details again.
 
+If the local service connection temporarily fails, the app reports the error and keeps reconnecting. New questions continue to show streamed text and tool progress after the connection recovers.
+
 ![Processing details collapsed above the final answer](/images/product-answer-process-en.png)
 
 While content is being generated, the page follows the latest output. Scrolling up pauses this behavior and preserves your reading position, even for a small movement. Scrolling back to the bottom resumes following.
