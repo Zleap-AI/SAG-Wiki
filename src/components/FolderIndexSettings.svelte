@@ -5,7 +5,7 @@
  import FolderIndexTypes from './FolderIndexTypes.svelte';
  import {api} from '../lib/api';
  import {icon} from '../lib/icons';
- import {basename} from '../lib/domain';
+ import {basename,displayPath} from '../lib/domain';
  import {t} from '../lib/i18n';
  import type {FolderIndexOptions} from '../lib/types';
  export let path:string;
@@ -22,7 +22,7 @@
 <Modal label={$t('索引设置')} class="folder-index-settings" onClose={()=>{if(!saving)onClose()}}>
  <div class="dialog-head"><h2>{$t('索引设置')}</h2><Button.Root class="icon-button" disabled={saving} aria-label={$t('关闭索引设置')} onclick={onClose}>{@html icon('close')}</Button.Root></div>
  <div class="dialog-body">
-  <section class="folder-summary"><div class="folder-summary-title">{@html icon('folder')}<div><h3>{basename(path)}</h3><p class="folder-path">{path}</p></div></div><p class="folder-index-intro">{$t('应用于当前文件夹及未单独设置的子文件夹。取消勾选的类型不再索引，原文件仍可浏览。')}</p></section>
+  <section class="folder-summary"><div class="folder-summary-title">{@html icon('folder')}<div><h3>{basename(path)}</h3><p class="folder-path">{displayPath(path)}</p></div></div><p class="folder-index-intro">{$t('应用于当前文件夹及未单独设置的子文件夹。取消勾选的类型不再索引，原文件仍可浏览。')}</p></section>
   <section class="folder-types-section" aria-label={$t('文件类型')}><div class="folder-section-heading"><h3>{$t('文件类型')}</h3></div><div class="folder-types-body">{#if loading}<p role="status">{$t('正在读取索引设置…')}</p>{:else if options}<FolderIndexTypes bind:value={options} disabled={saving}/>{/if}</div></section>
   <section class="folder-index-notes" aria-label={$t('规则说明')}><h3>{$t('规则说明')}</h3><p>{$t('选项保存在此文件夹的 .sagignore 中，已有手写规则会保留并继续生效。')}</p><p class="rebuild-note">{$t('重新索引会清除当前文件夹的旧索引，再按当前选项建立索引；原文件和其他文件夹不受影响。')}</p></section>
   {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}

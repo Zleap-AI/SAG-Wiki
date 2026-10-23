@@ -5,7 +5,7 @@
 <h1 align="center">SAG-Wiki</h1>
 
 <p align="center">
-  <a href="README.md">English</a> · <strong>简体中文</strong>
+  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="CHANGELOG.md">更新日志</a>
 </p>
 
 <p align="center">
@@ -24,6 +24,8 @@
 </p>
 
 https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
+
+源码新增文档目录、Mermaid 预览、当前文档问答、长会话摘要和独立网页剪藏。操作说明见[双语文档站](docs-site/README.md)，扩展构建见[网页剪藏说明](browser-extension/README.md)。这些新增功能尚未发布，下方下载链接仍指向已发布版本。
 
 ## 目录
 
@@ -44,8 +46,10 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 | 系统 | 下载 | 大小 |
 | --- | --- | --- |
-| macOS | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-macOS-arm64.dmg) | 14.0MB |
-| Windows | [v0.1.7](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.7/SAG-Wiki-0.1.7-Windows-x64-setup.exe) | 10.7MB |
+| macOS | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-macOS-arm64.dmg) | 14.4MB |
+| Windows | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-Windows-x64-setup.exe) | 10.9MB |
+
+**从 0.1.8 或更早版本升级：**请手动安装一次 0.1.9，以切换到新的更新签名密钥；后续版本可继续通过应用内更新安装。[迁移说明](docs/zh-CN/应用内更新发布.md)。
 
 **给 Agent 安装**
 
@@ -53,7 +57,7 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 请安装 https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 并按其中的 setup 流程配置当前项目。
 ```
 
-安装包大小不含按需下载的文档转换组件和识别模型。
+安装包大小不含按需下载的图片识别与音视频组件。
 
 添加一个文件夹，就能搜索其中的文档、笔记和代码。查找原文、跨文件提问、核对答案出处，也可以让编程 Agent 使用同一份知识库。
 
@@ -61,7 +65,7 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 - **快**：百万字索引约 **200 ms**，索引和检索不调用 LLM。
 - **准**：原创 **SAG2** 检索技术，检索效果超越 RAG、GraphRAG 等。
 
-你还可以编辑 Markdown、阅读 HTML、探索文档关联，或直接在终端搜索。Office、表格、EPUB 与文本型 PDF 默认由内置 anydoc 本地解析；扫描 PDF 和其他格式可按需安装 Docling。
+你还可以编辑 Markdown、阅读 HTML、探索文档关联，或直接在终端搜索。PDF、Office、EPUB 等文档内置转换，直接加入同一知识库；图片识别与音视频转写按需安装组件。
 
 ### 与 LLM Wiki、RAG 的区别
 

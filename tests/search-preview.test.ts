@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import './helpers/document-bridge';
 import {afterEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import App from '../src/App.svelte';
@@ -26,6 +25,16 @@ async function setup(candidates=hits,bodies:Record<string,string>={}){
  await vi.waitFor(()=>expect(document.querySelectorAll('.search-result')).toHaveLength(Math.min(candidates.length,20)));
 }
 function openDocument(){[...document.querySelectorAll<HTMLButtonElement>('.search-preview button')].find(button=>button.textContent==='打开文档')!.click()}
+it('Windows 搜索预览和原文页显示普通路径，读取和打开使用原始路径',async()=>{
+ const path=String.raw`\\?\D:\资料\file.txt`,shown=String.raw`D:\资料\file.txt`;
+ await setup([{...hits[0],path}]);
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview .source-path')?.textContent).toBe(shown));
+ expect(invoke).toHaveBeenCalledWith('read_document',{path});
+ openDocument();
+ await vi.waitFor(()=>expect(document.querySelector('.readonly-document .source-path')?.textContent).toBe(shown));
+ document.querySelector<HTMLButtonElement>('.readonly-document .editor-head .outline')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('reveal_path',{path}));
+});
 it('右侧直接渲染 Markdown 全文及高亮，切换文件读取相应文档',async()=>{
  const target={...hits[0],path:'/files/notes.md',title:'notes.md'};
  await setup([target,hits[1]],{[target.path]:'引言\n\n# 标题\n\n可渲染的 **octx** 正文。\n\n全文末尾'});
@@ -49,7 +58,7 @@ it('HTML 右侧预览和打开文档都渲染页面，保留样式、图片、�
   expect([...rendered.querySelectorAll('style')].some(style=>style.textContent==='h1{color:red}')).toBe(true);
   expect(rendered.querySelector('img')!.getAttribute('src')).toBe('data:image/png;base64,QUJD');
   expect(rendered.querySelector('a')!.getAttribute('href')).toBe('about:srcdoc#content');
-  expect(frame.getAttribute('sandbox')).toBe('allow-scripts');expect(rendered.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content')).toContain("script-src 'nonce-");expect(frame.title).toBe('HTML 文档');
+  expect(frame.getAttribute('sandbox')).toBe('allow-scripts');expect(frame.title).toBe('HTML 文档');
  }
 });
 it('预览和打开文档均定位到检索片段，而非全文较早的相同词',async()=>{

@@ -29,6 +29,20 @@ function setup(session=createLibrarySession()){
  const open=vi.fn();app=mount(LibraryWorkspace,{target:document.body,props:{scope:'/notes',session,entries:[],reading:false,revision:0,onbrowse:vi.fn(),onopen:open,onmenu:vi.fn()}});
  return{session,open};
 }
+it('Windows 关系图预览显示普通路径，打开和读取仍使用原始路径',async()=>{
+ const {open}=setup(),path=String.raw`\\?\D:\资料\监听.md`;
+ const windowsData={...data,documents:[{...a,path},b,c]};
+ invoke.mockImplementation(async command=>{
+  if(command==='explore_overview')return{...windowsData,total:3,known_documents:[],indexing:false,partial:false};
+  if(command==='explore_graph')return windowsData;
+  if(command==='read_document')return{body:'正文'};
+ });
+ await enter();select(1);
+ await vi.waitFor(()=>expect(document.querySelector('.graph-preview-path')?.textContent).toBe(String.raw`D:\资料\监听.md`));
+ expect(document.querySelector('.graph-preview-path')?.getAttribute('title')).toBe(String.raw`D:\资料\监听.md`);
+ expect(invoke).toHaveBeenCalledWith('read_document',{path});
+ button('打开文档').click();expect(open).toHaveBeenCalledWith(path,[]);
+});
 it('进入即显示完整关系总览，包含没有关联的文档',async()=>{
  const {session}=setup();await enter();expect(session.graph.nodes.map(n=>n.id)).toEqual([1,2,3]);expect(session.graph.edges).toEqual([edge]);
  expect(document.body.textContent).toContain('3 个文档 · 1 条关联');expect(document.body.textContent).not.toContain('选择一篇文档');expect(invoke.mock.calls.some(([name])=>name==='explore_neighbors')).toBe(false);

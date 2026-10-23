@@ -1,4 +1,4 @@
-//! Built-in document conversion with optional Docling for OCR and other formats.
+//! Optional external document conversion. The index only reads its Markdown output.
 use anyhow::{bail, Context, Result};
 use sag_protocol::{DoclingProfile, DoclingProfileStatus, DoclingStatus};
 use sha2::{Digest, Sha256};
@@ -15,11 +15,6 @@ use std::{
 };
 
 pub const OUTPUT_DIRECTORY: &str = ".sag-converted";
-pub const DOCUMENT_EXTENSIONS: &[&str] = &[
-    "doc", "docx", "docm", "ppt", "pps", "pot", "pptx", "pptm", "ppsx", "ppsm", "xls", "xlsx",
-    "xlsm", "xlsb", "odt", "ods", "odp", "epub", "csv", "pdf",
-];
-pub const BUILTIN_VERSION: &str = "anydoc-0.2.4";
 const VERSION: &str = "2.140.0";
 const UV_VERSION: &str = "0.12.1";
 const PYTHON_VERSION: &str = "3.12.13";
@@ -30,13 +25,13 @@ const MEDIA_EXTENSIONS: &[&str] = &[
 
 // Pinned to Docling's FormatToExtensions. Existing native text formats stay native.
 const FORMATS: &[(&str, &str)] = &[
-    ("扫描 PDF", "pdf"),
+    ("PDF", "pdf"),
     ("Word", "docx dotx docm dotm doc dot rtf"),
     ("PowerPoint", "pptx potx ppsx pptm potm ppsm ppt pot pps"),
     ("Excel / CSV", "xlsx xlsm xltx xltm xls xlt csv"),
     ("OpenDocument", "odt ott ods ots odp otp"),
     ("Apple iWork", "pages key numbers"),
-    ("图片", "jpg jpeg png tif tiff bmp webp gif"),
+    ("图片与扫描件（OCR）", "jpg jpeg png tif tiff bmp webp gif"),
     (
         "网页与文本",
         "html htm xhtml mhtml mht md markdown txt text qmd rmd adoc asciidoc asc vtt tex latex",
@@ -49,31 +44,38 @@ const FORMATS: &[(&str, &str)] = &[
         "xml nxml xbrl dclg dclx json tar.gz ebc ebcdic afp",
     ),
 ];
+/// Formats that need a downloaded Docling component. Formats the built-in
+/// converter handles are listed by [`builtin_formats`] instead.
 pub fn formats() -> Vec<(String, Vec<String>)> {
+    grouped_formats(|ext| !crate::anydoc::handles_extension(ext))
+}
+/// Formats converted in process without any download.
+pub fn builtin_formats() -> Vec<(String, Vec<String>)> {
+    grouped_formats(crate::anydoc::handles_extension)
+}
+fn grouped_formats(select: impl Fn(&str) -> bool) -> Vec<(String, Vec<String>)> {
     FORMATS
         .iter()
         .filter_map(|(name, extensions)| {
             let extensions: Vec<_> = extensions
                 .split_whitespace()
-                .filter(|ext| {
-                    let path = PathBuf::from(format!("file.{ext}"));
-                    is_source(&path) && (!is_builtin(&path) || *ext == "pdf")
-                })
+                .filter(|ext| is_source(Path::new(&format!("file.{ext}"))) && select(ext))
                 .map(str::to_owned)
                 .collect();
             (!extensions.is_empty()).then(|| ((*name).into(), extensions))
         })
         .collect()
 }
+/// Whether a source should be converted under the given folder options:
+/// built-in formats always are; component formats only when the user
+/// enabled and selected them.
+pub fn should_convert(path: &Path, options: &crate::types::FolderIndexOptions) -> bool {
+    crate::anydoc::handles(path)
+        || options.convert_other_formats && is_selected(path, &options.conversion_formats)
+}
 
 pub fn is_source(path: &Path) -> bool {
-    if in_output(path) {
-        return false;
-    }
-    if is_builtin(path) {
-        return true;
-    }
-    if crate::text::is_supported(path) {
+    if crate::text::is_supported(path) || in_output(path) {
         return false;
     }
     let name = path
@@ -89,30 +91,11 @@ pub fn is_source(path: &Path) -> bool {
     })
 }
 
-pub fn is_builtin(path: &Path) -> bool {
-    anydoc::Format::from_path(path).is_some()
+fn is_image(path: &Path) -> bool {
+    path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {
+        matches!(ext.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "png" | "tif" | "tiff" | "bmp" | "webp" | "gif")
+    })
 }
-
-pub fn is_enabled(path: &Path, options: &crate::types::FolderIndexOptions) -> bool {
-    if !is_source(path) {
-        return false;
-    }
-    if is_builtin(path) {
-        if let Some(extensions) = &options.extensions {
-            return path
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| {
-                    extensions
-                        .iter()
-                        .any(|selected| selected.eq_ignore_ascii_case(extension))
-                });
-        }
-        return options.file_types.text;
-    }
-    options.convert_other_formats && is_selected(path, &options.conversion_formats)
-}
-
 pub fn is_pem_key(path: &Path) -> Result<bool> {
     if !path
         .extension()
@@ -143,9 +126,40 @@ pub struct Docling {
     home: PathBuf,
     source: Mutex<Option<PathBuf>>,
     status: Arc<Mutex<DoclingStatus>>,
+    /// Per-package byte accounting for uv's non-TTY output, which only
+    /// prints one line when a download starts and one when it finishes.
+    packages: Arc<Mutex<Packages>>,
     cancel: Arc<AtomicBool>,
     profile: DoclingProfile,
     usage: RwLock<()>,
+}
+#[derive(Default)]
+struct Packages {
+    sizes: std::collections::BTreeMap<String, u64>,
+    done: std::collections::BTreeSet<String>,
+}
+impl Packages {
+    fn clear(&mut self) {
+        self.sizes.clear();
+        self.done.clear();
+    }
+    fn total(&self) -> u64 {
+        self.sizes.values().sum()
+    }
+    fn downloaded(&self) -> u64 {
+        self.done.iter().filter_map(|name| self.sizes.get(name)).sum()
+    }
+}
+fn byte_scale(unit: &str) -> f64 {
+    match unit.to_ascii_lowercase().as_str() {
+        "kib" => 1024.0,
+        "mib" => 1048576.0,
+        "gib" => 1073741824.0,
+        "kb" => 1000.0,
+        "mb" => 1e6,
+        "gb" => 1e9,
+        _ => 1.0,
+    }
 }
 
 impl Docling {
@@ -154,6 +168,7 @@ impl Docling {
             home: data.join("docling"),
             source: Mutex::new(None),
             status: Arc::new(Mutex::new(DoclingStatus::default())),
+            packages: Arc::new(Mutex::new(Packages::default())),
             cancel: Arc::new(AtomicBool::new(false)),
             profile: DoclingProfile::Documents,
             usage: RwLock::new(()),
@@ -185,16 +200,14 @@ impl Docling {
         }
     }
     pub fn require_formats(&self, extensions: &Option<Vec<String>>) -> Result<()> {
-        let Some(extensions) = extensions else {
-            if self.has_profile(DoclingProfile::Documents)
-                || self.has_profile(DoclingProfile::Media)
-            {
-                return Ok(());
-            }
-            bail!("请在文件设置中安装文档或音视频组件后重试")
-        };
+        // `None` keeps a legacy "all formats" choice; built-in formats always
+        // work and component formats are reported per file during indexing.
+        let Some(extensions) = extensions else { return Ok(()) };
         for extension in extensions {
             let extension = extension.to_ascii_lowercase();
+            if crate::anydoc::handles_extension(&extension) {
+                continue;
+            }
             let profile = if MEDIA_EXTENSIONS.contains(&extension.as_str()) {
                 DoclingProfile::Media
             } else if is_source(Path::new(&format!("file.{extension}"))) {
@@ -215,6 +228,7 @@ impl Docling {
         let mut status = self.status.lock().unwrap().clone();
         status.installed = self.installed();
         status.formats = formats();
+        status.builtin_formats = builtin_formats();
         status.profiles = [DoclingProfile::Documents, DoclingProfile::Media]
             .into_iter()
             .map(|id| DoclingProfileStatus {
@@ -260,12 +274,15 @@ impl Docling {
     }
 
     fn progress(&self, stage: &str, message: impl Into<String>) {
+        self.packages.lock().unwrap().clear();
         let mut status = self.status.lock().unwrap();
         status.stage = stage.into();
         status.message = message.into();
         status.downloaded = 0;
         status.total = None;
         status.percent = None;
+        status.packages_done = 0;
+        status.packages_total = 0;
     }
     pub fn start(self: &Arc<Self>) -> Result<()> {
         self.start_profiles(vec![DoclingProfile::Documents])
@@ -286,6 +303,7 @@ impl Docling {
             return Ok(());
         }
         self.cancel.store(false, Ordering::Relaxed);
+        self.packages.lock().unwrap().clear();
         *status = DoclingStatus {
             running: true,
             requested_profiles: profiles.clone(),
@@ -331,6 +349,7 @@ impl Docling {
             },
             source: Mutex::new(self.source.lock().unwrap().clone()),
             status: self.status.clone(),
+            packages: self.packages.clone(),
             cancel: self.cancel.clone(),
             profile,
             usage: RwLock::new(()),
@@ -353,6 +372,9 @@ impl Docling {
             .env("UV_CACHE_DIR", self.home.join("cache"))
             .env("HF_HOME", self.home.join("huggingface"))
             .env("PYTHONUNBUFFERED", "1")
+            // Docling writes UTF-8; Windows otherwise decodes files and stderr with the ANSI code page.
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .env("NO_COLOR", "1");
         if cfg!(target_os = "linux") || cfg!(target_os = "windows") {
             command.env("UV_TORCH_BACKEND", "cpu");
@@ -500,6 +522,7 @@ impl Docling {
                 .arg(staging.path());
         } else {
             self.progress("models", "正在下载文档识别模型…");
+            self.check_model_host()?;
             command
                 .args([
                     "-m",
@@ -529,6 +552,39 @@ impl Docling {
             |runtime| self.probe_component(runtime, &cancel),
             self.profile,
         )
+    }
+    /// Fails fast when the model host is unreachable. Without this the
+    /// Hugging Face client retries silently and the user watches a frozen
+    /// 0% for up to half an hour before any error appears.
+    fn check_model_host(&self) -> Result<()> {
+        let endpoint = std::env::var("HF_ENDPOINT")
+            .ok()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| "https://huggingface.co".into());
+        let url = format!("{}/api/models/docling-project/docling-layout-heron", endpoint.trim_end_matches('/'));
+        self.status.lock().unwrap().message = format!("正在连接模型服务 {endpoint}…");
+        let probe: Result<std::result::Result<(), reqwest::Error>> = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
+            let client = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(15))
+                .build()?;
+            let request = client.head(&url).send();
+            tokio::pin!(request);
+            loop {
+                tokio::select! {
+                    result = &mut request => break Ok(result.map(|_| ())),
+                    _ = tokio::time::sleep(Duration::from_millis(50)) => {
+                        if self.cancel.load(Ordering::Relaxed) { bail!("已取消下载，可稍后重试") }
+                    }
+                }
+            }
+        });
+        match probe? {
+            Ok(()) => Ok(()),
+            Err(error) => bail!(
+                "无法连接模型服务 {endpoint}：{error}。请检查网络或代理；如需镜像，可在启动前设置 HF_ENDPOINT 环境变量（例如 https://hf-mirror.com）。"
+            ),
+        }
     }
     fn run_install(&self, command: &mut Command, timeout: Duration) -> Result<()> {
         let cancel = || self.cancel.load(Ordering::Relaxed);
@@ -842,6 +898,14 @@ impl Docling {
             LazyLock::new(|| regex::Regex::new(r"\s+-{3,}\s+").unwrap());
         static SPACING: LazyLock<regex::Regex> =
             LazyLock::new(|| regex::Regex::new(r" {2,}").unwrap());
+        // uv without a TTY: "Downloading torch (121.4MiB)" then " Downloaded torch".
+        static STARTED: LazyLock<regex::Regex> = LazyLock::new(|| {
+            regex::Regex::new(r"(?im)^\s*Downloading\s+(\S+)\s+\(([0-9]+(?:\.[0-9]+)?)\s*(KiB|MiB|GiB|kB|MB|GB|B)\)").unwrap()
+        });
+        static FINISHED: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"(?im)^\s*Downloaded\s+(\S+)\s*$").unwrap());
+        static SETTLED: LazyLock<regex::Regex> =
+            LazyLock::new(|| regex::Regex::new(r"(?im)^\s*(?:Prepared|Installed)\s+[0-9]+\s+packages?").unwrap());
         let text = String::from_utf8_lossy(raw);
         let clean = ANSI.replace_all(&text, "");
         let clean = BAR.replace_all(&clean, ": ");
@@ -861,25 +925,30 @@ impl Docling {
         status.downloaded = 0;
         status.total = None;
         status.percent = None;
+        let mut packages = self.packages.lock().unwrap();
+        for started in STARTED.captures_iter(&clean) {
+            let bytes = (started[2].parse::<f64>().unwrap() * byte_scale(&started[3])) as u64;
+            packages.sizes.insert(started[1].to_owned(), bytes);
+        }
+        for finished in FINISHED.captures_iter(&clean) {
+            let name = finished[1].to_owned();
+            packages.sizes.entry(name.clone()).or_insert(0);
+            packages.done.insert(name);
+        }
+        if SETTLED.is_match(&clean) {
+            let names: Vec<_> = packages.sizes.keys().cloned().collect();
+            packages.done.extend(names);
+        }
         let downloads: Vec<_> = BYTES.captures_iter(&clean).collect();
         if !downloads.is_empty() {
-            let scale = |unit: &str| match unit.to_ascii_lowercase().as_str() {
-                "kib" => 1024.0,
-                "mib" => 1048576.0,
-                "gib" => 1073741824.0,
-                "kb" => 1000.0,
-                "mb" => 1e6,
-                "gb" => 1e9,
-                _ => 1.0,
-            };
             status.downloaded = downloads
                 .iter()
-                .map(|bytes| (bytes[1].parse::<f64>().unwrap() * scale(&bytes[2])) as u64)
+                .map(|bytes| (bytes[1].parse::<f64>().unwrap() * byte_scale(&bytes[2])) as u64)
                 .sum();
             status.total = Some(
                 downloads
                     .iter()
-                    .map(|bytes| (bytes[3].parse::<f64>().unwrap() * scale(&bytes[4])) as u64)
+                    .map(|bytes| (bytes[3].parse::<f64>().unwrap() * byte_scale(&bytes[4])) as u64)
                     .sum(),
             );
             status.percent = None;
@@ -887,7 +956,13 @@ impl Docling {
             status.percent = Some(percent[1].parse::<f64>().unwrap().min(100.0));
             status.total = None;
             status.downloaded = 0;
+        } else if !packages.sizes.is_empty() {
+            status.downloaded = packages.downloaded();
+            status.total = Some(packages.total());
+            status.percent = None;
         }
+        status.packages_done = packages.done.len() as u32;
+        status.packages_total = packages.sizes.len() as u32;
         clean
     }
     #[cfg(test)]
@@ -920,8 +995,50 @@ impl Docling {
         output: &Path,
         cancel: impl Fn() -> bool + Sync,
     ) -> Result<()> {
+        let mut handoff = None;
+        if crate::anydoc::handles(source) {
+            match crate::anydoc::convert(source, output, &cancel) {
+                Ok(crate::anydoc::Outcome::Converted) => return Ok(()),
+                Ok(crate::anydoc::Outcome::NeedsOcr(detail)) => {
+                    if !self.has_profile(DoclingProfile::Documents) {
+                        bail!("扫描件需要 OCR（{detail}），请在文件设置中安装图片识别组件后重试")
+                    }
+                    handoff = Some(format!("内置转换需要 OCR：{detail}"));
+                }
+                Err(error) if crate::anydoc::is_handoff_error(&error)
+                    && self.has_profile(DoclingProfile::Documents) =>
+                {
+                    handoff = Some(format!("内置转换失败：{error:#}"));
+                }
+                Err(error) => return Err(error),
+            }
+        }
         let _usage = self.usage.read().unwrap();
+        let profile = if source.extension().is_some_and(|ext| {
+            MEDIA_EXTENSIONS
+                .iter()
+                .any(|media| ext.eq_ignore_ascii_case(media))
+        }) {
+            DoclingProfile::Media
+        } else {
+            DoclingProfile::Documents
+        };
+        if !self.has_profile(profile) {
+            if profile == DoclingProfile::Media {
+                bail!("请在文件设置中安装音视频组件后重试")
+            }
+            if handoff.is_some() || is_image(source) {
+                bail!("请在文件设置中安装图片识别组件后重试")
+            }
+            bail!("此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试")
+        }
+        let component_home = if profile == DoclingProfile::Media {
+            self.home.join("media")
+        } else {
+            self.home.clone()
+        };
         let cancelled = || cancel();
+        let permit = crate::docling_budget::acquire(&cancelled)?;
         if fs::metadata(source)?.len() > 512 * 1024 * 1024 {
             return Err(crate::process_supervisor::Failure::new(
                 crate::process_supervisor::FailureKind::Memory,
@@ -934,177 +1051,122 @@ impl Docling {
         // Atomic publication: partial/failed conversion must never become indexed Markdown.
         let staging = tempfile::tempdir_in(parent)?;
         let temporary = staging.path().join("document.md");
-        let content = if is_builtin(source) {
-            match anydoc::to_markdown(source) {
-                Ok(content) => Some(content),
-                Err(anydoc::ConvertError::NeedsOcr { pages, page_count }) if !self.installed() => {
-                    let pages = pages
-                        .iter()
-                        .map(u32::to_string)
-                        .collect::<Vec<_>>()
-                        .join("、");
-                    bail!("PDF 第 {pages} 页需要 OCR（共 {page_count} 页）；请在“其他格式”中安装 Docling 后重新索引")
-                }
-                Err(anydoc::ConvertError::Unsupported(reason)) if !self.installed() => {
-                    bail!(
-                        "内置解析器不支持此文档：{reason}；请在“其他格式”中安装 Docling 后重新索引"
-                    )
-                }
-                Err(
-                    anydoc::ConvertError::NeedsOcr { .. } | anydoc::ConvertError::Unsupported(_),
-                ) => None,
-                Err(error) => return Err(error.into()),
-            }
-        } else {
-            None
-        };
-        let content = match content {
-            Some(content) => content,
-            None => {
-                let profile = if source.extension().is_some_and(|ext| {
-                    MEDIA_EXTENSIONS
-                        .iter()
-                        .any(|media| ext.eq_ignore_ascii_case(media))
-                }) {
-                    DoclingProfile::Media
+        let runner = staging.path().join("runner.py");
+        fs::write(
+            &runner,
+            if profile == DoclingProfile::Media {
+                MEDIA_RUNNER
+            } else {
+                RUNNER
+            },
+        )?;
+        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        let convert = |backend: Option<&str>| -> Result<String> {
+            let mut command;
+            if let Ok(runtime) = crate::docling_component::active_for(&component_home, profile) {
+                command = self.runtime_command(&runtime, &runner);
+                command
+                    .arg(source)
+                    .arg("--artifacts-path")
+                    .arg(&runtime.models)
+                    .arg("--output-file")
+                    .arg(&temporary);
+            } else {
+                let python = self.home.join(if cfg!(windows) {
+                    "tools/docling-slim/Scripts/python.exe"
                 } else {
-                    DoclingProfile::Documents
-                };
-                if !self.has_profile(profile) {
-                    if profile == DoclingProfile::Media {
-                        bail!("请在文件设置中安装音视频组件后重试")
-                    }
-                    bail!("请在文件设置中下载 Docling 后重试")
-                }
-                let component_home = if profile == DoclingProfile::Media {
-                    self.home.join("media")
+                    "tools/docling-slim/bin/python"
+                });
+                if python.is_file() {
+                    command = self.command(python);
+                    command
+                        .arg(&runner)
+                        .arg(source)
+                        .arg("--artifacts-path")
+                        .arg(self.home.join("models"))
+                        .arg("--output-file")
+                        .arg(&temporary)
+                        .env("PYTHONDONTWRITEBYTECODE", "1")
+                        .env("HF_HUB_OFFLINE", "1")
+                        .env("TRANSFORMERS_OFFLINE", "1");
                 } else {
-                    self.home.clone()
-                };
-                let permit = crate::docling_budget::acquire(&cancelled)?;
-                let runner = staging.path().join("runner.py");
-                fs::write(
-                    &runner,
-                    if profile == DoclingProfile::Media {
-                        MEDIA_RUNNER
-                    } else {
-                        RUNNER
-                    },
-                )?;
-                let deadline = std::time::Instant::now() + Duration::from_secs(300);
-                let convert = |backend: Option<&str>| -> Result<String> {
-                    let mut command;
-                    if let Ok(runtime) =
-                        crate::docling_component::active_for(&component_home, profile)
-                    {
-                        command = self.runtime_command(&runtime, &runner);
-                        command
-                            .arg(source)
-                            .arg("--artifacts-path")
-                            .arg(&runtime.models)
-                            .arg("--output-file")
-                            .arg(&temporary);
-                    } else {
-                        let python = self.home.join(if cfg!(windows) {
-                            "tools/docling-slim/Scripts/python.exe"
-                        } else {
-                            "tools/docling-slim/bin/python"
-                        });
-                        if python.is_file() {
-                            command = self.command(python);
-                            command
-                                .arg(&runner)
-                                .arg(source)
-                                .arg("--artifacts-path")
-                                .arg(self.home.join("models"))
-                                .arg("--output-file")
-                                .arg(&temporary)
-                                .env("PYTHONDONTWRITEBYTECODE", "1")
-                                .env("HF_HUB_OFFLINE", "1")
-                                .env("TRANSFORMERS_OFFLINE", "1");
-                        } else {
-                            // Existing external CLI integrations remain supervised. New
-                            // installs always use the verified component Python runner.
-                            command = self.command(self.binary("docling"));
-                            command
-                                .arg(source)
-                                .args([
-                                    "--to",
-                                    "md",
-                                    "--image-export-mode",
-                                    "placeholder",
-                                    "--abort-on-error",
-                                    "--document-timeout",
-                                    "270",
-                                ])
-                                .arg("--artifacts-path")
-                                .arg(self.home.join("models"))
-                                .arg("--output-file")
-                                .arg(&temporary);
-                        }
-                    }
-                    if let Some(backend) = backend {
-                        command.args(["--pdf-backend", backend]);
-                    }
-                    crate::process_supervisor::run(
-                        &mut command,
-                        crate::process_supervisor::Limits {
-                            timeout: deadline.saturating_duration_since(std::time::Instant::now()),
-                            memory_bytes: Some(permit.bytes),
-                        },
-                        &cancelled,
-                        |_| {},
-                    )?;
-                    let metadata = fs::metadata(&temporary).map_err(|error| {
-                        if error.kind() == std::io::ErrorKind::NotFound {
-                            anyhow::Error::new(crate::process_supervisor::Failure::new(
-                                crate::process_supervisor::FailureKind::Compatibility,
-                                "Docling 未生成 Markdown",
-                            ))
-                        } else {
-                            error.into()
-                        }
-                    })?;
-                    if metadata.len() > 64 * 1024 * 1024 {
-                        return Err(crate::process_supervisor::Failure::new(
-                            crate::process_supervisor::FailureKind::Memory,
-                            "转换输出超过 64 MiB 限制",
-                        )
-                        .into());
-                    }
-                    let content =
-                        fs::read_to_string(&temporary).context("Docling 未生成 Markdown")?;
-                    if content.trim().is_empty() {
-                        bail!("Docling 未提取到正文")
-                    }
-                    Ok(content)
-                };
-                let content = match convert(None) {
-                    Ok(content) => content,
-                    Err(first)
-                        if retryable_conversion_error(&first)
-                            && source
-                                .extension()
-                                .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf")) =>
-                    {
-                        if temporary.exists() {
-                            fs::remove_file(&temporary)?;
-                        }
-                        convert(Some("pypdfium2")).map_err(|second| {
-                            let message = format!(
-                                "PDF 默认引擎转换失败：{first}\n备用 PDF 引擎转换失败：{second}"
-                            );
-                            second.context(message)
-                        })?
-                    }
-                    Err(error) => return Err(error),
-                };
-                content
+                    // Existing external CLI integrations remain supervised. New
+                    // installs always use the verified component Python runner.
+                    command = self.command(self.binary("docling"));
+                    command
+                        .arg(source)
+                        .args([
+                            "--to",
+                            "md",
+                            "--image-export-mode",
+                            "placeholder",
+                            "--abort-on-error",
+                            "--document-timeout",
+                            "270",
+                        ])
+                        .arg("--artifacts-path")
+                        .arg(self.home.join("models"))
+                        .arg("--output-file")
+                        .arg(&temporary);
+                }
             }
+            if let Some(backend) = backend {
+                command.args(["--pdf-backend", backend]);
+            }
+            crate::process_supervisor::run(
+                &mut command,
+                crate::process_supervisor::Limits {
+                    timeout: deadline.saturating_duration_since(std::time::Instant::now()),
+                    memory_bytes: Some(permit.bytes),
+                },
+                &cancelled,
+                |_| {},
+            )?;
+            let metadata = fs::metadata(&temporary).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    anyhow::Error::new(crate::process_supervisor::Failure::new(
+                        crate::process_supervisor::FailureKind::Compatibility,
+                        "Docling 未生成 Markdown",
+                    ))
+                } else {
+                    error.into()
+                }
+            })?;
+            if metadata.len() > 64 * 1024 * 1024 {
+                return Err(crate::process_supervisor::Failure::new(
+                    crate::process_supervisor::FailureKind::Memory,
+                    "转换输出超过 64 MiB 限制",
+                )
+                .into());
+            }
+            let content = fs::read_to_string(&temporary).context("Docling 未生成 Markdown")?;
+            if content.trim().is_empty() {
+                bail!("Docling 未提取到正文")
+            }
+            Ok(content)
         };
-        if content.trim().is_empty() {
-            bail!("文档解析未提取到正文")
+        if let Some(reason) = &handoff {
+            eprintln!("{}：交给 Docling 组件转换（{reason}）", source.display());
         }
+        let content = match convert(None) {
+            Ok(content) => content,
+            Err(first)
+                if retryable_conversion_error(&first)
+                    && source
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf")) =>
+            {
+                if temporary.exists() {
+                    fs::remove_file(&temporary)?;
+                }
+                convert(Some("pypdfium2")).map_err(|second| {
+                    let message =
+                        format!("PDF 默认引擎转换失败：{first}\n备用 PDF 引擎转换失败：{second}");
+                    second.context(message)
+                })?
+            }
+            Err(error) => return Err(error),
+        };
         if cancelled() {
             return Err(crate::process_supervisor::Failure::new(
                 crate::process_supervisor::FailureKind::Cancelled,

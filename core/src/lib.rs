@@ -1,4 +1,5 @@
 pub mod agent;
+pub mod anydoc;
 pub mod cli_service;
 mod cli_match;
 pub mod document_text;

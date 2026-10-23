@@ -70,7 +70,7 @@ A system prompt does not replace connection settings or add tool support to an i
 
 | Setting | Default / range | Effect |
 | --- | --- | --- |
-| Tool calls per turn | 0 / 0–100 | The default, 0, means unlimited. Values from 1 to 100 cap the total SAG and external MCP calls during one Q&A turn. At that limit, the model answers from available results and identifies what remains unconfirmed. |
+| Tool calls per turn | 10 / 0–100 | The default is 10. Set 0 to opt into unlimited calls. Values from 1 to 100 cap the total SAG and external MCP calls during one Q&A turn. At that limit, the model answers from available results and identifies what remains unconfirmed. |
 | Answer context budget (tokens) | 65536 / minimum 4096 | Controls input including the question, history, tool records and citations. No fixed maximum; set it within the model's actual capacity. History or material may be reduced to fit. |
 | Request timeout | 120 seconds / 10–600 seconds | How long to wait for service requests. A short timeout can interrupt slow models; a long one delays failure feedback. |
 

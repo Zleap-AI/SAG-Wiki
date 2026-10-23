@@ -86,11 +86,11 @@ def main():
             return 76
         return 1
     result.document.save_as_markdown(args.output_file, image_mode=ImageRefMode.PLACEHOLDER)
-    if not args.output_file.is_file() or not args.output_file.read_text().strip():
+    if not args.output_file.is_file() or not args.output_file.read_text(encoding="utf-8").strip():
         print("Docling did not produce document text", file=sys.stderr)
         return 1
     if args.probe:
-        text = args.output_file.read_text().lower()
+        text = args.output_file.read_text(encoding="utf-8").lower()
         if "sag" not in text or "probe" not in text:
             print("Offline OCR probe did not recognize the required text", file=sys.stderr)
             return 1

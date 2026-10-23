@@ -511,9 +511,10 @@ mod tests {
         std::fs::remove_file(&unrelated).unwrap();
         let repeated = search(&store, "nebula", &[], &options, &cancel, score, |_, _| {}).await.unwrap();
         assert_eq!(serde_json::to_value(&first.results).unwrap(), serde_json::to_value(&repeated.results).unwrap());
-        // Returned passages must still be checked against their original source.
+        // A passage whose source changed since indexing is dropped, not reported as an error.
         std::fs::write(&matched, "changed evidence.").unwrap();
-        assert!(search(&store, "nebula", &[], &options, &cancel, score, |_, _| {}).await.err().unwrap().to_string().contains("文件已修改"));
+        let stale = search(&store, "nebula", &[], &options, &cancel, score, |_, _| {}).await.unwrap();
+        assert!(stale.results.iter().all(|c| c.path != matched.to_str().unwrap()));
         // Another process updating the index must invalidate cached statistics.
         std::fs::write(&matched, "comet replacement evidence.").unwrap();
         let writer = Store::open(&database).unwrap();
