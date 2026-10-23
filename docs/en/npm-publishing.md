@@ -22,7 +22,7 @@ node scripts/package-npm-cli.mjs
 The script builds the standalone CLI for the current platform and generates:
 
 - `releases/npm/sag/`: the publishable directory.
-- `releases/npm/zleap-ai-sag-0.1.0.tgz`: the npm package; its filename changes with the CLI version.
+- `releases/npm/zleap-ai-sag-<version>.tgz`: the npm package; its filename changes with the CLI version.
 
 The npm package contains only the launcher, prebuilt executables, documentation and package metadata. It excludes the desktop app, project source, knowledge base and user keys. There are no additional download or installation scripts, so installation does not depend on GitHub download URLs or require Rust. npm's global installation registers the `sag` command.
 
@@ -35,13 +35,17 @@ You need the npm account `zleap-ai`, or membership of the npm `zleap-ai` organiz
 ```sh
 npm login
 npm whoami
-npm publish ./releases/npm/zleap-ai-sag-0.1.0.tgz --dry-run --access public
+npm_version=$(node -p "require('./releases/npm/sag/package.json').version")
+npm_package="./releases/npm/zleap-ai-sag-${npm_version}.tgz"
+npm publish "$npm_package" --dry-run --access public
 ```
 
 After confirming the package name, version, file list and supported platforms, publish:
 
 ```sh
-npm publish ./releases/npm/zleap-ai-sag-0.1.0.tgz --access public
+npm_version=$(node -p "require('./releases/npm/sag/package.json').version")
+npm_package="./releases/npm/zleap-ai-sag-${npm_version}.tgz"
+npm publish "$npm_package" --access public
 ```
 
 Complete two-factor verification as prompted by npm. Before each new release, update the version in `cli/Cargo.toml` and rebuild the package. npm does not allow overwriting a published package with the same name and version.
