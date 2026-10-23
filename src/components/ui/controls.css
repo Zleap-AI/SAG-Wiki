@@ -13,8 +13,8 @@
 .ui-select-option>span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .ui-select-check{width:16px;height:16px;flex-shrink:0}
 .ui-select-check>.icon{width:16px;height:16px}
-.settings-window .ui-switch{display:inline-flex;align-items:center;width:34px;height:21px;min-width:34px;flex-shrink:0;padding:2px;margin:0;border:1px solid var(--color-rule);border-radius:20px;background:var(--color-selected);cursor:pointer}
-.settings-window .ui-switch[data-state=checked]{background:var(--color-ink);border-color:var(--color-ink)}
+:is(.settings-window,.mcp-dialog) .ui-switch{display:inline-flex;align-items:center;width:34px;height:21px;min-width:34px;flex-shrink:0;padding:2px;margin:0;border:1px solid var(--color-rule);border-radius:20px;background:var(--color-selected);cursor:pointer}
+:is(.settings-window,.mcp-dialog) .ui-switch[data-state=checked]{background:var(--color-ink);border-color:var(--color-ink)}
 .ui-switch-thumb{display:block;width:15px;height:15px;border-radius:50%;background:var(--color-paper);box-shadow:0 1px 3px var(--color-control-shadow);transition:transform 160ms cubic-bezier(.23,1,.32,1)}
 .ui-switch[data-state=checked] .ui-switch-thumb{transform:translateX(13px)}
 .ui-switch[data-keyboard=true] .ui-switch-thumb{transition:none}
