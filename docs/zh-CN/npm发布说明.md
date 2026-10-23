@@ -22,7 +22,7 @@ node scripts/package-npm-cli.mjs
 脚本构建当前平台的独立 CLI，生成：
 
 - `releases/npm/sag/`：可发布目录。
-- `releases/npm/zleap-ai-sag-0.1.0.tgz`：npm 安装包；文件名随 CLI 版本变化。
+- `releases/npm/zleap-ai-sag-<version>.tgz`：npm 安装包；文件名随 CLI 版本变化。
 
 npm 包只包含启动入口、预编译程序、说明和包信息；不包含桌面端、项目源码、知识库或用户密钥。安装时没有额外下载和安装脚本，因此不依赖 GitHub 下载地址，也不需要用户安装 Rust。npm 全局安装负责注册 `sag` 命令。
 
@@ -35,13 +35,17 @@ npm 包只包含启动入口、预编译程序、说明和包信息；不包含�
 ```sh
 npm login
 npm whoami
-npm publish ./releases/npm/zleap-ai-sag-0.1.0.tgz --dry-run --access public
+npm_version=$(node -p "require('./releases/npm/sag/package.json').version")
+npm_package="./releases/npm/zleap-ai-sag-${npm_version}.tgz"
+npm publish "$npm_package" --dry-run --access public
 ```
 
 确认包名、版本、文件列表和支持平台后，正式发布：
 
 ```sh
-npm publish ./releases/npm/zleap-ai-sag-0.1.0.tgz --access public
+npm_version=$(node -p "require('./releases/npm/sag/package.json').version")
+npm_package="./releases/npm/zleap-ai-sag-${npm_version}.tgz"
+npm publish "$npm_package" --access public
 ```
 
 按 npm 提示完成两步验证。每次发布新版本前更新 `cli/Cargo.toml` 的版本并重新打包；npm 不允许覆盖已经发布的同名同版本。
