@@ -46,8 +46,6 @@ Version 0.2.0 includes document outlines, Mermaid previews, document-scoped ques
 
 [Download the latest desktop release for macOS and Windows](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
 
-**Upgrading from 0.1.8 or earlier:** manually install 0.1.9 once to switch to the new update signing key. Future versions can use in-app updates. [Migration details](docs/en/app-update-publishing.md).
-
 **Install for your agent**
 
 ```text
