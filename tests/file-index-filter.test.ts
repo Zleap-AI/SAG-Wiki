@@ -36,3 +36,14 @@ it('筛选无匹配文件时显示提示，切回全部后恢复列表',async()=
  expect(document.querySelector('[aria-label="返回上层"]')).not.toBeNull();
  await next();expect(names()).toEqual(['正文.md']);expect(document.querySelector('.empty')).toBeNull();
 });
+
+it('转换后的文档原文件显示为已索引并可直接打开',async()=>{
+ const browse=vi.fn();
+ app=mount(LibraryWorkspace,{target:document.body,props:{scope:'/notes',session:createLibrarySession(),entries:[entry('report.docx')],indexedFiles:[{id:1,path:'/notes/.sag-converted/report.docx.md',name:'report.docx.md'}],reading:false,revision:0,onbrowse:browse,onopen:vi.fn(),onmenu:vi.fn()}});
+ expect(document.querySelector('.simple-file-entry.unindexed')).toBeNull();
+ await next();
+ expect(names()).toEqual(['report.docx']);
+ document.querySelector<HTMLButtonElement>('.simple-file-entry .simple-file-row')!.click();
+ expect(browse).toHaveBeenCalledWith('/notes/report.docx');
+ expect(document.querySelector('[role=dialog]')).toBeNull();
+});

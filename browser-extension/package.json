@@ -1,0 +1,16 @@
+{
+  "name": "sag-web-clipper",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "dependencies": {
+    "defuddle": "0.19.5"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0",
+    "fflate": "^0.8.3"
+  }
+}

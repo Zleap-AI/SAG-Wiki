@@ -38,7 +38,7 @@
 </script>
 
 <div class="reindex-settings">
- <div class="settings-group-heading"><div><h3>{$t("导入文件类型")}</h3><p class="settings-help">{$t("默认启用常用文本类型。取消勾选后不再检索该类文件，原文件和文件浏览不受影响。")}</p></div><Button.Root type="button" class="outline" title={$t("按已保存的文件类型和排除目录检查全部文件，只更新变化的索引。")} disabled={loading||submitting||indexing||status.paused||!roots.length||settingsChanged} onclick={reindex}>{$t(finishing?'正在暂停…':status.paused?'索引已暂停':submitting||indexing?"正在索引…":"重新索引")}</Button.Root></div>
+ <div class="settings-group-heading"><div><h3>{$t("导入文件类型")}</h3><p class="settings-help">{$t("默认启用常用文本、Office、PDF 与电子书，无需下载组件。取消勾选后不再检索该类文件，原文件和文件浏览不受影响。")}</p></div><Button.Root type="button" class="outline" title={$t("按已保存的文件类型和排除目录检查全部文件，只更新变化的索引。")} disabled={loading||submitting||indexing||status.paused||!roots.length||settingsChanged} onclick={reindex}>{$t(finishing?'正在暂停…':status.paused?'索引已暂停':submitting||indexing?"正在索引…":"重新索引")}</Button.Root></div>
  {#if settingsChanged||submitting||indexing||status.paused||started||failures.length||error||!loading&&!roots.length}
  <div class="reindex-status" aria-live="polite">
   {#if settingsChanged}<p class="settings-help">{$t("请先保存文件类型或排除目录的修改，再重新索引。")}</p>{/if}

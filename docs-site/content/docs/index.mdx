@@ -1,0 +1,47 @@
+---
+title: "SAG Wiki"
+description: "面向个人与 Agent 的本地知识库。"
+---
+
+
+添加文件夹，让文档、笔记与代码随时可查。搜索相关原文，围绕资料提问，并让 Agent 使用同一份知识库。
+
+<Cards>
+<Card title="快速开始" href="/zh/docs/quick-start" description="从添加第一个文件夹，到完成一次搜索。" />
+<Card title="给 Agent 安装" href="/zh/docs/agents" description="一句安装指令，接入 Claude Code、Codex 和 OpenCode。" />
+<Card title="下载桌面端" href="/zh/docs/installation" description="获取 macOS 或 Windows 安装包。" />
+<Card title="CLI 命令" href="/zh/docs/cli" description="安装、管理项目与使用语义搜索。" />
+</Cards>
+
+## 从本地资料开始
+
+![SAG Wiki 文件管理界面](/images/product-folders-cn.png)
+
+SAG Wiki 直接读取你添加的文件夹，原始文件保留在原处。桌面端与 CLI 共用同一个后台服务、索引和配置；退出桌面端后，CLI 仍可使用。
+
+## 选择适合的使用方式
+
+| 需要做什么 | 从哪里开始 | 配置要求 |
+| --- | --- | --- |
+| 查找词语、文件和原文 | [搜索](/zh/docs/search) | 添加文件夹，无需模型密钥 |
+| 按完整问题查找跨文档证据 | [深入检索](/zh/docs/search#深入检索) | 配置 Jev |
+| 根据资料生成带引用的回答 | [问答](/zh/docs/chat) | 配置回答模型；语义检索另需 Jev |
+| 让 Agent 搜索项目 | [Agent 接入](/zh/docs/agents) | CLI、Skill 与 Jev 配置 |
+
+## 极速建库，保留原文
+
+建库无需 LLM 或 Embedding。已有性能测试中，每百万字索引约 200 ms；实际耗时随设备、文件数量、格式和转换任务变化。
+
+检索结果保留来源位置。问答中的引用可以打开完整文档，定位并高亮相应段落。
+
+<Callout title="关于数据">原文件保留在本地。深入检索和问答会把所需问题、文档片段或上下文发送给你配置的服务；本地快速搜索无需网络模型。</Callout>
+
+## 项目与反馈
+
+[GitHub 源码](https://github.com/Zleap-AI/SAG-Wiki) · [版本下载](https://github.com/Zleap-AI/SAG-Wiki/releases) · [问题反馈](https://github.com/Zleap-AI/SAG-Wiki/issues)
+
+## 进一步了解
+
+- [更新日志](/zh/docs/updates)：查看主要新增功能与现有使用方式的变化。
+- [技术科普](/zh/docs/sag2)：从候选召回、Jev 判断到跨文档扩展。
+- [设置导航](/zh/docs/preferences#其他设置在哪里)：查找每个设置分类的详细说明。

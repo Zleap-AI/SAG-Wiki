@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "npm run build:cli:dev && npm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "npm run build:cli && npm run build",
+    "beforeBuildCommand": "npm run build:clipper:desktop && npm run build:cli && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -49,7 +49,9 @@
       "licenses/MORPHDOM.txt",
       "licenses/GRAPH-VIEW.txt",
       "licenses/ANYDOC.txt",
-      "bin/sag"
+      "bin/sag",
+      "licenses/PELE.txt",
+      "clipper/"
     ]
   },
   "plugins": {

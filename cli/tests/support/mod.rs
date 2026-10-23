@@ -9,6 +9,7 @@ impl Drop for ServiceCleanup {
     }
 }
 pub fn serve(data:&Path,count:usize,mut handler:impl FnMut(serde_json::Value)->serde_json::Value+Send+'static)->std::thread::JoinHandle<()> {
+    // The mock server lives in this test process; PID 1 is not portable to Windows.
     let pid = std::process::id();
     let listener=std::net::TcpListener::bind("127.0.0.1:0").unwrap();listener.set_nonblocking(true).unwrap();
     std::fs::write(data.join("sag-service.json"),serde_json::to_vec(&sag_protocol::Endpoint{protocol_version:sag_protocol::VERSION,port:listener.local_addr().unwrap().port(),pid,token:"test-token".into()}).unwrap()).unwrap();

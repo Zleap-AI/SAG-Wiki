@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {displayPath} from '../lib/domain';
  import {onMount} from 'svelte';
  import {Button} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
@@ -9,7 +10,6 @@
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import {indexStages} from '../lib/index-stages';
- import {displayPath} from '../lib/domain';
  import type {Root,IndexStatus,IndexHistory} from '../lib/types';
  export let roots:Root[]=[];
  export let onClose:()=>void;

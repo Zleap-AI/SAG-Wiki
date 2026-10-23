@@ -103,7 +103,7 @@
   </section>{/if}
   <section class="conversion-info" aria-label={$t('转换与保存方式')}>
    <h3>{$t('转换与保存方式')}</h3>
-   <p>{$t('先索引 Markdown、文本等直接支持的文件，再并行转换其他格式，最后索引转换结果。已完成索引的文件可立即搜索。')}</p>
+   <p>{$t('先索引 Markdown、文本等文件，再并行解析 Office、PDF 与电子书。已安装 Docling 时，还可处理扫描 PDF 和选中的其他格式。')}</p>
    <p>{$t('转换文件保存在已添加文件夹根目录的 .sag-converted 文件夹内，保留原有子目录结构，原文件不变。')}</p>
    <code>{$t('资料/报告.pdf → .sag-converted/资料/报告.pdf.md')}</code>
    <p class="conversion-note">{$t('上例路径相对于已添加的文件夹；.sag-converted 在 macOS 中默认隐藏。')}</p>
@@ -126,7 +126,7 @@
 
 {#if confirmUninstall}<Modal label={$t('卸载 Docling 相关组件')} class="docling-uninstall-dialog" onClose={()=>{if(!uninstalling)confirmUninstall=false}}>
  <div class="dialog-head"><h2>{$t('卸载 Docling 相关组件')}</h2></div>
- <div class="dialog-body"><p>{$t('将删除 SAG Wiki 安装的文档与音视频组件、运行环境、模型、FFmpeg 和下载缓存。原文件、.sag-converted 中的转换文件及已有索引都会保留。')}</p><p>{$t('卸载后需重新安装，才能转换新的其他格式文件。')}</p>{#if uninstallError}<p class="form-error" role="alert">{$t(uninstallError)}</p>{/if}</div>
+ <div class="dialog-body"><p>{$t('将删除 SAG Wiki 安装的文档与音视频组件、运行环境、模型、FFmpeg 和下载缓存。原文件、.sag-converted 中的转换文件及已有索引都会保留。')}</p><p>{$t('卸载后普通文档仍可解析；扫描 PDF 和其他格式需要重新安装 Docling。')}</p>{#if uninstallError}<p class="form-error" role="alert">{$t(uninstallError)}</p>{/if}</div>
  <div class="dialog-footer"><Button.Root type="button" disabled={uninstalling} onclick={()=>confirmUninstall=false}>{$t('取消')}</Button.Root><Button.Root type="button" class="primary" aria-label={$t('确认卸载 Docling')} disabled={uninstalling} onclick={uninstall}>{$t(uninstalling?'正在卸载…':'卸载')}</Button.Root></div>
 </Modal>{/if}
 

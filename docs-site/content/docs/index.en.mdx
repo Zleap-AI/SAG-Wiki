@@ -1,0 +1,47 @@
+---
+title: "SAG Wiki"
+description: "A local knowledge base for you and your agents."
+---
+
+
+Add a folder to make your documents, notes and code searchable. Find source passages, ask questions with citations, and give your agents access to the same knowledge base.
+
+<Cards>
+<Card title="Quick start" href="/en/docs/quick-start" description="Add your first folder and run a search." />
+<Card title="Install for agents" href="/en/docs/agents" description="One setup instruction for Claude Code, Codex and OpenCode." />
+<Card title="Download the desktop app" href="/en/docs/installation" description="Get the macOS or Windows installer." />
+<Card title="CLI reference" href="/en/docs/cli" description="Install the CLI, manage projects and search by meaning." />
+</Cards>
+
+## Start with your local files
+
+![SAG Wiki folder management](/images/product-folders-en.png)
+
+SAG Wiki reads the folders you add and keeps original files in place. The desktop app and CLI share one local service, index and configuration. The CLI remains available after the desktop app closes.
+
+## Choose your workflow
+
+| Task | Start here | Requirements |
+| --- | --- | --- |
+| Find words, files and source passages | [Search](/en/docs/search) | Add a folder; no model key needed |
+| Find evidence for a question across documents | [Deep search](/en/docs/search#deep-search) | Configure Jev |
+| Generate an answer with citations | [Q&A](/en/docs/chat) | An answer model; Jev for semantic retrieval |
+| Let an agent search your project | [Agent integration](/en/docs/agents) | CLI, Skill and Jev configuration |
+
+## Fast indexing, original sources
+
+Indexing requires no LLM or embedding model. Existing measurements show about 200 ms per million characters; actual time varies with hardware, file count, format and conversion work.
+
+Search results keep source locations. Answer citations open the full document, scroll to the relevant passage and highlight it.
+
+<Callout title="Your data">Original files stay local. Deep search and Q&A send the required question, passages or context to your configured services. Local quick search does not need a network model.</Callout>
+
+## Project and feedback
+
+[Source on GitHub](https://github.com/Zleap-AI/SAG-Wiki) · [Downloads](https://github.com/Zleap-AI/SAG-Wiki/releases) · [Report an issue](https://github.com/Zleap-AI/SAG-Wiki/issues)
+
+## Learn more
+
+- [Changelog](/en/docs/updates): major additions and changes to existing workflows.
+- [Technical overview](/en/docs/sag2): candidate retrieval, Jev judgments and cross-document expansion.
+- [Settings index](/en/docs/preferences#find-other-settings): detailed guidance for each settings category.

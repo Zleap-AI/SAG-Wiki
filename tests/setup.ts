@@ -1,5 +1,5 @@
 // Unit tests use reduced motion; native verification covers visible transitions.
-if(typeof window!=='undefined'){
+if(typeof window!=='undefined'&&window.matchMedia){
  const matchMedia=window.matchMedia.bind(window);
  window.matchMedia=(query:string)=>{
   const result=matchMedia(query);

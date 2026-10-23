@@ -6,11 +6,11 @@ export const compactNumber=(value:number)=>compactFormatter.format(value);
 export function durationLabel(milliseconds:number):string{const seconds=milliseconds/1000;if(seconds<60)return `${Math.round(seconds*10)/10}s`;const rounded=Math.round(seconds);return `${Math.floor(rounded/60)}m ${rounded%60}s`;}
 export const basename=(path:string)=>path.split(/[\\/]/).filter(Boolean).pop()||path;
 export const dirname=(path:string)=>path.replace(/[\\/][^\\/]+[\\/]?$/,'');
-export function displayPath(path:string):string{
- if(path.startsWith('\\\\?\\UNC\\'))return '\\\\'+path.slice(8);
- return path.replace(/^\\\\\?\\([A-Za-z]:\\)/,'$1');
-}
 export const inside=(path:string,parent:string)=>path===parent||path.startsWith(parent.replace(/[\\/]$/,'')+(parent.includes('\\')?'\\':'/'));
+export function indexedSourcePath(path:string):string {
+ const directory=/([\\/])\.sag-converted[\\/]/;
+ return directory.test(path)&&path.endsWith('.md')?path.replace(directory,'$1').slice(0,-3):path;
+}
 export function indexedDirectoryEntries(files:FileInfo[],directory:string):Entry[]{
  const prefix=directory.replace(/[\\/]$/,'')+(directory.includes('\\')?'\\':'/');
  const entries=new Map<string,Entry>();
@@ -33,3 +33,8 @@ export const isRtf=(path:string)=>/\.rtf$/i.test(path);
 export const isHtml=(path:string)=>/\.html?$/i.test(path);
 export const readonlyHtml=(path:string,body:string)=>`<pre class="${isRtf(path)?'rtf-preview':'code-preview'}">${escaped(body)}</pre>`;
 export function sourceLocation(c:Candidate):string {const translate=get(t);const location=c.source_spans?.length?c.source_spans.map(s=>translate('第 {value0} 行 {value1} 列 → 第 {value2} 行 {value3} 列',{value0:s.start_line,value1:s.start_column,value2:s.end_line,value3:s.end_column})).join(translate('；')):translate('第 {value0}–{value1} 行',{value0:c.start_line,value1:c.end_line});return isRtf(c.path)?`${translate('RTF 正文')} · ${location}`:location;}
+
+export function displayPath(path:string):string{
+ if(path.startsWith('\\\\?\\UNC\\'))return '\\\\'+path.slice(8);
+ return path.replace(/^\\\\\?\\([A-Za-z]:\\)/,'$1');
+}

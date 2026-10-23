@@ -30,6 +30,49 @@ const progress=async(stage:string,delta:string|null=null,id?:string,replace=fals
  const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
  listeners.get('query-progress')!({payload:{id:id??query.id,stage,delta,count:0,replace}});await tick();
 };
+describe('处理过程自动折叠',()=>{
+ const call={id:'process-search',query:'查询资料',source_count:1,answer_offset:0,server_name:'SAG',tool_name:'search',elapsed_ms:1200};
+ const thought={answer_offset:0,tool_count:0,content:'先核对资料。'};
+ async function showProcess(){
+  const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'思考中',delta:null,count:0,reasoning_block:thought}});await tick();
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'检索完成',delta:null,count:1,tool:{call,finished:true}}});await tick();
+ }
+ it('最终回答出现时折叠全部过程，完成后显示整轮用时',async()=>{
+  await showProcess();
+  const details=document.querySelector<HTMLDetailsElement>('.answer-process')!;
+  expect(details.open).toBe(true);
+  expect(details.querySelector('.reasoning')).not.toBeNull();
+  expect(details.querySelector('.tool-call')).not.toBeNull();
+  await progress('正在生成回答','最终回答。');
+  await vi.waitFor(()=>expect(details.open).toBe(false));
+  expect(document.querySelectorAll('.answer')[1].querySelector(':scope > .answer-text')?.textContent).toBe('最终回答。');
+  savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer:'最终回答。',reasoning_blocks:[thought],tool_calls:[call],context:{limit:65536,reserved_output:0,estimated_input:100,omitted_sources:0,omitted_history:0,input_tokens:100,output_tokens:20,elapsed_ms:547000}}]};
+  resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});
+  await vi.waitFor(()=>expect(document.querySelector('.answer-process-summary')?.textContent).toContain('用时 9分钟7秒'));
+  expect(document.querySelector<HTMLDetailsElement>('.answer-process')!.open).toBe(false);
+ });
+ it('手动展开后继续输出不会再次收起，新的工具调用会恢复过程展示',async()=>{
+  await showProcess();await progress('正在生成回答','回答');
+  const details=document.querySelector<HTMLDetailsElement>('.answer-process')!;
+  details.querySelector<HTMLElement>('summary')!.click();await tick();
+  expect(details.open).toBe(true);
+  await progress('正在生成回答','继续。');
+  expect(details.open).toBe(true);
+  details.querySelector<HTMLElement>('summary')!.click();await tick();
+  const query=invoke.mock.calls.find(([name])=>name==='run_query')![1].query;
+  listeners.get('query-progress')!({payload:{id:query.id,stage:'正在读取',delta:null,count:0,tool:{call:{...call,id:'process-read',answer_offset:5,tool_name:'read'},finished:false}}});await tick();
+  expect(details.open).toBe(true);
+  expect(details.classList.contains('collapsible')).toBe(false);
+ });
+ it('历史记录缺少用时时显示处理过程，英文用时使用英文单位',async()=>{
+  savedConversation={...conversation,messages:[{...previous,reasoning_blocks:[thought],tool_calls:[call]}]};
+  resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});
+  await vi.waitFor(()=>expect(document.querySelector('.answer-process-summary')?.textContent).toContain('处理过程'));
+  setLanguage('en');await tick();
+  expect(document.querySelector('.answer-process-summary')?.textContent).toContain('Processing details');
+ });
+});
 describe('回答中的处理进度',()=>{
  it('缺少问答密钥时直接打开模型设置，关闭后保留当前会话',async()=>{
   const error='请在设置中填写问答模型 API 密钥';

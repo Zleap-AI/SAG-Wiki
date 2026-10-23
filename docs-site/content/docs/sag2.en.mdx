@@ -1,0 +1,78 @@
+---
+title: "Technical overview"
+description: "Explore the SAG2 paper and diagrams explaining indexing, cross-document retrieval and evidence selection."
+---
+
+## What is SAG2?
+
+SAG2 is the retrieval method used by SAG Wiki. It finds evidence in original local documents and can use retrieved material to continue searching other files. Results still point to source text for inspection and verification.
+
+Indexing stores original text and a full-text index, without computing embeddings or calling an LLM to extract document relationships. At query time, term matching finds candidate passages. Evidence judgments then select useful passages, whose text supplies terms for further retrieval.
+
+<div className="sag-paper not-prose">
+  <small>SAG2 PAPER · arXiv:2610.22588</small>
+  <strong>SAG2: Embedding-Free Multi-Hop Retrieval with BM25 and JEV</strong>
+  <div className="sag-paper-links">
+    <a href="https://arxiv.org/abs/2610.22588" target="_blank" rel="noopener noreferrer">Read the paper ↗</a>
+    <a href="https://arxiv.org/pdf/2610.22588" target="_blank" rel="noopener noreferrer">Full PDF ↗</a>
+    <a href="https://github.com/Zleap-AI/SAG-Benchmark" target="_blank" rel="noopener noreferrer">Evaluation & reproduction ↗</a>
+  </div>
+</div>
+
+## How retrieval works
+
+<RetrievalDiagram lang="en" />
+
+A **candidate** is a retrieved source passage awaiting evaluation. **Evidence** supports a fact needed for an answer. BM25 finds candidates by term matching; Jev evaluates evidence value using the question and retrieved context.
+
+1. **Retrieve initial candidates locally.** Terms from the question retrieve source passages from the full-text index.
+2. **Judge evidence with Jev.** Each candidate is evaluated for necessary facts supporting the original question, respecting entity and relationship constraints. Related background alone is not necessary evidence.
+3. **Expand from candidates.** High-ranked, not-yet-expanded passages supply terms and full names for retrieving new candidates.
+4. **Reassess with retrieved evidence.** Later judgments can use previous evidence as context, without attributing facts from other passages to the current candidate.
+5. **Organize and return sources locally.** Ranking and diversity processing run locally; results retain file paths and source locations.
+
+In SAG Wiki, initial retrieval is followed by one expansion by default, for at most two rounds. Retrieval stops early when there are no new candidates or expansion terms. Settings allow up to two expansions. The paper's experiments use up to two expansions by default, which differs from the application's default.
+
+## Why search across files?
+
+Consider “After login, how does the system decide which APIs a user can access?” Login, role definitions and API checks may live in different files. A name or identifier in the first retrieved source can become a term for the next search.
+
+<EvidenceDiagram lang="en" />
+
+Here, “multi-hop” means following intermediate facts: identify the session's role, find the permissions assigned to that role, and check how APIs enforce those permissions. Every step requires source evidence; a shared term alone does not establish a conclusion.
+
+## Jev versus the answer model
+
+| Component | Responsibility | Writes the final answer? |
+| --- | --- | --- |
+| Local index | Document processing, full-text indexing, candidate retrieval, expansion-term statistics and local ranking | No |
+| Jev | Judge whether a source passage provides necessary evidence | No |
+| Answer model (LLM) | Compose answers from retrieved material and call available tools | Yes |
+
+**Indexing does not call an LLM. SAG2 retrieval does not call the answer LLM, but does call your configured Jev judging service.** Q&A and automatic search summaries additionally use the answer model. Not using the answer LLM does not make deep search fully offline or remove its service configuration requirements.
+
+## Choose the right workflow
+
+- For known names, terms or error messages, use quick search or CLI fixed-string and regular-expression matching.
+- For complete questions requiring evidence across files, use SAG2 deep search.
+- For a written response with citations, use Q&A; the answer model can retrieve evidence and compose a response.
+
+More complete evidence helps, but retrieved results are not a correctness guarantee. Check source passages and their conditions for important conclusions.
+
+## Agent context usage
+
+An agent can run `sag "complete question"` to retrieve relevant passages, paths and locations, then read further as needed. This can reduce unnecessary reading of large numbers of unrelated files.
+
+Actual token use, time and retrieval quality depend on the documents, question, settings and subsequent agent behavior. No fixed savings are promised here.
+
+## Adjustable parameters
+
+[Search settings](/en/docs/search#search-settings-in-detail) control candidates, expansion seeds, expansion terms, rounds, returned passages and chunk size. More candidates and rounds generally increase work. The output passage limit is separate from candidate retrieval volume.
+
+A scoring round may be split into several requests. One tool call, one retrieval round and one Jev request are therefore different counts.
+
+## Research and implementation
+
+SAG Wiki uses SAG2 while desktop search, Q&A and CLI organize results for their respective output needs. Benchmark scores do not guarantee identical results for arbitrary local files.
+
+The workflow diagram is based on [Section 3 of the SAG2 paper](https://arxiv.org/html/2610.22588v1#S3) and the current application. The cross-file example is illustrative. See the paper and [evaluation repository](https://github.com/Zleap-AI/SAG-Benchmark) for full experimental settings and results.

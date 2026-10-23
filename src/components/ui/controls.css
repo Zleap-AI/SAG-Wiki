@@ -4,6 +4,9 @@
 .ui-input:disabled,.ui-textarea:disabled{opacity:.5;cursor:default}
 .ui-select{display:inline-flex;align-items:center;justify-content:space-between;gap:8px;min-width:0;flex-shrink:0;padding:5px 9px;border:1px solid var(--color-rule);border-radius:7px;background:var(--color-panel);color:var(--color-ink);font:400 var(--text-ui)/1.4 var(--font-body);text-align:left;cursor:pointer}
 .ui-select>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-select-text{display:flex;flex-direction:column;gap:3px;min-width:0}
+.ui-select-text>span,.ui-select-text>small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ui-select-text>small{font-size:var(--text-caption);color:var(--color-muted)}
 .ui-select>.icon{width:14px;height:14px;flex-shrink:0;color:var(--color-secondary)}
 .ui-select:hover,.ui-select[data-state=open]{background:var(--color-hover)}
 .real-client .model-button{width:auto;padding:4px 7px;border:0;background:transparent}
@@ -41,7 +44,8 @@
 .composer-model-controls .context-usage{width:24px;padding:4px;font-size:13px}
 .reasoning-button:disabled{opacity:.5;cursor:default}
 .reasoning-button[data-state=open],.context-usage[data-state=open]{background:var(--color-hover);color:var(--color-ink)}
-.reasoning-popover,.context-popover,.reasoning-model-picker{z-index:80;width:250px;max-width:calc(100vw - 24px);padding:14px;border:1px solid var(--color-window-border);border-radius:12px;background:var(--color-paper);color:var(--color-ink);box-shadow:0 8px 32px var(--color-control-shadow);outline:none;font:400 var(--text-ui)/1.5 var(--font-body);transform-origin:var(--bits-popover-content-transform-origin)}
+.reasoning-popover,.context-popover,.reasoning-model-picker,.document-folder-path{z-index:80;width:250px;max-width:calc(100vw - 24px);padding:14px;border:1px solid var(--color-window-border);border-radius:12px;background:var(--color-paper);color:var(--color-ink);box-shadow:0 8px 32px var(--color-control-shadow);outline:none;font:400 var(--text-ui)/1.5 var(--font-body);transform-origin:var(--bits-popover-content-transform-origin)}
+.document-folder-path{width:420px;color:var(--color-secondary);overflow-wrap:anywhere;user-select:text}
 .context-popover>strong{font-weight:600}
 .reasoning-popover{--reasoning-accent:#3a83f7;position:relative;width:256px;padding:10px 12px 11px;border-radius:18px;box-shadow:0 3px 7px var(--color-control-shadow),0 12px 28px var(--color-shadow)}
 .reasoning-reset{position:absolute;right:10px;top:8px;display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:5px;border:0;border-radius:6px;background:transparent;color:var(--color-muted);cursor:pointer}

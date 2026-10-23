@@ -1,6 +1,7 @@
 mod cli_commands;
 mod folder_picker;
 mod updates;
+mod web_clipper;
 #[cfg(windows)]
 mod windows_icon;
 #[path = "../../cli/src/install.rs"]
@@ -110,10 +111,19 @@ macro_rules! remote {
 /// setup: a stale service record, an older daemon that is still running,
 /// or a slow shutdown during upgrade must leave the user with a visible
 /// error and a retry, not a silently closed application.
-fn connect_on_startup(state: Arc<AppState>) {
+fn connect_on_startup(state: Arc<AppState>, fresh_library: bool) {
     tauri::async_runtime::spawn(async move {
         match rpc(&state, Operation::GetSettings).await {
             Ok(value) => {
+                if fresh_library {
+                    let result = async {
+                        let documents = dirs::document_dir().ok_or("无法获取文稿目录")?;
+                        let root = web_clipper::prepare_default_library(&documents)?;
+                        rpc(&state, Operation::AddRoot { path: root.display().to_string() }).await?;
+                        Ok::<(), String>(())
+                    }.await;
+                    if let Err(error) = result { emit(&state.app, "app-error", error); }
+                }
                 if let Some(language) = value.get("language").and_then(|v| v.as_str()) {
                     if let Some(tray) = state.app.tray_by_id("main") {
                         match tray_menu(&state.app, language) {
@@ -377,6 +387,14 @@ fn open_about_link(target: &str) -> CommandResult<()> {
     };
     open_browser_url(url)
 }
+#[tauri::command]
+fn open_external_link(url: &str) -> CommandResult<()> {
+    let url = tauri::Url::parse(url).map_err(error)?;
+    if !matches!(url.scheme(), "http" | "https" | "mailto") {
+        return Err("不支持的外部链接".into());
+    }
+    open_browser_url(url.as_str())
+}
 fn open_browser_url(url: &str) -> CommandResult<()> {
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
@@ -392,6 +410,30 @@ fn open_browser_url(url: &str) -> CommandResult<()> {
         return Err("无法在浏览器中打开链接".into());
     }
     Ok(())
+}
+fn internal_navigation(url: &tauri::Url, dev_url: Option<&tauri::Url>) -> bool {
+    (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (matches!(url.scheme(), "http" | "https") && url.host_str() == Some("tauri.localhost"))
+        || (url.scheme() == "about" && matches!(url.path(), "blank" | "srcdoc"))
+        || dev_url.is_some_and(|dev| url.origin() == dev.origin())
+}
+#[cfg(test)]
+mod navigation_tests {
+    use super::*;
+
+    #[test]
+    fn external_pages_cannot_replace_the_app_or_document() {
+        for address in ["https://psycnet.apa.org/record/2010-07936-005", "https://example.org", "file:///tmp/index.html", "javascript:alert(1)"] {
+            assert!(!internal_navigation(&tauri::Url::parse(address).unwrap(), None));
+        }
+        for address in ["tauri://localhost/", "http://tauri.localhost/index.html", "about:srcdoc#chapter", "about:blank"] {
+            assert!(internal_navigation(&tauri::Url::parse(address).unwrap(), None));
+        }
+        let dev = tauri::Url::parse("http://127.0.0.1:1420").unwrap();
+        assert!(internal_navigation(&dev, Some(&dev)));
+        assert!(!internal_navigation(&tauri::Url::parse("http://127.0.0.1:1433").unwrap(), Some(&dev)));
+        assert!(open_external_link("file:///tmp/index.html").is_err());
+    }
 }
 fn reveal(path: &Path) -> anyhow::Result<()> {
     #[cfg(target_os = "macos")]
@@ -419,6 +461,17 @@ fn reveal(path: &Path) -> anyhow::Result<()> {
 
 pub fn run() {
     let app = tauri::Builder::default()
+        .plugin(tauri::plugin::Builder::<tauri::Wry>::new("external-links")
+            .on_navigation(|webview, url| {
+                let app = webview.app_handle();
+                if internal_navigation(url, if cfg!(debug_assertions) { app.config().build.dev_url.as_ref() } else { None }) {
+                    return true;
+                }
+                if let Err(error) = open_external_link(url.as_str()) {
+                    emit(app, "app-error", error);
+                }
+                false
+            }).build())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::UpdateSession::default())
@@ -426,6 +479,7 @@ pub fn run() {
             #[cfg(windows)]
             windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
             let data = protocol::data_dir()?;
+            let fresh_library = !data.join("sag.sqlite").try_exists()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             let source = cli_commands::service_source(app.handle(), cli_install_error.is_none())
                 .map_err(anyhow::Error::msg)?;
@@ -498,7 +552,7 @@ pub fn run() {
                 cli_install_error: Mutex::new(cli_install_error),
             });
             app.manage(state.clone());
-            connect_on_startup(state.clone());
+            connect_on_startup(state.clone(), fresh_library);
             forward_events(state);
             Ok(())
         })
@@ -511,6 +565,9 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            web_clipper::get_web_clipper,
+            web_clipper::add_web_clipper_folder,
+            web_clipper::export_web_clipper,
             cli_commands::get_cli_settings,
             cli_commands::save_cli_settings,
             cli_commands::install_cli_integration,
@@ -570,6 +627,7 @@ pub fn run() {
             reveal_docling_log,
             open_data_directory,
             open_about_link,
+            open_external_link,
             updates::check_app_update,
             updates::download_app_update,
             updates::install_app_update,

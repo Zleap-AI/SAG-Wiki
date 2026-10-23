@@ -70,7 +70,7 @@ describe('引用原文弹出层',()=>{
   expect(chips.map(chip=>chip.querySelector('small')!.textContent)).toEqual(['1','2']);
   expect(chips.map(chip=>chip.querySelector('span')!.textContent)).toEqual(['notes.md','notes.md']);
  });
- it('合并卡片后，正文的各个引用仍打开对应段落且不显示路径',async()=>{
+ it('合并卡片后，正文的各个引用仍打开对应段落并显示来源路径',async()=>{
   expect([...document.querySelectorAll('.answer-text .citation')].map(button=>button.textContent)).toEqual(['1','1','2','1']);
   for(const index of [2,1,3]){
    const source=sources[index];
@@ -78,7 +78,7 @@ describe('引用原文弹出层',()=>{
    await vi.waitFor(()=>expect(document.querySelector(`.answer-text [data-citation="${index}"]`)).not.toBeNull());
    document.querySelector<HTMLButtonElement>(`.answer-text [data-citation="${index}"]`)!.click();await tick();
    await vi.waitFor(()=>expect(document.querySelector('.source-panel .search-hit.active')?.textContent).toBe(source.content));
-   expect(document.querySelector('.source-panel .source-path')).toBeNull();
+   expect(document.querySelector('.source-panel .source-path')?.textContent).toBe(source.path);
   }
   expect(conversation.messages[0].evidence).toHaveLength(5);
  });

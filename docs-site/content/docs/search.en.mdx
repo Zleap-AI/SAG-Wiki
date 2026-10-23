@@ -1,0 +1,81 @@
+---
+title: "Search"
+description: "Find known terms or retrieve evidence for a complete question."
+---
+
+## Quick search
+
+Enter words from your documents to search locally. Quick search needs no model key and works well for names, terms and known passages.
+
+![Search results and source highlights](/images/product-search-en.png)
+
+Select a result to read the full source. Use match navigation to move between highlighted passages, or open the document for focused reading.
+
+## Deep search
+
+Configure a Jev endpoint, model and API key, then choose deep search. Describe the information you need as a complete question:
+
+```text
+How does this project handle login and permissions?
+```
+
+SAG2 retrieves candidate passages, uses Jev to assess evidence relevance, expands the search when needed, and returns relevant sources. This is useful for questions spanning multiple files.
+
+## Comparing search modes
+
+| | Quick search | Deep search |
+| --- | --- | --- |
+| Input | Words, names, known text | Complete questions or semantic descriptions |
+| Execution | Local full-text search | Local index and Jev service |
+| Configuration | No model key required | Jev configuration required |
+| Output | Matching files and text | Evidence relevant to the question |
+
+## Timing
+
+The interface displays elapsed time and processing status. Tool calls in Q&A also include request handling. Compare the question, scope and retrieval settings when comparing timings across views.
+
+## Search settings in detail
+
+Location: **Settings → Search settings**. Read [Technical overview](/en/docs/sag2) for the difference between candidates, expansion and final results.
+
+![Automatic summary and SAG2 retrieval settings](/images/product-search-settings-en.png)
+
+### Automatic search summary
+
+On by default. After retrieval, the answer model writes a short summary from the question and selected results. This is a separate post-retrieval step. Disabling it preserves search and source viewing while avoiding answer-model calls for summaries.
+
+Configure an [answer model](/en/docs/models) first. Provider charges may apply. Summary time is separate from pure retrieval time.
+
+### Summary source count
+
+Defaults to 10, minimum 1, with no fixed maximum. It limits how many results are considered for the summary. Inputs exceeding the answer context budget are trimmed. More sources increase input volume and do not guarantee a better summary.
+
+### SAG2 parameters
+
+| Setting | Default / range | Effect |
+| --- | --- | --- |
+| Candidates per round | 50 / 10–100 | New candidate limit per Q&A retrieval round. More candidates broaden scoring and increase Jev work. Desktop deep search uses a fixed 100 instead. |
+| Expansion seeds | 10 / 1–20 | How many ranked, not-yet-expanded passages become search starting points. More seeds add context and terms. |
+| Expansion term limit | 20 / 1–500 | Caps terms and full-name phrases extracted from seeds. More terms widen retrieval and may add irrelevant candidates. |
+| Expansion rounds | 1 / 0–2 | Rounds after initial retrieval. 0 means initial retrieval only; 1 allows up to 2 rounds total; 2 allows up to 3. Stops early without new candidates. |
+| Returned passages | 10 / 1–100 | Final passage count for Q&A retrieval tools, separate from per-round candidate count. Desktop deep search shows at most 100 files; CLI `-m` controls its output limit. |
+| Target chunk characters | 512 / 400–12000 | Indexing chunk target. Preserves sentences and neighboring context; long sentences may exceed it. Changing this rebuilds indexes. |
+
+### Adjusting parameters
+
+Start with defaults. Keep the question and file scope fixed, change one value at a time, and compare factual source coverage and elapsed time.
+
+- Too much output: reduce returned passages before reducing candidate coverage.
+- Missing cross-file facts: inspect expansion rounds and seed count.
+- Insufficient passage context: adjust chunk size, then wait for reindexing.
+- Slow retrieval: inspect candidate count, expansion rounds and Jev service time.
+
+### Restore default parameters
+
+Restores the six SAG2 values to `50 / 10 / 20 / 1 / 10 / 512`. Save afterward. It does not reset the summary toggle or summary source count. A changed chunk target triggers index updates.
+
+### Rounds and requests
+
+The implementation permits at most three Jev scoring rounds. Final local ranking makes no additional model calls. Large candidate sets are batched under request budgets while retaining whole candidates. A single candidate plus shared evidence exceeding the budget produces an explicit error rather than truncating the source.
+
+Retrieval rounds therefore do not equal Jev HTTP request counts. More candidates, seeds or larger chunks can increase batching and time.
