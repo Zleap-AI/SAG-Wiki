@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
-Source builds also include document outlines, Mermaid previews, document-scoped questions, conversation summarization, and a standalone web clipper. See the [bilingual documentation](docs-site/README.md) and [extension build guide](browser-extension/README.md). These additions are unreleased; download links below still refer to the published version.
+Version 0.2.0 includes document outlines, Mermaid previews, document-scoped questions, conversation summarization, and a standalone web clipper. See the [bilingual documentation](docs-site/README.md) and [extension build guide](browser-extension/README.md). The download link below points to the latest stable GitHub Release.
 
 ## Contents
 
@@ -44,10 +44,7 @@ Source builds also include document outlines, Mermaid previews, document-scoped 
 
 ## SAG-Wiki in one minute
 
-| System | Download | Size |
-| --- | --- | --- |
-| macOS | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-macOS-arm64.dmg) | 14.4MB |
-| Windows | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-Windows-x64-setup.exe) | 10.9MB |
+[Download the latest desktop release for macOS and Windows](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
 
 **Upgrading from 0.1.8 or earlier:** manually install 0.1.9 once to switch to the new update signing key. Future versions can use in-app updates. [Migration details](docs/en/app-update-publishing.md).
 
@@ -165,7 +162,7 @@ With Node.js 18 or later installed:
 npm install -g @zleap-ai/sag
 ```
 
-The published **0.1.5** npm package includes **macOS Apple Silicon and Windows x64** binaries. It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
+The [published npm package](https://www.npmjs.com/package/@zleap-ai/sag) includes **macOS Apple Silicon and Windows x64** binaries. It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
 
 <details>
 <summary>Manual installation and usage</summary>

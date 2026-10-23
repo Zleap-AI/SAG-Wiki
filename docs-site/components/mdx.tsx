@@ -1,3 +1,4 @@
+import { ReleaseDownloads } from './release-downloads';
 import defaultMdxComponents from 'fumadocs-ui/mdx';
 import { Cards, Card } from 'fumadocs-ui/components/card';
 import { Callout } from 'fumadocs-ui/components/callout';
@@ -11,6 +12,6 @@ function DocumentImage({src, ...props}: ComponentProps<'img'>) {
  const image = <img src={imageSource} {...props} />;
  return typeof imageSource === 'string' ? <ImageZoom src={imageSource} alt={props.alt}>{image}</ImageZoom> : image;
 }
-export function getMDXComponents(components?:MDXComponents) { return {...defaultMdxComponents, img: DocumentImage, Cards, Card, Callout, Steps, Step, RetrievalDiagram, EvidenceDiagram, ...components} satisfies MDXComponents; }
+export function getMDXComponents(components?:MDXComponents) { return {...defaultMdxComponents, img: DocumentImage, Cards, Card, Callout, Steps, Step, ReleaseDownloads, RetrievalDiagram, EvidenceDiagram, ...components} satisfies MDXComponents; }
 export const useMDXComponents = getMDXComponents;
 declare global { type MDXProvidedComponents = ReturnType<typeof getMDXComponents>; }

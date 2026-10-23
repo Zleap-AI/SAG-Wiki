@@ -5,17 +5,35 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-## Unreleased
+## 0.2.0
 
-These features are planned for the next release.
+Changes since 0.1.9.
 
-- Adds web clipping with a preview before saving local Markdown.
-- Adds Mermaid diagrams and a document outline.
-- Adds built-in parsing for Office files, text-based PDFs and ebooks.
-- Improves file browsing, document creation and per-folder indexing settings.
-- Collapses answer processing details and displays elapsed time.
-- Improves indexing progress, failure notices and document conversion.
-- Adds Chinese and English documentation.
+### Features and improvements
+
+- **Built-in document conversion**: text-based PDFs, Word, PowerPoint, Excel/CSV, OpenDocument and EPUB work without downloading a converter. Scans still require an OCR component; other formats use components installed on demand. See [File formats and conversion](/en/docs/folders).
+- **Web clipping**: preview page content before saving local Markdown, then optionally add the destination folder to the knowledge base. Supports Chrome / Edge; Safari export requires a signed and notarized extension installer bundled with the desktop build. See [Web clipper](/en/docs/web-clipper).
+- **Document reading and editing**: adds heading navigation, questions about the current document, naming and folder selection on first save, and improved opening and editing of converted documents. See [Files and editing](/en/docs/files).
+- **Mermaid and answer presentation**: renders Mermaid diagrams locally in documents, search previews, citations and answers; collapses answer processing details and displays elapsed time.
+- **Long-conversation summaries**: uses the current answer model to generate and save summaries when the context budget is exceeded, while retaining full history. Tool calls still default to 10 per turn; setting 0 removes the count limit. See [Chat](/en/docs/chat).
+- **MCP tool binding**: adds separate dialogs for adding servers and importing JSON, clarifies connection and current-model enablement states, and adds removal confirmation and undo. See [MCP and tool binding](/en/docs/mcp).
+- **Bilingual help**: adds Chinese and English guides with screenshots for desktop, CLI and Agent workflows.
+
+### Bug fixes
+
+- Defaults to local quick search before models are configured, skips automatic summaries that need an answer model, and provides separate configuration guidance for semantic retrieval and Q&A.
+- Reports background-service connection failures and reconnects, clears transient errors after recovery, and keeps event streams connected when consumers fall behind.
+- Skips unreadable subdirectories during indexing; stops scanning a scope when its `.sagignore` cannot be read so ignore rules are not bypassed.
+- Skips stale or unreadable sources and candidates exceeding Jev's per-item input budget instead of failing the whole query; subtracts skipped items on the current page from the search count.
+- Fixes Windows conversion-output encoding and uv junction handling, and adjusts conversion memory budgets on 8 GiB devices.
+- Shows actual conversion-component installation progress, fails promptly when the model host is unreachable, and leaves optional formats unselected by default.
+- Includes the anydoc version in built-in conversion caches so later indexing updates old caches, protects user edits and valid prior output when the source is unchanged, and prevents reuse of stale output after source changes.
+- Opens external links in the system browser; completing an answer no longer pulls readers back to the bottom after they have scrolled up.
+- Keeps dismissed, unchanged indexing-failure notices from reappearing while still reporting new failures, and improves Windows indexing-path display.
+
+### Upgrading
+
+The desktop app and bundled CLI both use version 0.2.0 and retain the 0.1.9 update-signing channel. Users on 0.1.8 or earlier must still follow the [signing migration instructions](/en/docs/installation). This release targets macOS and Windows desktops.
 
 ## 0.1.9
 

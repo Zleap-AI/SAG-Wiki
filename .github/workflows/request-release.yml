@@ -6,7 +6,6 @@ on:
       tag:
         description: Existing reviewed version tag (vX.Y.Z)
         required: true
-        default: v0.1.9
         type: string
 
 permissions:

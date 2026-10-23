@@ -44,6 +44,12 @@ Update both languages and affected screenshots when product behavior changes. Se
 
 Dependencies, build outputs, generated sources, QA artifacts and TypeScript caches are local only. The site has no nested Git repository or separate Git remotes.
 
-当前仅提供本地预览，未部署。安装链接指向已发布的 0.1.9。
+当前仅提供本地预览，未部署。安装链接指向已发布的桌面版本。
 
-This is a local preview, not a deployed site. Downloads point to released 0.1.9 installers.
+This is a local preview, not a deployed site. Downloads point to the published desktop installers.
+
+## Release downloads / 版本下载信息
+
+README 使用 GitHub 最新正式版入口。安装页的 `ReleaseDownloads` 组件在浏览器中读取公开的 GitHub Latest Release API，显示版本、macOS/Windows 安装包链接和实际大小（十进制 MB，一位小数）。版本及附件经过校验；超时、限流或附件不完整时显示提示，用户可通过页面上的最新正式版链接下载。发布新版本后，重新打开安装页即可获取新信息，无需修改配置或提交文档 PR。
+
+README links to the latest stable GitHub Release. The installation page's `ReleaseDownloads` component reads the public Latest Release API in the browser and displays the version, macOS/Windows installers and actual sizes (decimal MB, one decimal place). It validates the release and assets. If requests time out, are rate-limited, or return incomplete assets, the page points readers to its latest-release link. Reopening the page after a release retrieves current downloads without a configuration update or documentation PR.

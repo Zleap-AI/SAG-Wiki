@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
-源码新增文档目录、Mermaid 预览、当前文档问答、长会话摘要和独立网页剪藏。操作说明见[双语文档站](docs-site/README.md)，扩展构建见[网页剪藏说明](browser-extension/README.md)。这些新增功能尚未发布，下方下载链接仍指向已发布版本。
+0.2.0 新增文档目录、Mermaid 预览、当前文档问答、长会话摘要和独立网页剪藏。操作说明见[双语文档站](docs-site/README.md)，扩展构建见[网页剪藏说明](browser-extension/README.md)。下方下载入口指向 GitHub 最新正式版。
 
 ## 目录
 
@@ -44,10 +44,7 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 ## 一分钟了解 SAG-Wiki
 
-| 系统 | 下载 | 大小 |
-| --- | --- | --- |
-| macOS | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-macOS-arm64.dmg) | 14.4MB |
-| Windows | [v0.1.9](https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.1.9/SAG-Wiki-0.1.9-Windows-x64-setup.exe) | 10.9MB |
+[下载 macOS / Windows 最新桌面版](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
 
 **从 0.1.8 或更早版本升级：**请手动安装一次 0.1.9，以切换到新的更新签名密钥；后续版本可继续通过应用内更新安装。[迁移说明](docs/zh-CN/应用内更新发布.md)。
 
@@ -165,7 +162,7 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 npm install -g @zleap-ai/sag
 ```
 
-已发布的 **0.1.5** npm 包包含 **macOS Apple Silicon 和 Windows x64** 程序，无需 Rust 工具链或源码编译。安装 CLI 不会安装桌面端。
+[npm 已发布包](https://www.npmjs.com/package/@zleap-ai/sag)包含 **macOS Apple Silicon 和 Windows x64** 程序，无需 Rust 工具链或源码编译。安装 CLI 不会安装桌面端。
 
 <details>
 <summary>手动安装与使用</summary>

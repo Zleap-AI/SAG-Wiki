@@ -22,7 +22,7 @@ Enable **SAG (built-in MCP)** without additional connection settings. Expand its
 | `getTime` | Get the current time |
 | `calculate` | Perform calculations |
 
-File tools respect the current query scope. Disabling the entire group prevents that model from retrieving the local knowledge base through these tools. Availability does not require a call on every turn. Calls are unlimited by default; setting a Q&A limit greater than 0 applies that shared limit to all tools.
+File tools respect the current query scope. Disabling the entire group prevents that model from retrieving the local knowledge base through these tools. Availability does not require a call on every turn. The default limit is 10 calls per turn, shared by SAG and MCP tools; set the Q&A limit to 0 to remove the count limit.
 
 ![Built-in SAG tools and external MCP bindings](/images/product-tools-en.png)
 
