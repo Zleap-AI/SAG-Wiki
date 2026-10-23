@@ -131,6 +131,41 @@
 .settings-window .mcp-connection[open] .mcp-connection-title .icon{transform:rotate(90deg)}
 .settings-window .mcp-connection>.setting-row{padding:12px 0}
 
+.mcp-dialog-backdrop{z-index:45;padding:24px;backdrop-filter:blur(3px)}
+.mcp-dialog.dialog-panel{display:flex;flex-direction:column;overflow:hidden;width:500px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 48px);box-shadow:0 20px 64px var(--color-overlay)}
+.mcp-dialog>.dialog-head{flex-shrink:0;border-bottom:1px solid var(--color-rule)}
+.mcp-dialog form{display:flex;flex-direction:column;min-height:0}
+.mcp-dialog .dialog-body{padding:22px 24px;overflow-wrap:anywhere;overflow:auto;min-height:0}
+.mcp-dialog .dialog-footer{flex-shrink:0;padding:14px 24px;border-top:1px solid var(--color-rule);display:flex;justify-content:flex-end;gap:8px;background:var(--color-panel)}
+.mcp-dialog .field-label{display:block;font-size:var(--text-ui);margin:0 0 16px}
+.mcp-dialog .field-label>.ui-input,.mcp-dialog .field-label>.ui-textarea,.mcp-dialog .field-label>.ui-select{display:flex;width:100%;margin-top:7px;min-height:36px;padding:8px 10px;border:1px solid var(--color-rule);border-radius:7px;background:var(--color-panel);font-size:var(--text-ui)}
+.mcp-dialog .ui-textarea{max-height:240px;resize:vertical}
+.mcp-dialog .settings-help{font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary);margin-top:8px}
+.mcp-dialog .form-error{font-size:var(--text-caption);margin-top:12px}
+.mcp-dialog .outline{border:1px solid var(--color-rule);border-radius:6px;padding:7px 12px;background:var(--color-paper)}
+.mcp-dialog .mcp-advanced{font-size:var(--text-caption)}
+.mcp-dialog .mcp-advanced>summary{cursor:pointer;margin-bottom:12px;color:var(--color-secondary)}
+.mcp-dialog .mcp-confirm-remove{background:var(--color-danger);color:var(--color-danger-ink);border:1px solid var(--color-danger);border-radius:6px;padding:7px 12px}
+.mcp-dialog .mcp-confirm-remove:hover{background:var(--color-danger-hover)}
+.settings-window .mcp-card-heading{flex-wrap:wrap}
+.settings-window .mcp-card-name{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;overflow-wrap:anywhere}
+.settings-window .mcp-added{display:inline-flex;align-items:center;gap:3px;font-size:var(--text-caption);color:#26724a;background:#edf6f0;padding:2px 6px;border-radius:5px;white-space:nowrap}
+.settings-window .mcp-added .icon{width:13px;height:13px}
+.settings-window .mcp-remove{display:flex;align-items:center;gap:5px;color:var(--color-danger);flex-shrink:0;margin-left:auto}
+.settings-window .mcp-remove .icon{width:14px;height:14px}
+@media(hover:hover) and (pointer:fine){.settings-window .mcp-server:not(:hover) .mcp-remove:not(:focus-visible){opacity:0;pointer-events:none}}
+@media(prefers-reduced-motion:no-preference){.settings-window .mcp-remove{transition:opacity 150ms ease}}
+.settings-window .mcp-binding-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:0 14px 14px;font-size:var(--text-caption)}
+.settings-window .mcp-binding-label{display:flex;align-items:center;gap:9px;color:var(--color-secondary)}
+.settings-window .mcp-state{border-radius:5px;padding:3px 7px;background:var(--color-panel);color:var(--color-secondary)}
+.settings-window .mcp-state-ready{color:#26724a;background:#edf6f0}
+.settings-window .mcp-feedback{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:9px 12px;margin-bottom:12px;border-radius:7px;background:#edf6f0;color:#26724a;font-size:var(--text-caption)}
+.settings-window .mcp-feedback>span{display:flex;align-items:center;gap:6px;overflow-wrap:anywhere;min-width:0}
+.settings-window .mcp-feedback .icon{width:14px;height:14px;flex-shrink:0}
+.settings-window .mcp-feedback-error{color:var(--color-danger);background:var(--color-panel)}
+[data-theme=dark] .mcp-added,[data-theme=dark] .mcp-state-ready,[data-theme=dark] .mcp-feedback:not(.mcp-feedback-error){color:#8bd5ad;background:#25392e}
+@media(prefers-reduced-motion:reduce){.settings-window .mcp-server{scroll-behavior:auto}}
+
 .settings-window .answer-model-selection{margin-bottom:18px}
 .settings-window .answer-model-selection>.field-label{margin-bottom:8px}
 
