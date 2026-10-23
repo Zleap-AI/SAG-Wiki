@@ -208,6 +208,9 @@ fn forward_events(state: Arc<AppState>) {
                             break;
                         }
                     },
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        emit(&state.app, "data-changed", ());
+                    }
                     Err(error) => {
                         emit(
                             &state.app,

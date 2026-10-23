@@ -151,6 +151,20 @@ async fn serve(
                     }
                 }
                 Ok(_) => {}
+                // Falling behind a burst of progress events is not fatal: keep the
+                // connection and its in-flight requests, and let the client refresh.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    eprintln!("SAG 事件流跳过 {skipped} 条");
+                    let envelope = EventEnvelope { request_id: None, event: ServiceEvent::DataChanged };
+                    let written = tokio::select! {
+                        _ = event_cancel.cancelled() => break,
+                        result = async { wire::write(&mut *event_write.lock().await, &Frame::Event { envelope }).await } => result,
+                    };
+                    if written.is_err() {
+                        event_cancel.cancel();
+                        break;
+                    }
+                }
                 Err(error) => {
                     eprintln!("SAG 事件流结束：{error}");
                     event_cancel.cancel();
