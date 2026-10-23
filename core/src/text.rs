@@ -245,7 +245,7 @@ const CODE_EXTENSIONS: &[&str] = &[
 const CONFIG_EXTENSIONS: &[&str] = &["json", "jsonc", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml"];
 pub fn enabled_extensions(types: &crate::types::FileTypes) -> Vec<String> {
     [(types.markdown, MARKDOWN_EXTENSIONS), (types.text, TEXT_EXTENSIONS),
-     (types.text, crate::docling::DOCUMENT_EXTENSIONS),
+     (types.text, crate::anydoc::EXTENSIONS),
      (types.code, CODE_EXTENSIONS), (types.config, CONFIG_EXTENSIONS)]
         .into_iter().filter(|(enabled, _)| *enabled)
         .flat_map(|(_, extensions)| extensions.iter().map(|extension| (*extension).into())).collect()

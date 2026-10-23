@@ -1,21 +1,27 @@
 <script lang="ts">
- import {onDestroy} from 'svelte';
+ import {onDestroy,onMount} from 'svelte';
  import {Button} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
  import {api} from '../lib/api';
  import {t,language} from '../lib/i18n';
  import {icon} from '../lib/icons';
+ import {basename,displayPath} from '../lib/domain';
  import type {IndexHistory,IndexHistoryLog,IndexFileLog} from '../lib/types';
  export let record:IndexHistory;
  let expanded=false,loading=false,loaded=false,showLog=false,disposed=false,error='',openError='';
  let raw:string|null=null,rows:{raw:string;file:IndexFileLog}[]=[];
  const date=(time:number)=>new Date(time).toLocaleString($language==='en'?'en-US':'zh-CN');
  $:files=[...new Map(rows.map(row=>[row.file.path,row.file])).values()];
+ $:failedFiles=files.filter(file=>file.status==='failed');
  $:label=$t(record.status==='ready'?'已完成':record.status==='partial'?'部分失败':record.status==='stopped'?'已停止':'读取失败');
+ onMount(()=>{if(record.status==='partial')void loadFiles();});
  onDestroy(()=>{disposed=true});
- async function toggle(){
+ function toggle(){
   expanded=!expanded;
-  if(!expanded||loaded||loading)return;
+  if(expanded)void loadFiles();
+ }
+ async function loadFiles(){
+  if(loaded||loading)return;
   loading=true;error='';
   try{
    const log=await api<IndexHistoryLog>('get_index_history_log',{id:record.id});
@@ -26,9 +32,9 @@
   }catch(e){if(!disposed)error=$t(String(e));}
   finally{if(!disposed)loading=false;}
  }
- async function openFile(path:string){
+ async function openFile(path:string,reveal=false){
   openError='';
-  try{await api('open_index_history_file',{id:record.id,path});}
+  try{if(reveal)await api('reveal_path',{path});else await api('open_index_history_file',{id:record.id,path});}
   catch(e){if(!disposed)openError=$t(String(e));}
  }
  function viewLog(){openError='';showLog=true;}
@@ -36,11 +42,18 @@
 
 <Button.Root class="index-history-toggle" aria-expanded={expanded} aria-controls={`index-files-${record.id}`} onclick={toggle}>
  <div class="index-root-title">{@html icon('folder')}<strong>{record.name}</strong><span>{label}</span>{@html icon(expanded?'down':'chevron')}</div>
- <p class="index-root-path" title={record.path}>{record.path}</p>
+ {#if failedFiles.length}{#each failedFiles as file(file.path)}<p class="index-root-path" title={displayPath(file.path)}>{displayPath(file.path)}</p>{/each}
+ {:else}<p class="index-root-path" title={displayPath(record.path)}>{displayPath(record.path)}</p>{/if}
  <p class="index-count"><time datetime={new Date(record.started_at).toISOString()}>{date(record.started_at)}</time> · {$t('已处理 {value0} / {value1} 个文件',{value0:record.completed,value1:record.total})}</p>
 </Button.Root>
 {#if record.status==='partial'}<p class="index-note">{$t('以下文件未进入索引，其他文件可正常检索。')}</p>{/if}
-{#if record.error}<details class="index-failure"><summary>{$t('查看失败详情')}</summary><pre>{record.error.split('\n').map(line=>$t(line)).join('\n')}</pre></details>{/if}
+{#if record.error}<details class="index-failure" on:toggle={event=>{if(event.currentTarget.open)void loadFiles();}}><summary>{$t('查看失败详情')}</summary>
+ {#if loading}<p class="index-note" role="status">{$t('正在读取文件记录…')}</p>{/if}
+ {#if error}<p class="form-error" role="alert">{error}</p>{/if}
+ {#if failedFiles.length}<ul class="index-failed-files" aria-label={$t('未能索引的文件')}>{#each failedFiles as file(file.path)}<li><Button.Root class="index-history-file index-failed-file" title={displayPath(file.path)} aria-label={$t('定位文件 {value0}',{value0:basename(file.path)})} onclick={()=>openFile(file.path,true)}>{@html icon('file')}<span><strong>{basename(file.path)}</strong><span class="index-file-path">{displayPath(file.path)}</span></span>{@html icon('folder')}</Button.Root></li>{/each}</ul>{/if}
+ {#if openError}<p class="form-error" role="alert">{openError}</p>{/if}
+ <pre>{record.error.split('\n').map(line=>$t(displayPath(line))).join('\n')}</pre>
+</details>{/if}
 {#if expanded}
  <div class="index-file-preview" id={`index-files-${record.id}`}>
   {#if loading}<p class="index-note" role="status">{$t('正在读取文件记录…')}</p>
@@ -50,7 +63,7 @@
    {#if files.length}
     <ul aria-label={$t('本次处理的原文件')}>
      {#each files.slice(0,10) as file (file.path)}
-      <li><Button.Root class="index-history-file" title={file.path} onclick={()=>openFile(file.path)}>{@html icon('file')}<span>{file.path.slice(record.path.length+1)}</span>{#if file.status==='failed'}<small>{$t('读取失败')}</small>{/if}</Button.Root></li>
+      <li><Button.Root class="index-history-file" title={displayPath(file.path)} onclick={()=>openFile(file.path)}>{@html icon('file')}<span><strong>{basename(file.path)}</strong><span class="index-file-path">{displayPath(file.path)}</span></span>{#if file.status==='failed'}<small>{$t('读取失败')}</small>{/if}</Button.Root></li>
      {/each}
     </ul>
    {:else}<p class="index-note">{$t('本次没有文件处理记录')}</p>{/if}
@@ -63,7 +76,7 @@
 {#if showLog}
  <Modal label={$t('原始索引日志')} class="index-log-dialog" onClose={()=>showLog=false}>
   <div class="dialog-head"><h2>{$t('原始索引日志')}</h2><Button.Root class="icon-button" aria-label={$t('关闭索引日志')} onclick={()=>showLog=false}>{@html icon('close')}</Button.Root></div>
-  <div class="index-log-meta"><strong>{record.name}</strong><span>{date(record.started_at)} · {label}</span><p>{record.path}</p></div>
+  <div class="index-log-meta"><strong>{record.name}</strong><span>{date(record.started_at)} · {label}</span><p>{displayPath(record.path)}</p></div>
   <div class="index-log-body">
    {#if rows.length}<pre aria-label={$t('原始索引日志内容')}>{#each rows as row}{@const path=JSON.stringify(row.file.path)}{@const start=row.raw.indexOf(path)}<span>{row.raw.slice(0,start)}<Button.Root class="index-log-path" title={$t('用系统默认应用打开原文件')} onclick={()=>openFile(row.file.path)}>{path}</Button.Root>{row.raw.slice(start+path.length)}</span>{'\n'}{/each}</pre>
    {:else}<p class="index-note">{$t('本次没有文件处理记录')}</p>{/if}
@@ -93,7 +106,10 @@
  :global(.index-history-file){width:100%;display:flex;align-items:center;gap:8px;padding:7px 8px;border:0;border-radius:5px;background:transparent;color:var(--color-ink);text-align:left;font-size:12px;line-height:1.5}
  :global(.index-history-file:hover){background:var(--color-hover)}
  :global(.index-history-file .icon){width:14px;height:14px;flex-shrink:0;color:var(--color-muted)}
- :global(.index-history-file span){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ :global(.index-history-file>span){min-width:0;flex:1;overflow-wrap:anywhere}
+ :global(.index-history-file strong){display:block;font-weight:500}
+ :global(.index-history-file .index-file-path){display:block;color:var(--color-muted);white-space:normal;overflow-wrap:anywhere}
+ .index-failed-files{margin-top:8px}
  :global(.index-history-file small){margin-left:auto;white-space:nowrap;color:var(--color-danger);font-size:11px}
  .index-preview-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:10px;font-size:11px;color:var(--color-muted)}
  :global(.index-view-log){display:flex;align-items:center;gap:5px;background:transparent;border:0;padding:4px 0;color:var(--color-secondary);font-size:12px}

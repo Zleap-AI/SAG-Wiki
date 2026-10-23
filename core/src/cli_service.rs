@@ -384,7 +384,7 @@ impl CliService {
                     if extensions.is_empty() { bail!("请至少指定一种文件扩展名") }
                     for extension in &extensions {
                         let path = PathBuf::from(format!("file.{extension}"));
-                        if extension.is_empty() || !(crate::text::is_supported(&path) || crate::docling::is_builtin(&path))
+                        if extension.is_empty() || !(crate::text::is_supported(&path) || crate::anydoc::handles(&path))
                             || extension.contains(['/', '\\', '.']) {
                             bail!("不支持的索引格式：{extension}。--types 支持文本、代码及内置文档格式，如 md,txt,html,py,docx,pdf,xlsx")
                         }

@@ -216,3 +216,15 @@ fn standalone_can_explicitly_enable_previously_disabled_access() {
     assert!(enabled.status.success(), "{}", String::from_utf8_lossy(&enabled.stderr));
     assert!(String::from_utf8(run(&["status"]).stdout).unwrap().contains("CLI 接入：true"));
 }
+
+#[test]
+fn mock_service_endpoint_identifies_the_process_that_owns_its_listener() {
+    let data = tempfile::tempdir().unwrap();
+    let server = support::serve(data.path(), 0, |_| unreachable!());
+    let endpoint: sag_protocol::Endpoint = serde_json::from_slice(
+        &std::fs::read(data.path().join("sag-service.json")).unwrap(),
+    ).unwrap();
+    assert_eq!(endpoint.pid, std::process::id(), "mock service must advertise its actual owner on every OS");
+    assert!(sag_client::process_alive(endpoint.pid));
+    server.join().unwrap();
+}

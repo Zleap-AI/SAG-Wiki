@@ -28,7 +28,9 @@ File tools respect the current query scope. Disabling the entire group prevents 
 
 ## Add an external server
 
-Select **Add server**, or **Add DeepWiki example** for a preset connection. Test the example too, and review its confirmation setting before use.
+Select **Add server**, or **Add DeepWiki example** for a preset connection. Fill in the dialog and select **Add server**. Headers, environment variables and confirmation controls are under **Advanced settings**. Test the example before use.
+
+![Connection settings in the Add MCP service dialog](/images/product-mcp-add-en.png)
 
 | Field | Value |
 | --- | --- |
@@ -67,8 +69,8 @@ The importer accepts `mcpServers`, `servers` or a single server object. This pub
 }
 ```
 
-Importing does not connect automatically. Rename duplicate server names. Streamable HTTP and stdio are supported; SSE, `inputs` and unresolved variable placeholders are not. Keep real configurations containing keys out of public documentation.
+Select **Import JSON**, paste the configuration in the dialog and select **Import configuration**. Importing does not connect automatically. Rename duplicate server names. Streamable HTTP and stdio are supported; SSE, `inputs` and unresolved variable placeholders are not. Keep real configurations containing keys out of public documentation.
 
 ## Remove a server
 
-**Remove server** removes the connection and its model bindings when settings are saved. It does not uninstall the external program or delete data in the external system.
+Select **Remove server** and confirm, then save settings to remove the connection and its model bindings. Use **Undo removal** before saving to restore them. It does not uninstall the external program or delete data in the external system.

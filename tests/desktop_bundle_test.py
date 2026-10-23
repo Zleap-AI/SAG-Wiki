@@ -1,5 +1,7 @@
 """Acceptance checks for the actual lightweight macOS desktop artifact."""
 import os
+import json
+import zipfile
 from pathlib import Path
 import unittest
 
@@ -24,6 +26,16 @@ class DesktopBundleTests(unittest.TestCase):
         unexpected = [str(path.relative_to(resources)) for path in resources.rglob('*')
                       if path.name in forbidden or path.suffix in model_extensions]
         self.assertEqual(unexpected, [], 'Parser runtimes/models leaked into desktop resources')
+
+    def test_browser_extension_package_contains_manifest_scripts_and_license(self):
+        package = BUNDLE / 'Contents/Resources/clipper/sag-web-clipper-chrome.zip'
+        with zipfile.ZipFile(package) as archive:
+            manifest = json.loads(archive.read('manifest.json'))
+            self.assertEqual(manifest['manifest_version'], 3)
+            self.assertIn('contextMenus', manifest['permissions'])
+            self.assertNotIn('nativeMessaging', manifest['permissions'])
+            for filename in ('background.js', 'extract.js', 'popup.html', 'options.html', 'DEFUDDLE-LICENSE.txt'):
+                self.assertGreater(len(archive.read(filename)), 0)
 
     def test_desktop_payload_stays_below_100_mib(self):
         size = sum(path.stat().st_size for path in BUNDLE.rglob('*') if path.is_file())

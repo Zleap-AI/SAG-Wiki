@@ -48,8 +48,9 @@
       "licenses/SHADCN-SVELTE.txt",
       "licenses/MORPHDOM.txt",
       "licenses/GRAPH-VIEW.txt",
-      "licenses/PELE.txt",
+      "licenses/ANYDOC.txt",
       "bin/sag",
+      "licenses/PELE.txt",
       "clipper/"
     ]
   },

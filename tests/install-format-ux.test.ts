@@ -154,7 +154,7 @@ it('应用所选格式等待并行数提交时关闭确认，返回后不能再�
   if(command==='install_docling_profiles')current={...current,running:true};return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();
+ await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
  await vi.waitFor(()=>expect(button('安装并应用')?.disabled).toBe(false));
  const input=find('转换并行数') as unknown as HTMLInputElement;input.value='2';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();button('安装并应用').click();await tick();button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());current=ready(current);doclingStatus.set(current);await tick();await vi.waitFor(()=>expect(button('应用所选格式',confirmation())?.disabled).toBe(false));button('应用所选格式',confirmation()).click();
@@ -170,7 +170,7 @@ it('旧完成动作等待并行数返回时，不能关闭另一控件的新安�
   if(command==='install_docling_profiles')current={...current,running:true};return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true,second:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();
+ await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
  await vi.waitFor(()=>expect(button('安装并应用')?.disabled).toBe(false));
  const input=find('转换并行数') as unknown as HTMLInputElement;input.value='2';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();button('安装并应用').click();await tick();button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());current={...current,installed:true,running:false,stage:'done',profiles:initial.profiles!.map(profile=>({...profile,installed:profile.id==='documents'}))};doclingStatus.set(current);await tick();await vi.waitFor(()=>expect(button('应用所选格式',confirmation())?.disabled).toBe(false));button('应用所选格式',confirmation()).click();
@@ -189,7 +189,7 @@ it('后台安装时修改并行数会撤销旧完成回写，保留当前草稿'
   return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();
+ await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
  await vi.waitFor(()=>expect(button('安装并应用')?.disabled).toBe(false));button('安装并应用').click();await tick();button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());button('后台下载',confirmation()).click();await tick();
  const input=find('转换并行数') as unknown as HTMLInputElement;input.value='2';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
