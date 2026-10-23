@@ -9,6 +9,7 @@ on:
 # token that can write to the repository. Only the release job gains write access.
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: desktop-${{ github.event.pull_request.number || github.ref }}
@@ -34,6 +35,8 @@ jobs:
     outputs:
       version: ${{ steps.source.outputs.version }}
       commit: ${{ steps.source.outputs.commit }}
+      reuse: ${{ steps.cache.outputs.reuse }}
+      source_run: ${{ steps.cache.outputs.source_run }}
     steps:
       - name: Check out the event commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -49,10 +52,18 @@ jobs:
         id: source
         run: node scripts/release.mjs validate
       - name: Test release validation and signing
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs
+
+      - name: Find a verified main build for this exact commit
+        id: cache
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-build-cache.mjs resolve
 
   documentation:
     name: Build bilingual documentation
+    needs: validate
+    if: needs.validate.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -70,6 +81,7 @@ jobs:
   build:
     name: Build and test ${{ matrix.platform }}
     needs: validate
+    if: needs.validate.outputs.reuse != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -106,6 +118,18 @@ jobs:
         with:
           toolchain: '1.98.1'
           targets: ${{ matrix.target }}
+      - name: Restore Rust debug cache
+        id: rust-debug
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            cli/target/debug
+            src-tauri/target/debug
+          key: rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-debug-${{ github.sha }}
+          restore-keys: |
+            rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-debug-
       - name: Install locked JavaScript dependencies
         run: npm ci
       - name: Run frontend tests
@@ -137,11 +161,35 @@ jobs:
           cargo test --locked --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
           cargo test --locked --manifest-path cli/Cargo.toml -- --nocapture
           cargo test --locked --manifest-path src-tauri/Cargo.toml
+      - name: Save trusted main Rust debug cache
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-debug.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            cli/target/debug
+            src-tauri/target/debug
+          key: ${{ steps.rust-debug.outputs.cache-primary-key }}
       # Ordinary bundles have no updater signing enabled. The release job signs
       # the exact artifacts produced and tested here, without rebuilding them.
       - name: Free debug test outputs before production compilation
         run: |
           node --input-type=module -e "import {rmSync} from 'node:fs'; for (const path of ['cli/target/debug', 'src-tauri/target/debug']) rmSync(path, {recursive:true, force:true});"
+      - name: Restore Rust release cache
+        id: rust-release
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            cli/target/release
+            src-tauri/target/release
+            !src-tauri/target/release/bundle
+            cli/target/${{ matrix.target }}/release
+            src-tauri/target/${{ matrix.target }}/release
+            !src-tauri/target/${{ matrix.target }}/release/bundle
+          key: rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-release-${{ github.sha }}
+          restore-keys: |
+            rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-release-
       - name: Build unsigned desktop installers
         run: |
           config_args=()
@@ -179,16 +227,34 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+      - name: Save trusted main Rust release cache
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-release.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            cli/target/release
+            src-tauri/target/release
+            !src-tauri/target/release/bundle
+            cli/target/${{ matrix.target }}/release
+            src-tauri/target/${{ matrix.target }}/release
+            !src-tauri/target/${{ matrix.target }}/release/bundle
+          key: ${{ steps.rust-release.outputs.cache-primary-key }}
+
   release:
     name: Sign and create a draft release
     needs: [validate, build, documentation]
-    if: github.repository == 'Zleap-AI/SAG-Wiki' && startsWith(github.ref, 'refs/tags/v')
+    if: >-
+      always() && !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
+      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
+      (needs.validate.outputs.reuse == 'true' ||
+      (needs.build.result == 'success' && needs.documentation.result == 'success'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
       name: release
     permissions:
       contents: write
+      actions: read
       id-token: write
       attestations: write
     env:
@@ -218,16 +284,11 @@ jobs:
           fi
       - name: Install locked signing tools before granting access to the key
         run: npm ci --ignore-scripts
-      - name: Download macOS artifacts from this run
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: desktop-macos-${{ github.sha }}
-          path: release-artifacts/macos
-      - name: Download Windows artifacts from this run
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
-        with:
-          name: desktop-windows-${{ github.sha }}
-          path: release-artifacts/windows
+      - name: Revalidate source and download digest-verified platform artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ needs.validate.outputs.source_run }}
+        run: node scripts/release-build-cache.mjs download
       - name: Verify artifacts, sign updates and assemble the release
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

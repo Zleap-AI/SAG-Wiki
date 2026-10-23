@@ -70,6 +70,14 @@ If the tag already exists, keep it unchanged and run only the request command. I
 
 The macOS `.dmg` is for manual installation; its `.app.tar.gz` is the updater payload. Windows uses the NSIS `.exe` for both purposes. The central signing step generates `.sig` files with the release version included in the signed comment. `requireSignedVersion` remains enabled.
 
+## Build reuse and compilation caches
+
+Tag releases first look for a successful push build on `main` from the exact same commit and the same repository/workflow. Both platform jobs, source validation and documentation must have passed in their latest respective attempts, and both artifacts must still be available. When found, the release skips duplicate tests and packaging. Otherwise it runs the full build. Lookup API failures also fall back to a full build; normal main builds do not query the reuse API.
+
+Before signing, the source run and jobs are checked again. Each archive is downloaded by artifact ID, verified against GitHub's SHA256 digest, and checked against its internal commit, version, platform and file digests. Expired or missing artifacts after selection stop publication; rerun the workflow to resolve a new source or rebuild. The protected `release` environment and signed-version enforcement remain required.
+
+Rust caches are isolated by runner OS/architecture, target, Rust version, manifests, lockfiles and workflow content. Only trusted `main` push builds save them. Debug outputs are saved after native tests and removed before restoring release outputs to limit disk use. Cache hits accelerate compilation; they do not skip tests. Signing jobs do not restore compilation caches or save key material.
+
 ## Review and promote the draft
 
 Before publishing, confirm both platform jobs, the Windows NSIS installation smoke check and bundled CLI E2E passed, and both platform entries and signatures exist. Download draft assets and verify their SHA256 checksums and build provenance. For a downloaded artifact:
