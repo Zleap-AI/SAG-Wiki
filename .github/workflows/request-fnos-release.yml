@@ -1,0 +1,30 @@
+name: Request fnOS release
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing reviewed fnOS tag (fnos-vX.Y.Z)
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: write
+jobs:
+  request:
+    if: github.repository == 'Zleap-AI/SAG-Wiki' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch reviewed fnOS tag
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^fnos-v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'Expected fnos-vX.Y.Z'; exit 1; }
+          target=$(gh api "repos/$GITHUB_REPOSITORY/commits/$RELEASE_TAG" --jq .sha)
+          relation=$(gh api "repos/$GITHUB_REPOSITORY/compare/$target...fnos/develop" --jq .status)
+          [[ "$relation" == ahead || "$relation" == identical ]] || { echo 'Tag must belong to fnos/develop'; exit 1; }
+          gh workflow run fnos-release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
+          echo "Requested fnOS $RELEASE_TAG ($target)." >> "$GITHUB_STEP_SUMMARY"
