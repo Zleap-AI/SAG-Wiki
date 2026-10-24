@@ -174,6 +174,12 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .reference-chip,.real-client .mention-help{font-size:var(--text-caption)}
 .real-client .mention-picker{border-radius:12px;box-shadow:0 8px 32px var(--color-control-shadow)}
 .real-client .mention-heading{font-size:var(--text-ui);font-weight:550;padding:12px 14px}
+.real-client .mention-empty{min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:7px;padding:20px 16px;text-align:center;color:var(--color-secondary)}
+.real-client .mention-empty>.icon{width:20px;height:20px;color:var(--color-muted)}
+.real-client .mention-empty>strong{font-size:var(--text-ui);font-weight:550;color:var(--color-ink)}
+.real-client .mention-empty>p{max-width:360px;margin:0;font-size:var(--text-caption);line-height:1.6;color:var(--color-muted)}
+.real-client .mention-add-folder{display:inline-flex;align-items:center;gap:6px;min-height:32px;margin-top:5px;padding:5px 10px;font-size:var(--text-caption)}
+.real-client .mention-add-folder>.icon{width:14px;height:14px}
 .real-client .mention-options button{padding:9px 13px;gap:9px;min-height:44px}
 .real-client .mention-options strong{font-size:var(--text-ui)}
 .real-client .mention-options small{font-size:var(--text-caption)}
@@ -520,6 +526,35 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .sidebar .tree-row :is(.tree-name,.tree-toggle):hover{background:transparent}
 .real-client .sidebar .tree-row .tree-more:hover{background:var(--color-selected)}
 .real-client .sidebar .tree-row.selected .tree-name{font-weight:550}
+
+/* While an answer streams the composer stays editable; a thin line along the top shows work in progress. */
+.real-client .composer{position:relative;overflow:hidden}
+.real-client .composer.busy::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--color-ink),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:composer-progress 1.6s cubic-bezier(.4,0,.2,1) infinite;opacity:.55}
+@keyframes composer-progress{from{background-position:-40% 0}to{background-position:140% 0}}
+@media(prefers-reduced-motion:reduce){.real-client .composer.busy::before{animation:none;background:var(--color-rule)}}
+
+/* Tool calls inside a research step are quiet timeline rows, not cards. */
+.real-client .tool-group .tool-call{margin:0;border:0;border-radius:7px;background:transparent;overflow:visible}
+.real-client .tool-group .tool-call summary{position:relative;min-height:30px;padding:5px 8px;gap:8px;font-size:var(--text-caption);color:var(--color-secondary);border-radius:7px}
+.real-client .tool-group .tool-call summary:hover{background:var(--color-hover);color:var(--color-ink)}
+.real-client .tool-group .tool-call summary::before{content:'';position:absolute;left:-18px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--color-paper);border:1.5px solid var(--color-window-border)}
+.real-client .tool-group .tool-call.running summary::before{border-color:var(--color-ink);background:var(--color-ink)}
+.real-client .tool-group .tool-call summary>strong{font-weight:400}
+.real-client .tool-group .tool-icon{display:none}
+.real-client .tool-group .tool-duration{color:var(--color-muted);font-size:12px}
+.real-client .tool-group .tool-state{margin-left:auto;font-size:12px;color:var(--color-muted)}
+.real-client .tool-group .tool-call-body{padding:4px 8px 10px;font-size:12px;color:var(--color-secondary)}
+.real-client .tool-group .tool-data{font-size:11.5px}
+
+/* Citations: a small, quiet numbered marker that lifts on hover. */
+.real-client .answer-text .citation{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;margin:0 2px;padding:0 4px;border:0;border-radius:5px;background:var(--color-hover);color:var(--color-secondary);font:600 10.5px/1 var(--font-body);font-variant-numeric:tabular-nums;vertical-align:2px;cursor:pointer;transition:background-color .12s,color .12s}
+.real-client .answer-text .citation:hover{background:var(--color-ink);color:var(--color-paper)}
+.real-client .answer-text .citation:focus-visible{outline:2px solid var(--color-focus);outline-offset:1px}
+.real-client .answer-text .citation+.citation{margin-left:0}
+.real-client .tool-group .tool-call[data-phase=complete] .tool-state{display:none}
+.real-client .tool-group .tool-chevron{margin-left:auto;opacity:0;transition:opacity .12s}
+.real-client .tool-group .tool-call summary:hover .tool-chevron,.real-client .tool-group .tool-call[open] .tool-chevron{opacity:1}
+.real-client .tool-group .tool-call:not([data-phase=complete]) .tool-state+.tool-chevron{margin-left:0}
 
 /* The Q&A home shares the search page layout: centered mark, title, subtitle and input with the same rhythm. */
 .real-client .ask-content.ask-home,.real-client .ask-content.ask-home:not(.has-history){padding-block:24px 128px}
