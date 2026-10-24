@@ -214,7 +214,7 @@ it('文件设置最下方的索引历史打开相同详情窗口，关闭后仍�
  entry.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-history')?.textContent).toContain('10 / 10'));
  expect(document.querySelector('.index-history')?.textContent).toContain('Notes');
- expect(document.querySelector('[aria-label="暂停索引"]')?.hasAttribute('disabled')).toBe(true);
+ expect(document.querySelector('[aria-label="暂停索引"]')).toBeNull();
  document.querySelector<HTMLButtonElement>('[aria-label="关闭索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')).toBeNull());
  expect(document.querySelector('.settings-nav')).not.toBeNull();
@@ -256,6 +256,30 @@ it('已完成的文件夹只显示在历史中，当前任务只保留索引与�
  expect([...document.querySelectorAll('.index-root-title strong')].filter(node=>node.textContent==='Completed')).toHaveLength(1);
  expect(document.querySelector('.index-active')?.textContent).toContain('等待处理');
  expect(document.querySelector('.index-history .index-root-title span')?.textContent).toBe('已完成');
+});
+
+it('索引历史按文件夹只突出最新运行，更早记录可展开且失败原因优先显示可读说明',async()=>{
+ const records=[
+  {id:3,path:'/notes',name:'Notes',started_at:1700000003000,finished_at:1700000004000,completed:3,total:4,status:'partial',error:'permission denied: /notes/secret.md'},
+  {id:2,path:'/notes',name:'Notes',started_at:1700000002000,finished_at:1700000002500,completed:4,total:4,status:'ready',error:null},
+  {id:1,path:'/other',name:'Other',started_at:1700000001000,finished_at:1700000001500,completed:2,total:2,status:'ready',error:null}
+ ];
+ invoke.mockImplementation(async command=>{
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='get_index_history')return records;
+  if(command==='get_index_history_log')return {raw:JSON.stringify({path:'/notes/secret.md',status:'failed',error:'permission denied'})};
+  throw Error(command);
+ });
+ app=mount(IndexDetails,{target:document.body,props:{roots:[],onClose:vi.fn(),onPauseChange:vi.fn()}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-history')?.textContent).toContain('Notes'));
+ expect(document.querySelectorAll('.index-history-list>.index-root')).toHaveLength(2);
+ expect(document.querySelector('.index-history')?.textContent).toContain('查看更早记录（1）');
+ expect(document.querySelector('.index-history')?.textContent).toContain('无法读取文件：请检查文件或文件夹的访问权限。');
+ const older=document.querySelector<HTMLDetailsElement>('.older-history')!;
+ older.open=true;
+ await tick();
+ expect(document.querySelectorAll('.older-history-list .index-root')).toHaveLength(1);
+ expect(older.textContent).toContain('已完成');
 });
 
 it('清空索引记录后仅移除历史，保留当前任务且再次打开仍为空',async()=>{
@@ -403,7 +427,7 @@ it('三阶段显示当前步骤及说明，侧栏百分比明确属于当前阶�
  expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引转换结果（25%）');
 });
 
-it('失败详情单独显示完整文件名与路径，并可定位原文件',async()=>{
+it('行内只显示文件夹路径，失败文件在失败详情中单独显示完整文件名与路径，并可定位原文件',async()=>{
  const path=String.raw`\\?\D:\资料`,file=path+'\\'+('很长的子目录\\'.repeat(12))+'主表 生成式人工智能上线备案表.pdf';
  const record={id:43,path,name:'资料',started_at:1700000000000,finished_at:1700000001000,completed:1,total:1,status:'partial',error:'未能索引 1 个文件\n\n'+file+'\nDocling 未生成 Markdown'};
  invoke.mockImplementation(async command=>{
@@ -414,8 +438,9 @@ it('失败详情单独显示完整文件名与路径，并可定位原文件',as
   throw Error(command);
  });
  app=mount(IndexDetails,{target:document.body,props:{roots:[],onClose:vi.fn(),onPauseChange:vi.fn()}});
- await vi.waitFor(()=>expect(document.querySelector('.index-history-toggle .index-root-path')?.textContent).toBe(file.slice(4)));
- expect(document.querySelector('.index-history-toggle .index-root-path')?.getAttribute('title')).toBe(file.slice(4));
+ await vi.waitFor(()=>expect(document.querySelector('.index-history-toggle .index-root-path')?.textContent).toBe(path.slice(4)));
+ expect(document.querySelector('.index-history-toggle .index-root-path')?.getAttribute('title')).toBe(path.slice(4));
+ await vi.waitFor(()=>expect(document.querySelector('.index-entry-notice')?.textContent).toContain('1 个文件未进入索引'));
  expect(document.querySelector('.index-history-toggle')?.getAttribute('aria-expanded')).toBe('false');
  await vi.waitFor(()=>expect(document.querySelector('.index-failure')).not.toBeNull());
  const details=document.querySelector<HTMLDetailsElement>('.index-failure')!;details.open=true;details.dispatchEvent(new Event('toggle'));
