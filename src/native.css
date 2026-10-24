@@ -561,3 +561,15 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .ask-home>.welcome,.real-client .ask-home:not(.has-history)>.welcome{flex:none;min-height:0;margin:auto 0 32px;padding:0 32px}
 .real-client .ask-home>:last-child,.real-client .ask-home:not(.has-history)>.composer-wrap{margin-bottom:auto}
 .real-client .ask-home>.recent-conversations{margin-top:40px}
+
+/* Citation drawer: a floating card matching the workspace, with a clear header, toolbar and footer. */
+.source-dialog .source-panel{top:8px;right:8px;bottom:8px;width:min(520px,calc(100vw - 96px));border:1px solid var(--color-window-border);border-radius:14px;overflow:hidden;box-shadow:0 12px 40px var(--color-control-shadow),0 2px 6px var(--color-shadow)}
+.source-dialog .context-top{display:flex;align-items:center;gap:12px;min-height:0;padding:16px 14px 14px 18px;border-bottom:1px solid var(--color-rule);font-size:var(--text-ui);font-weight:400}
+.source-dialog .citation-mark{display:grid;place-items:center;width:36px;height:36px;flex-shrink:0;border:1px solid var(--color-rule);border-radius:10px;background:var(--color-sidebar);color:var(--color-secondary)}
+.source-dialog .citation-mark>.icon{width:17px;height:17px}
+.source-dialog .citation-heading{gap:1px}
+.source-dialog .citation-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:600;line-height:1.45;color:var(--color-ink)}
+.source-dialog .citation-heading .source-path{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:left;font-size:12px;line-height:1.5;color:var(--color-muted)}
+.source-dialog .citation-close{width:30px;height:30px;padding:7px;align-self:flex-start;border-radius:8px;color:var(--color-secondary)}
+.source-dialog .citation-close:hover{background:var(--color-hover);color:var(--color-ink)}
+.source-dialog .panel-footer{display:flex;align-items:center;gap:12px;padding:12px 14px 12px 20px;border-top:1px solid var(--color-rule);background:var(--color-paper)}
