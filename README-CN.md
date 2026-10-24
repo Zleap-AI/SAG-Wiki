@@ -46,8 +46,6 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 [下载 macOS / Windows 最新桌面版](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
 
-**从 0.1.8 或更早版本升级：**请手动安装一次 0.1.9，以切换到新的更新签名密钥；后续版本可继续通过应用内更新安装。[迁移说明](docs/zh-CN/应用内更新发布.md)。
-
 **给 Agent 安装**
 
 ```text

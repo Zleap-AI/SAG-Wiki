@@ -2,7 +2,7 @@
  import {onDestroy} from 'svelte';
  import {t} from '../lib/i18n';
  import {durationLabel} from '../lib/domain';
- import{icon}from '../lib/icons';import type{ToolCallRecord}from '../lib/types';import{toolResultText}from '../lib/tool-result';
+ import{icon}from '../lib/icons';import type{ToolCallRecord}from '../lib/types';import{toolResultText}from '../lib/tool-result';import{toolLabel}from '../lib/tool-label';
  export let call:ToolCallRecord;export let state:'running'|'complete'|'stopped'|'failed'='complete';export let stage='';export let scope=$t("全部文件");
  let expanded=false,rawOpen=false;
  let elapsed:number|null=null;
@@ -21,8 +21,8 @@
  $:durationMs=call.elapsed_ms??elapsed;
  $:duration=durationMs==null?'':durationMs<1000?durationMs+' ms':durationLabel(durationMs);
 </script>
-<details class="tool-call" class:mcp-call={!!call.server_name} class:running={phase==='running'} bind:open={expanded}>
- <summary><span class="tool-icon">{@html icon(call.server_name?'plug':'search')}</span><strong>{call.server_name?`${call.server_name} · ${call.tool_name}`:$t("SAG2 文件检索")}</strong>{#if duration}<span class="tool-duration">{duration}</span>{/if}<span class="tool-state">{label}</span><span class="tool-chevron">{@html icon('chevron')}</span></summary>
+<details class="tool-call" class:mcp-call={!!call.server_name} class:running={phase==='running'} data-phase={phase} bind:open={expanded}>
+ <summary><span class="tool-icon">{@html icon(call.server_name?'plug':'search')}</span><strong title={call.server_name?`${call.server_name} · ${call.tool_name}`:undefined}>{toolLabel(call,$t)}</strong>{#if duration}<span class="tool-duration">{duration}</span>{/if}<span class="tool-state">{label}</span><span class="tool-chevron">{@html icon('chevron')}</span></summary>
  <div class="tool-call-body">
   {#if call.server_name}
    <section class="tool-detail"><h4>{$t("调用参数")}</h4><pre class="tool-data">{call.query}</pre></section>

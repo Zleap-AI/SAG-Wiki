@@ -30,6 +30,8 @@ it('shows project and company links in About and opens them outside the app',asy
  app=mount(SettingsPanel,{target:document.body,props:{value:settings,initial:'about',onSave:vi.fn(),onClose:vi.fn()}});
  await tick();
  expect(document.querySelector('.settings-about-note')).toBeNull();
+ expect(document.querySelector('.settings-about-version')?.textContent).toBe('v0.2.0');
+ expect(document.querySelector('.settings-about-mark .brand-mark')).not.toBeNull();
  const links=[...document.querySelectorAll<HTMLAnchorElement>('.settings-about-links a')];
  expect(links.map(link=>link.href)).toEqual(['https://github.com/Zleap-AI/SAG-Wiki','https://zleap.com/']);
  for(const [index,target] of ['project','company'].entries()){

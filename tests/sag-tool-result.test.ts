@@ -64,7 +64,8 @@ it('shows the saved duration beside the tool name',async()=>{
  app=mount(ToolCall,{target:document.body,props:{call:{...call,elapsed_ms:1250}}});await tick();
  const duration=document.querySelector('.tool-duration');
  expect(duration?.textContent).toBe('1.3s');
- expect(duration?.previousElementSibling?.textContent).toBe('SAG · search');
+ expect(duration?.previousElementSibling?.textContent).toBe('检索「大模型算法备案注意事项 要求 流程」');
+ expect(duration?.previousElementSibling?.getAttribute('title')).toBe('SAG · search');
  expect(duration?.nextElementSibling?.textContent).toBe('已完成');
 });
 
