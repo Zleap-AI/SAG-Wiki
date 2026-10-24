@@ -172,8 +172,14 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .send{width:32px;height:32px;flex-shrink:0;margin-left:auto}
 .real-client .send>.icon{width:17px;height:17px}
 .real-client .reference-chip,.real-client .mention-help{font-size:var(--text-caption)}
-.real-client .mention-picker{left:36px;right:36px;border-radius:12px;box-shadow:0 8px 32px var(--color-control-shadow)}
+.real-client .mention-picker{border-radius:12px;box-shadow:0 8px 32px var(--color-control-shadow)}
 .real-client .mention-heading{font-size:var(--text-ui);font-weight:550;padding:12px 14px}
+.real-client .mention-empty{min-height:0;overflow:auto;display:flex;flex-direction:column;align-items:center;gap:7px;padding:20px 16px;text-align:center;color:var(--color-secondary)}
+.real-client .mention-empty>.icon{width:20px;height:20px;color:var(--color-muted)}
+.real-client .mention-empty>strong{font-size:var(--text-ui);font-weight:550;color:var(--color-ink)}
+.real-client .mention-empty>p{max-width:360px;margin:0;font-size:var(--text-caption);line-height:1.6;color:var(--color-muted)}
+.real-client .mention-add-folder{display:inline-flex;align-items:center;gap:6px;min-height:32px;margin-top:5px;padding:5px 10px;font-size:var(--text-caption)}
+.real-client .mention-add-folder>.icon{width:14px;height:14px}
 .real-client .mention-options button{padding:9px 13px;gap:9px;min-height:44px}
 .real-client .mention-options strong{font-size:var(--text-ui)}
 .real-client .mention-options small{font-size:var(--text-caption)}
@@ -285,7 +291,7 @@ input,select,textarea{font-size:var(--text-ui)}
 #notice button:last-child{width:20px;height:20px;padding:3px;display:flex;align-items:center;justify-content:center}
 #notice button:last-child .icon{width:14px;height:14px}
 #notice button:hover{background:var(--color-hover);color:var(--color-ink)}
-@media(max-width:1080px){.real-client .chat-messages,.real-client .ask-content>.composer-wrap{padding-left:28px;padding-right:28px}.real-client .mention-picker{left:28px;right:28px}.real-client .search-page{padding-left:20px;padding-right:20px}.real-client .search-layout{grid-template-columns:240px minmax(0,1fr);gap:14px}.real-client .search-preview{padding:17px}.real-client .model-button{max-width:160px}}
+@media(max-width:1080px){.real-client .chat-messages,.real-client .ask-content>.composer-wrap{padding-left:28px;padding-right:28px}.real-client .search-page{padding-left:20px;padding-right:20px}.real-client .search-layout{grid-template-columns:240px minmax(0,1fr);gap:14px}.real-client .search-preview{padding:17px}.real-client .model-button{max-width:160px}}
 @media(prefers-reduced-motion:reduce){button{transition:none}}
 
 #context-menu .menu-item[data-highlighted]{background:var(--color-hover)}
@@ -376,8 +382,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .index-status-dismiss:hover{color:var(--color-ink);background:var(--color-selected)}
 
 
-/* Conversation history lives in the workspace; the sidebar is reserved for folders. */
-.real-client .sidebar>.tree{flex:1;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
+.real-client .sidebar-pane>.tree{flex:1;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
 .real-client .ask-content.ask-home{overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain;padding-bottom:32px}
 .real-client .ask-home>.welcome{flex:none;min-height:200px;margin-top:clamp(16px,calc(8vh - 56px),48px);padding-bottom:28px}
 .real-client .ask-home>.recent-conversations{flex-shrink:0;width:100%;max-width:800px;margin:28px auto 0;padding:0 36px;border:0}
@@ -411,10 +416,10 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .folder-empty-state button{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;padding:8px;font-size:var(--text-ui)}
 .real-client .folder-empty-state .icon{width:16px;height:16px}
 
-.real-client .sidebar>.tree-heading{border-top:1px solid var(--color-window-border);margin-top:6px;padding-top:14px;height:42px;flex-shrink:0}
+.real-client .sidebar-pane>.tree-heading{border-top:1px solid var(--color-window-border);margin-top:6px;padding-top:14px;height:42px;flex-shrink:0}
 
 .real-client:not(.compact-sidebar) .sidebar .brand-row{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
-.real-client .sidebar>.tree-heading>.icon-button{width:28px;height:28px}
+.real-client .sidebar-pane>.tree-heading>.icon-button{width:28px;height:28px}
 .real-client:not(.compact-sidebar) .sidebar-bottom{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
 .real-client .sidebar-tools>button:last-child{width:28px;height:28px;min-height:28px;padding:6px;justify-content:center}
 .real-client .sidebar-tools{gap:4px}
@@ -424,12 +429,12 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client.windows-client.compact-sidebar .sidebar-titlebar>.icon-button{margin:0 auto}
 :root:has(.windows-client){--window-bar-height:32px}
 
-.real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:0}
+.real-client:not(.compact-sidebar) .sidebar-pane>.tree-heading{padding-right:0}
 .real-client .sidebar .tree-more{width:28px;min-width:28px;height:28px;margin:0}
 
 .real-client .sidebar .tree-row{padding-right:0}
 
-.real-client .sidebar-titlebar>.icon-button:focus-visible,.real-client .sidebar>.tree-heading>.icon-button:focus-visible,.real-client .sidebar-tools>button:focus-visible{outline-offset:-2px}
+.real-client .sidebar-titlebar>.icon-button:focus-visible,.real-client .sidebar-pane>.tree-heading>.icon-button:focus-visible,.real-client .sidebar-tools>button:focus-visible{outline-offset:-2px}
 
 .real-client .library-folder-action{margin-left:auto;flex-shrink:0;display:flex;align-items:center;gap:6px;height:32px;padding:5px 10px;font-size:var(--text-ui)}
 .real-client .library-folder-action>.icon{width:15px;height:15px}
@@ -466,3 +471,93 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .sidebar-tools .docling-progress{flex:1;min-width:0;padding:4px 2px;font-size:11px;color:var(--color-secondary);justify-content:center}
 .real-client .docling-progress>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .real-client.compact-sidebar .docling-progress{flex:none;width:36px;padding:4px 0}.real-client.compact-sidebar .docling-progress>span{font-size:10px}
+
+/* One sidebar, two panes: conversations while asking, the folder tree while browsing files. */
+.real-client .sidebar-new-chat{display:flex;align-items:center;gap:9px;flex-shrink:0;height:38px;margin:2px 0 12px;padding:0 10px 0 12px;border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper);box-shadow:0 1px 2px var(--color-shadow);font-size:var(--text-ui);font-weight:500;color:var(--color-ink);transition:border-color .15s,box-shadow .15s}
+.real-client .sidebar-new-chat>.icon{width:16px;height:16px;flex-shrink:0}
+.real-client .sidebar-new-chat>span{flex:1;min-width:0;text-align:left;white-space:nowrap}
+.real-client .sidebar-new-chat>kbd{font:500 11px/1 var(--font-body);color:var(--color-muted);letter-spacing:.3px}
+.real-client .sidebar-new-chat:not(:disabled):hover{background:var(--color-paper);border-color:var(--color-window-border);box-shadow:0 2px 8px var(--color-control-shadow)}
+.real-client .sidebar-new-chat:disabled{opacity:.55;cursor:not-allowed}
+.real-client .sidebar-tabs{display:flex;gap:2px;flex-shrink:0;margin-bottom:10px;padding:3px;border-radius:9px;background:var(--color-hover)}
+.real-client .sidebar-tab{display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:0;height:28px;min-height:28px;padding:0 8px;border-radius:7px;font-size:var(--text-caption);color:var(--color-secondary);transition:background-color .15s,color .15s}
+.real-client .sidebar-tab>.icon{width:14px;height:14px;flex-shrink:0}
+.real-client .sidebar-tab:hover{background:transparent;color:var(--color-ink)}
+.real-client .sidebar-tab.active{background:var(--color-paper);color:var(--color-ink);font-weight:550;box-shadow:0 1px 3px var(--color-control-shadow)}
+.real-client .sidebar-pane{display:flex;flex-direction:column;flex:1;min-height:0}
+.real-client .sidebar-pane[hidden]{display:none}
+.real-client .sidebar-pane>.tree-heading{border-top:0;margin-top:0;padding-top:0;height:32px}
+.real-client.compact-sidebar .sidebar-new-chat{justify-content:center;width:36px;height:36px;margin:0 auto 10px;padding:0}
+.real-client.compact-sidebar .sidebar-new-chat>:is(span,kbd),.real-client.compact-sidebar .sidebar-tab>span{display:none}
+.real-client.compact-sidebar .sidebar-tabs{flex-direction:column;gap:4px;padding:0;background:transparent}
+.real-client.compact-sidebar .sidebar-tab{flex:none;width:36px;height:36px;margin:0 auto}
+.real-client.compact-sidebar .sidebar-tab>.icon{width:17px;height:17px}
+.real-client.compact-sidebar .sidebar-tab.active{background:var(--color-selected);box-shadow:none}
+.real-client.compact-sidebar .sidebar-pane{display:none}
+.real-client .ask-layout{display:flex;height:100%;min-height:0;overflow:hidden}
+.real-client .ask-layout>.ask-content{flex:1 1 0;min-width:0}
+
+/* The workspace sits on the sidebar surface as a card, so the two areas meet with a soft edge. */
+.real-client .shell{background:var(--color-sidebar)}
+.real-client .sidebar{border-right:0}
+.real-client .workspace{margin:8px 8px 8px 0;border:1px solid var(--color-window-border);border-radius:12px;background:var(--color-paper);box-shadow:0 1px 3px var(--color-shadow);overflow:hidden}
+.real-client .workspace-header{height:60px;padding:14px 16px 6px}
+.real-client .workspace-actions{gap:2px}
+.real-client .workspace-actions>.outline{width:32px;height:32px;border-color:transparent;border-radius:8px;background:transparent}
+.real-client .workspace-actions>.outline:hover{background:var(--color-hover);color:var(--color-ink)}
+.real-client .welcome-mark{width:56px;height:56px;margin-bottom:20px;border:1px solid var(--color-rule);border-radius:16px;background:var(--color-sidebar);box-shadow:0 1px 2px var(--color-shadow)}
+.real-client .welcome-mark>.icon{width:26px;height:26px}
+
+/* Index progress reads as a small card above the settings bar. */
+.real-client .index-status:not(:empty){padding:0;margin-top:8px}
+.real-client .index-status-row{padding:8px 6px 8px 12px;border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper)}
+.real-client .index-status-link{min-height:0;padding:2px 0}
+.real-client .index-status-link:hover{text-decoration:none}
+.real-client .index-status-link:hover .index-status-primary{color:var(--color-ink)}
+.real-client .index-status-bar{display:block;height:3px;margin:3px 0 2px;border-radius:2px;background:var(--color-hover);overflow:hidden}
+.real-client .index-status-bar>span{display:block;height:100%;border-radius:inherit;background:var(--color-ink);transition:width .3s ease}
+
+/* Row menus in the folder tree appear on demand, like conversation rows. */
+@media(hover:hover){.real-client .sidebar .tree-row .tree-more{opacity:0;transition:opacity .12s}.real-client .sidebar .tree-row:is(:hover,:focus-within,.selected) .tree-more{opacity:1}}
+/* Tree rows match conversation rows: one highlight per row, same height, type size and radius. */
+.real-client .sidebar .tree-row{min-height:36px;border-radius:8px;transition:background-color .12s}
+.real-client .sidebar .tree-name{font-size:var(--text-ui);padding:7px 4px}
+.real-client .sidebar .tree-name>.icon{width:16px;height:16px}
+.real-client .sidebar .tree-row :is(.tree-name,.tree-toggle):hover{background:transparent}
+.real-client .sidebar .tree-row .tree-more:hover{background:var(--color-selected)}
+.real-client .sidebar .tree-row.selected .tree-name{font-weight:550}
+
+/* While an answer streams the composer stays editable; a thin line along the top shows work in progress. */
+.real-client .composer{position:relative;overflow:hidden}
+.real-client .composer.busy::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,var(--color-ink),transparent);background-size:40% 100%;background-repeat:no-repeat;animation:composer-progress 1.6s cubic-bezier(.4,0,.2,1) infinite;opacity:.55}
+@keyframes composer-progress{from{background-position:-40% 0}to{background-position:140% 0}}
+@media(prefers-reduced-motion:reduce){.real-client .composer.busy::before{animation:none;background:var(--color-rule)}}
+
+/* Tool calls inside a research step are quiet timeline rows, not cards. */
+.real-client .tool-group .tool-call{margin:0;border:0;border-radius:7px;background:transparent;overflow:visible}
+.real-client .tool-group .tool-call summary{position:relative;min-height:30px;padding:5px 8px;gap:8px;font-size:var(--text-caption);color:var(--color-secondary);border-radius:7px}
+.real-client .tool-group .tool-call summary:hover{background:var(--color-hover);color:var(--color-ink)}
+.real-client .tool-group .tool-call summary::before{content:'';position:absolute;left:-18px;top:50%;width:7px;height:7px;margin-top:-3.5px;border-radius:50%;background:var(--color-paper);border:1.5px solid var(--color-window-border)}
+.real-client .tool-group .tool-call.running summary::before{border-color:var(--color-ink);background:var(--color-ink)}
+.real-client .tool-group .tool-call summary>strong{font-weight:400}
+.real-client .tool-group .tool-icon{display:none}
+.real-client .tool-group .tool-duration{color:var(--color-muted);font-size:12px}
+.real-client .tool-group .tool-state{margin-left:auto;font-size:12px;color:var(--color-muted)}
+.real-client .tool-group .tool-call-body{padding:4px 8px 10px;font-size:12px;color:var(--color-secondary)}
+.real-client .tool-group .tool-data{font-size:11.5px}
+
+/* Citations: a small, quiet numbered marker that lifts on hover. */
+.real-client .answer-text .citation{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;margin:0 2px;padding:0 4px;border:0;border-radius:5px;background:var(--color-hover);color:var(--color-secondary);font:600 10.5px/1 var(--font-body);font-variant-numeric:tabular-nums;vertical-align:2px;cursor:pointer;transition:background-color .12s,color .12s}
+.real-client .answer-text .citation:hover{background:var(--color-ink);color:var(--color-paper)}
+.real-client .answer-text .citation:focus-visible{outline:2px solid var(--color-focus);outline-offset:1px}
+.real-client .answer-text .citation+.citation{margin-left:0}
+.real-client .tool-group .tool-call[data-phase=complete] .tool-state{display:none}
+.real-client .tool-group .tool-chevron{margin-left:auto;opacity:0;transition:opacity .12s}
+.real-client .tool-group .tool-call summary:hover .tool-chevron,.real-client .tool-group .tool-call[open] .tool-chevron{opacity:1}
+.real-client .tool-group .tool-call:not([data-phase=complete]) .tool-state+.tool-chevron{margin-left:0}
+
+/* The Q&A home shares the search page layout: centered mark, title, subtitle and input with the same rhythm. */
+.real-client .ask-content.ask-home,.real-client .ask-content.ask-home:not(.has-history){padding-block:24px 128px}
+.real-client .ask-home>.welcome,.real-client .ask-home:not(.has-history)>.welcome{flex:none;min-height:0;margin:auto 0 32px;padding:0 32px}
+.real-client .ask-home>:last-child,.real-client .ask-home:not(.has-history)>.composer-wrap{margin-bottom:auto}
+.real-client .ask-home>.recent-conversations{margin-top:40px}

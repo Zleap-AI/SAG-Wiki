@@ -19,7 +19,7 @@ const conversations=[
 ];
 beforeEach(async()=>{
  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(2026,9,19,10,0));
- localStorage.setItem('sag.onboarding.seen','1');
+ localStorage.setItem('sag.onboarding.seen','1');localStorage.setItem('sag.sidebar.tab','folders');
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
   if(command==='list_conversations')return conversations;
@@ -32,7 +32,7 @@ afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.useRealTime
 
 it('会话列表今天显示时分，更早显示完整日期，搜索列表保持一致',async()=>{
  expect([...document.querySelectorAll('.history-row time')].map(node=>node.textContent)).toEqual(['09:05','2026-10-18','2025-12-31']);
- document.querySelector<HTMLButtonElement>('[aria-label="搜索会话"]')!.click();await tick();
+ document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
  expect([...document.querySelectorAll('.history-search-result time')].map(node=>node.textContent)).toEqual(['09:05','2026-10-18','2025-12-31']);
 });
 
