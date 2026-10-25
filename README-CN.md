@@ -110,9 +110,9 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 
 ### 1. 下载，添加文件夹
 
-从上方表格下载 DMG，打开后将 SAG Wiki 拖入 Applications。当前 macOS 版本尚未通过 Apple 公证，首次打开可能出现系统安全提示。
+从上方最新版本链接下载 macOS DMG，打开后将 SAG Wiki 拖入 Applications。当前 macOS 版本尚未通过 Apple 公证，首次打开可能出现系统安全提示。
 
-安装并打开 SAG-Wiki，点击“文件夹管理”旁的 **+**，添加需要检索的文件夹。原文件保留在原处。
+安装并打开 SAG-Wiki，先切换到侧栏“文件夹”，再点击“文件夹管理”旁的 **+**，添加需要检索的文件夹。原文件保留在原处。
 
 <p align="center">
   <img src="docs/assets/readme/product-folders-cn.png" alt="SAG-Wiki 中已添加的本地文件夹和文档" width="940" />

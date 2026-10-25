@@ -5,7 +5,7 @@ description: "管理搜索范围、文件类型与忽略规则。"
 
 ## 添加与索引
 
-在左侧“文件夹管理”中添加目录。SAG Wiki 根据文件类型设置和忽略规则建立索引，后续文件变更会触发增量更新。
+切换到侧栏“文件夹”，在“文件夹管理”中添加目录。SAG Wiki 根据文件类型设置和忽略规则建立索引，后续文件变更会触发增量更新。
 
 Markdown、普通文本、RTF、Word、PowerPoint、Excel、OpenDocument、CSV、EPUB 和文本型 PDF 默认启用。Office、RTF、表格、电子书与 PDF 由内置 anydoc 在本地解析，无需下载组件。代码和配置文件按文件类型开关启用。扫描 PDF 和其他格式可按需安装 Docling。
 
@@ -122,6 +122,12 @@ macOS 默认隐藏以点开头的目录。内置解析不会上传文件；Docli
 ![关闭提示并重新打开后，侧栏保持隐藏，文件页仍可查看索引状态](/images/product-index-status-dismissed-cn.png)
 
 ![索引历史中的完成状态和处理数量](/images/product-index-history-cn.png)
+
+### 最近索引与失败详情
+
+索引详情按文件夹展示最近一次记录，更早记录可展开查看。失败记录提供原因说明和受影响文件，可通过文件条目定位原文件。清空索引记录只移除历史，不删除已有索引。
+
+![索引失败详情](/images/product-index-failure-cn.png)
 
 **已移除的文件和文件夹 → 恢复** 会重新加入被排除的路径并开始索引。仅在希望重新检索这些内容时恢复。
 

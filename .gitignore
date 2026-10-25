@@ -34,3 +34,5 @@ docs-site/.source/
 docs-site/qa/
 browser-extension/build/
 dist-bench/
+
+/dist-docs/

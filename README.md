@@ -110,9 +110,9 @@ SAG-Wiki itself is free and open source. External service charges depend on your
 
 ### 1. Download and add a folder
 
-Download the DMG from the table above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
+Download the macOS DMG from the latest release link above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
 
-Install and open SAG-Wiki, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
+Install and open SAG-Wiki, switch the sidebar to **Folders**, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
 
 <p align="center">
   <img src="docs/assets/readme/product-folders-en.png" alt="Local folders and documents in SAG-Wiki" width="940" />
