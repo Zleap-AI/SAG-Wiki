@@ -66,6 +66,8 @@ fn output_value(output: Output) -> CommandResult<serde_json::Value> {
         Graph(value) => serde_json::to_value(value).map_err(error)?,
         Neighbors(value) => serde_json::to_value(value).map_err(error)?,
         Evidence(value) => serde_json::to_value(value).map_err(error)?,
+        Note(value) => serde_json::to_value(value).map_err(error)?,
+        Notes(value) => serde_json::to_value(value).map_err(error)?,
     };
     Ok(value)
 }
@@ -291,6 +293,10 @@ remote!(clear_index_history() => ClearIndexHistory);
 remote!(set_index_paused(paused:bool) => SetIndexPaused);
 remote!(remove_all_roots() => RemoveAllRoots);
 remote!(save_document(path:String,body:String,expected_hash:Option<String>) => SaveDocument);
+remote!(save_note(conversation_id:String,message_index:usize,target:Option<String>,file_name:Option<String>,expected_hash:Option<String>,remember:bool) => SaveNote);
+remote!(list_notes(scope:Option<String>) => ListNotes);
+remote!(get_note(path:String) => GetNote);
+remote!(verify_notes(paths:Vec<String>) => VerifyNotes);
 remote!(put_draft(draft:Draft) => PutDraft);
 remote!(list_drafts() => ListDrafts);
 remote!(delete_draft(path:String) => DeleteDraft);
@@ -601,6 +607,10 @@ pub fn run() {
             set_index_paused,
             remove_all_roots,
             save_document,
+            save_note,
+            list_notes,
+            get_note,
+            verify_notes,
             put_draft,
             list_drafts,
             delete_draft,

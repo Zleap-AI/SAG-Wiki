@@ -39,6 +39,26 @@ The file path appears in gray below the file name. Long paths are truncated; hov
 
 Citations help you verify the answer. Read the surrounding context when information is incomplete or contradictory. If you open the standalone document view, Back returns to the conversation.
 
+## Save as a note
+
+After an answer finishes, click **Save as note** below it to store the answer as a Markdown file inside your knowledge base. The first save opens a panel: the file name comes from the question, and the default location is Documents / sag-wiki / notes, created and added to the library when missing. You can pick any other registered folder and check **Remember this location** to skip the panel next time. Change the default folder under **Settings → Q&A → Notes**.
+
+The top of the note records the question, time, model, scope, and for each citation the file path, file hash, byte and line range, and the passage as it was when saved. The body is the answer itself; only sources the prose actually cites are kept and renumbered in order of first use, followed by a Sources list. Everything needed to verify the note travels with the file, so it still checks out after copying or syncing with git.
+
+## Verify citations
+
+When you open a note, the editor shows its status above the text. Each citation is judged against the current file content:
+
+| State | Meaning |
+| --- | --- |
+| Intact | The source file is unchanged |
+| Moved | The file changed, but the cited passage appears whole at a new position; line numbers update automatically |
+| Changed | The cited passage was edited; a word-level comparison of the saved and current text is available |
+| Missing | The file was deleted, or no similar passage exists in it anymore |
+| Unverified | The source is outside the knowledge base, unreadable, or the note's header could not be parsed |
+
+States update whenever a source file is indexed or removed; **Check again** verifies immediately against the files on disk. Expanding the citation list lets you open the source, view the comparison or the saved text, and **Ask again** starts a new conversation with the note's question and scope. In the file list, notes carry a status dot, folders show how many notes need attention, and the filter can show only notes to review. Verification never calls a model.
+
 ## Manage conversations
 
 Use the **Chats** sidebar to browse history grouped by date and search titles and answers. Switch to **Folders** to browse source files. **New chat** starts an independent conversation without removing history.

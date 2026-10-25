@@ -1,3 +1,5 @@
+#[path = "store_notes.rs"]
+mod notes_index;
 use crate::{ignore_rules, text, types::*};
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
@@ -72,6 +74,9 @@ struct PreparedFile {
     chunks: Vec<PreparedChunk>,
     explore_terms: Vec<DocumentTerm>,
     retrieval_terms: HashSet<String>,
+    /// Kept only for notes and for files that notes cite, so anchors can be
+    /// verified inside the same transaction that indexes the new content.
+    note_body: Option<String>,
 }
 pub struct Store {
     pub indexing: crate::index_status::IndexControl,
@@ -286,6 +291,7 @@ impl Store {
  CREATE TABLE IF NOT EXISTS explore_summaries(document_id INTEGER PRIMARY KEY REFERENCES documents(id) ON DELETE CASCADE,hash TEXT NOT NULL,algorithm INTEGER NOT NULL,terms TEXT NOT NULL);
  INSERT OR IGNORE INTO metadata VALUES(1,0);
 ")?;
+        db.execute_batch(notes_index::SCHEMA)?;
         let has_size: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('documents') WHERE name='size')",
             [],
@@ -713,6 +719,7 @@ impl Store {
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?)",[path])?;
         tx.execute("DELETE FROM documents WHERE root=?", [path])?;
         tx.execute("DELETE FROM roots WHERE path=?", [path])?;
+        Self::mark_note_sources_removed_tx(&tx, path, true)?;
         tx.execute("UPDATE metadata SET version=version+1", [])?;
         tx.commit()?;
         Ok(())
@@ -1101,6 +1108,7 @@ impl Store {
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?1 AND (d.path=?2 OR instr(d.path,?3)=1))", params![root,path,prefix])?;
         let removed = tx.execute("DELETE FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
         tx.execute("DELETE FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
+        Self::mark_note_sources_removed_tx(tx, &path, true)?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
         Ok(removed)
     }
@@ -1601,6 +1609,8 @@ impl Store {
         }
         let retrieval_terms = vocabulary.finish();
         let explore_terms = text::explore_summary_bounded(path, chunks.iter().map(|chunk| (chunk.chunk.heading.as_str(), chunk.chunk.content.as_str())), prepared_limit / 2)?;
+        let cited: bool = self.connection().query_row("SELECT EXISTS(SELECT 1 FROM note_sources WHERE path=?)", [&path_string], |r| r.get(0))?;
+        let note_body = (crate::notes::is_note(&body) || cited).then_some(body);
         Ok(Some(PreparedFile {
             _permit: None,
             path: path_string,
@@ -1612,6 +1622,7 @@ impl Store {
             chunks,
             explore_terms,
             retrieval_terms,
+            note_body,
         }))
     }
     fn prepare_indexed_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
@@ -1708,6 +1719,10 @@ impl Store {
                 params![chunk_id, file.title, prepared.heading, prepared.content],
             )?;
         }
+        match &file.note_body {
+            Some(body) => Self::index_note_tx(tx, id, &file.path, &file.fingerprint, body)?,
+            None => { tx.execute("DELETE FROM notes WHERE document_id=?", [id])?; }
+        }
         tx.execute("UPDATE metadata SET version=version+1", [])?;
         Ok(true)
     }
@@ -1732,6 +1747,7 @@ impl Store {
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.path=?)",[path])?;
         let removed = tx.execute("DELETE FROM documents WHERE path=?", [path])?;
         tx.execute("DELETE FROM index_issues WHERE path=?", [path])?;
+        Self::mark_note_sources_removed_tx(&tx, path, false)?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
         tx.commit()?;
         Ok(())
@@ -2894,6 +2910,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
             retrieval_question: "第一问".into(),
             tool_calls: vec![],
             context: None,
+            note_path: None,
         };
         let mut next = message.clone();
         next.question = "第二问".into();

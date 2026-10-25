@@ -862,6 +862,7 @@ mod tests {
                 retrieval_question: String::new(),
                 tool_calls: vec![],
                 context: None,
+                note_path: None,
             })
             .collect::<Vec<_>>();
         let plan = prepare_answer(
@@ -893,6 +894,7 @@ mod tests {
             retrieval_question: String::new(),
             tool_calls: vec![],
             context: None,
+            note_path: None,
         };
         let plan = prepare_answer(
             &ModelConfig::default(),

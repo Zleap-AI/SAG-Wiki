@@ -295,6 +295,8 @@ pub struct Settings {
     pub search_summary_sources: usize,
     pub model_profiles: BTreeMap<String, ModelProfile>,
     pub mcp_servers: Vec<McpServer>,
+    #[serde(default)]
+    pub notes: NoteSettings,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -343,6 +345,7 @@ impl Default for Settings {
             search_summary_sources: 10,
             model_profiles: BTreeMap::new(),
             mcp_servers: vec![],
+            notes: NoteSettings::default(),
         }
     }
 }
@@ -418,6 +421,9 @@ pub struct Message {
     pub tool_calls: Vec<ToolCallRecord>,
     #[serde(default)]
     pub context: Option<AnswerContext>,
+    /// Absolute path of the note this answer was saved to, if any.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note_path: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Conversation {
@@ -515,4 +521,97 @@ mod default_tests {
             expected
         );
     }
+}
+
+/// Notes: answers saved as Markdown with verifiable source anchors.
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct NoteSettings {
+    /// Folder that receives saved notes; `None` uses the default library folder.
+    pub folder: Option<String>,
+    /// Ask for a location on every save instead of reusing the remembered folder.
+    pub ask_location: bool,
+}
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoteSourceState {
+    Intact,
+    Moved,
+    Changed,
+    Missing,
+    #[default]
+    Unverified,
+}
+impl NoteSourceState {
+    /// Attention order: missing > changed > unverified > moved > intact.
+    pub fn severity(self) -> u8 {
+        match self {
+            Self::Missing => 4,
+            Self::Changed => 3,
+            Self::Unverified => 2,
+            Self::Moved => 1,
+            Self::Intact => 0,
+        }
+    }
+    pub fn needs_attention(self) -> bool {
+        self.severity() >= 2
+    }
+}
+/// One citation anchor stored in a note's frontmatter.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NoteSource {
+    pub id: usize,
+    /// Absolute path after resolution.
+    pub path: String,
+    /// Original document for converted files, shown instead of the Markdown output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_path: Option<String>,
+    pub hash: String,
+    pub start_byte: usize,
+    pub end_byte: usize,
+    pub start_line: usize,
+    pub end_line: usize,
+    pub text: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteSourceStatus {
+    pub source: NoteSource,
+    pub state: NoteSourceState,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current: Option<SourceSpan>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub current_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub similarity: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<i64>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteSummary {
+    pub path: String,
+    pub title: String,
+    pub question: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asked_at: Option<i64>,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default)]
+    pub scope: Vec<String>,
+    pub state: NoteSourceState,
+    pub source_count: usize,
+    /// Sources whose state needs attention.
+    pub attention: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checked_at: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parse_error: Option<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct NoteDetail {
+    pub summary: NoteSummary,
+    pub sources: Vec<NoteSourceStatus>,
 }
