@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
-0.2.1 优化问答会话与文件夹导航、索引历史详情和引用原文侧栏。操作说明见[双语文档站](docs-site/README.md)，扩展构建见[网页剪藏说明](browser-extension/README.md)。下方下载入口指向 GitHub 最新正式版。
+0.2.2 新增可核对引用的 Markdown 笔记，重新设计搜索阅读界面，并加快大文档预览。详见[更新日志](CHANGELOG.md)与[双语文档站](docs-site/README.md)。下方下载入口指向 GitHub 最新正式版。
 
 ## 目录
 
