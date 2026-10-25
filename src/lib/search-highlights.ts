@@ -100,6 +100,11 @@ export async function citationTerms(candidate:Candidate,body:string):Promise<str
   const ranges=candidate.source_spans?.length?candidate.source_spans.map(span=>({from:decoder.decode(bytes.subarray(0,span.start_byte)).length,to:decoder.decode(bytes.subarray(0,span.end_byte)).length})):[{from:lines.slice(0,candidate.start_line-1).join('\n').length+(candidate.start_line>1?1:0),to:lines.slice(0,candidate.end_line).join('\n').length}];
   html=renderMarkdown(markdownCitation(body,ranges));
  }else html=isHtml(candidate.path)?candidate.content:`<pre>${escaped(candidate.content)}</pre>`;
+ return blockTexts(html);
+}
+
+// The distinct text of each block in rendered HTML: the terms that mark a citation.
+export function blockTexts(html:string):string[]{
  const doc=new DOMParser().parseFromString(html,'text/html');
  doc.querySelectorAll('script,style,template,noscript,svg').forEach(node=>node.remove());
  return [...new Set(textBlocks(doc).map(nodes=>nodes.map(node=>node.data).join('').trim()).filter(Boolean))];

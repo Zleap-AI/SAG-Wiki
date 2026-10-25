@@ -1426,5 +1426,8 @@
   "查阅资料": "Research",
   "正在查阅资料": "Researching",
   "{value0} 次失败": "{value0} failed",
-  "高亮为回答引用的段落": "Highlighted passages are cited in the answer"
+  "高亮为回答引用的段落": "Highlighted passages are cited in the answer",
+  "第 {value0} 处 · 正在统计": "Match {value0} · counting",
+  "正在统计匹配…": "Counting matches…",
+  "引用 {value0} / {value1}": "Citation {value0} of {value1}"
 }

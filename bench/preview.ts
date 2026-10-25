@@ -29,10 +29,10 @@ const candidate:Candidate={id:1,document_id:1,path,title:'AI-Agents-in-Depth-zh-
 
 // The longest gap between animation frames approximates the worst main-thread stall.
 function frameMonitor(){
- let last=performance.now(),worst=0,running=true;
- const loop=(now:number)=>{worst=Math.max(worst,now-last);last=now;if(running)requestAnimationFrame(loop)};
+ let last=performance.now(),worst=0,after=0,running=true,mark=Infinity;
+ const loop=(now:number)=>{const gap=now-last;worst=Math.max(worst,gap);if(last>=mark)after=Math.max(after,gap);last=now;if(running)requestAnimationFrame(loop)};
  requestAnimationFrame(loop);
- return ()=>{running=false;return worst};
+ return {visible(){mark=performance.now()},stop(){running=false;return {worst,after}}};
 }
 
 async function visibleHit(stage:HTMLElement){
@@ -50,7 +50,7 @@ async function settled(stage:HTMLElement){
  for(;;){
   const text=stage.querySelector('.match-navigation')?.textContent??'';
   if(text!==previous){previous=text;stable=performance.now()}
-  if(performance.now()-stable>300)return {time:stable,text};
+  if(!text.includes('统计')&&performance.now()-stable>300)return {time:stable,text};
   await new Promise(resolve=>setTimeout(resolve,16));
  }
 }
@@ -59,23 +59,25 @@ async function open(){
  const stage=document.getElementById('stage')!;
  stage.innerHTML='';
  await new Promise(resolve=>requestAnimationFrame(()=>setTimeout(resolve)));
- const stop=frameMonitor();
+ const frames=frameMonitor();
  const start=performance.now();
  let app:ReturnType<typeof mount>;
  if(mode==='citation'){
+  // Same containers as the citation drawer in App.svelte.
   const {default:CitationDocument}=await import('../src/components/CitationDocument.svelte');
-  app=mount(CitationDocument,{target:stage,props:{source:candidate,onOpen:()=>{}}});
+  const dialog=document.createElement('div');dialog.className='source-dialog';dialog.style.cssText='display:flex;flex-direction:column;height:100%';stage.append(dialog);
+  app=mount(CitationDocument,{target:dialog,props:{source:candidate,onOpen:()=>{}}});
  }else{
   const {mountSearchPreview}=await import('./search-preview');
   app=await mountSearchPreview(stage,candidate,['KV Cache']);
  }
  await visibleHit(stage);
- const visible=performance.now()-start;
+ const visible=performance.now()-start;frames.visible();
  const done=await settled(stage);
- const worstFrame=stop();
+ const {worst:worstFrame,after:worstAfterVisible}=frames.stop();
  await tick();
  unmount(app);
- return {visible:Math.round(visible),complete:Math.round(done.time-start),worstFrame:Math.round(worstFrame),counter:done.text.trim()};
+ return {visible:Math.round(visible),complete:Math.round(done.time-start),worstFrame:Math.round(worstFrame),worstAfterVisible:Math.round(worstAfterVisible),counter:done.text.trim()};
 }
 
 (async()=>{

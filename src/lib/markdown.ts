@@ -79,6 +79,7 @@ export function renderMarkdownPiece(text:string,links:LinkDefinition[]=[],{offse
   return getHTMLFromFragment(ProseMirrorNode.fromJSON(schema,{type:'doc',content}).content,schema);
  }finally{internals.activeParseLexer=previous}
 }
+export function markdownTokens(text:string){return parser.instance.lexer(text)}
 export function finishHtml(html:string):string{
  html=DOMPurify.sanitize(html,{ADD_ATTR:['data-source']});
  if(!/class="language-mermaid"/i.test(html))return html;

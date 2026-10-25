@@ -15,3 +15,11 @@ viewport, `complete` the time until the match counter stops changing, and
 `worstFrame` the longest gap between animation frames. Safari runs the same
 JavaScriptCore engine as the macOS app. `fixtures.ts` also feeds
 `tests/markdown-chunks.test.ts`.
+
+For numbers close to the packaged app, benchmark a production build:
+
+```bash
+npx vite build -c bench/vite.config.ts
+npx vite preview -c bench/vite.config.ts --host 127.0.0.1
+# http://127.0.0.1:1431/bench/preview.html?mb=5&mode=citation
+```
