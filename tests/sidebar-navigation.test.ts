@@ -96,6 +96,7 @@ it('没有历史会话时只显示提问区，不保留列表或顶部导航的�
 it('问答与搜索切换位于右侧顶部，折叠左栏后仍可切换并保留会话',async()=>{
  await start();
  expect(document.querySelector('.sidebar nav')).toBeNull();
+ const sidebar=document.querySelector<HTMLElement>('.sidebar')!;
  const nav=document.querySelector<HTMLElement>('.workspace-header nav')!;
  expect(nav).not.toBeNull();
  const ask=nav.querySelector<HTMLButtonElement>('[title="问答"]')!;
@@ -104,13 +105,22 @@ it('问答与搜索切换位于右侧顶部，折叠左栏后仍可切换并保�
  document.querySelector<HTMLButtonElement>('.conversation-item')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0'));
  expect(document.querySelector('.sidebar [aria-label="新建问答"]')).not.toBeNull();
+ document.querySelector<HTMLButtonElement>('#sidebar-tab-folders')!.click();await tick();
  search.click();
  await vi.waitFor(()=>expect(search.getAttribute('aria-current')).toBe('page'));
  expect(document.querySelector('.search-page')).not.toBeNull();
+ expect(document.querySelector('.sidebar')).toBe(sidebar);
+ expect(document.querySelector('.workspace-header nav')).toBe(nav);
+ expect(document.querySelector('.search-rail')).toBeNull();
+ expect(document.querySelector('#sidebar-tab-folders')!.getAttribute('aria-selected')).toBe('true');
  document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
+ expect(document.querySelector('.desktop-window.compact-sidebar')).not.toBeNull();
  ask.click();
  await vi.waitFor(()=>expect(ask.getAttribute('aria-current')).toBe('page'));
  expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0');
+ expect(document.querySelector('.desktop-window.compact-sidebar')).not.toBeNull();
+ expect(document.querySelector('.sidebar')).toBe(sidebar);
+ expect(document.querySelector('#sidebar-tab-folders')!.getAttribute('aria-selected')).toBe('true');
 });
 
 it('没有文件夹时说明用途，快捷按钮打开文件夹选择窗口',async()=>{

@@ -75,6 +75,41 @@ it('文档完全没有匹配时不显示命中导航',async()=>{
  expect(document.querySelector('.search-hit.active')).toBeNull();
 });
 
+it('搜索正文可以隐藏命中导航，同时保留目标高亮',async()=>{
+ await open({terms:['KV Cache'],showNavigation:false});
+ await vi.waitFor(()=>expect(document.querySelector('.search-hit.active')).not.toBeNull());
+ expect(document.querySelector('.match-navigation')).toBeNull();
+});
+
+it('同文件返回恢复阅读块，后台匹配不抢位置；新片段优先新目标',async()=>{
+ const tasks:(()=>void)[]=[];
+ vi.stubGlobal('scheduler',{postTask:(task:()=>void)=>new Promise<void>(resolve=>tasks.push(()=>{task();resolve()}))});
+ const height=vi.spyOn(HTMLElement.prototype,'offsetHeight','get').mockImplementation(function(this:HTMLElement){return this.classList.contains('reader-piece')?(this.dataset.state?100:parseFloat(this.style.minHeight)||100):0});
+ const top=vi.spyOn(HTMLElement.prototype,'offsetTop','get').mockImplementation(function(this:HTMLElement){
+  if(!this.classList.contains('reader-piece'))return 0;
+  let offset=0;for(let node=this.previousElementSibling;node;node=node.previousElementSibling)offset+=(node as HTMLElement).offsetHeight;return offset;
+ });
+ const scroll=vi.spyOn(HTMLElement.prototype,'scrollIntoView');
+ const flush=async()=>{for(let turn=0;turn<100&&tasks.length;turn++){tasks.splice(0).forEach(task=>task());await tick()}};
+ try{
+  const model=markdownModel(doc),memoryKey='reader-return:book:h:query-1';
+  await open({model,terms:['KV Cache'],memoryKey});await flush();
+  const firstHost=document.querySelector<HTMLElement>('.markdown-reader')!;
+  firstHost.scrollTop=625;firstHost.dispatchEvent(new Event('scroll'));
+  await unmount(app!);app=null;
+  scroll.mockClear();
+  await open({model,terms:['KV Cache'],memoryKey,restoreScroll:true,showNavigation:false});
+  expect([...document.querySelectorAll<HTMLElement>('.reader-piece[data-state="rendered"]')].map(piece=>piece.dataset.piece)).toEqual(['5','6','7']);
+  await flush();
+  expect(document.querySelector<HTMLElement>('.markdown-reader')!.scrollTop).toBe(625);
+  expect(scroll).not.toHaveBeenCalled();
+  await unmount(app!);app=null;scroll.mockClear();
+  await open({model,terms:['KV Cache'],memoryKey,restoreScroll:false,target:model.pieces[2].from});
+  expect(document.querySelector('.search-hit.active')?.closest<HTMLElement>('.reader-piece')?.dataset.piece).toBe('2');
+  expect(scroll).toHaveBeenCalledWith({block:'center'});
+ }finally{height.mockRestore();top.mockRestore();scroll.mockRestore();vi.unstubAllGlobals()}
+});
+
 it('远处首次命中在后台查找，首屏只渲染目标邻域且用户滚动后不抢视口',async()=>{
  const tasks:(()=>void)[]=[];
  vi.stubGlobal('scheduler',{postTask:(task:()=>void)=>new Promise<void>(resolve=>tasks.push(()=>{task();resolve()}))});

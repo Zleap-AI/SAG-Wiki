@@ -4,6 +4,8 @@
  import {highlightDocument} from '../lib/search-highlights';
  import {pieceHtml,pieceIndex,piecePrefixHtml,type MarkdownModel} from '../lib/document-model';
  import MatchNavigation from './MatchNavigation.svelte';
+ import {quietScroll} from '../lib/quiet-scroll';
+ import {readReaderScroll,rememberReaderScroll} from '../lib/reader-scroll';
  // Renders a large Markdown document progressively: the piece holding `target`
  // and its neighbours first, so the passage shows at once, then the rest in
  // short slices outward from it. Matches are numbered per piece and summed.
@@ -15,6 +17,9 @@
  export let within:{from:number;to:number}[]|null=null;
  export let path='';
  export let label:'match'|'citation'='match';
+ export let showNavigation=true;
+ export let memoryKey='';
+ export let restoreScroll=false;
 
  let host:HTMLDivElement;
  let sections:HTMLElement[]=[];
@@ -25,6 +30,13 @@
  const highlighted=model.pieces.map(piece=>!within||within.some(range=>piece.from<Math.max(range.to,range.from+1)&&piece.to>range.from));
  const targetPiece=pieceIndex(model,target);
  let nextMatchPiece=targetPiece;
+ const positionKey=memoryKey,saved=restoreScroll?readReaderScroll(positionKey):undefined;
+
+ function remember(){
+  if(!host||!sections.length)return;
+  const piece=firstVisible();
+  rememberReaderScroll(positionKey,{top:host.scrollTop,left:host.scrollLeft,piece,offset:host.scrollTop-sections[piece].offsetTop});
+ }
 
  function estimate(index:number){const piece=model.pieces[index];return Math.max(24,Math.round((piece.to-piece.from)*charHeight))}
 
@@ -182,7 +194,9 @@
   host.addEventListener('load',realign,true);
   for(const name of ['wheel','touchstart','keydown','pointerdown'])host.addEventListener(name,interact,{passive:true});
   if(path&&typeof IntersectionObserver!=='undefined')observer=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting)hydrate(entry.target as HTMLElement)},{root:host,rootMargin:'800px 0px'});
-  const start=targetPiece;
+  const restoredPiece=saved?.piece;
+  const restoring=restoredPiece!==undefined&&restoredPiece>=0&&restoredPiece<sections.length;
+  const start=restoring?restoredPiece:targetPiece;
   render(start);
   // Learn the real height per character from the first piece for better placeholders.
   const piece=model.pieces[start];
@@ -190,15 +204,21 @@
   for(let index=0;index<sections.length;index++)if(!sections[index].dataset.state)sections[index].style.minHeight=`${estimate(index)}px`;
   if(start>0)render(start-1);
   if(start+1<sections.length)render(start+1);
+  if(restoring){
+   // Restore against a real block, then let the existing above-viewport height
+   // compensation preserve it as placeholders become content.
+   userMoved=true;
+   host.scrollTop=sections[start].offsetTop+(saved!.offset??0);host.scrollLeft=saved!.left;
+  }
   const first=terms.length?firstMatchFromTarget():null;
-  if(first)activate(first);else sections[start].scrollIntoView({block:'start'});
+  if(first)activate(first,!restoring);else if(!restoring)sections[start].scrollIntoView({block:'start'});
   if(!observer&&path)for(const section of sections)if(section.dataset.state)hydrate(section);
   void renderRest(start).then(()=>{if(!observer&&path)sections.forEach(hydrate)});
  });
- onDestroy(()=>{destroyed=true;observer?.disconnect();waiting.length=0;channel?.port1.close()});
+ onDestroy(()=>{remember();destroyed=true;observer?.disconnect();waiting.length=0;channel?.port1.close()});
 </script>
-<MatchNavigation count={complete?total:0} index={position??0} pending={!complete&&!!current} known={position!==null} {label} onMove={move}/>
-<div class="search-preview-body tiptap markdown-reader" bind:this={host}></div>
+{#if showNavigation}<MatchNavigation count={complete?total:0} index={position??0} pending={!complete&&!!current} known={position!==null} {label} onMove={move}/>{/if}
+<div class="search-preview-body tiptap markdown-reader" bind:this={host} use:quietScroll on:scroll={remember}></div>
 
 <style>
  /* Pieces above the viewport are compensated by hand (WebKit has no scroll anchoring); keep Chrome's native anchoring from adding the same shift twice. */

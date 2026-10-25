@@ -38,3 +38,26 @@ export function displayPath(path:string):string{
  if(path.startsWith('\\\\?\\UNC\\'))return '\\\\'+path.slice(8);
  return path.replace(/^\\\\\?\\([A-Za-z]:\\)/,'$1');
 }
+
+// Name to show for a result: converted files keep their original name ("a.pdf", not "a.pdf.md").
+export function sourceName(candidate:Pick<Candidate,'path'|'title'>):string{
+ return indexedSourcePath(candidate.path)!==candidate.path?candidate.title.replace(/\.md$/i,''):candidate.title;
+}
+
+// Folder of a result relative to the indexed folder that holds it, starting with that folder's name.
+export function sourceFolder(path:string,roots:{path:string;name:string}[]):string{
+ const folder=dirname(indexedSourcePath(path));
+ const root=roots.filter(root=>inside(folder,root.path)).sort((a,b)=>b.path.length-a.path.length)[0];
+ if(!root)return displayPath(folder);
+ const rest=folder.slice(root.path.replace(/[\\/]$/,'').length).split(/[\\/]/).filter(Boolean);
+ return [root.name||basename(root.path),...rest].join(' / ');
+}
+
+// Associate the renderer's actual citations with their result files.
+export function citedNumbers(sources:{first:Candidate;number:number}[]):Map<string,number[]>{
+ const byPath=new Map<string,number[]>();
+ for(const {first,number} of sources){
+  byPath.set(first.path,[...(byPath.get(first.path)??[]),number]);
+ }
+ return byPath;
+}

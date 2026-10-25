@@ -8,6 +8,7 @@
  export let running:boolean;
  export let error:string;
  export let evidence:Candidate[];
+ export let rendered:ReturnType<typeof import('../lib/markdown').renderAnswer>|null=null;
  export let onSource:(candidate:Candidate)=>void;
  export let onCopy:(text:string)=>void;
  let open=true;
@@ -27,7 +28,7 @@
   {#await import('../lib/markdown')}
    <p class="search-answer-pending">{text}</p>
   {:then markdown}
-   <div class="answer-text" role="presentation" on:click={event=>{const target=(event.target as HTMLElement).closest<HTMLElement>('[data-citation]');if(target)onSource(evidence[Number(target.dataset.citation)])}} use:answerHtml={markdown.renderAnswer(text,evidence).html}></div>
+   <div class="answer-text" role="presentation" on:click={event=>{const target=(event.target as HTMLElement).closest<HTMLElement>('[data-citation]');if(target)onSource(evidence[Number(target.dataset.citation)])}} use:answerHtml={(rendered??markdown.renderAnswer(text,evidence)).html}></div>
   {/await}
  {:else if running}<p class="muted" role="status">{$t('正在根据问题整理搜索结果…')}</p>{/if}
  {#if error}<p class="form-error" role="alert">{error}</p>{/if}

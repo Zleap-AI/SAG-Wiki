@@ -34,6 +34,23 @@ export function searchSnippet(text:string,terms:string[]):string{
  const first=textMatches(text,terms)[0];const start=Math.max(0,(first?.from??0)-60),end=Math.min(text.length,start+180);
  return (start?'…':'')+highlightedText(text.slice(start,end),terms)+(end<text.length?'…':'');
 }
+// Readable text of a Markdown passage for result snippets, without syntax.
+export function plainText(path:string,content:string):string{
+ if(isHtml(path))return searchText(path,content);
+ if(!isMarkdown(path))return content.replace(/\s+/g,' ').trim();
+ return content
+  .replace(/^\s*(?:`{3,}|~{3,}).*$/gm,' ')
+  .replace(/!\[([^\]]*)\]\([^)]*\)/g,'$1')
+  .replace(/\[([^\]]+)\](?:\([^)]*\)|\[[^\]]*\])/g,'$1')
+  .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-+*]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/gm,'')
+  .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*(?::?-{3,}:?\s*)?$/gm,' ')
+  .replace(/(\*\*|__|~~|`)(?=\S)([\s\S]*?\S)\1/g,'$2')
+  .replace(/(^|[^*\w])[*_](?=\S)([^*_\n]*?\S)[*_](?![*\w])/g,'$1$2')
+  .replace(/<[^>]+>/g,' ')
+  .replace(/\s*\|\s*/g,' ')
+  .replace(/\s+/g,' ')
+  .trim();
+}
 export function searchText(path:string,content:string):string{
  if(!isHtml(path))return content;
  const tail=/<\/(style|script)\s*>/i.exec(content);

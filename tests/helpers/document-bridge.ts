@@ -6,7 +6,7 @@ export function loadDocumentBridge(frame:HTMLIFrameElement,document:Document){
  const child=frame.contentWindow!;
  let receive:(event:unknown)=>void;
  const parent={postMessage:(data:unknown)=>window.dispatchEvent(new MessageEvent('message',{source:child,data}))};
- runInNewContext(script,{document,window:{parent,addEventListener:(type:string,callback:(event:unknown)=>void)=>{if(type==='message')receive=callback;}}});
+ runInNewContext(script,{document,setTimeout:window.setTimeout.bind(window),clearTimeout:window.clearTimeout.bind(window),window:{parent,addEventListener:(type:string,callback:(event:unknown)=>void)=>{if(type==='message')receive=callback;}}});
  Object.defineProperty(child,'postMessage',{value:(data:unknown)=>receive({source:parent,data})});
  frame.dispatchEvent(new Event('load'));
 }
