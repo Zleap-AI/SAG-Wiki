@@ -24,7 +24,7 @@ it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
  expect(pages[pages.indexOf('模型设置')+1]).toBe('问答设置');
  expect(query('系统提示词')).toBeNull();
  button('问答设置').click();await tick();
- expect([...document.querySelectorAll('.settings-content h3')].map(item=>item.textContent)).toEqual(['提示词','工具绑定','上下文与请求']);
+ expect([...document.querySelectorAll('.settings-content h3')].map(item=>item.textContent)).toEqual(['提示词','工具绑定','上下文与请求','笔记']);
  await vi.waitFor(()=>expect(query('系统提示词')).not.toBeNull());
  expect(document.querySelector('.model-profile-settings')?.contains(query('配置问答模型'))).toBe(true);
  expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('10');

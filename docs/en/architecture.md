@@ -17,6 +17,7 @@ SAG Wiki is a local-file knowledge base. The desktop UI and CLI connect to the s
 | `core/src/indexer.rs`, `ignore_rules.rs` | Index queue, file changes and ignore rules |
 | `core/src/retrieval.rs`, `sag2_v10.rs` | SAG2 recall, expansion and final ranking |
 | `core/src/models.rs`, `agent.rs` | Model connections, Q&A and the tool-call loop |
+| `core/src/notes.rs`, `store_notes.rs` | Note format, citation renumbering, passage relocation and anchor verification |
 | `core/src/sag_mcp.rs`, `mcp.rs` | Built-in tools and external MCP integration |
 | `core/src/service.rs`, `server.rs` | Shared business logic, index watching and local service |
 | `protocol/` | Independent requests, responses, events and build identity |
@@ -56,6 +57,7 @@ The default data directory is determined by the operating system's user data loc
 | User settings | Stored in the application data directory |
 | Model and MCP credentials | Private files for the current user; Unix permissions are 0600 |
 | Q&A history, citations and drafts | Application session content, managed separately from the file index |
+| Notes | Markdown files in user folders whose frontmatter anchors each citation by file hash, byte range and saved passage; `notes` and `note_sources` cache the parsed anchors and their verification state, rebuilt from the files on index |
 
 When retrieval results are read, the service accesses the original files at the stored positions and verifies their hashes. If a file changed, it requests reindexing rather than applying old positions to a new body. Conversation citations retain the content used when the answer was generated.
 

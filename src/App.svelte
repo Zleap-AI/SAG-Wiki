@@ -9,6 +9,11 @@
  import IndexDetails from './components/IndexDetails.svelte';
  import DoclingDownload from './components/DoclingDownload.svelte';
  import DocumentQuestion from './components/DocumentQuestion.svelte';
+ import SaveNoteDialog from './components/SaveNoteDialog.svelte';
+ import NoteStatus from './components/NoteStatus.svelte';
+ import type {NoteDetail,NoteSourceStatus,NoteSummary} from './lib/types';
+ import {isNote} from './lib/domain';
+ let saveNoteFor:{index:number}|null=null;let noteDetail:NoteDetail|null=null,noteChecking=false,noteRequest=0;let noteSummaries:NoteSummary[]=[];
  import type {IndexStatus} from './lib/types';
  import SearchSummary from './components/SearchSummary.svelte';
  import SearchResultItem from './components/SearchResultItem.svelte';
@@ -146,9 +151,10 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    refreshPending=false;const generation=refreshGeneration;
    try{
     const paths=[...new Set([...expanded,...scopeExpanded,selected].filter(Boolean))];
-    const [nextRoots,nextStatus,nextFiles,removed]=await Promise.all([
-     api<Root[]>('list_roots'),api<IndexStatus>('get_index_status'),api<FileInfo[]>('list_files'),api<string[]>('list_removed_directories')
+    const [nextRoots,nextStatus,nextFiles,removed,nextNotes]=await Promise.all([
+     api<Root[]>('list_roots'),api<IndexStatus>('get_index_status'),api<FileInfo[]>('list_files'),api<string[]>('list_removed_directories'),api<NoteSummary[]>('list_notes',{scope:null}).catch(()=>[] as NoteSummary[])
     ]);
+    noteSummaries=nextNotes;if(draft&&!draft.is_new&&noteDetail&&noteDetail.summary.path===draft.path)void loadNote(draft.path);
     if(appDisposed||generation!==refreshGeneration)continue;
     const included=(path:string)=>!removed.some(directory=>inside(path,directory));
     const entries=await Promise.all(paths.filter(path=>included(path)&&nextRoots.some(root=>inside(path,root.path))).map(async path=>[path,await api<Entry[]>('list_entries',{path})] as const));
@@ -223,8 +229,33 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    documentFromSearch=fromSearch;documentFromConversation=fromConversation;documentSearchScroll=scroll;documentConversationScroll=chatScroll;exploreReturn=origin;documentSearchTerms=terms;
    if(!isMarkdown(doc.path)){readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(path);view='document';source=null;return;}
    draft={...doc,is_new:false};dirty=false;selected=dirname(path);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';source=null;
+   noteDetail=null;if(isNote(doc.body))void loadNote(doc.path);else noteRequest++;
   }catch(e){notify($t(String(e)))}
  }
+ async function loadNote(path:string){
+  const request=++noteRequest;
+  try{const detail=await api<NoteDetail>('get_note',{path});if(request===noteRequest)noteDetail=detail;}
+  catch{if(request===noteRequest)noteDetail=null;}
+ }
+ async function recheckNote(){
+  if(!noteDetail||noteChecking)return;noteChecking=true;
+  try{await api<NoteSummary[]>('verify_notes',{paths:[noteDetail.summary.path]});await loadNote(noteDetail.summary.path);}
+  catch(e){notify($t(String(e)))}finally{noteChecking=false}
+ }
+ async function openNoteSource(status:NoteSourceStatus){
+  const span=status.current??{start_byte:status.source.start_byte,end_byte:status.source.end_byte,start_line:status.source.start_line,start_column:1,end_line:status.source.end_line,end_column:1};
+  const content=status.current_text??status.source.text;
+  const candidate:Candidate={id:0,document_id:0,path:status.source.path,title:basename(status.source.path),heading:'',content,start_line:span.start_line,end_line:span.end_line,source_ranges:[[span.start_byte,span.end_byte]],source_spans:[span],bm25:0,score:0,order:0,hash:status.current_hash??status.source.hash};
+  source=candidate;
+ }
+ async function reaskNote(){
+  if(!noteDetail||!await protect())return;
+  const detail=noteDetail;
+  await stop('ask');editingMessage=null;conversation=null;pending=null;draft=null;readOnlyDoc=null;noteDetail=null;
+  ask=detail.summary.question;scope=normalizeScope(detail.summary.scope??[]);references=[];view='ask';showSidebarTab('conversations');
+  await tick();askInput?.focus({preventScroll:true});
+ }
+ async function openNote(path:string){await edit(path);}
  async function returnToFiles(){
   if(documentFromConversation){
    if(!await protect())return;documentFromConversation=false;view='ask';draft=null;readOnlyDoc=null;
@@ -559,6 +590,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  </div>{/if}</div><article class="answer"><AnswerProcess hasContent={!!(events.length||m.reasoning)} answering={!!m.answer.slice(events.at(-1)?.offset??0).trim()} running={m===pending&&askBusy} startedAt={m.created_at} elapsedMs={m.context?.elapsed_ms}>{#if m.reasoning&&!m.reasoning_blocks?.length}<Reasoning content={m.reasoning} running={m===pending&&busy&&stage==='思考中'&&!m.answer}/>{/if}{#each events as event,i(`${event.kind}:${event.index}`)}{@const html=rendered?.events[i]?.html??escaped(m.answer.slice(event.from,event.offset)).replace(/\n/g,'<br>')}{#if html}<div class="answer-text" role="presentation" on:click={(e)=>{const target=(e.target as HTMLElement).closest<HTMLElement>('[data-citation]');if(target)source=m.evidence[Number(target.dataset.citation)]}} use:answerHtml={html}></div>{/if}{#if event.kind==='reasoning'}{@const block=m.reasoning_blocks![event.index]}<Reasoning content={block.content} running={event.index===m.reasoning_blocks!.length-1&&m===pending&&busy&&stage==='思考中'&&block.answer_offset===m.answer.length&&block.tool_count===(m.tool_calls?.length??0)}/>{:else if !joinsToolRun(m,events,i)}{@const run=toolRun(m,events,i)}<ToolGroup calls={run.map(j=>m.tool_calls![events[j].index])} states={run.map(j=>toolState(m,m.tool_calls![events[j].index],pending,activeToolId,busy))}>{#each run as j(j)}{@const call=m.tool_calls![events[j].index]}<ToolCall {call} state={toolState(m,call,pending,activeToolId,busy)} stage={m===pending&&activeToolId===call.id?searchStageText:''} scope={m.scope.length===0?$t("全部文件"):m.scope.map(basename).join('、')}/>{/each}</ToolGroup>{/if}{/each}{#if m===pending&&busy&&!activeToolId&&!(stage==='思考中'&&(m.reasoning_blocks?.length?m.reasoning_blocks.at(-1)!.answer_offset===m.answer.length&&m.reasoning_blocks.at(-1)!.tool_count===(m.tool_calls?.length??0):m.reasoning))}<div class="answer-progress" role="status"><span class="progress-indicator" aria-hidden="true"></span><span>{$t(stage)}</span></div>{/if}</AnswerProcess><div class="answer-text" role="presentation" on:click={(e)=>{const target=(e.target as HTMLElement).closest<HTMLElement>('[data-citation]');if(target)source=m.evidence[Number(target.dataset.citation)]}} use:answerHtml={rendered?.html??(answerRenderer?'':escaped(m.answer.slice(events.at(-1)?.offset??0)).replace(/\n/g,'<br>'))}></div>{#if m.error}<p class="form-error">{$t(m.error)}{#if m.error==="请在设置中填写问答模型 API 密钥"||m.error.includes("Jev")}<Button.Root class="settings-error-link" onclick={()=>{settingsPage="models";settingsOpen=true}}>{$t("前往设置")}</Button.Root>{/if}</p>{/if}{#if rendered?.sources.length}<div class="source-list">{#each rendered.sources as group}<Button.Root class="source-chip" onclick={()=>source=group.first}><small>{group.number}</small>{@html icon('file')}<span>{group.first.title}</span></Button.Root>{/each}</div>{/if}{#if m.context||m.created_at!=null}<div class="answer-context-reveal"><p class="answer-context">{#if m.context}{$t("{value0} 输入 tokens{value1} · ",{value0:compactNumber(m.context.input_tokens??m.context.estimated_input),value1:m.context.input_tokens===null?$t("（估算）"):''})}{#if m.context.output_tokens===null}{$t("输出 tokens 未返回")}{:else}{$t("{value0} 输出 tokens",{value0:compactNumber(m.context.output_tokens)})}{/if}{#if m.context.elapsed_ms!=null}{$t(" · 耗时 {value0}",{value0:durationLabel(m.context.elapsed_ms)})}{/if}{#if m.context.output_tokens!==null&&m.context.generation_ms} · {compactNumber(m.context.output_tokens*1000/m.context.generation_ms)} tokens/s{/if}{#if m.context.omitted_sources}{$t(" · 已略去 {value0} 个片段以满足预算",{value0:compactNumber(m.context.omitted_sources)})}{/if}{/if}{#if m.created_at!=null}{#if m.context} · {/if}<Timestamp value={m.created_at}/>{/if}</p></div>{/if}{#if !m.tool_calls?.length&&m.retrieval_question!==m.question}<details class="trace"><summary>{$t("检索问题")}</summary>{m.retrieval_question}</details>{/if}
  {#if m.answer||!busy}<div class="message-actions answer-actions" aria-label={$t("回答操作")}>
  <Button.Root class="icon-button" title={$t("复制回答")} aria-label={$t("复制回答")} disabled={!m.answer} onclick={()=>copyMessage(m.answer)}>{@html icon('copy')}</Button.Root>
+ {#if m.note_path}<Button.Root class="icon-button note-saved" title={$t("已保存为笔记，点击打开")} aria-label={$t("打开笔记")} onclick={()=>openNote(m.note_path!)}>{@html icon('file')}</Button.Root>{:else}<Button.Root class="icon-button" title={$t("保存为笔记")} aria-label={$t("保存为笔记")} disabled={busy||!conversation||m.status!=='complete'||!m.answer.trim()} onclick={()=>saveNoteFor={index}}>{@html icon('download')}</Button.Root>{/if}
  <Button.Root class="icon-button" title={$t("重新生成回答")} aria-label={$t("重新生成回答")} disabled={busy} onclick={()=>retryMessage(index)}>{@html icon('refresh')}</Button.Root>
  <Button.Root class="icon-button" title={$t("删除此轮问答")} aria-label={$t("删除此轮问答")} disabled={busy||!conversation} onclick={()=>deleteMessage(index)}>{@html icon('delete')}</Button.Root>
  
@@ -628,9 +660,9 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  </div>
 {/if}
 {:else if !busy}<div class="search-empty">{@html icon('search')}<h2>{searchStopped?$t("已停止搜索"):searchError?$t("搜索未完成"):$t("没有找到相关文件")}</h2><p>{searchStopped?$t("可以重新搜索，或调整范围。"):searchError?$t("可以重试搜索，或切换搜索模式。"):$t("换一个关键词，或调整查询范围。")}</p><Button.Root class="outline" onclick={scopeShow}>{$t("选择范围")}</Button.Root></div>{/if}{/if}</section>
- {:else if view==='files'&&librarySessions[selected]}{#key selected}<LibraryWorkspace scope={displayPath(selected)} parent={libraryParent} session={librarySessions[selected]} onModeChange={()=>librarySessions={...librarySessions}} entries={directoryEntries} totalFiles={files.length} indexedFiles={files} {roots} onIndexDetails={()=>indexDetailsOpen=true} onPauseChange={paused=>indexPaused=paused} oncreate={()=>create()} onadd={add} reading={!!selected&&readingFolder===selected} revision={libraryRevision} onbrowse={libraryBrowse} onopen={(path,terms)=>edit(path,terms,selected)} onmenu={showMenu} onSettings={()=>{settingsPage='files';settingsOpen=true}}/>{/key}
+ {:else if view==='files'&&librarySessions[selected]}{#key selected}<LibraryWorkspace scope={displayPath(selected)} parent={libraryParent} session={librarySessions[selected]} onModeChange={()=>librarySessions={...librarySessions}} entries={directoryEntries} totalFiles={files.length} indexedFiles={files} notes={noteSummaries} {roots} onIndexDetails={()=>indexDetailsOpen=true} onPauseChange={paused=>indexPaused=paused} oncreate={()=>create()} onadd={add} reading={!!selected&&readingFolder===selected} revision={libraryRevision} onbrowse={libraryBrowse} onopen={(path,terms)=>edit(path,terms,selected)} onmenu={showMenu} onSettings={()=>{settingsPage='files';settingsOpen=true}}/>{/key}
  {:else if view==='document'&&readOnlyDoc}<section class="readonly-document"><div class="editor-head"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root><span>{readOnlyDoc.name}</span><span class="document-status">{#if isRtf(readOnlyDoc.path)}{$t("RTF 正文")} · {/if}{$t("只读")}</span><Button.Root class="outline" onclick={()=>api('reveal_path',{path:readOnlyDoc!.path}).catch(e=>notify($t(String(e))))}>{mac?$t("在 Finder 中打开"):$t("在文件资源管理器中打开")}</Button.Root></div><div class="source-path">{displayPath(readOnlyDoc.path)}</div>{#if isHtml(readOnlyDoc.path)}<HtmlDocument body={readOnlyDoc.body} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{:else}<HighlightedDocument html={readonlyHtml(readOnlyDoc.path,readOnlyDoc.body)} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{/if}{#key readOnlyDoc.path}<DocumentQuestion name={readOnlyDoc.name} onAsk={askDocument}/>{/key}</section>
- {:else if view==='editor'&&draft}<section class="editor wysiwyg-editor"><div class="editor-head"><div class="editor-location"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root>{#if selected}<Popover.Root><Popover.Trigger type="button" class="scope-info" title={displayPath(selected)} aria-label={$t("文件夹路径")}>{@html icon('folder')}<span>{basename(selected)}</span></Popover.Trigger><Popover.Portal><Popover.Content class="document-folder-path" aria-label={$t("文件夹路径")} side="bottom" align="start" sideOffset={8} collisionPadding={12}>{displayPath(selected)}</Popover.Content></Popover.Portal></Popover.Root>{/if}</div><div class="document-name-wrap"><Input class="document-name" aria-label={$t("文件名")} title={draft.name} bind:value={draft.name} readonly={!draft.is_new} oninput={()=>dirty=true}/></div><div class="editor-save-actions"><span class="document-status">{dirty?$t("未保存"):draft.is_new?'':$t("已保存")}</span><Button.Root class="primary small" disabled={saving} onclick={save}>{$t("保存")}</Button.Root></div></div>{#if EditorComponent}{#key draft.path}<svelte:component this={EditorComponent} body={draft.body} path={draft.path} searchTerms={documentSearchTerms} initialMatch={documentInitialMatch} onChange={changed}/>{/key}{/if}{#key draft.path}<DocumentQuestion name={draft.name} onAsk={askDocument}/>{/key}<div class="editor-footer">{draft.is_new?$t("保存后才创建文件并加入知识库。"):$t("修改后点击保存。")}</div></section>{/if}
+ {:else if view==='editor'&&draft}<section class="editor wysiwyg-editor"><div class="editor-head"><div class="editor-location"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root>{#if selected}<Popover.Root><Popover.Trigger type="button" class="scope-info" title={displayPath(selected)} aria-label={$t("文件夹路径")}>{@html icon('folder')}<span>{basename(selected)}</span></Popover.Trigger><Popover.Portal><Popover.Content class="document-folder-path" aria-label={$t("文件夹路径")} side="bottom" align="start" sideOffset={8} collisionPadding={12}>{displayPath(selected)}</Popover.Content></Popover.Portal></Popover.Root>{/if}</div><div class="document-name-wrap"><Input class="document-name" aria-label={$t("文件名")} title={draft.name} bind:value={draft.name} readonly={!draft.is_new} oninput={()=>dirty=true}/></div><div class="editor-save-actions"><span class="document-status">{dirty?$t("未保存"):draft.is_new?'':$t("已保存")}</span><Button.Root class="primary small" disabled={saving} onclick={save}>{$t("保存")}</Button.Root></div></div>{#if noteDetail&&noteDetail.summary.path===draft.path}<NoteStatus note={noteDetail} checking={noteChecking} onRecheck={recheckNote} onOpenSource={openNoteSource} onReask={reaskNote}/>{/if}{#if EditorComponent}{#key draft.path}<svelte:component this={EditorComponent} body={draft.body} path={draft.path} searchTerms={documentSearchTerms} initialMatch={documentInitialMatch} onChange={changed}/>{/key}{/if}{#key draft.path}<DocumentQuestion name={draft.name} onAsk={askDocument}/>{/key}<div class="editor-footer">{draft.is_new?$t("保存后才创建文件并加入知识库。"):$t("修改后点击保存。")}</div></section>{/if}
  {#if error&&view!=='search'&&!answerHasError}<p class="form-error">{$t(error)}</p>{/if}
  </div></main></div></div>
 {#if menu}<ActionMenu {menu} onClose={()=>menu=null}/>{/if}
@@ -650,6 +682,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
 
 {#if onboardingOpen}<Onboarding onClose={closeOnboarding}/>{/if}
 
+{#if saveNoteFor&&conversation&&displayedMessages[saveNoteFor.index]}<SaveNoteDialog message={displayedMessages[saveNoteFor.index]} conversationId={conversation.id} messageIndex={saveNoteFor.index} {roots} {cache} defaultFolder={settings?.notes?.folder} onClose={()=>saveNoteFor=null} onAddFolder={()=>{saveNoteFor=null;add()}} onSaved={note=>{const index=saveNoteFor!.index;saveNoteFor=null;const path=note.summary.path;if(conversation)conversation={...conversation,messages:conversation.messages.map((m,i)=>i===index?{...m,note_path:path}:m)};void history();notify($t('已保存笔记《{value0}》',{value0:note.summary.title}),async()=>{closeNotice();await openNote(path)});}}/>{/if}
 {#if historySearchOpen}<HistorySearch {conversations} onClose={()=>historySearchOpen=false} onSelect={async c=>{await chooseHistory(c);if(conversation?.id===c.id)historySearchOpen=false}}/>{/if}
 
 {#if chooseSaveFolder&&!folderPickerOpen&&draft}<Modal label={$t("保存文档")} class="new-document-dialog" onClose={()=>finishSaveFolder(null)}>

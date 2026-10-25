@@ -573,3 +573,10 @@ input,select,textarea{font-size:var(--text-ui)}
 .source-dialog .citation-close{width:30px;height:30px;padding:7px;align-self:flex-start;border-radius:8px;color:var(--color-secondary)}
 .source-dialog .citation-close:hover{background:var(--color-hover);color:var(--color-ink)}
 .source-dialog .panel-footer{display:flex;align-items:center;gap:12px;padding:12px 14px 12px 20px;border-top:1px solid var(--color-rule);background:var(--color-paper)}
+
+.real-client .note-badge{width:8px;height:8px;margin-left:auto;margin-right:4px;border-radius:50%;flex-shrink:0;background:#3f9d63}
+.real-client .note-badge[data-state=changed]{background:#d9822b}
+.real-client .note-badge[data-state=missing]{background:#d14343}
+.real-client .note-badge[data-state=unverified]{background:transparent;border:1.5px dashed var(--color-muted)}
+.real-client .note-badge-count{margin-left:auto;margin-right:4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:color-mix(in srgb,#d9822b 18%,transparent);color:#b5691c;font-size:11px;font-weight:600;line-height:18px;text-align:center;flex-shrink:0}
+.real-client .answer-actions .note-saved{color:var(--color-ink)}

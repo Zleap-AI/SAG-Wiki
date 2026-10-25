@@ -61,3 +61,4 @@ export function citedNumbers(sources:{first:Candidate;number:number}[]):Map<stri
  }
  return byPath;
 }
+export const isNote=(body:string)=>/^\ufeff?---\r?\nsag_note:/.test(body);

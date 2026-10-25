@@ -290,6 +290,26 @@ pub enum Operation {
     LoadImage {
         path: String,
     },
+    /// Save one answer of a conversation as a note with verifiable anchors.
+    SaveNote {
+        conversation_id: String,
+        message_index: usize,
+        /// Target directory or `.md` file; `None` uses the notes folder setting.
+        target: Option<String>,
+        /// When the target file exists, overwrite only if its hash still matches.
+        expected_hash: Option<String>,
+        /// Remember the chosen directory as the default notes folder.
+        remember: bool,
+    },
+    ListNotes {
+        scope: Option<String>,
+    },
+    GetNote {
+        path: String,
+    },
+    VerifyNotes {
+        paths: Vec<String>,
+    },
     Shutdown,
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -322,6 +342,8 @@ pub enum Output {
     Graph(ExploreGraph),
     Neighbors(ExploreNeighbors),
     Evidence(ExploreEvidence),
+    Note(crate::types::NoteDetail),
+    Notes(Vec<crate::types::NoteSummary>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]

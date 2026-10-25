@@ -3,6 +3,7 @@ use crate::store::Store;
 use crate::{
     agent, cli_service, explore, indexer, mcp, models, retrieval, sag_mcp, store, text, types::*,
 };
+use anyhow::Context as _;
 use notify::{RecursiveMode, Watcher};
 use sag_protocol::{EventEnvelope, Query, QueryOutput, ServiceEvent};
 use std::{
@@ -246,6 +247,105 @@ fn save_document(
         })
         .map_err(error)?;
     Ok(document)
+}
+/// Default notes folder: `<documents>/sag-wiki/notes`, created and registered on demand.
+fn default_notes_folder(state: &Arc<Service>) -> anyhow::Result<PathBuf> {
+    let documents = dirs::document_dir().context("无法获取文稿目录")?;
+    let library = documents.join("sag-wiki");
+    let folder = library.join(crate::notes::DEFAULT_FOLDER);
+    std::fs::create_dir_all(&folder)?;
+    let library = library.canonicalize()?;
+    if !state.store.roots()?.iter().any(|root| library.starts_with(&root.path)) {
+        indexer::add_root(&state.store, &state.watcher, &state.scan, &library)?;
+    }
+    Ok(folder.canonicalize()?)
+}
+fn resolve_note_target(state: &Arc<Service>, target: Option<&str>, question: &str) -> anyhow::Result<(PathBuf, bool)> {
+    let settings = state.store.settings()?;
+    let (directory, explicit_file) = match target {
+        Some(target) if target.ends_with(".md") || target.ends_with(".markdown") => {
+            let path = PathBuf::from(target);
+            (path.parent().context("目标缺少父目录")?.to_path_buf(), Some(path))
+        }
+        Some(target) => (PathBuf::from(target), None),
+        None => match settings.notes.folder.as_deref().filter(|folder| Path::new(folder).is_dir()) {
+            Some(folder) => (PathBuf::from(folder), None),
+            None => (default_notes_folder(state)?, None),
+        },
+    };
+    let directory = state.store.authorize(&directory)?;
+    if !directory.is_dir() { anyhow::bail!("请选择文件夹") }
+    if let Some(file) = explicit_file {
+        return Ok((directory.join(file.file_name().context("文件名无效")?), true));
+    }
+    let name = crate::notes::file_name(question);
+    let mut candidate = directory.join(&name);
+    let stem = name.trim_end_matches(".md").to_owned();
+    let mut n = 2;
+    while candidate.exists() {
+        candidate = directory.join(format!("{stem} {n}.md"));
+        n += 1;
+    }
+    Ok((candidate, false))
+}
+async fn save_note(
+    conversation_id: String,
+    message_index: usize,
+    target: Option<String>,
+    expected_hash: Option<String>,
+    remember: bool,
+    state: &Arc<Service>,
+    app: &EventSink,
+) -> CommandResult<sag_protocol::types::NoteDetail> {
+    let _access = state.conversation_access.read().await;
+    let lock = state.session_lock(&conversation_id);
+    let _guard = lock.lock().await;
+    let state = state.clone();
+    let app = app.clone();
+    tokio::task::spawn_blocking(move || -> anyhow::Result<sag_protocol::types::NoteDetail> {
+        let mut conversation = state.store.conversations()?.into_iter().find(|c| c.id == conversation_id).context("会话不存在")?;
+        let message = conversation.messages.get(message_index).context("回答不存在")?;
+        if message.status != "complete" || message.answer.trim().is_empty() {
+            anyhow::bail!("只能保存已完成的回答");
+        }
+        let (answer, kept) = crate::notes::renumber_citations(&message.answer, &message.evidence);
+        let (target, explicit) = resolve_note_target(&state, target.as_deref(), &message.question)?;
+        let note_dir = target.parent().context("笔记缺少父目录")?.to_path_buf();
+        let sources = kept.iter().enumerate().map(|(i, candidate)| {
+            let display = if crate::docling::in_output(Path::new(&candidate.path)) {
+                state.store.connection().query_row("SELECT source FROM conversions WHERE output=?", [&candidate.path], |r| r.get::<_, String>(0)).ok()
+            } else { None };
+            crate::notes::source_from_candidate(i + 1, candidate, display)
+        }).collect();
+        let header = crate::notes::NoteHeader {
+            question: message.question.clone(),
+            asked_at: message.created_at.or_else(|| Some(store::now())),
+            model: message.model.clone(),
+            scope: message.scope.clone(),
+            sources,
+        };
+        let english = state.store.settings()?.language == "en";
+        let body = crate::notes::render(&header, &note_dir, &answer, english);
+        let expected = if explicit && target.exists() {
+            Some(expected_hash.context("同名文件已存在，请确认覆盖")?)
+        } else { None };
+        let document = state.store.write_note(&target, &body, expected.as_deref())?;
+        conversation.messages[message_index].note_path = Some(document.path.clone());
+        conversation.updated = store::now();
+        state.store.put_conversation(&conversation)?;
+        if remember {
+            let mut settings = state.store.settings()?;
+            settings.notes.folder = Some(note_dir.to_string_lossy().into_owned());
+            state.store.save_settings(&settings)?;
+            emit(&app, "settings-changed", ());
+        }
+        emit(&app, "history-changed", ());
+        emit(&app, "data-changed", ());
+        state.store.note(&document.path)
+    })
+    .await
+    .map_err(error)?
+    .map_err(error)
 }
 fn put_draft(draft: Draft, state: &Arc<Service>) -> CommandResult<()> {
     state.store.put_draft(&draft).map_err(error)
@@ -675,6 +775,7 @@ async fn execute_query(
             retrieval_question: retrieval_question.clone(),
             tool_calls: vec![],
             context: None,
+            note_path: None,
         });
         state.store.put_conversation(c)?;
         emit(app, "history-changed", ());
@@ -1334,6 +1435,20 @@ impl Service {
                     .to_string(),
             ),
             Op::LoadImage { path } => Out::Text(load_image(path, self)?),
+            Op::SaveNote { conversation_id, message_index, target, expected_hash, remember } => {
+                Out::Note(save_note(conversation_id, message_index, target, expected_hash, remember, self, app).await?)
+            }
+            Op::ListNotes { scope } => Out::Notes(self.store.notes(scope.as_deref()).map_err(error)?),
+            Op::GetNote { path } => {
+                let store = self.store.clone();
+                Out::Note(tokio::task::spawn_blocking(move || store.note(&path).map_err(error)).await.map_err(error)??)
+            }
+            Op::VerifyNotes { paths } => {
+                let store = self.store.clone();
+                let result = tokio::task::spawn_blocking(move || store.verify_notes(&paths).map_err(error)).await.map_err(error)??;
+                emit(app, "data-changed", ());
+                Out::Notes(result)
+            }
             Op::Shutdown => Out::Unit,
         };
         if modified {

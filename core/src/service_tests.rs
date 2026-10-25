@@ -1191,3 +1191,81 @@ async fn running_service_accepts_a_desktop_component_source_without_restart() {
     assert!(!message.contains("未包含预构建文档组件"), "registered component was ignored: {message}");
     stop(&client, server).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn save_note_writes_an_anchored_file_and_tracks_source_changes() {
+    use sag_protocol::types::{Candidate, Message, NoteSourceState, SourceSpan};
+    let (dir, client, server) = start().await;
+    let root = dir.path().join("kb");
+    std::fs::create_dir_all(root.join("notes")).unwrap();
+    let passage = "fn check_permission(user: &User) -> bool {\n    user.roles.contains(&Role::Admin)\n}";
+    let source = root.join("guard.md");
+    std::fs::write(&source, format!("# guard\n\n{passage}\n")).unwrap();
+    let root = root.canonicalize().unwrap();
+    call(&client, Operation::AddRoot { path: root.to_string_lossy().into_owned() }).await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Output::Roots(roots) = call(&client, Operation::ListRoots).await {
+                if roots.iter().any(|r| r.status == "ready" && r.count == 1) { break; }
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    }).await.unwrap();
+    let raw = std::fs::read(&source).unwrap();
+    let body = String::from_utf8(raw.clone()).unwrap();
+    let start = body.find(passage).unwrap();
+    let candidate = Candidate {
+        id: 1, document_id: 1, path: source.canonicalize().unwrap().to_string_lossy().into_owned(), title: "guard.md".into(), heading: "guard".into(),
+        content: passage.into(), start_line: 3, end_line: 5, source_ranges: vec![(start, start + passage.len())],
+        source_spans: vec![SourceSpan { start_byte: start, end_byte: start + passage.len(), start_line: 3, start_column: 1, end_line: 5, end_column: 1 }],
+        bm25: 0., score: 1., previous_score: None, order: 0, hash: crate::store::hash(&raw),
+    };
+    let message = Message {
+        created_at: Some(1_761_370_800_000), question: "权限在哪里校验？".into(), answer: "在 guard 里 [1]，再提一次 [1]。".into(),
+        reasoning: String::new(), reasoning_blocks: vec![], evidence: vec![candidate], model: "test".into(),
+        scope: vec![root.to_string_lossy().into_owned()], references: vec![], status: "complete".into(), error: None,
+        retrieval_question: "权限在哪里校验？".into(), tool_calls: vec![], context: None, note_path: None,
+    };
+    let conversation = sag_protocol::types::Conversation { id: "c1".into(), title: "t".into(), messages: vec![message], updated: 0, deleted: false };
+    // Seed the conversation directly; RunQuery would need a model.
+    let Output::Info(_) = call(&client, Operation::Info).await else { panic!("info") };
+    let data = dir.path().join("data");
+    let store = crate::store::Store::open(&data.join("sag.sqlite")).unwrap();
+    store.put_conversation(&conversation).unwrap();
+    drop(store);
+
+    let target = root.join("notes");
+    let Output::Note(detail) = call(&client, Operation::SaveNote {
+        conversation_id: "c1".into(), message_index: 0, target: Some(target.to_string_lossy().into_owned()), expected_hash: None, remember: true,
+    }).await else { panic!("note") };
+    assert_eq!(detail.summary.state, NoteSourceState::Intact);
+    assert_eq!(detail.sources.len(), 1);
+    let note_path = std::path::PathBuf::from(&detail.summary.path);
+    assert_eq!(note_path.file_name().unwrap().to_string_lossy(), "权限在哪里校验.md");
+    let written = std::fs::read_to_string(&note_path).unwrap();
+    assert!(written.starts_with("---\nsag_note: 1\n"));
+    assert!(written.contains("path: \"../guard.md\""));
+    assert!(written.contains("在 guard 里 [1]，再提一次 [1]。"));
+    let Output::Conversations(conversations) = call(&client, Operation::ListConversations).await else { panic!("conversations") };
+    assert_eq!(conversations[0].messages[0].note_path.as_deref(), Some(detail.summary.path.as_str()));
+    let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(settings.notes.folder.as_deref(), Some(target.canonicalize().unwrap().to_str().unwrap()));
+
+    // Edit the source: the watcher re-indexes it and the anchor becomes "changed".
+    std::fs::write(&source, "# guard\n\nfn check_permission(user: &User, action: Action) -> bool {\n    user.roles.contains(&Role::Admin) || action.is_public()\n}\n").unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Output::Note(detail) = call(&client, Operation::GetNote { path: detail.summary.path.clone() }).await {
+                if detail.sources[0].state == NoteSourceState::Changed { break; }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }).await.unwrap();
+    // VerifyNotes reads the disk even before the watcher catches up.
+    std::fs::remove_file(&source).unwrap();
+    let Output::Notes(summaries) = call(&client, Operation::VerifyNotes { paths: vec![detail.summary.path.clone()] }).await else { panic!("verify") };
+    assert_eq!(summaries[0].state, NoteSourceState::Missing);
+    let Output::Notes(all) = call(&client, Operation::ListNotes { scope: None }).await else { panic!("list") };
+    assert_eq!(all.len(), 1);
+    stop(&client, server).await;
+}
