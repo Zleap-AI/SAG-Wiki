@@ -530,14 +530,25 @@ pub fn relocate(source: &NoteSource, current: &str) -> Relocation {
     if candidates.is_empty() {
         // No line survived intact (typical for a one-line edit): fall back to lines
         // that still share most of the cited words.
-        let wanted_tokens: std::collections::HashSet<String> = tokens(wanted_text).iter().map(|t| t.to_lowercase()).collect();
-        if !wanted_tokens.is_empty() {
+        // Compare line against line: a multi-line passage edited in several places
+        // still has lines that each keep most of their own words.
+        let wanted_line_tokens: Vec<std::collections::HashSet<String>> = wanted_lines
+            .iter()
+            .map(|line| tokens(line).iter().map(|t| t.to_lowercase()).collect::<std::collections::HashSet<_>>())
+            .filter(|set| !set.is_empty())
+            .collect();
+        if !wanted_line_tokens.is_empty() {
             let mut scored: Vec<(usize, usize)> = have_lines
                 .iter()
                 .enumerate()
                 .filter_map(|(index, (_, line))| {
-                    let shared = tokens(line).iter().filter(|t| wanted_tokens.contains(&t.to_lowercase())).collect::<std::collections::HashSet<_>>().len();
-                    (shared * 2 >= wanted_tokens.len()).then_some((shared, index))
+                    let line_tokens: std::collections::HashSet<String> = tokens(line).iter().map(|t| t.to_lowercase()).collect();
+                    let shared = wanted_line_tokens
+                        .iter()
+                        .filter(|wanted| wanted.intersection(&line_tokens).count() * 2 >= wanted.len())
+                        .map(|wanted| wanted.intersection(&line_tokens).count())
+                        .max()?;
+                    Some((shared, index))
                 })
                 .collect();
             scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
@@ -698,6 +709,13 @@ mod tests {
         let r = relocate(&source("Release requires owner approval before deployment.", 0), "intro\nRelease requires security approval before deployment.\noutro\n");
         assert_eq!(r.state, NoteSourceState::Changed);
         assert!(r.similarity.unwrap() > 0.8);
+        // Every line of a multi-line passage edited by one word: still changed.
+        let passage = "Release requires owner approval before deployment.\nThe owner signs the manifest file.\nDeployment happens after the owner confirms.";
+        let edited = "intro\nRelease requires security approval before deployment.\nThe lead signs the manifest file.\nDeployment happens after the lead confirms.\noutro\n";
+        let r = relocate(&source(passage, 0), edited);
+        assert_eq!(r.state, NoteSourceState::Changed);
+        assert!(r.similarity.unwrap() >= 0.7);
+        assert!(edited[r.start_byte..r.end_byte].starts_with("Release requires security"));
     }
 
     #[test]

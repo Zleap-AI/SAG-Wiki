@@ -83,6 +83,28 @@ it('默认目录下修改的文件名会传给服务',async()=>{
  expect(saveArgs).toMatchObject({target:null,fileName:'权限校验要点.md'});
 });
 
+it('保存期间关闭面板仍然完成并提示；切换会话后不污染当前会话',async()=>{
+ let resolveSave:(note:NoteDetail)=>void=()=>{};
+ const base=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>command==='save_note'?new Promise<NoteDetail>(resolve=>{saveArgs=args as Record<string,unknown>;resolveSave=resolve}):base(command,args));
+ await vi.waitFor(()=>expect(buttons('保存为笔记').length).toBe(2));
+ buttons('保存为笔记')[0].click();await tick();
+ document.querySelector<HTMLButtonElement>('.save-note-dialog .primary')!.click();
+ await vi.waitFor(()=>expect(saveArgs).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('.save-note-dialog [aria-label="关闭"]')!.click();await tick();
+ expect(document.querySelector('.save-note-dialog')).toBeNull();
+ // Switch to another conversation while the save is still in flight.
+ const other:Conversation={id:'other',title:'另一个会话',updated:1,deleted:false,messages:[{question:'别的问题',answer:'别的回答',scope:[],references:[],model:'test',evidence:[],status:'complete',error:null,retrieval_question:'别的问题'}]};
+ invoke.mockImplementation(async(command,args)=>command==='list_conversations'?[saved,other]:command==='save_note'?new Promise<NoteDetail>(resolve=>{resolveSave=resolve}):base(command,args));
+ listeners.get('history-changed')?.({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('[title="另一个会话"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[title="另一个会话"]')!.click();await tick();
+ saved={...saved,messages:saved.messages.map((m,i)=>i===0?{...m,note_path:note.summary.path}:m)};
+ resolveSave(note);await tick();
+ await vi.waitFor(()=>expect(document.querySelector('#notice')?.textContent).toContain('已保存笔记'));
+ expect(buttons('打开笔记').length).toBe(0);
+});
+
 it('记住位置且关闭询问时直接保存，按住 Option 仍打开面板',async()=>{
  await unmount(app);document.body.innerHTML='';
  const base=invoke.getMockImplementation()!;

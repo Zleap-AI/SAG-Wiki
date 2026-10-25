@@ -16,7 +16,7 @@
  export let defaultFolder:string|null|undefined=undefined;
  export let cache:Record<string,Entry[]>={};
  export let onClose:()=>void;
- export let onSaved:(note:NoteDetail)=>void;
+ export let onSaved:(note:NoteDetail,context:{conversationId:string;messageIndex:number})=>void;
  export let onAddFolder:(()=>void)|undefined=undefined;
 
  const suggested=message.question.replace(/[\u0000-\u001f/\\:?*<>|"]/g,' ').replace(/\s+/g,' ').trim().slice(0,60).replace(/[. ?!,;:？！。，、；：]+$/,'').trim()||'note';
@@ -37,7 +37,7 @@
   saving=true;error='';
   try{
    const note=await api<NoteDetail>('save_note',{conversationId,messageIndex,target:folder||null,fileName:file,expectedHash:null,remember:remember&&!!folder});
-   onSaved(note);
+   onSaved(note,{conversationId,messageIndex});
   }catch(e){error=$t(String(e));}
   finally{saving=false;}
  }

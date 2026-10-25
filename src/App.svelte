@@ -256,16 +256,17 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   await tick();askInput?.focus({preventScroll:true});
  }
  async function openNote(path:string){await edit(path);}
- function noteSaved(index:number,note:NoteDetail){
+ function noteSaved(conversationId:string,index:number,note:NoteDetail){
   const path=note.summary.path;
-  if(conversation)conversation={...conversation,messages:conversation.messages.map((m,i)=>i===index?{...m,note_path:path}:m)};
+  if(conversation?.id===conversationId)conversation={...conversation,messages:conversation.messages.map((m,i)=>i===index?{...m,note_path:path}:m)};
   void history();notify($t('已保存笔记《{value0}》',{value0:note.summary.title}),async()=>{closeNotice();await openNote(path)});
  }
  async function saveNote(index:number,forcePanel=false){
   const folder=settings?.notes?.folder?.trim();
   if(forcePanel||!folder||settings?.notes?.ask_location){saveNoteFor={index};return;}
   if(!conversation)return;
-  try{noteSaved(index,await api<NoteDetail>('save_note',{conversationId:conversation.id,messageIndex:index,target:folder,fileName:null,expectedHash:null,remember:false}));}
+  const conversationId=conversation.id;
+  try{noteSaved(conversationId,index,await api<NoteDetail>('save_note',{conversationId,messageIndex:index,target:folder,fileName:null,expectedHash:null,remember:false}));}
   catch(e){notify($t(String(e)))}
  }
  async function returnToFiles(){
@@ -694,7 +695,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
 
 {#if onboardingOpen}<Onboarding onClose={closeOnboarding}/>{/if}
 
-{#if saveNoteFor&&conversation&&displayedMessages[saveNoteFor.index]}<SaveNoteDialog message={displayedMessages[saveNoteFor.index]} conversationId={conversation.id} messageIndex={saveNoteFor.index} {roots} {cache} defaultFolder={settings?.notes?.folder} onClose={()=>saveNoteFor=null} onAddFolder={()=>{saveNoteFor=null;add()}} onSaved={note=>{const index=saveNoteFor!.index;saveNoteFor=null;noteSaved(index,note);}}/>{/if}
+{#if saveNoteFor&&conversation&&displayedMessages[saveNoteFor.index]}<SaveNoteDialog message={displayedMessages[saveNoteFor.index]} conversationId={conversation.id} messageIndex={saveNoteFor.index} {roots} {cache} defaultFolder={settings?.notes?.folder} onClose={()=>saveNoteFor=null} onAddFolder={()=>{saveNoteFor=null;add()}} onSaved={(note,context)=>{saveNoteFor=null;noteSaved(context.conversationId,context.messageIndex,note);}}/>{/if}
 {#if historySearchOpen}<HistorySearch {conversations} onClose={()=>historySearchOpen=false} onSelect={async c=>{await chooseHistory(c);if(conversation?.id===c.id)historySearchOpen=false}}/>{/if}
 
 {#if chooseSaveFolder&&!folderPickerOpen&&draft}<Modal label={$t("保存文档")} class="new-document-dialog" onClose={()=>finishSaveFolder(null)}>
