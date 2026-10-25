@@ -28,7 +28,7 @@ function openDocument(){[...document.querySelectorAll<HTMLButtonElement>('.searc
 it('Windows 搜索预览和原文页显示普通路径，读取和打开使用原始路径',async()=>{
  const path=String.raw`\\?\D:\资料\file.txt`,shown=String.raw`D:\资料\file.txt`;
  await setup([{...hits[0],path}]);
- await vi.waitFor(()=>expect(document.querySelector('.search-preview .source-path')?.textContent).toBe(shown));
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview .source-path')?.getAttribute('title')).toBe(shown));
  expect(invoke).toHaveBeenCalledWith('read_document',{path});
  openDocument();
  await vi.waitFor(()=>expect(document.querySelector('.readonly-document .source-path')?.textContent).toBe(shown));

@@ -3,8 +3,12 @@
  import {onMount} from 'svelte';
  import {highlightDocument} from '../lib/search-highlights';
  import MatchNavigation from './MatchNavigation.svelte';
+ import {readReaderScroll,rememberReaderScroll} from '../lib/reader-scroll';
  export let body='';export let terms:string[]=[];export let initialMatch=0;
+ export let showNavigation=true;export let memoryKey='';export let restoreScroll=false;
  let html='',count=0,index=0,ready=false,frame:HTMLIFrameElement;
+ const positionKey=memoryKey;
+ let saved=restoreScroll?readReaderScroll(positionKey):undefined;
  $:{
   const doc=new DOMParser().parseFromString(body,'text/html');
   doc.querySelectorAll('script,meta,base,iframe,object,embed').forEach(node=>node.remove());
@@ -17,24 +21,31 @@
   doc.querySelectorAll('a[href^="#"]').forEach(link=>link.setAttribute('href','about:srcdoc'+link.getAttribute('href')));
   count=highlightDocument(doc,terms);ready=false;
   const style=doc.createElement('style');
-  style.textContent='mark.search-hit{background:#ffe39c!important;color:#151515!important}mark.search-hit.active{background:#ffb847!important}tspan.search-hit{fill:#151515!important;stroke:#ffe39c!important;stroke-width:4px!important;paint-order:stroke fill}tspan.search-hit.active{stroke:#ffb847!important}';
+  style.textContent=`mark.search-hit{background:rgba(80,80,80,.1)!important;color:inherit!important;border-radius:2px}mark.search-hit.active{background:rgba(80,80,80,.2)!important;box-shadow:0 1px 0 rgba(80,80,80,.35)}tspan.search-hit{stroke:rgba(80,80,80,.1)!important;stroke-width:4px!important;paint-order:stroke fill}tspan.search-hit.active{stroke:rgba(80,80,80,.2)!important}
+   *{scrollbar-width:thin;scrollbar-color:transparent transparent}html.sag-scroll-active,html.sag-scroll-active *{scrollbar-color:rgba(100,100,100,.4) transparent}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:transparent;border-radius:6px}html.sag-scroll-active::-webkit-scrollbar-thumb,html.sag-scroll-active ::-webkit-scrollbar-thumb{background:rgba(100,100,100,.4)}`;
   doc.head.append(style);
   html='<!DOCTYPE html>'+doc.documentElement.outerHTML;
  }
  onMount(()=>{
   const receive=(event:MessageEvent)=>{
-   if(event.source===frame.contentWindow&&event.data?.type==='sag-external-link')window.dispatchEvent(new CustomEvent('open-external-link',{detail:event.data.url}));
+   if(event.source!==frame.contentWindow)return;
+   if(event.data?.type==='sag-external-link')window.dispatchEvent(new CustomEvent('open-external-link',{detail:event.data.url}));
+   if(event.data?.type==='sag-reader-scroll'&&typeof event.data.top==='number'&&typeof event.data.left==='number')rememberReaderScroll(positionKey,{top:event.data.top,left:event.data.left});
   };
   window.addEventListener('message',receive);return()=>window.removeEventListener('message',receive);
  });
- function loaded(event:Event){if(event.currentTarget!==frame)return;ready=true;selectMatch(Math.min(initialMatch,Math.max(0,count-1)));}
- function selectMatch(next:number){
-  if(!count)return;index=(next+count)%count;
-  frame.contentWindow!.postMessage({type:'sag-select-match',index},'*');
+ function loaded(event:Event){
+  if(event.currentTarget!==frame)return;ready=true;
+  selectMatch(Math.min(initialMatch,Math.max(0,count-1)),!saved);
+  if(saved){frame.contentWindow!.postMessage({type:'sag-restore-scroll',top:saved.top,left:saved.left},'*');saved=undefined}
+ }
+ function selectMatch(next:number,scroll=true){
+  index=count?(next+count)%count:0;
+  frame.contentWindow!.postMessage({type:'sag-select-match',index,scroll},'*');
  }
 </script>
 
-{#if ready}<MatchNavigation {count} {index} onMove={step=>selectMatch(index+step)}/>{/if}
+{#if ready&&showNavigation}<MatchNavigation {count} {index} onMove={step=>selectMatch(index+step)}/>{/if}
 <iframe class="html-document" title={$t('HTML 文档')} sandbox="allow-scripts" srcdoc={html} bind:this={frame} on:load={loaded}></iframe>
 
 <style>

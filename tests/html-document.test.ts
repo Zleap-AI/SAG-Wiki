@@ -3,8 +3,8 @@ import {loadDocumentBridge} from './helpers/document-bridge';
 import {afterEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import HtmlDocument from '../src/components/HtmlDocument.svelte';
-let app:ReturnType<typeof mount>;
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';});
+let app:ReturnType<typeof mount>|null=null;
+afterEach(async()=>{if(app)await unmount(app);app=null;document.body.innerHTML='';});
 it('保留 HTML 页面样式和 SVG 图形，高亮正文并切换匹配',async()=>{
  const body='<style>p{color:red}</style><p>早先 Token</p><h2>目标 Token</h2><svg><text x="10" y="20">Token</text></svg><script>Token()</script>';
  app=mount(HtmlDocument,{target:document.body,props:{body,terms:['Token'],initialMatch:1}});
@@ -37,4 +37,29 @@ it('过滤文档脚本、事件处理和跳转代码，保留样式与普通链�
  expect(doc.querySelector('a[href^="javascript:"]')).toBeNull();
  expect(doc.querySelector('a[href="https://example.org"]')).not.toBeNull();
  expect([...doc.querySelectorAll('style')].some(style=>style.textContent==='p{color:red}')).toBe(true);
+});
+
+it('隔离 HTML 正文可隐藏导航并恢复滚动，新目标和其它窗口消息不能覆盖位置',async()=>{
+ const body='<p>needle first</p><p>needle second</p>',memoryKey='html-return:file:h:query-1';
+ const open=async(props:Record<string,unknown>)=>{
+  app=mount(HtmlDocument,{target:document.body,props:{body,terms:['needle'],memoryKey,...props}});await tick();
+  const frame=document.querySelector('iframe')!,doc=new DOMParser().parseFromString(frame.getAttribute('srcdoc')!,'text/html');
+  const scroll=vi.fn();doc.querySelectorAll('.search-hit').forEach(mark=>Object.defineProperty(mark,'scrollIntoView',{value:scroll}));
+  loadDocumentBridge(frame,doc);await tick();return {frame,doc,scroll};
+ };
+ const first=await open({showNavigation:false});
+ expect(document.querySelector('.match-navigation')).toBeNull();
+ expect(first.frame.getAttribute('sandbox')).toBe('allow-scripts');
+ first.doc.documentElement.scrollTop=350;first.doc.documentElement.scrollLeft=9;
+ first.doc.dispatchEvent(new Event('scroll'));await tick();
+ window.dispatchEvent(new MessageEvent('message',{source:window,data:{type:'sag-reader-scroll',top:999,left:999}}));
+ await unmount(app!);app=null;
+ const restored=await open({restoreScroll:true});
+ expect(restored.doc.documentElement.scrollTop).toBe(350);
+ expect(restored.doc.documentElement.scrollLeft).toBe(9);
+ expect(restored.scroll).not.toHaveBeenCalled();
+ await unmount(app!);app=null;
+ const targeted=await open({restoreScroll:false,initialMatch:1});
+ expect(targeted.doc.querySelector('.search-hit.active')?.getAttribute('data-search-match')).toBe('1');
+ expect(targeted.scroll).toHaveBeenCalledWith({block:'center'});
 });

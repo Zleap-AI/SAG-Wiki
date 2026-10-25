@@ -5,6 +5,7 @@
  import {api} from '../lib/api';
  import {isHtml,isMarkdown,readonlyHtml} from '../lib/domain';
  import {citationTerms,documentMatchIndex} from '../lib/search-highlights';
+ import {legacyPreview} from '../lib/preview-mode';
  import type {Candidate,Document} from '../lib/types';
  import HtmlDocument from './HtmlDocument.svelte';
  import HighlightedDocument from './HighlightedDocument.svelte';
@@ -12,10 +13,15 @@
  export let onOpen:(terms:string[])=>void;
  async function load(candidate:Candidate){
   const document=await api<Document>('read_document',{path:candidate.path});
+  if(isMarkdown(candidate.path)&&!legacyPreview()){
+   const [{markdownModel,candidateRanges,modelCitationTerms},{default:Reader}]=await Promise.all([import('../lib/document-model'),import('./MarkdownReader.svelte')]);
+   const model=markdownModel(document),ranges=candidateRanges(model,candidate);
+   return {document,terms:await modelCitationTerms(model,candidate,ranges),initialMatch:0,html:'',reader:{Reader,model,ranges}};
+  }
   const terms=await citationTerms(candidate,document.body);
   const initialMatch=await documentMatchIndex(document.body,candidate.path,terms,candidate);
   const html=isMarkdown(candidate.path)?(await import('../lib/markdown')).renderMarkdown(document.body):isHtml(candidate.path)?'':readonlyHtml(candidate.path,document.body);
-  return {document,terms,initialMatch,html};
+  return {document,terms,initialMatch,html,reader:null};
  }
  $:preview=load(source);
 </script>
@@ -26,7 +32,8 @@
  <div class="context-body citation-body">
   {#if result.document.hash!==source.hash}<p class="source-warning">{@html icon('info')}{$t('原文件已更新，以下显示当前内容。')}</p>{/if}
   <div class="citation-document">
-   {#if isHtml(source.path)}<HtmlDocument body={result.document.body} terms={result.terms} initialMatch={result.initialMatch}/>
+   {#if result.reader}<svelte:component this={result.reader.Reader} model={result.reader.model} terms={result.terms} target={result.reader.ranges[0].from} within={result.reader.ranges} path={source.path} label="citation"/>
+   {:else if isHtml(source.path)}<HtmlDocument body={result.document.body} terms={result.terms} initialMatch={result.initialMatch}/>
    {:else}<HighlightedDocument html={result.html} terms={result.terms} path={source.path} initialMatch={result.initialMatch}/>{/if}
   </div>
  </div>

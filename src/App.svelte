@@ -1,5 +1,5 @@
 <script lang="ts">
- import {displayPath} from './lib/domain';
+ import {displayPath,sourceName,sourceFolder,citedNumbers} from './lib/domain';
  import {t,setLanguage} from './lib/i18n';
  import {externalLinkClick} from './lib/external-links';
  import {applyTheme,watchSystemTheme} from './lib/theme';
@@ -11,6 +11,9 @@
  import DocumentQuestion from './components/DocumentQuestion.svelte';
  import type {IndexStatus} from './lib/types';
  import SearchSummary from './components/SearchSummary.svelte';
+ import SearchResultItem from './components/SearchResultItem.svelte';
+ import SearchPassagePicker from './components/SearchPassagePicker.svelte';
+ import {quietScroll} from './lib/quiet-scroll';
  import {createLibrarySession} from './lib/explore';
  import type {LibrarySession} from './lib/explore';
  import Input from "./components/ui/Input.svelte";
@@ -43,13 +46,14 @@
  import {answerEvents} from './lib/answer-events';
  import {subscribeDataChanges} from './lib/data-changes';
  import {stableRows} from './lib/stable-snapshot';
- import HighlightedDocument from './components/HighlightedDocument.svelte';import HtmlDocument from './components/HtmlDocument.svelte';import{highlightedText,searchSnippet,searchText,documentMatchIndex}from './lib/search-highlights';
+ import HighlightedDocument from './components/HighlightedDocument.svelte';import HtmlDocument from './components/HtmlDocument.svelte';import{highlightedText,searchSnippet,searchText,documentMatchIndex}from './lib/search-highlights';import{legacyPreview}from './lib/preview-mode';
  import Tree from './components/Tree.svelte';import SettingsPanel from './components/Settings.svelte';import UpdateNotification from './components/UpdateNotification.svelte';import{api}from './lib/api';import{icon,logo}from './lib/icons';import{basename,dirname,normalizeScope,documentResults,escaped,fileName,inside,indexedSourcePath,isMarkdown,isRtf,isHtml,readonlyHtml,compactNumber,durationLabel}from './lib/domain';import type{Root,Entry,FileInfo,Document,Draft,Settings,Conversation,Candidate,Progress,QueryOutput,Message,McpCredentials,ToolApproval,ToolCallRecord}from './lib/types';
  let librarySessions:Record<string,LibrarySession>={'':createLibrarySession()};let libraryRevision=0;let exploreReturn='';let documentFromSearch=false,documentFromConversation=false,documentSearchScroll=0,documentConversationScroll=0,documentInitialMatch=0;let chatLog:HTMLDivElement;
  $:if(selected&&!librarySessions[selected])librarySessions={...librarySessions,[selected]:createLibrarySession()};
  let roots:Root[]=[],files:FileInfo[]=[],conversations:Conversation[]=[],settings:Settings|null=null,cache:Record<string,Entry[]>={},expanded=new Set<string>(JSON.parse(localStorage.getItem('sag.sidebar.expanded')??'[]'));
  let readOnlyDoc:Document|null=null;let searchTerms:string[]=[],documentSearchTerms:string[]=[];
- let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=false,previewError='',previewRequest=0;
+ let previewReader:{doc:Document;Reader:typeof import('./components/MarkdownReader.svelte').default;model:import('./lib/document-model').MarkdownModel;target:number}|null=null;
+let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=false,previewError='',previewRequest=0;
  let view='ask',selected='',readingFolder='',collapsed=false,conversation:Conversation|null=null,ask='',search='',searched=false,results:Candidate[]=[],focus:Candidate|null=null,preview='',source:Candidate|null=null;
  let sidebarMotion=false,sidebarAnimations:Animation[]=[];
  let composing=false,compositionEndedAt=-Infinity;
@@ -115,7 +119,8 @@
  $:answerHasError=view==='ask'&&displayedMessages.some(message=>message.error&&$t(message.error)===$t(error));
  $:if(displayedMessages.length)void renderAnswers(displayedMessages);
  function answerKey(message:Message){return JSON.stringify([message.question,message.answer,message.tool_calls?.map(call=>[call.id,call.answer_offset]),message.reasoning_blocks?.map(block=>[block.answer_offset,block.tool_count]),message.evidence.map(({id,path,hash})=>[id,path,hash])]);}
- function renderAnswers(messages:Message[]){if(!answerRenderer){answerRendererLoading??=import('./lib/markdown').then(module=>{answerRenderer=module.renderAnswer;renderAnswers(displayedMessages)});return;}const next:typeof renderedAnswers={};for(const message of messages){const key=answerKey(message);next[key]=renderedAnswers[key]??answerRenderer(message.answer,message.evidence,message.tool_calls,message.reasoning_blocks);}renderedAnswers=next;}
+ function loadAnswerRenderer(){return answerRendererLoading??=import('./lib/markdown').then(module=>{answerRenderer=module.renderAnswer;renderAnswers(displayedMessages)});}
+ function renderAnswers(messages:Message[]){if(!answerRenderer){void loadAnswerRenderer();return;}const next:typeof renderedAnswers={};for(const message of messages){const key=answerKey(message);next[key]=renderedAnswers[key]??answerRenderer(message.answer,message.evidence,message.tool_calls,message.reasoning_blocks);}renderedAnswers=next;}
  $:rankedGroups=documentResults(results);
  $:groups=searchRanked?rankedGroups.slice((searchPage-1)*20,searchPage*20):rankedGroups;
  $:searchStageText=stage==='SAG2 正在分析'?$t("正在准备搜索"):stage==='正在检索原文'?$t("正在查找相关文件"):stage==='正在扩展检索'?$t("正在扩展搜索范围"):stage==='Jev 正在判断相关原文'?$t("正在按相关性排序"):$t(stage);
@@ -324,7 +329,9 @@
   const id=crypto.randomUUID();summaryJob=id;summaryBusy=true;summaryError='';summaryText='';summaryEvidence=documentResults(candidates).slice(0,settings?.search_summary_sources??10).map(group=>group.first);
   try{const output=await api<{text:string;evidence:Candidate[]}>('summarize_search',{id,question,results:summaryEvidence});if(summaryJob===id){summaryText=output.text;summaryEvidence=output.evidence}}
   catch(e){if(summaryJob===id)summaryError=$t(String(e))}
-  finally{if(summaryJob===id){summaryBusy=false;summaryJob=''}}
+  finally{if(summaryJob===id){summaryBusy=false;summaryJob='';
+   // Without a summary to show, the reader opens the first result instead.
+   if(!summaryText&&!summaryError&&!focus&&results.length)void focusResult(results[0]);}}
  }
  async function stop(kind:'ask'|'search'=view==='search'?'search':'ask'){
   if(kind==='ask'){
@@ -339,7 +346,7 @@
   else{const summaryCancellation=stopSummary();if(searchBusy)searchStopped=true;const id=searchJob;searchJob='';searchBusy=false;paging=false;searchPage=searchPagination?.page??1;searchStage='';await Promise.all([summaryCancellation,...(id?[api('cancel_query',{id})]:[])]);}
  }
  async function resetSearch(focusInput=true){
-  await stop('search');summaryText='';summaryError='';summaryEvidence=[];search='';searched=false;results=[];focus=null;previewDocument=null;preview='';previewError='';previewLoading=false;previewRequest++;searchTerms=[];searchQuestion='';searchPagination=null;searchPage=1;searchElapsed=null;searchError='';
+  await stop('search');passagesOpen=false;summarySelected=false;searchFocusMode=false;rememberedCandidates.clear();summaryText='';summaryError='';summaryEvidence=[];search='';searched=false;results=[];focus=null;previewDocument=null;preview='';previewError='';previewLoading=false;previewRequest++;searchTerms=[];searchQuestion='';searchPagination=null;searchPage=1;searchElapsed=null;searchError='';
   await tick();if(focusInput)searchInput.focus();
  }
  async function clearAllDataState(){
@@ -375,7 +382,7 @@
  async function changeSearchPage(page:number){
   if(searchBusy||page===searchPagination?.page)return;
   if(!searchRanked){await run('search',undefined,page);return;}
-  searchPage=page;searchPagination={...searchPagination!,page};
+  searchPage=page;searchPagination={...searchPagination!,page};activeResult=0;
   void focusResult(rankedGroups[(page-1)*20].first);
   await tick();if(searchList)searchList.scrollTop=0;
  }
@@ -396,7 +403,7 @@
    if(page===undefined){summaryCancellation=stopSummary();summaryText='';summaryError='';summaryEvidence=[]}
    searchError='';searchJob=id;searchBusy=true;searchJobKind=kind;searchStage=kind==='search'?'正在搜索本地文件':'SAG2 正在分析';
    paging=page!==undefined;searched=true;searchStopped=false;searchElapsed=null;searchRanked=kind==='deep_search';
-   if(!paging){searchQuestion=question;searchPagination=null;searchPage=1;results=[];searchTerms=[];focus=null;previewDocument=null;preview='';previewError='';previewLoading=false;previewRequest++}
+   if(!paging){searchGeneration++;rememberedCandidates.clear();passagesOpen=false;summarySelected=false;previewFindOpen=false;previewFindTerm='';searchFocusMode=false;searchQuestion=question;searchPagination=null;searchPage=1;results=[];searchTerms=[];focus=null;previewDocument=null;preview='';previewError='';previewLoading=false;previewRequest++}
   }
   try{
    if(summaryCancellation)await summaryCancellation;
@@ -405,7 +412,7 @@
    const output=await api<QueryOutput>('run_query',{query:{id,kind,question,scope,references:kind==='ask'?references:[],model:settings.answer.model,conversation_id:kind==='ask'?conversationId:null,replace_from:replaceFrom??null,page:kind==='search'?(page??1):null}});
    if((kind==='ask'?askJob:searchJob)!==id)return;
    if(kind==='ask'){conversation=output.conversation;pending=null;references=[];await history()}
-   else{searchTerms=output.terms||[];results=output.results;searchRanked=kind==='deep_search';searchElapsed=output.elapsed_ms??null;searchPagination=kind==='deep_search'?{total:documentResults(output.results).length,page:1,page_size:20}:output.pagination??null;searchPage=searchPagination?.page??1;await tick();if(searchList)searchList.scrollTop=0;if(results.length)void focusResult(results.find(c=>c.path===focus?.path)||results[0]);if(page===undefined)void summarizeSearch(question,output.results);}
+   else{searchTerms=output.terms||[];results=output.results;searchRanked=kind==='deep_search';searchElapsed=output.elapsed_ms??null;searchPagination=kind==='deep_search'?{total:documentResults(output.results).length,page:1,page_size:20}:output.pagination??null;searchPage=searchPagination?.page??1;await tick();if(searchList)searchList.scrollTop=0;if(page===undefined){activeResult=0;passagesOpen=false}const kept=results.find(c=>c.path===focus?.path);if(kept)void focusResult(kept,true);else if(results.length)void focusResult(results[0]);else{focus=null;previewRequest++}if(page===undefined)void summarizeSearch(question,output.results);}
   }catch(e){
    if((kind==='ask'?askJob:searchJob)===id){
     if(kind==='ask'){error=$t(String(e));if(pending)pending={...pending,status:'failed',error};await history()}
@@ -416,11 +423,96 @@
    else if(searchJob===id){searchBusy=false;paging=false;searchPage=searchPagination?.page??1;searchStage='';searchJob=''}
   }
  }
- async function focusResult(c:Candidate){
-  focus=c;previewDocument=null;preview='';previewError='';previewLoading=true;const request=++previewRequest;
+// Search results prioritize source reading; the summary is an explicit secondary view.
+ let activeResult=0,resultsFocused=false,passagesOpen=false,passageReturn:HTMLElement|null=null;
+ let searchFocusMode=false,summarySelected=false,lastSearchFocus:Candidate|null=null;
+ let previewFindOpen=false,previewFindDraft='',previewFindTerm='',previewFindInput:HTMLInputElement;
+ const searchSession=crypto.randomUUID();
+ let searchGeneration=0,restorePreview=false;
+ const rememberedCandidates=new Map<string,Candidate>();
+ $:focusedGroup=focus?rankedGroups.find(group=>group.first.path===focus?.path):null;
+ $:focusedPassages=focusedGroup?.matches??(focus?[focus]:[]);
+ $:passageIndex=Math.max(0,focusedPassages.findIndex(c=>c.id===focus?.id));
+ $:readerTerms=previewFindOpen&&previewFindTerm?[previewFindTerm]:searchTerms;
+ $:readerMemoryKey=previewDocument?JSON.stringify([searchSession,searchGeneration,previewDocument.path,previewDocument.hash,previewFindTerm]):'';
+ $:if(view!=='search'){passagesOpen=false;searchFocusMode=false;}
+
+ let searchListWidth=Math.min(520,Math.max(260,Number(localStorage.getItem('sag.search.listWidth'))||340));
+ $:showSummary=settings?.search_summary_enabled!==false&&(summaryBusy||!!summaryText||!!summaryError);
+ $:if(summaryText&&!answerRenderer)void loadAnswerRenderer();
+ $:renderedSummary=summaryText&&answerRenderer?answerRenderer(summaryText,summaryEvidence):null;
+ $:summaryCitations=citedNumbers(renderedSummary?.sources??[]);
+ function closePassages(restore=true){
+  passagesOpen=false;
+  if(restore)tick().then(()=>{if(passageReturn?.isConnected)passageReturn.focus({preventScroll:true});else document.querySelector<HTMLButtonElement>('.search-passage-trigger')?.focus()});
+ }
+ function togglePassages(path:string){
+  if(passagesOpen&&focus?.path===path){closePassages();return;}
+  passageReturn=document.activeElement instanceof HTMLElement?document.activeElement:null;
+  const candidate=rankedGroups.find(group=>group.first.path===path)?.first??(focus?.path===path?focus:null);if(!candidate)return;
+  if(focus?.path!==path)void focusResult(candidate,true);
+  passagesOpen=true;
+ }
+ function selectPassage(candidate:Candidate){closePassages();void focusResult(candidate,false);}
+ function stepPassage(step:number){const next=focusedPassages[passageIndex+step];if(next){closePassages(false);void focusResult(next,false);}}
+ function leaveSearchReader(){closePassages(false);focus=null;summarySelected=false;previewRequest++;searchFocusMode=false;tick().then(()=>searchList?.focus({preventScroll:true}));}
+ function toggleSearchSummary(){
+  closePassages(false);searchFocusMode=false;
+  if(summarySelected){summarySelected=false;if(lastSearchFocus)void focusResult(lastSearchFocus,true);return;}
+  if(!showSummary)return;
+  lastSearchFocus=focus;focus=null;previewRequest++;summarySelected=true;previewFindOpen=false;
+ }
+ async function openPreviewFind(){previewFindOpen=true;await tick();previewFindInput?.focus();}
+ function applyPreviewFind(){previewFindTerm=previewFindDraft.trim();restorePreview=false;}
+ function closePreviewFind(){previewFindOpen=false;previewFindDraft='';previewFindTerm='';restorePreview=true;tick().then(()=>document.querySelector<HTMLButtonElement>('.search-find-trigger')?.focus());}
+ function searchOutside(event:MouseEvent){if(passagesOpen&&event.target instanceof Element&&!event.target.closest('.search-passage-picker,.search-passage-trigger,.search-result-more'))closePassages(false);}
+
+ function showResult(index:number){
+  if(!groups.length)return;
+  activeResult=(index+groups.length)%groups.length;
+  closePassages(false);void focusResult(groups[activeResult].first,true);
+  tick().then(()=>document.getElementById(`search-result-${activeResult}`)?.scrollIntoView({block:'nearest'}));
+ }
+ function resultKeys(e:KeyboardEvent){
+  const button=e.target instanceof Element?e.target.closest('button'):null;
+  if(button&&(e.key==='Enter'||e.key===' ')&&!e.metaKey&&!e.ctrlKey)return;
+  const group=groups[activeResult];if(!group)return;
+  if(button&&['ArrowDown','ArrowUp','Home','End','ArrowRight','ArrowLeft'].includes(e.key))searchList.focus({preventScroll:true});
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();showResult(activeResult+(e.key==='ArrowDown'?1:-1))}
+  else if(e.key==='Home'||e.key==='End'){e.preventDefault();showResult(e.key==='Home'?0:groups.length-1)}
+  else if(e.key==='ArrowRight'){e.preventDefault();togglePassages(group.first.path)}
+  else if(e.key==='ArrowLeft'&&passagesOpen){e.preventDefault();closePassages()}
+  else if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();void edit(group.first.path,searchTerms)}
+  else if(e.key==='Enter'){e.preventDefault();showResult(activeResult)}
+ }
+ function setListWidth(width:number){searchListWidth=Math.round(Math.min(520,Math.max(260,width)));try{localStorage.setItem('sag.search.listWidth',String(searchListWidth))}catch{}}
+ function startResize(e:PointerEvent){
+  const handle=e.currentTarget as HTMLElement,start=e.clientX,width=searchListWidth;
+  handle.setPointerCapture(e.pointerId);
+  const move=(event:PointerEvent)=>setListWidth(width+event.clientX-start);
+  const end=()=>{handle.removeEventListener('pointermove',move);handle.removeEventListener('pointerup',end);handle.removeEventListener('pointercancel',end)};
+  handle.addEventListener('pointermove',move);handle.addEventListener('pointerup',end);handle.addEventListener('pointercancel',end);
+ }
+ function resizeKey(e:KeyboardEvent){if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();setListWidth(searchListWidth+(e.key==='ArrowRight'?16:-16))}}
+ async function focusResult(candidate:Candidate,restore=false){
+   if(focus)rememberedCandidates.set(focus.path,focus);
+   const remembered=rememberedCandidates.get(candidate.path);
+   const c=restore&&remembered?remembered:candidate;
+   if(focus?.id===c.id&&previewDocument&&!previewLoading&&restore){summarySelected=false;return;}
+   restorePreview=restore;summarySelected=false;previewFindOpen=false;previewFindDraft='';previewFindTerm='';
+  const index=groups.findIndex(group=>group.first.path===c.path);if(index>=0)activeResult=index;
+  focus=c;rememberedCandidates.set(c.path,c);previewDocument=null;preview='';previewError='';previewLoading=true;const request=++previewRequest;
   try{
    const doc=await api<Document>('read_document',{path:c.path});
    if(request!==previewRequest||focus?.id!==c.id)return;
+   if(isMarkdown(c.path)&&!legacyPreview()){
+    const [{markdownModel,candidateRanges},{default:Reader}]=await Promise.all([import('./lib/document-model'),import('./components/MarkdownReader.svelte')]);
+    if(request!==previewRequest||focus?.id!==c.id)return;
+    const model=markdownModel(doc);
+    previewReader={doc,Reader,model,target:candidateRanges(model,c)[0].from};previewDocument=doc;preview='';
+    if(doc.hash!==c.hash)previewError=$t('原文件已更新，以下显示当前内容。');
+    return;
+   }
    const initial=await documentMatchIndex(doc.body,c.path,searchTerms,c);
    const md=isMarkdown(c.path)?await import('./lib/markdown'):null;
    if(request!==previewRequest||focus?.id!==c.id)return;
@@ -434,7 +526,7 @@
  function openAgentSetup(){settingsPage='cli';settingsOpen=true;}
  async function saveReasoning(){if(!settings)return;try{await api('save_settings',{settings,answerKey:'',jevKey:'',mcpCredentials:{}})}catch(e){notify($t('思考强度保存失败：{value0}',{value0:$t(String(e))}))}}
  async function saveSettings(value:Settings,a:string,j:string,credentials:Record<string,McpCredentials>={}){await api('save_settings',{settings:value,answerKey:a,jevKey:j,mcpCredentials:credentials});settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary();cache={};await refresh()}
- async function keys(e:KeyboardEvent){if(onboardingOpen)return;if(e.key==='Escape'){if(leave||renameId||settingsOpen||historySearchOpen||folderPickerOpen||chooseSaveFolder||menu||source||scopeOpen||toolApproval)return;if(mention){mention=false;return;}return;}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'&&view==='editor'){e.preventDefault();await save()}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();await navigate('search')}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='n'){e.preventDefault();await newChat()}}
+ async function keys(e:KeyboardEvent){if(onboardingOpen)return;if(e.key==='Escape'){if(view==='search'&&passagesOpen){e.preventDefault();closePassages();return;}if(view==='search'&&previewFindOpen){e.preventDefault();closePreviewFind();return;}if(view==='search'&&searchFocusMode){e.preventDefault();searchFocusMode=false;return;}if(leave||renameId||settingsOpen||historySearchOpen||folderPickerOpen||chooseSaveFolder||menu||source||scopeOpen||toolApproval)return;if(mention){mention=false;return;}if(view==='search'&&focus&&showSummary&&!(e.target instanceof Element&&e.target.closest('input,textarea,[contenteditable=true],[role=listbox]:not(.search-results)'))){toggleSearchSummary()}return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();await openPreviewFind();return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='g'){e.preventDefault();previewFindOpen=true;await tick();document.querySelector<HTMLButtonElement>(`.search-preview ${e.shiftKey?'.match-previous':'.match-next'}`)?.click();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'&&view==='editor'){e.preventDefault();await save()}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();await navigate('search')}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='n'){e.preventDefault();await newChat()}}
  onMount(()=>{
   const openLink=(event:Event)=>{void api('open_external_link',{url:(event as CustomEvent<string>).detail}).catch(e=>notify($t(String(e))));};
   window.addEventListener('open-external-link',openLink);
@@ -442,8 +534,8 @@
  });
  onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<string>('app-error',e=>{if(loading)startupError=e.payload;else notify(e.payload)}));addCleanup(await listen<{path:string;count:number;total:number;stage?:string}>('index-progress',e=>{if(e.payload.count===0)indexStatusHidden=false;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob&&e.payload.query_id!==cancellingAsk)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob||e.payload.id===cancellingAsk)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));await loadWorkspace();const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=draftFolder(draft);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}onboardingOpen=localStorage.getItem('sag.onboarding.seen')!=='1';}catch(e){startupError=String(e)}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
 </script>
-<svelte:window on:keydown={keys} on:contextmenu|preventDefault/>
-<div class="desktop-window real-client" class:windows-client={!mac} class:compact-sidebar={collapsed} data-sidebar-motion={sidebarMotion}>
+<svelte:window on:keydown={keys} on:click={searchOutside} on:contextmenu|preventDefault/>
+<div class="desktop-window real-client" class:windows-client={!mac} class:compact-sidebar={collapsed} class:search-workbench={view==='search'} data-sidebar-motion={sidebarMotion}>
  {#if !mac}<DesktopTitlebar/>{/if}
  <div class="shell">
  <aside class="sidebar"><div class="sidebar-titlebar" data-tauri-drag-region><Button.Root class="icon-button" aria-label={collapsed?$t("展开侧边栏"):$t("收起侧边栏")} title={collapsed?$t("展开侧边栏"):$t("收起侧边栏")} aria-expanded={!collapsed} onclick={toggleSidebar}>{@html icon('panel')}</Button.Root></div><div class="brand-row">{@html logo}<span class="brand">{'SAG Wiki'}</span></div>
@@ -472,7 +564,52 @@
  
  </div>{/if}</article>{/each}</div></div>{/if}
  <div class="composer-wrap"><Popover.Root bind:open={mention}><Popover.Portal to=".real-client"><Popover.Content class="mention-picker" customAnchor={composer} collisionBoundary={workspaceContent} side={mentionSide} sideOffset={6} collisionPadding={8} align="start" trapFocus={false} onOpenAutoFocus={event=>event.preventDefault()} onCloseAutoFocus={event=>event.preventDefault()}><div class="mention-heading">{$t("@ 引用文件")}</div>{#if !files.length}<div class="mention-empty" aria-live="polite">{@html icon('folder')}<strong>{$t('知识库还没有可引用的文件')}</strong><p>{$t('添加文件夹并完成索引后，就可以用 @ 选择要引用的文件。')}</p><Button.Root type="button" class="outline mention-add-folder" onclick={()=>{mention=false;add()}}>{@html icon('plus')}{$t('添加文件夹')}</Button.Root></div>{:else if !mentions.length}<div class="mention-empty" aria-live="polite">{@html icon('search')}<strong>{$t('没有匹配的文件')}</strong><p>{$t('试试其他文件名或路径关键词。')}</p></div>{:else}<div class="mention-options" role="listbox" aria-label={$t("引用文件")}>{#each mentions as f,i}<Button.Root role="option" aria-selected={i===mentionIndex} onmousedown={(event:MouseEvent)=>{event.preventDefault();(()=>reference(f.path))();}}>{@html icon('file')}<span><strong>{f.name}</strong><small>{displayPath(f.path)}</small></span></Button.Root>{/each}</div><div class="mention-help">{$t("↑ ↓ 选择 · Enter 引用 · Esc 关闭")}</div>{/if}</Popover.Content></Popover.Portal></Popover.Root><form class="composer" class:busy bind:this={composer} use:mentionPlacement on:submit|preventDefault={()=>run('ask')}><div class="reference-chips">{#each references as path}<span class="reference-chip">{@html icon('file')}<span>{basename(path)}</span><Button.Root type="button" aria-label={$t("移除引用 {value0}",{value0:basename(path)})} onclick={()=>references=references.filter(p=>p!==path)}>{@html icon('close')}</Button.Root></span>{/each}</div><Textarea aria-label={$t("向你的文件提问")} bind:ref={askInput} bind:value={ask} oninput={mentionUpdate} onkeydown={askKey} onkeyup={compositionKeyUp} oncompositionstart={compositionStart} oncompositionend={compositionEnd} placeholder={busy?$t("回答生成中，可以先输入下一个问题…"):$t("向你的文件提问，输入 @ 引用文件…")}/><div class="composer-bottom"><div class="composer-options"><Button.Root class="scope-button" type="button" aria-haspopup="dialog" aria-expanded={scopeOpen} onclick={scopeShow}>{@html icon(scope.length?'folder':'globe')}<span>{scopeLabel}</span>{@html icon('down')}</Button.Root></div><div class="composer-model-controls">{#if settings}<ContextUsage context={busy?pending?.context:conversation?.messages.at(-1)?.context} limit={settings.answer_context_tokens??65536} loading={busy&&!pending?.context}/><ReasoningControl model={settings.answer.model} models={settings.answer.models} onModelChange={model=>{if(settings)settings={...settings,answer:{...settings.answer,model}}}} endpoint={settings.answer.url} value={settings.model_profiles?.[settings.answer.model]?.reasoning_effort} disabled={busy} onChange={setReasoning} onCommit={saveReasoning}/>{/if}{#if busy}<Button.Root type="button" class="send" aria-label={$t("停止生成")} onclick={()=>stop()}>{@html icon('stop')}</Button.Root>{:else}<Button.Root class="send" aria-label={$t("发送问题")} disabled={!ask.trim()}>{@html icon('arrow')}</Button.Root>{/if}</div></div></form></div>{#if !shownMessages.length&&!pending&&conversations.length&&(collapsed||sidebarTab!=='conversations')}<section class="recent-conversations" aria-label={$t("会话列表")}><div class="recent-heading"><span>{$t("会话列表")}</span><Button.Root class="icon-button" title={$t("搜索会话")} aria-label={$t("搜索会话")} onclick={()=>historySearchOpen=true}>{@html icon('search')}</Button.Root></div><div class="recent-list">{#each conversations as c(c.id)}<div class="history-row" class:active={view==='ask'&&conversation?.id===c.id}><Button.Root class="conversation-item" title={c.title} onclick={()=>chooseHistory(c)}>{@html icon('chat')}<span>{c.title}</span></Button.Root><Timestamp value={c.updated}/><Button.Root class="history-more" aria-label={$t("{value0} 的选项",{value0:c.title})} onclick={(e:MouseEvent)=>chatMenu(e,c)}>{@html icon('more')}</Button.Root></div>{:else}<p class="history-empty">{$t("还没有问答记录")}</p>{/each}</div></section>{/if}</section></div>
- {:else if view==='search'}<section class="search-page" class:has-results={searched} aria-busy={busy}>{#if !searched}<div class="welcome search-welcome"><div class="welcome-mark" aria-hidden="true">{@html icon('search')}</div><h1>{$t("搜索你的文件")}</h1><p>{$t("查找文件内容，随时查看原文。")}</p></div>{/if}<form class="search-composer" on:submit|preventDefault={()=>run(searchMode)}><div class="search-entry"><Input aria-label={$t("搜索关键词")} bind:ref={searchInput} bind:value={search} onkeydown={searchKey} onkeyup={compositionKeyUp} oncompositionstart={compositionStart} oncompositionend={compositionEnd} placeholder={$t("输入关键词或问题，搜索你的文件…")}/></div><div class="search-composer-bottom"><Button.Root class="scope-button" type="button" aria-haspopup="dialog" aria-expanded={scopeOpen} onclick={scopeShow}>{@html icon(scope.length?'folder':'globe')}<span>{scopeLabel}</span>{@html icon('down')}</Button.Root><div class="search-composer-actions"><Select class="search-mode" label={$t("搜索模式")} value={searchMode} onValueChange={changeSearchMode} disabled={busy} items={[{value:"deep_search",label:jevReady?$t("深入"):$t("深入（需配置 Jev）")},{value:"search",label:$t("快速")}]}/>{#if busy}<Button.Root type="button" class="send" aria-label={$t("停止搜索")} onclick={()=>stop()}>{@html icon('stop')}</Button.Root>{:else}<Button.Root class="send" aria-label={$t("搜索文件")} disabled={!search.trim()}>{@html icon('arrow')}</Button.Root>{/if}</div></div></form>{#if !searched&&searchHistory.length}<section class="search-history" aria-label={$t("最近搜索")}><div class="search-history-heading"><span>{$t("最近搜索")}</span><Button.Root class="icon-button" aria-label={$t("清空搜索历史")} title={$t("清空搜索历史")} onclick={clearSearchHistory}>{@html icon('delete')}</Button.Root></div><div class="search-history-items">{#each searchHistory as question}<Button.Root class="search-history-item" title={question} onclick={()=>{search=question;void run(searchMode)}}>{@html icon('search')}<span>{question}</span></Button.Root>{/each}</div></section>{/if}{#if searched&&settings?.search_summary_enabled!==false&&(summaryBusy||summaryText||summaryError)}<SearchSummary text={summaryText} running={summaryBusy} error={summaryError} evidence={summaryEvidence} onSource={candidate=>{source=candidate}} onCopy={copyMessage}/>{/if}{#if searched}<div class="search-summary"><span aria-live="polite">{searchStopped?$t("已停止搜索 · "):''}{busy&&!paging?$t(searchJobKind==='deep_search'?"深入搜索中":"快速搜索中"):$t("{value0} 个文件",{value0:searchPagination?.total??groups.length})}{#if searchElapsed!==null} · {searchElapsed<1000?`${searchElapsed} ms`:$t("{value0} 秒",{value0:(searchElapsed/1000).toFixed(1)})}{/if}</span>{#if !busy}<div class="search-summary-actions"><span>{searchRanked?$t("SAG2 深度结果"):$t("本地匹配")}</span></div>{/if}</div>{#if searchError}<p class="form-error" role="alert">{$t(searchError)}{#if searchError===$t("请在设置中填写 Jev API 密钥")}<Button.Root class="settings-error-link" onclick={()=>{settingsPage="jev";settingsOpen=true}}>{$t("前往设置")}</Button.Root>{/if}</p>{/if}{#if busy&&!paging}<div class="search-loading" role="status" aria-live="polite" aria-atomic="true"><span class="search-loading-icon" aria-hidden="true">{@html icon('refresh')}</span><strong>{searchStageText}</strong></div>{:else if groups.length}<div class="search-layout" class:is-paging={paging} inert={paging}><div class="search-results" bind:this={searchList}>{#each groups as g}<Button.Root class={`search-result ${focus?.path===g.first.path?'selected':''}`} onclick={()=>focusResult(g.first)}><span class="search-result-title">{@html icon('file')}<strong>{@html highlightedText(g.first.title,searchTerms)}</strong>{@html icon('chevron')}</span><p>{@html searchSnippet(searchText(g.first.path,g.first.content),searchTerms)}</p><small>{basename(dirname(g.first.path))}{g.matches.length>1?$t(" · {value0} 个片段",{value0:g.matches.length}):''}</small></Button.Root>{/each}</div><article class="search-preview">{#if focus}<div class="search-preview-head"><div>{@html icon('file')}<strong>{focus.title}</strong></div><Button.Root class="outline" onclick={()=>edit(focus!.path,searchTerms)}>{$t("打开文档")}</Button.Root></div><div class="source-path">{displayPath(focus.path)}</div>{#if previewError}<p class="small muted">{previewError}</p>{/if}{#if previewLoading}<p class="small muted" role="status">{$t("正在读取文件…")}</p>{:else if previewDocument}{#if isHtml(focus.path)}<HtmlDocument body={previewDocument.body} terms={searchTerms} initialMatch={previewInitialMatch}/>{:else}<HighlightedDocument html={preview} terms={searchTerms} path={displayPath(focus.path)} initialMatch={previewInitialMatch}/>{/if}{/if}{/if}</article></div>
+ {:else if view==='search'}<section class="search-page" class:has-results={searched} aria-busy={busy}>{#if !searched}<div class="welcome search-welcome"><div class="welcome-mark" aria-hidden="true">{@html icon('search')}</div><h1>{$t("搜索你的文件")}</h1><p>{$t("查找文件内容，随时查看原文。")}</p></div>{/if}<div class="search-query-row"><form class="search-composer" class:compact={searched} on:submit|preventDefault={()=>run(searchMode)}><div class="search-entry"><Input aria-label={$t("搜索关键词")} bind:ref={searchInput} bind:value={search} onkeydown={searchKey} onkeyup={compositionKeyUp} oncompositionstart={compositionStart} oncompositionend={compositionEnd} placeholder={$t("输入关键词或问题，搜索你的文件…")}/></div><div class="search-composer-bottom"><Button.Root class="scope-button" type="button" aria-haspopup="dialog" aria-expanded={scopeOpen} onclick={scopeShow}>{@html icon(scope.length?'folder':'globe')}<span>{scopeLabel}</span>{@html icon('down')}</Button.Root><div class="search-composer-actions"><Select class="search-mode" label={$t("搜索模式")} value={searchMode} onValueChange={changeSearchMode} disabled={busy} items={[{value:"deep_search",label:jevReady?$t("深入"):$t("深入（需配置 Jev）")},{value:"search",label:$t("快速")}]}/>{#if busy}<Button.Root type="button" class="send" aria-label={$t("停止搜索")} onclick={()=>stop()}>{@html icon('stop')}</Button.Root>{:else}<Button.Root class="send" aria-label={$t("搜索文件")} disabled={!search.trim()}>{@html icon('arrow')}</Button.Root>{/if}</div></div></form></div>
+ {#if !searched&&searchHistory.length}<section class="search-history" aria-label={$t("最近搜索")}><div class="search-history-heading"><span>{$t("最近搜索")}</span><Button.Root class="icon-button" aria-label={$t("清空搜索历史")} title={$t("清空搜索历史")} onclick={clearSearchHistory}>{@html icon('delete')}</Button.Root></div><div class="search-history-items">{#each searchHistory as question}<Button.Root class="search-history-item" title={question} onclick={()=>{search=question;void run(searchMode)}}>{@html icon('search')}<span>{question}</span></Button.Root>{/each}</div></section>{/if}{#if searched}
+ <div class="search-options-row"><div class="search-summary"><span aria-live="polite">{searchStopped?$t("已停止搜索 · "):''}{busy&&!paging?$t(searchJobKind==='deep_search'?"深入搜索中":"快速搜索中"):`${searchRanked?$t("深入搜索"):$t("快速搜索")} · ${$t("{value0} 个文件",{value0:searchPagination?.total??groups.length})}`}{#if searchElapsed!==null&&!(busy&&!paging)}{' · '}{searchElapsed<1000?`${searchElapsed} ms`:$t("{value0} 秒",{value0:(searchElapsed/1000).toFixed(1)})}{/if}</span></div><div class="search-options-actions">{#if showSummary}<Button.Root class="search-summary-toggle" aria-label={$t('搜索总结')} aria-pressed={summarySelected} onclick={toggleSearchSummary}>{@html icon('chat')}<span>{$t('搜索总结')}</span>{#if summaryBusy}<span class="summary-running" aria-hidden="true"></span>{/if}</Button.Root>{/if}<Button.Root class="search-new-query" onclick={()=>resetSearch().catch(e=>notify($t(String(e))))}>{$t('重新搜索')}</Button.Root></div></div>
+ {#if searchError}<p class="form-error" role="alert">{$t(searchError)}{#if searchError===$t("请在设置中填写 Jev API 密钥")}<Button.Root class="settings-error-link" onclick={()=>{settingsPage="jev";settingsOpen=true}}>{$t("前往设置")}</Button.Root>{/if}</p>{/if}{#if busy&&!paging}
+ <div class="search-loading" role="status" aria-live="polite" aria-atomic="true"><div class="search-skeleton" aria-hidden="true">{#each [0,1,2,3] as row}<span style={`--row:${row}`}></span>{/each}</div><strong>{searchStageText}</strong></div>
+ {:else if groups.length}
+ <div class="search-layout" class:is-paging={paging} class:reading={!!focus||summarySelected} class:focus-mode={searchFocusMode} inert={paging} style={`--search-list-width:${searchListWidth}px`}>
+  <section class="search-results-column" aria-label={$t("相关文件")}><header class="search-results-heading"><strong>{$t("相关文件")}</strong></header><div class="search-results" use:quietScroll bind:this={searchList} role="listbox" tabindex="0" aria-label={$t("搜索结果")} aria-activedescendant={groups[activeResult]?`search-result-${activeResult}`:undefined} on:keydown={resultKeys} on:focus={()=>resultsFocused=true} on:blur={()=>resultsFocused=false}>
+   {#each groups as g,i (g.first.path)}<SearchResultItem group={g} id={`search-result-${i}`} terms={searchTerms} {roots} selected={focus?.path===g.first.path} active={activeResult===i&&resultsFocused} focused={focus} cited={summaryCitations.get(g.first.path)??[]} expanded={passagesOpen&&focus?.path===g.first.path} onSelect={c=>{activeResult=i;closePassages(false);void focusResult(c,true)}} onToggle={()=>togglePassages(g.first.path)} onFocus={()=>activeResult=i}/>{/each}
+  </div></section>
+  <!-- A focusable separator with a value is the ARIA splitter widget. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
+  <div class="search-resizer" role="separator" tabindex="0" aria-orientation="vertical" aria-label={$t("调整结果列表宽度")} aria-valuemin={260} aria-valuemax={520} aria-valuenow={searchListWidth} on:pointerdown={startResize} on:keydown={resizeKey}></div>
+  <article class="search-preview" class:showing-summary={!focus} class:search-finding={previewFindOpen}>
+   {#if focus}
+    <div class="search-preview-head">
+     <Button.Root class="icon-button search-preview-back list-only" aria-label={$t("返回结果列表")} onclick={leaveSearchReader}>{@html icon('back')}</Button.Root>
+     <div class="search-preview-title"><strong title={sourceName(focus)}>{sourceName(focus)}</strong><span class="source-path" title={displayPath(indexedSourcePath(focus.path))}>{sourceFolder(focus.path,roots)}</span></div>
+     <div class="search-preview-actions">
+      <div class="search-passage-nav" role="group" aria-label={$t('相关片段')}>
+       <Button.Root class="search-passage-trigger" aria-expanded={passagesOpen} aria-controls="search-passage-picker" title={$t('选择相关片段')} onclick={()=>togglePassages(focus!.path)}>{@html icon('bulletList')}<span>{$t('相关片段')}</span><b>{passageIndex+1} / {focusedPassages.length}</b>{@html icon('down')}</Button.Root>
+       <Button.Root class="icon-button search-passage-step search-passage-previous" aria-label={$t('上一个片段')} title={$t('上一个片段')} disabled={passageIndex<=0} onclick={()=>stepPassage(-1)}>{@html icon('chevron')}</Button.Root>
+       <Button.Root class="icon-button search-passage-step search-passage-next" aria-label={$t('下一个片段')} title={$t('下一个片段')} disabled={passageIndex>=focusedPassages.length-1} onclick={()=>stepPassage(1)}>{@html icon('chevron')}</Button.Root>
+      </div>
+      <Button.Root class="icon-button search-find-trigger" aria-label={$t('在文档中查找')} title={$t('在文档中查找')} aria-expanded={previewFindOpen} onclick={()=>previewFindOpen?closePreviewFind():openPreviewFind()}>{@html icon('search')}</Button.Root>
+      <Button.Root class="icon-button search-focus-toggle" aria-label={$t(searchFocusMode?'退出专注阅读':'进入专注阅读')} title={$t(searchFocusMode?'退出专注阅读':'进入专注阅读')} aria-pressed={searchFocusMode} onclick={()=>{closePassages(false);searchFocusMode=!searchFocusMode}}>{@html icon(searchFocusMode?'panel':'maximize')}</Button.Root>
+      <Popover.Root><Popover.Trigger class="icon-button" aria-label={$t('文档操作')} title={$t('文档操作')}>{@html icon('more')}</Popover.Trigger><Popover.Portal><Popover.Content class="search-document-menu" side="bottom" align="end" sideOffset={8} collisionPadding={12}><p>{displayPath(indexedSourcePath(focus.path))}</p><Button.Root onclick={()=>api('reveal_path',{path:indexedSourcePath(focus!.path)}).catch(e=>notify($t(String(e))))}>{$t('在文件夹中显示')}</Button.Root><Button.Root onclick={()=>edit(focus!.path,searchTerms)}>{$t('打开文档')}</Button.Root></Popover.Content></Popover.Portal></Popover.Root>
+      <Button.Root class="search-open-document" onclick={()=>edit(focus!.path,searchTerms)}>{$t('打开文档')}</Button.Root>
+     </div>
+    </div>
+    {#if previewFindOpen}<form class="search-find-bar" on:submit|preventDefault={applyPreviewFind}><label for="preview-find">{$t('正文查找')}</label><input id="preview-find" bind:this={previewFindInput} bind:value={previewFindDraft} placeholder={$t('输入词语，按 Enter 查找')}/><Button.Root type="submit">{$t('查找')}</Button.Root><Button.Root type="button" class="icon-button" aria-label={$t('关闭正文查找')} onclick={closePreviewFind}>{@html icon('close')}</Button.Root></form>{/if}
+    {#if previewError}<p class="small muted search-preview-note" role="status">{previewError}</p>{/if}
+    {#if previewLoading}<div class="search-preview-loading" role="status"><span class="search-skeleton" aria-hidden="true">{#each [0,1,2] as row}<span style={`--row:${row}`}></span>{/each}</span><span class="sr-only">{$t("正在读取文件…")}</span></div>{:else if previewDocument}
+     {#key `${previewRequest}:${previewFindTerm}`}
+      {#if isHtml(focus.path)}<HtmlDocument body={previewDocument.body} terms={readerTerms} initialMatch={previewFindTerm?0:previewInitialMatch} showNavigation={previewFindOpen} memoryKey={readerMemoryKey} restoreScroll={restorePreview}/>
+      {:else if previewReader?.doc===previewDocument}<svelte:component this={previewReader.Reader} model={previewReader.model} terms={readerTerms} target={previewFindTerm?0:previewReader.target} path={displayPath(focus.path)} showNavigation={previewFindOpen} memoryKey={readerMemoryKey} restoreScroll={restorePreview}/>
+      {:else}<HighlightedDocument html={preview} terms={readerTerms} path={displayPath(focus.path)} initialMatch={previewFindTerm?0:previewInitialMatch} showNavigation={previewFindOpen} memoryKey={readerMemoryKey} restoreScroll={restorePreview}/>{/if}
+     {/key}
+    {/if}
+    {#if passagesOpen}{#key focus.path}<SearchPassagePicker candidates={focusedPassages} selectedId={focus.id} terms={searchTerms} onSelect={selectPassage} onClose={()=>closePassages()}/>{/key}{/if}
+   {:else if summarySelected&&showSummary}
+    <div class="search-summary-back list-only"><Button.Root class="icon-button" aria-label={$t('返回结果列表')} onclick={leaveSearchReader}>{@html icon('back')}</Button.Root><span>{$t('搜索总结')}</span></div>
+    <div class="search-summary-scroll" use:quietScroll><SearchSummary text={summaryText} rendered={renderedSummary} running={summaryBusy} error={summaryError} evidence={summaryEvidence} onSource={candidate=>{closePassages(false);void focusResult(candidate)}} onCopy={copyMessage}/></div>
+   {:else}<div class="search-preview-empty">{@html icon('file')}<p>{$t("选择左侧的结果查看原文。")}</p></div>{/if}
+  </article>
+ </div>
 {#if searchPagination&&searchPagination.total>searchPagination.page_size}
  <div class="search-pagination-footer">
   <span class="search-page-range" aria-live="polite">{paging?$t("正在翻页…"):$t("第 {value0}–{value1} 个，共 {value2} 个文件",{value0:(searchPagination.page-1)*searchPagination.page_size+1,value1:Math.min(searchPagination.page*searchPagination.page_size,searchPagination.total),value2:searchPagination.total})}</span>
