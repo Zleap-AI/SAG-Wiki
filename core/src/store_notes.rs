@@ -406,6 +406,25 @@ mod tests {
     }
 
     #[test]
+    fn removing_the_source_root_marks_anchors_missing() {
+        let (dir, store, root) = setup();
+        let other = dir.path().join("other");
+        fs::create_dir(&other).unwrap();
+        store.add_root(&other).unwrap();
+        let other = other.canonicalize().unwrap();
+        let file = other.join("guard.rs");
+        fs::write(&file, format!("// header\n{PASSAGE}\n// footer\n")).unwrap();
+        let note = note_for(&root, &file);
+        index(&store, &other, &file);
+        index(&store, &root, &note);
+        assert_eq!(store.note(note.to_str().unwrap()).unwrap().summary.state, NoteSourceState::Intact);
+        store.remove_root(other.to_str().unwrap()).unwrap();
+        let detail = store.note(note.to_str().unwrap()).unwrap();
+        assert_eq!(detail.sources[0].state, NoteSourceState::Missing);
+        assert_eq!(detail.sources[0].reason.as_deref(), Some("文件已从知识库移除"));
+    }
+
+    #[test]
     fn sources_outside_the_knowledge_base_stay_unverified() {
         let (dir, store, root) = setup();
         let outside = dir.path().join("outside.rs");

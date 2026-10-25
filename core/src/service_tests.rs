@@ -1236,7 +1236,7 @@ async fn save_note_writes_an_anchored_file_and_tracks_source_changes() {
 
     let target = root.join("notes");
     let Output::Note(detail) = call(&client, Operation::SaveNote {
-        conversation_id: "c1".into(), message_index: 0, target: Some(target.to_string_lossy().into_owned()), expected_hash: None, remember: true,
+        conversation_id: "c1".into(), message_index: 0, target: Some(target.to_string_lossy().into_owned()), file_name: None, expected_hash: None, remember: true,
     }).await else { panic!("note") };
     assert_eq!(detail.summary.state, NoteSourceState::Intact);
     assert_eq!(detail.sources.len(), 1);

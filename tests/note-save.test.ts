@@ -53,7 +53,7 @@ it('完成的回答可以保存为笔记，失败的回答不能',async()=>{
  expect(dialog.textContent).toContain('默认笔记文件夹');
  dialog.querySelector<HTMLButtonElement>('.primary')!.click();
  await vi.waitFor(()=>expect(saveArgs).not.toBeNull());
- expect(saveArgs).toMatchObject({conversationId:'chat',messageIndex:0,target:null,remember:false});
+ expect(saveArgs).toMatchObject({conversationId:'chat',messageIndex:0,target:null,fileName:'登录后权限在哪里校验.md',remember:false});
  await vi.waitFor(()=>expect(document.querySelector('.save-note-dialog')).toBeNull());
  await vi.waitFor(()=>expect(buttons('打开笔记').length).toBe(1));
  expect(document.querySelector('#notice')?.textContent).toContain('已保存笔记《登录后权限在哪里校验》');
@@ -70,7 +70,36 @@ it('选择文件夹后保存到该目录并可记住位置',async()=>{
  dialog.querySelector<HTMLButtonElement>('[aria-label="记住此位置，下次直接保存"]')!.click();await tick();
  dialog.querySelector<HTMLButtonElement>('.primary')!.click();
  await vi.waitFor(()=>expect(saveArgs).not.toBeNull());
- expect(saveArgs).toMatchObject({target:'/kb/notes/登录后权限在哪里校验.md',remember:true});
+ expect(saveArgs).toMatchObject({target:'/kb/notes',fileName:'登录后权限在哪里校验.md',remember:true});
+});
+
+it('默认目录下修改的文件名会传给服务',async()=>{
+ await vi.waitFor(()=>expect(buttons('保存为笔记').length).toBe(2));
+ buttons('保存为笔记')[0].click();await tick();
+ const input=document.querySelector<HTMLInputElement>('.save-note-dialog [aria-label="文件名"]')!;
+ input.value='权限校验要点';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ document.querySelector<HTMLButtonElement>('.save-note-dialog .primary')!.click();
+ await vi.waitFor(()=>expect(saveArgs).not.toBeNull());
+ expect(saveArgs).toMatchObject({target:null,fileName:'权限校验要点.md'});
+});
+
+it('记住位置且关闭询问时直接保存，按住 Option 仍打开面板',async()=>{
+ await unmount(app);document.body.innerHTML='';
+ const base=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>command==='get_settings'?{theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']},notes:{folder:'/kb/notes',ask_location:false}}:base(command,args));
+ app=mount(App,{target:document.body});await vi.waitFor(()=>expect(listeners.has('query-progress')).toBe(true));
+ document.querySelector<HTMLButtonElement>('[title="权限问题"]')!.click();await tick();
+ await vi.waitFor(()=>expect(buttons('保存为笔记').length).toBe(2));
+ buttons('保存为笔记')[0].click();
+ await vi.waitFor(()=>expect(saveArgs).not.toBeNull());
+ expect(document.querySelector('.save-note-dialog')).toBeNull();
+ expect(saveArgs).toMatchObject({target:'/kb/notes',fileName:null,remember:false});
+ await vi.waitFor(()=>expect(buttons('打开笔记').length).toBe(1));
+ saveArgs=null;saved=structuredClone(conversation);listeners.get('history-changed')?.({payload:null});
+ await vi.waitFor(()=>expect(buttons('保存为笔记').length).toBe(2));
+ buttons('保存为笔记')[0].dispatchEvent(new MouseEvent('click',{bubbles:true,altKey:true}));await tick();
+ expect(document.querySelector('.save-note-dialog')).not.toBeNull();
+ expect(saveArgs).toBeNull();
 });
 
 it('打开笔记时显示状态条，并能重新检查和打开原文',async()=>{

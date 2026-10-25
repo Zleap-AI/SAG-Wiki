@@ -260,7 +260,7 @@ fn default_notes_folder(state: &Arc<Service>) -> anyhow::Result<PathBuf> {
     }
     Ok(folder.canonicalize()?)
 }
-fn resolve_note_target(state: &Arc<Service>, target: Option<&str>, question: &str) -> anyhow::Result<(PathBuf, bool)> {
+fn resolve_note_target(state: &Arc<Service>, target: Option<&str>, file_name: Option<&str>, question: &str) -> anyhow::Result<(PathBuf, bool)> {
     let settings = state.store.settings()?;
     let (directory, explicit_file) = match target {
         Some(target) if target.ends_with(".md") || target.ends_with(".markdown") => {
@@ -278,6 +278,10 @@ fn resolve_note_target(state: &Arc<Service>, target: Option<&str>, question: &st
     if let Some(file) = explicit_file {
         return Ok((directory.join(file.file_name().context("文件名无效")?), true));
     }
+    if let Some(name) = file_name.map(str::trim).filter(|name| !name.is_empty()) {
+        let name = if name.to_lowercase().ends_with(".md") { name.to_owned() } else { format!("{name}.md") };
+        return Ok((directory.join(Path::new(&name).file_name().context("文件名无效")?), true));
+    }
     let name = crate::notes::file_name(question);
     let mut candidate = directory.join(&name);
     let stem = name.trim_end_matches(".md").to_owned();
@@ -292,6 +296,7 @@ async fn save_note(
     conversation_id: String,
     message_index: usize,
     target: Option<String>,
+    file_name: Option<String>,
     expected_hash: Option<String>,
     remember: bool,
     state: &Arc<Service>,
@@ -309,7 +314,7 @@ async fn save_note(
             anyhow::bail!("只能保存已完成的回答");
         }
         let (answer, kept) = crate::notes::renumber_citations(&message.answer, &message.evidence);
-        let (target, explicit) = resolve_note_target(&state, target.as_deref(), &message.question)?;
+        let (target, explicit) = resolve_note_target(&state, target.as_deref(), file_name.as_deref(), &message.question)?;
         let note_dir = target.parent().context("笔记缺少父目录")?.to_path_buf();
         let sources = kept.iter().enumerate().map(|(i, candidate)| {
             let display = if crate::docling::in_output(Path::new(&candidate.path)) {
@@ -1435,8 +1440,8 @@ impl Service {
                     .to_string(),
             ),
             Op::LoadImage { path } => Out::Text(load_image(path, self)?),
-            Op::SaveNote { conversation_id, message_index, target, expected_hash, remember } => {
-                Out::Note(save_note(conversation_id, message_index, target, expected_hash, remember, self, app).await?)
+            Op::SaveNote { conversation_id, message_index, target, file_name, expected_hash, remember } => {
+                Out::Note(save_note(conversation_id, message_index, target, file_name, expected_hash, remember, self, app).await?)
             }
             Op::ListNotes { scope } => Out::Notes(self.store.notes(scope.as_deref()).map_err(error)?),
             Op::GetNote { path } => {

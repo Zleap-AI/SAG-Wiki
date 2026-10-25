@@ -36,8 +36,7 @@
   try{file=fileName(name);}catch(e){error=$t(String(e));return;}
   saving=true;error='';
   try{
-   const target=folder?folder.replace(/[\\/]$/,'')+(folder.includes('\\')?'\\':'/')+file:null;
-   const note=await api<NoteDetail>('save_note',{conversationId,messageIndex,target,expectedHash:null,remember:remember&&!!folder});
+   const note=await api<NoteDetail>('save_note',{conversationId,messageIndex,target:folder||null,fileName:file,expectedHash:null,remember:remember&&!!folder});
    onSaved(note);
   }catch(e){error=$t(String(e));}
   finally{saving=false;}

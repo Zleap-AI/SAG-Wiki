@@ -719,6 +719,7 @@ impl Store {
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?)",[path])?;
         tx.execute("DELETE FROM documents WHERE root=?", [path])?;
         tx.execute("DELETE FROM roots WHERE path=?", [path])?;
+        Self::mark_note_sources_removed_tx(&tx, path, true)?;
         tx.execute("UPDATE metadata SET version=version+1", [])?;
         tx.commit()?;
         Ok(())

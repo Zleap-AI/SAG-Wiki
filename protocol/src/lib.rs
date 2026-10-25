@@ -296,6 +296,9 @@ pub enum Operation {
         message_index: usize,
         /// Target directory or `.md` file; `None` uses the notes folder setting.
         target: Option<String>,
+        /// File name to use inside the target directory; `None` derives one from the question.
+        #[serde(default)]
+        file_name: Option<String>,
         /// When the target file exists, overwrite only if its hash still matches.
         expected_hash: Option<String>,
         /// Remember the chosen directory as the default notes folder.

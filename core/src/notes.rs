@@ -481,7 +481,8 @@ pub fn relocate(source: &NoteSource, current: &str) -> Relocation {
         let position = from + at;
         let distance = position.abs_diff(source.start_byte);
         if best.is_none_or(|(_, d)| distance < d) { best = Some((position, distance)); }
-        from = position + 1;
+        // Advance by one character so the next slice starts on a UTF-8 boundary.
+        from = position + have.text[position..].chars().next().map_or(1, char::len_utf8);
         if from >= have.text.len() { break; }
     }
     if let Some((position, _)) = best {
@@ -523,6 +524,28 @@ pub fn relocate(source: &NoteSource, current: &str) -> Relocation {
                     if !candidates.contains(&start) { candidates.push(start); }
                 }
                 if hits >= SEED_MAX_HITS { break; }
+            }
+        }
+    }
+    if candidates.is_empty() {
+        // No line survived intact (typical for a one-line edit): fall back to lines
+        // that still share most of the cited words.
+        let wanted_tokens: std::collections::HashSet<String> = tokens(wanted_text).iter().map(|t| t.to_lowercase()).collect();
+        if !wanted_tokens.is_empty() {
+            let mut scored: Vec<(usize, usize)> = have_lines
+                .iter()
+                .enumerate()
+                .filter_map(|(index, (_, line))| {
+                    let shared = tokens(line).iter().filter(|t| wanted_tokens.contains(&t.to_lowercase())).collect::<std::collections::HashSet<_>>().len();
+                    (shared * 2 >= wanted_tokens.len()).then_some((shared, index))
+                })
+                .collect();
+            scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+            for (_, index) in scored.into_iter().take(SEED_MAX_HITS) {
+                let pad = line_count / 4 + 1;
+                for start in index.saturating_sub(line_count + pad)..=index {
+                    if !candidates.contains(&start) { candidates.push(start); }
+                }
             }
         }
     }
@@ -662,6 +685,19 @@ mod tests {
         let r = relocate(&source(passage, 0), &crlf);
         assert_eq!(r.state, NoteSourceState::Moved);
         assert_eq!(r.start_byte, 0);
+    }
+
+    #[test]
+    fn relocation_handles_multibyte_text_and_single_line_edits() {
+        // A hit followed by a multi-byte character must not slice mid-codepoint.
+        let r = relocate(&source("发布流程", 0), "新增\n发布流程\n");
+        assert_eq!(r.state, NoteSourceState::Moved);
+        let r = relocate(&source("发布流程需要审批", 0), "其他\n发布流程需要审批\n发布流程需要审批\n");
+        assert_eq!(r.state, NoteSourceState::Moved);
+        // A one-line passage with one word replaced is changed, not missing.
+        let r = relocate(&source("Release requires owner approval before deployment.", 0), "intro\nRelease requires security approval before deployment.\noutro\n");
+        assert_eq!(r.state, NoteSourceState::Changed);
+        assert!(r.similarity.unwrap() > 0.8);
     }
 
     #[test]
