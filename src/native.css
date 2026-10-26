@@ -412,9 +412,6 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .sidebar-tools{gap:4px}
 .real-client .sidebar-tools>.sidebar-settings{flex:1;min-width:0;min-height:36px;justify-content:flex-start;text-align:left}
 .real-client.compact-sidebar .sidebar-tools>.sidebar-settings{flex:none;width:36px;justify-content:center}
-.real-client.windows-client.compact-sidebar .sidebar-titlebar{height:36px}
-.real-client.windows-client.compact-sidebar .sidebar-titlebar>.icon-button{margin:0 auto}
-:root:has(.windows-client){--window-bar-height:32px}
 
 .real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:0}
 .real-client .sidebar .tree-more{width:28px;min-width:28px;height:28px;margin:0}
