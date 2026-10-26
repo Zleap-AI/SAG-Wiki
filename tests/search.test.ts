@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:a
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
-const hit={id:1,document_id:1,path:'/files/open-octx.md',title:'open-octx.md',heading:'',content:'OCTX 是一种格式。第二处 octx。',start_line:1,end_line:1,source_ranges:[[1,1]],source_spans:[],bm25:-1,score:0,order:0,hash:'same'};
+const hit={id:1,document_id:1,path:'/files/open-octx.md',title:'open-octx.md',heading:'',content:'OCTX 是一种格式。',start_line:3,end_line:3,source_ranges:[[3,3]],source_spans:[],bm25:-1,score:0,order:0,hash:'same'};
 async function setup(pending=false,mode='deep_search',paginated=false,deepResults?:typeof hit[]){
  invoke.mockImplementation(async(command,args)=>{
   if(command==='get_settings')return {theme:'light',start_page:'search',editor_size:15,answer:{url:'https://example.com/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:true},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:0};
@@ -155,9 +155,9 @@ describe('深度搜索返回状态',()=>{
 
 describe('搜索结果里的原文高亮',()=>{
  it('摘要和片段高亮，下一处移动当前位置，修改输入不影响已完成的搜索',async()=>{
-  await setup();await vi.waitFor(()=>expect(document.querySelectorAll('.search-preview .search-hit')).toHaveLength(2));
+  await setup();await vi.waitFor(()=>expect(document.querySelectorAll('.search-preview .search-hit')).toHaveLength(1));
   expect(document.querySelector('.search-result mark')!.textContent).toBe('octx');
-  expect(document.querySelector('.search-preview .search-hit.active')!.textContent).toBe('OCTX');
+  expect(document.querySelector('.search-preview .search-active-paragraph')!.textContent).toBe('OCTX 是一种格式。');
   await click('在文档中查找');await click('下一处匹配');expect(document.querySelector('.search-preview .search-hit.active')!.textContent).toBe('octx');
   const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;input.value='新问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
   expect(document.querySelectorAll('.search-preview .search-hit')).toHaveLength(2);

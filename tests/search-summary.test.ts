@@ -198,6 +198,21 @@ it.each(['md','html','txt'])('%s 原文左上角返回已生成的搜索总结�
  expect(requests).toHaveLength(1);
 });
 
+it('语义结果不含搜索原词时，按来源位置高亮整个段落',async()=>{
+ const base=invoke.getMockImplementation()!;
+ const body='# 生活建议\n\n其他内容。\n\n## 变故后的头三个月\n\n<!-- 成本标签 -->\n\n- 成本：不花钱，只是把决定往后推。\n- 说人话：这段时间对各种机会的判断力最差。\n';
+ const from=body.indexOf('\n- 成本')+1,to=body.indexOf('\n- 说人话');
+ const source={...hits[0],path:'/notes/semantic.md',title:'semantic.md',content:body.slice(from,to),source_spans:[{start_byte:new TextEncoder().encode(body.slice(0,from)).length,end_byte:new TextEncoder().encode(body.slice(0,to)).length}]};
+ invoke.mockImplementation((command,args)=>command==='run_query'?Promise.resolve({terms:['美股','划算'],results:[source],trace:[],conversation:null}):command==='read_document'?Promise.resolve({path:source.path,body,hash:source.hash}):base(command,args));
+ await start();await search('买美股划算吗');
+ document.querySelector<HTMLElement>('.search-result')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.markdown-reader')).not.toBeNull());
+ await vi.waitFor(()=>expect(document.querySelectorAll('.reader-piece:not([data-state])')).toHaveLength(0));
+ expect(document.querySelector('.search-active-paragraph')?.textContent).toBe('成本：不花钱，只是把决定往后推。');
+ expect(document.querySelectorAll('.search-active-paragraph')).toHaveLength(1);
+ expect(document.querySelector('.match-navigation')).toBeNull();
+});
+
 it('选中第二片段后往返总结和列表，仍保留第二片段',async()=>{
  await start();await search('协作',false);
  await vi.waitFor(()=>expect(document.querySelector('.search-passage-trigger')).not.toBeNull());

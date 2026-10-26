@@ -56,7 +56,7 @@
  $:if(selected&&!librarySessions[selected])librarySessions={...librarySessions,[selected]:createLibrarySession()};
  let roots:Root[]=[],files:FileInfo[]=[],conversations:Conversation[]=[],settings:Settings|null=null,cache:Record<string,Entry[]>={},expanded=new Set<string>(JSON.parse(localStorage.getItem('sag.sidebar.expanded')??'[]'));
  let readOnlyDoc:Document|null=null;let searchTerms:string[]=[],documentSearchTerms:string[]=[];
- let previewReader:{doc:Document;Reader:typeof import('./components/MarkdownReader.svelte').default;model:import('./lib/document-model').MarkdownModel;target:number}|null=null;
+ let previewReader:{doc:Document;Reader:typeof import('./components/MarkdownReader.svelte').default;model:import('./lib/document-model').MarkdownModel;target:number;terms:string[]}|null=null;
 let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=false,previewError='',previewRequest=0;
  let view='ask',selected='',readingFolder='',collapsed=false,conversation:Conversation|null=null,ask='',search='',searched=false,results:Candidate[]=[],focus:Candidate|null=null,preview='',source:Candidate|null=null;
  let sidebarMotion=false,sidebarAnimations:Animation[]=[];
@@ -476,7 +476,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  $:focusedGroup=focus?rankedGroups.find(group=>group.first.path===focus?.path):null;
  $:focusedPassages=focusedGroup?.matches??(focus?[focus]:[]);
  $:passageIndex=Math.max(0,focusedPassages.findIndex(c=>c.id===focus?.id));
- $:readerTerms=previewFindOpen&&previewFindTerm?[previewFindTerm]:searchTerms;
+ $:readerTerms=previewFindOpen?(previewFindTerm?[previewFindTerm]:searchTerms):previewReader?.doc===previewDocument?previewReader.terms:searchTerms;
  $:readerMemoryKey=previewDocument?JSON.stringify([searchSession,searchGeneration,previewDocument.path,previewDocument.hash,previewFindTerm]):'';
  $:if(view!=='search'){passagesOpen=false;searchFocusMode=false;}
 
@@ -549,10 +549,12 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    const doc=await api<Document>('read_document',{path:c.path});
    if(request!==previewRequest||focus?.id!==c.id)return;
    if(isMarkdown(c.path)&&!legacyPreview()){
-    const [{markdownModel,candidateRanges},{default:Reader}]=await Promise.all([import('./lib/document-model'),import('./components/MarkdownReader.svelte')]);
+    const [{markdownModel,candidateRanges,modelCitationTerms},{default:Reader}]=await Promise.all([import('./lib/document-model'),import('./components/MarkdownReader.svelte')]);
     if(request!==previewRequest||focus?.id!==c.id)return;
-    const model=markdownModel(doc);
-    previewReader={doc,Reader,model,target:candidateRanges(model,c)[0].from};previewDocument=doc;preview='';
+    const model=markdownModel(doc),ranges=candidateRanges(model,c);
+    const terms=await modelCitationTerms(model,c,ranges);
+    if(request!==previewRequest||focus?.id!==c.id)return;
+    previewReader={doc,Reader,model,target:ranges[0].from,terms};previewDocument=doc;preview='';
     if(doc.hash!==c.hash)previewError=$t('原文件已更新，以下显示当前内容。');
     return;
    }
@@ -638,7 +640,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
     {#if previewFindOpen}<form class="search-find-bar" on:submit|preventDefault={applyPreviewFind}><label for="preview-find">{$t('正文查找')}</label><input id="preview-find" bind:this={previewFindInput} bind:value={previewFindDraft} placeholder={$t('输入词语，按 Enter 查找')}/><Button.Root type="submit">{$t('查找')}</Button.Root><Button.Root type="button" class="icon-button" aria-label={$t('关闭正文查找')} onclick={closePreviewFind}>{@html icon('close')}</Button.Root></form>{/if}
     {#if previewError}<p class="small muted search-preview-note" role="status">{previewError}</p>{/if}
     {#if previewLoading}<div class="search-preview-loading" role="status"><span class="search-skeleton" aria-hidden="true">{#each [0,1,2] as row}<span style={`--row:${row}`}></span>{/each}</span><span class="sr-only">{$t("正在读取文件…")}</span></div>{:else if previewDocument}
-     {#key `${previewRequest}:${previewFindTerm}`}
+     {#key `${previewRequest}:${previewFindOpen}:${previewFindTerm}`}
       {#if isHtml(focus.path)}<HtmlDocument paragraphHighlight body={previewDocument.body} terms={readerTerms} initialMatch={previewFindTerm?0:previewInitialMatch} showNavigation={previewFindOpen} memoryKey={readerMemoryKey} restoreScroll={restorePreview}/>
       {:else if previewReader?.doc===previewDocument}<svelte:component this={previewReader.Reader} model={previewReader.model} terms={readerTerms} target={previewFindTerm?0:previewReader.target} path={displayPath(focus.path)} showNavigation={previewFindOpen} memoryKey={readerMemoryKey} restoreScroll={restorePreview}/>
       {:else}<HighlightedDocument html={preview} terms={readerTerms} path={displayPath(focus.path)} initialMatch={previewFindTerm?0:previewInitialMatch} showNavigation={previewFindOpen} memoryKey={readerMemoryKey} restoreScroll={restorePreview}/>{/if}
