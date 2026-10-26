@@ -21,29 +21,18 @@ beforeEach(()=>{
  });
 });
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';keys.forEach(key=>localStorage.removeItem(key));vi.restoreAllMocks();vi.clearAllMocks()});
-// The home list only appears while the sidebar shows folders; the conversations tab lists them instead.
-async function start(tab:'folders'|'conversations'='folders'){localStorage.setItem('sag.sidebar.tab',tab);app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelectorAll(tab==='folders'?'.history-row':'.conversation-sidebar-row')).toHaveLength(50));await tick()}
-it('搜索历史标题和内容，键盘打开结果，并保留原列表位置',async()=>{
+async function start(tab:'folders'|'conversations'='conversations'){localStorage.setItem('sag.sidebar.tab',tab);app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelectorAll('.conversation-sidebar-row')).toHaveLength(50));await tick()}
+it('在侧栏搜索历史内容并用键盘打开，首页不重复显示会话',async()=>{
  await start();
- const list=document.querySelector<HTMLElement>('.ask-content')!;list.scrollTop=520;list.dispatchEvent(new Event('scroll'));
- document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
- const input=document.querySelector<HTMLInputElement>('.history-search-dialog input[aria-label="搜索会话"]')!;
+ const input=document.querySelector<HTMLInputElement>('input[aria-label="搜索会话"]')!;
  input.value='TRACING';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
- const result=document.querySelector<HTMLButtonElement>('.history-search-result')!;
- expect(result.tabIndex).toBe(-1);expect(result.textContent).toContain('会话 41');expect(document.querySelectorAll('.history-search-result')).toHaveLength(1);
+ expect(document.querySelectorAll('.conversation-sidebar-row')).toHaveLength(1);
+ expect(document.querySelector('.conversation-sidebar-item')?.textContent).toContain('会话 41');
  input.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
- await vi.waitFor(()=>expect(document.querySelector('.history-search-dialog')).toBeNull());
- expect(document.querySelector('.answer-text')?.textContent).toBe('Deep connection tracing');
- document.querySelector<HTMLButtonElement>('[aria-label="新建问答"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('button[aria-label="搜索会话"]')).not.toBeNull());
- expect(document.querySelector<HTMLElement>('.ask-content')!.scrollTop).toBe(520);
- document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
- const titleInput=document.querySelector<HTMLInputElement>('.history-search-dialog input[aria-label="搜索会话"]')!;
- titleInput.value='会话 23';titleInput.dispatchEvent(new Event('input',{bubbles:true}));await tick();
- expect(document.querySelectorAll('.history-search-result')).toHaveLength(1);
- expect(document.querySelector('.history-search-result')!.textContent).toContain('会话 23');
- titleInput.value='完全不存在';titleInput.dispatchEvent(new Event('input',{bubbles:true}));await tick();
- expect(document.querySelector('.history-search-empty')?.textContent).toContain('没有找到相关会话');
+ await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('Deep connection tracing'));
+ document.querySelector<HTMLButtonElement>('[aria-label="新建问答"]')!.click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.ask-home')).not.toBeNull());
+ expect(document.querySelector('.recent-conversations')).toBeNull();
 });
 it('侧栏以标签切换会话与文件夹，新建问答只在侧栏出现一次',async()=>{
  await start('conversations');
@@ -63,21 +52,20 @@ it('侧栏以标签切换会话与文件夹，新建问答只在侧栏出现一�
  document.querySelector<HTMLButtonElement>('#sidebar-tab-folders')!.click();await tick();
  expect(document.querySelector('#sidebar-pane-folders .tree')).not.toBeNull();
  expect(localStorage.getItem('sag.sidebar.tab')).toBe('folders');
- expect(document.querySelectorAll('.workspace .recent-conversations .history-row')).toHaveLength(50);
+ expect(document.querySelector('.workspace .recent-conversations')).toBeNull();
+ document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
+ expect(document.querySelector('.workspace .recent-conversations')).toBeNull();
 });
-it('会话和知识库独立保存滚动位置，收起侧栏与重开应用后恢复',async()=>{
- await start();
+it('知识库保留滚动位置，收起侧栏与重开应用后恢复',async()=>{
+ await start('folders');
  document.querySelector<HTMLButtonElement>('[aria-label="展开Knowledge"]')!.click();await tick();await tick();
- const list=document.querySelector<HTMLElement>('.ask-content')!;
  const tree=document.querySelector<HTMLElement>('.tree')!;
- list.scrollTop=430;list.dispatchEvent(new Event('scroll'));
  tree.scrollTop=170;tree.dispatchEvent(new Event('scroll'));
  document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
  expect(document.querySelector('.sidebar-titlebar [aria-label="展开侧边栏"]')).not.toBeNull();
  document.querySelector<HTMLButtonElement>('[aria-label="展开侧边栏"]')!.click();await tick();
- expect(list.scrollTop).toBe(430);expect(tree.scrollTop).toBe(170);
- await unmount(app);await start();
- expect(document.querySelector<HTMLElement>('.ask-content')!.scrollTop).toBe(430);
+ expect(tree.scrollTop).toBe(170);
+ await unmount(app);await start('folders');
  expect(document.querySelector<HTMLElement>('.tree')!.scrollTop).toBe(170);
  expect(document.querySelector('[aria-label="折叠Knowledge"]')).not.toBeNull();
 });
@@ -87,7 +75,7 @@ it('没有历史会话时只显示提问区，不保留列表或顶部导航的�
  invoke.mockImplementation(async(command,...args)=>command==='list_conversations'?[]:original(command,...args));
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="发送问题"]')).not.toBeNull());
- expect(document.querySelector('.ask-home')).not.toBeNull();
+ await vi.waitFor(()=>expect(document.querySelector('.ask-home')).not.toBeNull());
  expect(document.querySelector('.ask-home.has-history')).toBeNull();
  expect(document.querySelector('.recent-conversations')).toBeNull();
  expect(document.querySelector('.workspace .topbar')).toBeNull();
@@ -102,7 +90,7 @@ it('问答与搜索切换位于右侧顶部，折叠左栏后仍可切换并保�
  const ask=nav.querySelector<HTMLButtonElement>('[title="问答"]')!;
  const search=nav.querySelector<HTMLButtonElement>('[title="搜索（⌘ / Ctrl + K）"]')!;
  expect(ask.getAttribute('aria-current')).toBe('page');
- document.querySelector<HTMLButtonElement>('.conversation-item')!.click();
+ document.querySelector<HTMLButtonElement>('.conversation-sidebar-item')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('回答 0'));
  expect(document.querySelector('.sidebar [aria-label="新建问答"]')).not.toBeNull();
  document.querySelector<HTMLButtonElement>('#sidebar-tab-folders')!.click();await tick();
@@ -133,7 +121,8 @@ it('没有文件夹时说明用途，快捷按钮打开文件夹选择窗口',as
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.folder-empty-state')).not.toBeNull());
  expect(document.querySelector('.folder-empty-state')?.textContent).toContain('添加文件夹后，即可对其中的文件提问和搜索。');
- document.querySelector<HTMLButtonElement>('.folder-empty-state button')!.click();
+ expect(document.querySelector('.ask-home .intake-caption')?.textContent).toContain('自动包含子文件夹');
+ document.querySelector<HTMLButtonElement>('.ask-home .add-folder-cta')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.folder-picker')).not.toBeNull());
  expect(invoke.mock.calls.some(([command])=>command==='browse_folders')).toBe(true);
 });

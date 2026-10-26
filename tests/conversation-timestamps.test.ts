@@ -19,21 +19,20 @@ const conversations=[
 ];
 beforeEach(async()=>{
  vi.useFakeTimers({toFake:['Date']});vi.setSystemTime(new Date(2026,9,19,10,0));
- localStorage.setItem('sag.onboarding.seen','1');localStorage.setItem('sag.sidebar.tab','folders');
+ localStorage.setItem('sag.onboarding.seen','1');localStorage.setItem('sag.sidebar.tab','conversations');
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
   if(command==='list_conversations')return conversations;
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelectorAll('.history-row')).toHaveLength(3));
+ await vi.waitFor(()=>expect(document.querySelectorAll('.conversation-sidebar-row')).toHaveLength(3));
 });
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.useRealTimers();vi.clearAllMocks()});
 
-it('会话列表今天显示时分，更早显示完整日期，搜索列表保持一致',async()=>{
- expect([...document.querySelectorAll('.history-row time')].map(node=>node.textContent)).toEqual(['09:05','2026-10-18','2025-12-31']);
- document.querySelector<HTMLButtonElement>('button[aria-label="搜索会话"]')!.click();await tick();
- expect([...document.querySelectorAll('.history-search-result time')].map(node=>node.textContent)).toEqual(['09:05','2026-10-18','2025-12-31']);
+it('首页没有重复的会话时间，侧栏仍保留每条会话的时间',async()=>{
+ expect(document.querySelector('.recent-conversations')).toBeNull();
+ expect([...document.querySelectorAll('.conversation-sidebar-row time')].map(node=>node.getAttribute('datetime'))).toEqual(conversations.map(c=>new Date(c.updated).toISOString()));
 });
 
 it('回答底部显示每条回答自己的时间，旧记录缺少时间时不补造',async()=>{
