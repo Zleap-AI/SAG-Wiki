@@ -81,6 +81,23 @@ it('搜索正文可以隐藏命中导航，同时保留目标高亮',async()=>{
  expect(document.querySelector('.match-navigation')).toBeNull();
 });
 
+it('匹配选中完整段落，跨段导航清除上一段，保留段内格式和其它段落',async()=>{
+ const model=markdownModel({path:'/paragraphs.md',body:'# 示例\n\n段首 needle **重点** 段尾 needle。\n\n下一段 needle。\n\n没有命中的段落。',hash:'paragraphs'});
+ await open({model,terms:['needle']});
+ await vi.waitFor(()=>expect(label()).toBe('1 / 3 处匹配'));
+ const paragraphs=[...document.querySelectorAll('.reader-piece p')];
+ expect(paragraphs[0].classList.contains('search-active-paragraph')).toBe(true);
+ expect(paragraphs[0].textContent).toBe('段首 needle 重点 段尾 needle。');
+ expect(paragraphs[0].querySelector('strong')?.textContent).toBe('重点');
+ document.querySelector<HTMLButtonElement>('.match-next')!.click();await tick();
+ expect(document.querySelectorAll('.search-active-paragraph')).toHaveLength(1);
+ expect(paragraphs[0].classList.contains('search-active-paragraph')).toBe(true);
+ document.querySelector<HTMLButtonElement>('.match-next')!.click();await tick();
+ expect(paragraphs[0].classList.contains('search-active-paragraph')).toBe(false);
+ expect(paragraphs[1].classList.contains('search-active-paragraph')).toBe(true);
+ expect(paragraphs[2].classList.contains('search-active-paragraph')).toBe(false);
+});
+
 it('同文件返回恢复阅读块，后台匹配不抢位置；新片段优先新目标',async()=>{
  const tasks:(()=>void)[]=[];
  vi.stubGlobal('scheduler',{postTask:(task:()=>void)=>new Promise<void>(resolve=>tasks.push(()=>{task();resolve()}))});

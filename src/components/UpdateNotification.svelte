@@ -8,7 +8,11 @@
  export let config:UpdateSettings=defaultUpdateSettings;
  export let onOpen:()=>void;
  let mounted=false,dismissed='',checkedKey='';
- onMount(()=>{mounted=true});
+ onMount(()=>{
+  mounted=true;
+  const timer=setInterval(()=>{void checkUpdates(config)},8*60*60*1000);
+  return()=>clearInterval(timer);
+ });
  $: key=updateKey(config);
  $: if(mounted&&checkedKey!==key){checkedKey=key;void checkUpdates(config)}
  $: info=$updateState.key===key?$updateState.info:null;
