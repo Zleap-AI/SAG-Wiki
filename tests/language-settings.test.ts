@@ -3,6 +3,7 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {mount,unmount,tick} from 'svelte';
 import {get} from 'svelte/store';
 import App from '../src/App.svelte';
+import {version} from '../package.json';
 import SettingsPanel from '../src/components/Settings.svelte';
 import RichEditor from '../src/components/RichEditor.svelte';
 import ToolCall from '../src/components/ToolCall.svelte';
@@ -30,7 +31,7 @@ it('shows project and company links in About and opens them outside the app',asy
  app=mount(SettingsPanel,{target:document.body,props:{value:settings,initial:'about',onSave:vi.fn(),onClose:vi.fn()}});
  await tick();
  expect(document.querySelector('.settings-about-note')).toBeNull();
- expect(document.querySelector('.settings-about-version')?.textContent).toBe('v0.2.1');
+ expect(document.querySelector('.settings-about-version')?.textContent).toBe(`v${version}`);
  expect(document.querySelector('.settings-about-mark .brand-mark')).not.toBeNull();
  const links=[...document.querySelectorAll<HTMLAnchorElement>('.settings-about-links a')];
  expect(links.map(link=>link.href)).toEqual(['https://github.com/Zleap-AI/SAG-Wiki','https://zleap.com/']);
