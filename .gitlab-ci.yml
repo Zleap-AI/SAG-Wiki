@@ -22,7 +22,20 @@ sync_github_main:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_BRANCH == "main"'
   script:
-    - apk add --no-cache git openssh-client
+    - |
+      set -eu
+      for attempt in 1 2 3; do
+        if apk add --no-cache git openssh-client; then
+          break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+          echo "Unable to install sync tools after three attempts."
+          exit 1
+        fi
+        echo "Package source unavailable; retrying with the Alpine mirror."
+        sed -i 's#https://dl-cdn.alpinelinux.org/alpine#https://mirrors.aliyun.com/alpine#g' /etc/apk/repositories
+        sleep 5
+      done
     - |
       set -eu
 
