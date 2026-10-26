@@ -5,6 +5,19 @@ import {mount,tick,unmount} from 'svelte';
 import HtmlDocument from '../src/components/HtmlDocument.svelte';
 let app:ReturnType<typeof mount>|null=null;
 afterEach(async()=>{if(app)await unmount(app);app=null;document.body.innerHTML='';});
+it('搜索原文按完整段落选中，嵌套列表不会连带选中父项，切换时清除旧段落',async()=>{
+ app=mount(HtmlDocument,{target:document.body,props:{body:'<ul><li>父项<ul><li><p>段首 <strong>needle</strong> 段尾。</p></li></ul></li></ul><p>下一段 needle。</p>',terms:['needle'],paragraphHighlight:true}});
+ await tick();
+ const frame=document.querySelector('iframe')!;
+ const doc=new DOMParser().parseFromString(frame.getAttribute('srcdoc')!,'text/html');
+ loadDocumentBridge(frame,doc);await tick();
+ expect(doc.querySelectorAll('.search-active-paragraph')).toHaveLength(1);
+ expect(doc.querySelector('.search-active-paragraph')?.textContent).toBe('段首 needle 段尾。');
+ expect(doc.querySelector('li.search-active-paragraph')).toBeNull();
+ document.querySelector<HTMLButtonElement>('[aria-label="下一处匹配"]')!.click();await tick();
+ expect(doc.querySelectorAll('.search-active-paragraph')).toHaveLength(1);
+ expect(doc.querySelector('.search-active-paragraph')?.textContent).toBe('下一段 needle。');
+});
 it('保留 HTML 页面样式和 SVG 图形，高亮正文并切换匹配',async()=>{
  const body='<style>p{color:red}</style><p>早先 Token</p><h2>目标 Token</h2><svg><text x="10" y="20">Token</text></svg><script>Token()</script>';
  app=mount(HtmlDocument,{target:document.body,props:{body,terms:['Token'],initialMatch:1}});

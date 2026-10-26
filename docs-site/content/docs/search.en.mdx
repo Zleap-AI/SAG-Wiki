@@ -9,7 +9,11 @@ Enter words from your documents to search locally. Quick search needs no model k
 
 ![Search results and source highlights](/images/product-search-en.png)
 
-Results are grouped by file. Select a result to read its source on the right, or open its related passages to choose a match within that file. Use match navigation to move through the source. The document actions menu lets you open the document or reveal it in its folder.
+Results are grouped by file. Select a result to read its source on the right. Use the Back button at the top left of the reader to return to the search summary, or open related passages to choose a match within that file. Use match navigation to move through the source. The document actions menu lets you open the document or reveal it in its folder.
+
+Edit the query in the input above and submit it to search again. Use the top-left Back button to clear the query and view recent searches.
+
+The active match highlights its entire paragraph in the source. In the light theme, it uses a dark background with light text. Find-in-document uses the same style.
 
 ## Read search results
 
@@ -48,7 +52,9 @@ Location: **Settings → Search settings**. Read [Technical overview](/en/docs/s
 
 ### Automatic search summary
 
-On by default. After retrieval, the answer model writes a short summary from the question and selected results. This is a separate post-retrieval step. Disabling it preserves search and source viewing while avoiding answer-model calls for summaries.
+On by default. When a search finds results, Search summary opens and expands automatically, using the question and selected results to generate a short summary. Select a result on the left to read its source, then select Search summary to return. If automatic summaries are disabled or no answer model is configured, the first file opens instead.
+
+![Search summary opens automatically](/images/product-search-summary-en.png)
 
 Configure an [answer model](/en/docs/models) first. Provider charges may apply. Summary time is separate from pure retrieval time.
 

@@ -30,8 +30,12 @@
     }
     if (event.data?.type !== 'sag-select-match' || !Number.isInteger(event.data.index)) return;
     document.querySelectorAll('.search-hit.active').forEach(mark => mark.classList.remove('active'));
+    document.querySelectorAll('.search-active-paragraph').forEach(block => block.classList.remove('search-active-paragraph'));
     const marks = document.querySelectorAll(`[data-search-match="${event.data.index}"]`);
-    marks.forEach(mark => mark.classList.add('active'));
+    marks.forEach(mark => {
+      mark.classList.add('active');
+      if (event.data.paragraph) mark.parentElement.closest('p,li,pre,td,th,h1,h2,h3,h4,h5,h6,div,blockquote,body').classList.add('search-active-paragraph');
+    });
     if (event.data.scroll !== false) marks[0]?.scrollIntoView({block: 'center'});
     reportScroll();
   });
