@@ -1,5 +1,23 @@
 # 更新日志 / Changelog
 
+## 0.2.4
+
+- **CLI 连接反馈**：测试成功后默认收起详情，支持展开查看；在设置分类间切换时保留最近结果和展开状态。
+- **连接状态更新**：再次测试清除旧结果并防止重复请求；关闭 CLI 时清除缓存状态。成功徽标停留后淡出，适配明暗主题与减少动态效果偏好。
+- **模型设置**：LLM 与 Jev 的“测试连接”按钮统一放在卡片右下角。
+- **Windows 窗口控制**：将最小化、最大化／还原和关闭按钮恢复到左侧栏顶部，移除独立顶部标题栏；侧栏收起时仍可操作，macOS 继续使用原生窗口控件。
+
+桌面端与随包 CLI 版本统一为 0.2.4，沿用现行更新签名通道；本次更新不涉及数据库迁移。
+
+### English
+
+- **CLI connection feedback**: collapse successful connection details by default, with an option to expand them. Preserve the latest result and disclosure state when switching settings categories.
+- **Connection state updates**: clear stale results before retesting, prevent duplicate requests and clear cached feedback when CLI access is disabled. The success badge fades away, with light/dark theme and reduced-motion support.
+- **Model settings**: align the LLM and Jev connection-test buttons at the bottom right of their cards.
+- **Windows window controls**: restore minimize, maximize/restore and close to the top of the sidebar, removing the separate title bar. Keep controls available with the sidebar collapsed; macOS retains its native window controls.
+
+The desktop app and bundled CLI both use 0.2.4, retaining the current update-signing channel. This update requires no database migration.
+
 ## 0.2.3
 
 - **文件夹侧栏**：恢复首版直接展示文件夹的布局，移除会话／文件夹切换，保留文件夹导入。
