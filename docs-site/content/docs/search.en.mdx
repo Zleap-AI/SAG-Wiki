@@ -13,7 +13,7 @@ Results are grouped by file. Select a result to read its source on the right. Us
 
 Edit the query in the input above and submit it to search again. Use the top-left Back button to clear the query and view recent searches.
 
-The active match highlights its entire paragraph in the source. In the light theme, it uses a dark background with light text. Find-in-document uses the same style.
+The active match highlights its entire paragraph in the source. In the light theme, it uses a dark background with light text. Markdown previews use the selected passage's source position, so semantic results remain highlighted even when they do not contain the original search words. Find-in-document still locates the words you enter and uses the same style.
 
 ## Read search results
 
@@ -30,6 +30,8 @@ How does this project handle login and permissions?
 ```
 
 SAG2 retrieves candidate passages, uses Jev to assess evidence relevance, expands the search when needed, and returns relevant sources. This is useful for questions spanning multiple files.
+
+![Semantic results highlight the selected source passage](/images/product-search-semantic-en.png)
 
 ## Comparing search modes
 

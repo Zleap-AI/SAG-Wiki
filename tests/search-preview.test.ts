@@ -36,7 +36,7 @@ it('Windows 搜索预览和原文页显示普通路径，读取和打开使用�
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('reveal_path',{path}));
 });
 it('右侧直接渲染 Markdown 全文及高亮，切换文件读取相应文档',async()=>{
- const target={...hits[0],path:'/files/notes.md',title:'notes.md'};
+ const target:Candidate={...hits[0],path:'/files/notes.md',title:'notes.md',content:'可渲染的 **octx** 正文。',start_line:5,end_line:5,source_ranges:[[5,5]]};
  await setup([target,hits[1]],{[target.path]:'引言\n\n# 标题\n\n可渲染的 **octx** 正文。\n\n全文末尾'});
  await vi.waitFor(()=>expect(document.querySelector('.search-preview h1')?.textContent).toBe('标题'));
  expect(document.querySelector('.search-preview strong .search-hit')?.textContent).toBe('octx');
