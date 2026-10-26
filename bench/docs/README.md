@@ -6,9 +6,9 @@ models, update services or MCP servers are accessed. Search timings, index runs
 and graph edges illustrate UI states; they are not performance or backend test
 results. Browser-extension screenshots are maintained separately.
 
-The initial refresh uses GitHub main `680a342` (including the search redesign).
-These are main-branch UI screenshots, not a claim that every illustrated change
-is included in the latest released installer.
+The current refresh targets the 0.2.3 UI: a folder-only sidebar and conversation
+history on the Q&A home. These screenshots follow this branch, not necessarily
+the latest released installer. The About screen reads the package version.
 
 From the repository root, install the locked application dependencies and make
 Playwright available after `npm ci` (or set `PLAYWRIGHT_MODULE` to an existing
