@@ -542,7 +542,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    const remembered=rememberedCandidates.get(candidate.path);
    const c=restore&&remembered?remembered:candidate;
    if(focus?.id===c.id&&previewDocument&&!previewLoading&&restore){summarySelected=false;return;}
-   restorePreview=restore;summarySelected=false;previewFindOpen=false;previewFindDraft='';previewFindTerm='';
+   restorePreview=false;summarySelected=false;previewFindOpen=false;previewFindDraft='';previewFindTerm='';
   const index=groups.findIndex(group=>group.first.path===c.path);if(index>=0)activeResult=index;
   focus=c;rememberedCandidates.set(c.path,c);previewDocument=null;preview='';previewError='';previewLoading=true;const request=++previewRequest;
   try{
