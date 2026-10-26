@@ -2,10 +2,10 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import App from '../src/App.svelte';
-const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
+const {invoke,nativeWindow}=vi.hoisted(()=>({invoke:vi.fn(),nativeWindow:{onCloseRequested:async()=>()=>{},minimize:vi.fn(async()=>{}),toggleMaximize:vi.fn(async()=>{}),isMaximized:vi.fn(async()=>false),close:vi.fn(async()=>{})}}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
-vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
+vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>nativeWindow}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 const conversations=Array.from({length:50},(_,i)=>({id:`chat-${i}`,title:`会话 ${i}`,updated:i,deleted:false,messages:[{question:`问题 ${i}`,answer:i===41?'Deep connection tracing':'回答 '+i,model:'test',evidence:[],scope:[],references:[],status:'complete',error:null,retrieval_question:`问题 ${i}`}]}));
 const keys=['sag.history.scroll','sag.sidebar.library.scroll','sag.sidebar.expanded'];
@@ -51,14 +51,14 @@ it('会话列表放在右侧问答首页，左侧只保留知识库',async()=>{
  expect(document.querySelector('.conversation-sidebar')).toBeNull();
  expect(document.querySelector('.sidebar>.tree')).not.toBeNull();
  expect(document.querySelector('.sidebar .chat-new')).toBeNull();
- expect(document.querySelector('.desktop-window>.desktop-titlebar[data-tauri-drag-region]')).not.toBeNull();
+ expect(document.querySelector('.desktop-window>.desktop-titlebar')).toBeNull();
  expect(document.querySelector('.window-title')).toBeNull();
  expect(document.querySelector('.sidebar .sidebar-titlebar[data-tauri-drag-region]')).not.toBeNull();
  expect(document.querySelector('.sidebar-titlebar [aria-label="收起侧边栏"]')).not.toBeNull();
  expect(document.querySelector('.brand-row button')).toBeNull();
  expect(document.querySelector('.workspace-header[data-tauri-drag-region]')).not.toBeNull();
- expect(document.querySelectorAll('.desktop-titlebar .caption-controls button')).toHaveLength(3);
- expect(document.querySelector('.sidebar [aria-label="最小化"]')).toBeNull();
+ expect(document.querySelectorAll('.sidebar-titlebar .window-controls button')).toHaveLength(3);
+ expect(document.querySelector('.sidebar-titlebar [aria-label="最小化"]')).not.toBeNull();
  expect(document.querySelector('.sidebar .recent-conversations')).toBeNull();
  expect(document.querySelectorAll('.workspace .recent-conversations .history-row')).toHaveLength(50);
  expect(document.querySelector('.workspace .topbar')).toBeNull();
@@ -161,4 +161,35 @@ it('右上角接入入口直达 CLI 设置，保留未发送的问题',async()=>
   document.querySelector<HTMLButtonElement>('[aria-label="关闭设置"]')!.click();await tick();
   expect(input.value).toBe('未发送的问题');
  expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration'||command==='run_query')).toBe(false);
+});
+
+
+it('Windows 侧栏展开与收起时均可操作窗口，并同步最大化与还原',async()=>{
+ await start();
+ const controls=()=>document.querySelector('.sidebar-titlebar .window-controls')!;
+ expect(controls()).not.toBeNull();
+ controls().querySelector<HTMLButtonElement>('[aria-label="最小化"]')!.click();
+ expect(nativeWindow.minimize).toHaveBeenCalledOnce();
+ nativeWindow.isMaximized.mockResolvedValueOnce(true);
+ controls().querySelector<HTMLButtonElement>('[aria-label="最大化"]')!.click();
+ await vi.waitFor(()=>expect(controls().querySelector('[aria-label="还原窗口"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
+ expect(document.querySelector('.real-client.compact-sidebar')).not.toBeNull();
+ expect(controls().querySelectorAll('button')).toHaveLength(3);
+ controls().querySelector<HTMLButtonElement>('[aria-label="还原窗口"]')!.click();
+ await vi.waitFor(()=>expect(controls().querySelector('[aria-label="最大化"]')).not.toBeNull());
+ expect(nativeWindow.toggleMaximize).toHaveBeenCalledTimes(2);
+ controls().querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click();
+ expect(nativeWindow.close).toHaveBeenCalledOnce();
+ document.querySelector<HTMLButtonElement>('[aria-label="展开侧边栏"]')!.click();await tick();
+ expect(controls().querySelectorAll('button')).toHaveLength(3);
+});
+
+it('macOS 不渲染自定义窗口按钮，继续使用原生窗口控件',async()=>{
+ vi.spyOn(navigator,'userAgent','get').mockReturnValue('Mozilla/5.0 (Macintosh; Intel Mac OS X)');
+ await start();
+ expect(document.querySelector('.windows-client')).toBeNull();
+ expect(document.querySelector('.window-controls')).toBeNull();
+ expect(document.querySelector('.desktop-window>.desktop-titlebar')).toBeNull();
+ expect(document.querySelector('.sidebar-titlebar [aria-label="收起侧边栏"]')).not.toBeNull();
 });
