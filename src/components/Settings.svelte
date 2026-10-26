@@ -36,6 +36,7 @@
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
  let settings={...structuredClone(value),notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??10,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false;
+ let cliConnection='',cliConnectionOpen=false,cliConnectionSuccessUntil=0;
  async function openAboutLink(event:MouseEvent,target:'project'|'company'|'302-api-keys'){event.preventDefault();error='';try{await api('open_about_link',{target})}catch(e){error=String(e)}}
  let languageSaved=false;
  let providerChoice={answer:providerFor('answer',value.answer.url),jev:providerFor('jev',value.jev.url)};
@@ -153,7 +154,7 @@
         <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.jev==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input data-autofocus={initial==='jev'?true:undefined} type={showJev?'text':'password'} value={jevKey} oninput={event=>changeKey('jev',event.currentTarget.value)} placeholder={savedKeys.jev?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showJev=!showJev}>{showJev?$t("隐藏"):$t("显示")}</Button.Root></div></label>
         {/if}
        {/if}
-       <div class="settings-card-actions"><Button.Root type="button" class="outline" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root>{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}</div>
+       <div class="settings-card-actions">{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}<Button.Root type="button" class="outline settings-model-test" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root></div>
       </section>
      {/each}
      <p class="settings-help settings-privacy-note">{$t("密钥保存在当前用户的应用数据目录。macOS 文件权限为仅当前用户读写；同一账户运行的其他程序仍可能读取。留空保持已保存的密钥。")}</p>
@@ -196,7 +197,7 @@
     {:else if page==='clipper'}
      <WebClipper/>
     {:else if page==='cli'}
-     <CliSettings bind:access={cliAccess} bind:pending={cliBusy} saving={busy}/>
+     <CliSettings bind:access={cliAccess} bind:pending={cliBusy} bind:connection={cliConnection} bind:connectionOpen={cliConnectionOpen} bind:connectionSuccessUntil={cliConnectionSuccessUntil} saving={busy}/>
     {:else if page==='privacy'}
      <section class="settings-group"><div class="setting-row"><div><strong>{$t("应用数据位置")}</strong><p>{$t("SQLite 索引、配置与问答历史")}</p></div><Button.Root type="button" class="outline" onclick={()=>api('open_data_directory').catch(e=>error=$t(String(e)))}>{$t("打开目录")}</Button.Root></div></section>
      <section class="settings-group data-cleanup-settings">

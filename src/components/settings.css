@@ -42,6 +42,7 @@
 .settings-window .key-field input::placeholder{font-size:var(--text-ui)}
 .settings-window .key-field button{padding:4px 9px;margin:0 4px;border-radius:4px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
 .settings-window .settings-card-actions{display:flex;align-items:center;gap:10px;margin-top:17px}
+.settings-window .model-settings-card .settings-model-test{margin-left:auto}
 .settings-window .outline,.settings-window .settings-cancel{min-height:30px;padding:6px 12px;border:1px solid var(--color-rule);border-radius:6px;background:var(--color-paper);font-size:var(--text-ui);font-weight:450;box-shadow:0 1px 2px var(--color-shadow)}
 .settings-window .outline:hover,.settings-window .settings-cancel:hover{background:var(--color-hover)}
 .settings-window .settings-text-button{padding:6px 8px;color:var(--color-secondary);font-size:var(--text-ui)}

@@ -14,7 +14,7 @@ beforeEach(()=>{installed=new Set(['cli']);setLanguage('zh-CN');invoke.mockImple
  if(command==='get_cli_settings')return {access:{enabled:false,roots:[]},installations:['cli','claude-code','codex','opencode'].map(name=>({name,path:`/home/skills/${name}`,installed:installed.has(name),version:installed.has(name)?'0.1.0':null}))};
  if(command==='install_cli_integration'){args.uninstall?installed.delete(args.target):installed.add(args.target);return 'installed';}
 });});
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();vi.restoreAllMocks();});
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.useRealTimers();vi.clearAllMocks();vi.restoreAllMocks();});
 function click(text:string){const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()===text);expect(button,text).toBeDefined();button!.click();}
 async function ready(){await vi.waitFor(()=>expect(document.querySelector('[aria-label="启用 CLI"]')).not.toBeNull());}
 it('Windows Skill 安装位置与下载提示显示普通路径',async()=>{
@@ -129,6 +129,120 @@ it('omits the command-line tool panel while preserving CLI and skill settings',a
  expect(document.querySelectorAll('.cli-section')).toHaveLength(2);
  expect(document.querySelector('[aria-label="启用 CLI"]')).not.toBeNull();
  expect(document.querySelectorAll('.cli-install-row')).toHaveLength(4);
+});
+
+it.each(['SAG 服务已连接\n{"pid":1}','SAG 服务已连接\n{"pid":2}'])('retests with one fresh result and a fresh success deadline: %s',async result=>{
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date']});
+ invoke.mockResolvedValueOnce('SAG 服务已连接\n{"pid":1}');click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('连接成功'));
+ document.querySelector<HTMLButtonElement>('.cli-connection-trigger')!.click();await tick();
+ expect(document.querySelector<HTMLElement>('.cli-connection-content')!.hidden).toBe(false);
+ await vi.advanceTimersByTimeAsync(2500);
+ let finish!:(result:string)=>void;
+ invoke.mockImplementationOnce(()=>new Promise<string>(resolve=>{finish=resolve}));click('测试连接');await tick();
+ expect(document.querySelector('.cli-connection-result')).toBeNull();
+ expect(document.querySelector<HTMLButtonElement>('.cli-service-actions button')!.disabled).toBe(true);
+ await vi.advanceTimersByTimeAsync(1000);finish(result);
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-content pre')?.textContent).toBe(result));
+ expect(document.querySelectorAll('.cli-connection-result')).toHaveLength(1);
+ const trigger=document.querySelector<HTMLButtonElement>('.cli-connection-trigger')!;
+ const content=document.querySelector<HTMLElement>('.cli-connection-content')!;
+ expect(trigger.getAttribute('aria-expanded')).toBe('false');expect(content.hidden).toBe(true);
+ expect(trigger.getAttribute('aria-controls')).toBe(content.id);
+ trigger.click();await tick();expect(content.hidden).toBe(false);
+ trigger.click();await tick();expect(content.hidden).toBe(true);
+ await vi.advanceTimersByTimeAsync(2800);await tick();
+ expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('连接成功');
+ await vi.advanceTimersByTimeAsync(200);await tick();
+ expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('');
+ expect(document.querySelectorAll('.cli-connection-result')).toHaveLength(1);
+ expect(document.querySelector('.cli-connection-content pre')?.textContent).toBe(result);
+ expect(invoke.mock.calls.filter(([command])=>command==='test_cli_connection')).toHaveLength(2);
+});
+
+it('replaces immediately resolved results without duplicate panels or duplicate requests',async()=>{
+ const result='SAG 服务已连接\n{"pid":9}';
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date']});
+ invoke.mockResolvedValueOnce(result);click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('连接成功'));
+ for(let attempt=0;attempt<3;attempt++){
+  document.querySelector<HTMLButtonElement>('.cli-connection-trigger')!.click();await tick();
+  const previous=document.querySelector('.cli-connection-result');
+  await vi.advanceTimersByTimeAsync(2500);
+  invoke.mockResolvedValueOnce(result);
+  const test=document.querySelector<HTMLButtonElement>('.cli-service-actions button')!;
+  test.click();test.click();
+  await vi.waitFor(()=>{
+   expect(document.querySelector('.cli-connection-result')).not.toBe(previous);
+   expect(document.querySelector('.cli-connection-content pre')?.textContent).toBe(result);
+  });
+  expect(document.querySelectorAll('.cli-connection-result')).toHaveLength(1);
+  expect(document.querySelector<HTMLElement>('.cli-connection-content')!.hidden).toBe(true);
+  await vi.advanceTimersByTimeAsync(600);await tick();
+  expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('连接成功');
+ }
+ expect(invoke.mock.calls.filter(([command])=>command==='test_cli_connection')).toHaveLength(4);
+});
+
+it('clears a previous success when retesting fails and allows a fresh retry',async()=>{
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ invoke.mockResolvedValueOnce('SAG 服务已连接\n{"pid":1}');click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-result')).not.toBeNull());
+ invoke.mockRejectedValueOnce(Error('连接中断'));click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-error')?.textContent).toContain('连接中断'));
+ expect(document.querySelector('.cli-connection-result')).toBeNull();
+ invoke.mockResolvedValueOnce('SAG 服务已连接\n{"pid":2}');click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-content pre')?.textContent).toContain('"pid":2'));
+ expect(document.querySelector('.cli-error')).toBeNull();
+ expect(document.querySelectorAll('.cli-connection-result')).toHaveLength(1);
+});
+
+it.each([500,3500])('preserves the last result and disclosure across settings pages without replaying success after %i ms',async away=>{
+ const result='SAG 服务已连接\n{"pid":42}';
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date']});
+ invoke.mockResolvedValueOnce(result);click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('连接成功'));
+ document.querySelector<HTMLButtonElement>('.cli-connection-trigger')!.click();await tick();
+ await vi.advanceTimersByTimeAsync(500);click('通用');await tick();
+ expect(document.querySelector('.cli-connection-result')).toBeNull();
+ await vi.advanceTimersByTimeAsync(away);click('CLI设置');await ready();
+ expect(document.querySelector('.cli-connection-content pre')?.textContent).toBe(result);
+ expect(document.querySelector('.cli-connection-trigger')?.getAttribute('aria-expanded')).toBe('true');
+ expect(document.querySelector<HTMLElement>('.cli-connection-content')!.hidden).toBe(false);
+ expect(document.querySelector('.cli-connection-summary')?.textContent).toBe(away<3000?'连接成功':'');
+ await vi.advanceTimersByTimeAsync(2100);await tick();
+ expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('');
+ expect(document.querySelector('.cli-connection-content pre')?.textContent).toBe(result);
+ expect(invoke.mock.calls.filter(([command])=>command==='test_cli_connection')).toHaveLength(1);
+});
+
+it('clears the last connection when CLI is disabled, including the cached result across pages',async()=>{
+ const originalInvoke=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,...args)=>{
+  const response=await originalInvoke(command,...args);
+  return command==='get_cli_settings'?{...response,access:{enabled:true}}:response;
+ });
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ vi.useFakeTimers({toFake:['setTimeout','clearTimeout','Date']});
+ invoke.mockResolvedValueOnce('SAG 服务已连接\n{"pid":1}');click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('连接成功'));
+ document.querySelector<HTMLButtonElement>('.cli-connection-trigger')!.click();await tick();
+ document.querySelector<HTMLButtonElement>('[aria-label="启用 CLI"]')!.click();await tick();
+ expect(document.querySelector('.cli-connection-result')).toBeNull();
+ click('通用');await tick();click('CLI设置');await ready();
+ expect(document.querySelector('[aria-label="启用 CLI"]')?.getAttribute('data-state')).toBe('unchecked');
+ expect(document.querySelector('.cli-connection-result')).toBeNull();
+ document.querySelector<HTMLButtonElement>('[aria-label="启用 CLI"]')!.click();await tick();
+ expect(document.querySelector('.cli-connection-result')).toBeNull();
+ await vi.advanceTimersByTimeAsync(2500);
+ invoke.mockResolvedValueOnce('SAG 服务已连接\n{"pid":2}');click('测试连接');
+ await vi.waitFor(()=>expect(document.querySelector('.cli-connection-content pre')?.textContent).toContain('"pid":2'));
+ await vi.advanceTimersByTimeAsync(600);await tick();
+ expect(document.querySelector('.cli-connection-summary')?.textContent).toBe('连接成功');
+ expect(document.querySelector('.cli-connection-trigger')?.getAttribute('aria-expanded')).toBe('false');
 });
 
 it('shows the usage guide last, collapsed by default, without submitting settings when expanded',async()=>{
