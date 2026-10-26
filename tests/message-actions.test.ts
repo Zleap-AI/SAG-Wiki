@@ -77,7 +77,7 @@ it('重试较早回答先确认，完成后可以恢复原来的后续问答',as
  await vi.waitFor(()=>expect(document.querySelectorAll('.user-message')).toHaveLength(2));
 });
 it('新对话失败后重试同一条消息，不创建重复对话',async()=>{
- await click('新建问答');
+ await click('返回会话列表');
  await vi.waitFor(()=>expect(document.querySelectorAll('.user-message')).toHaveLength(0));
  const input=document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;
  input.value='失败后重试';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();

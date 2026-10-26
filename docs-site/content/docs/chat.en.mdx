@@ -7,6 +7,10 @@ description: "Ask about your files and verify answers against their sources."
 
 Open Q&A and send your question. Type `@` to select a file. The scope selector controls which documents can be retrieved.
 
+The sidebar directly shows folder management and the file tree, without Chats/Folders tabs. The Q&A home shows the welcome area, composer and conversation list. When the library is empty, select **Add a local folder** to import your files.
+
+![Q&A home with conversation history and the folder sidebar](/images/product-ask-home-en.png)
+
 ![An answer with citations](/images/product-chat-en.png)
 
 During generation, reasoning, intermediate text and tool calls appear in order. When the final answer starts, the details collapse, leaving only an elapsed-time row and a divider above the answer. Select the row to expand the details again.
@@ -61,7 +65,7 @@ States update whenever a source file is indexed or removed; **Check again** veri
 
 ## Manage conversations
 
-Use the **Chats** sidebar to browse history grouped by date and search titles and answers. Switch to **Folders** to browse source files. **New chat** starts an independent conversation without removing history.
+Open history from the conversation list on the Q&A home. Use its search button to search titles and answers. Inside a conversation, the top back arrow returns to the list and lets you start a new question without removing history. The back button is disabled during generation; stop generation first. The sidebar always displays folders.
 
 History that has not yet been summarized includes previous questions, final answers and compact tool records. Each tool record keeps its name, status and the first 500 characters of its result. Reasoning, tool arguments and intermediate text are excluded from the next turn. The full record remains available in the interface.
 

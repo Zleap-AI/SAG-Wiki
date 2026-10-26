@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
-Version 0.2.2 adds Markdown notes with verifiable citations, redesigns the search reader and speeds up large-document previews. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below points to the latest stable GitHub Release.
+Version 0.2.4 improves CLI connection feedback, aligns model connection-test buttons and restores the Windows window controls to the upper left. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below points to the latest stable GitHub Release.
 
 ## Contents
 
