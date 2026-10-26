@@ -23,8 +23,8 @@ beforeEach(()=>{enabled=undefined;sourceCount=undefined;requests=[];events.clear
 })});
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 async function start(){app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('[aria-label="搜索关键词"]')).not.toBeNull())}
-async function search(question:string){const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;input.value=question;input.dispatchEvent(new Event('input',{bubbles:true}));await tick();input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick()}
-it('默认用完整问题和前十个文件总结，结果先显示，流式文字与引用正常渲染',async()=>{
+async function search(question:string,openSummary=true){const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;input.value=question;input.dispatchEvent(new Event('input',{bubbles:true}));await tick();input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();if(openSummary&&enabled!==false){await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.search-summary-toggle')?.disabled).toBe(false));document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick()}}
+it('从次级入口查看总结，使用完整问题和前十个文件，流式文字与引用正常渲染',async()=>{
  await start();await search('这些文件如何定义协作？');
  await vi.waitFor(()=>expect(requests).toHaveLength(1));
  expect(requests[0].question).toBe('这些文件如何定义协作？');
@@ -36,13 +36,48 @@ it('默认用完整问题和前十个文件总结，结果先显示，流式文�
  await vi.waitFor(()=>expect(document.querySelector('.search-answer .answer-text strong')?.textContent).toBe('共同协作'));
  requests[0].resolve({text:'共同协作 [1]',evidence:requests[0].results});
  await vi.waitFor(()=>expect(document.querySelector('.search-answer[aria-busy="false"]')).not.toBeNull());
+ expect(document.querySelector('.search-preview .search-answer')).not.toBeNull();
  document.querySelector<HTMLButtonElement>('.search-answer .citation')!.click();await tick();
- expect(document.querySelector('.source-dialog')).not.toBeNull();
+ // A citation opens its passage in the reader beside the results, not in a dialog.
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview-title strong')?.textContent).toBe(hits[0].title));
+ expect(document.querySelector('.source-dialog')).toBeNull();
+ expect(document.querySelector('.search-result.selected .search-result-title strong')?.textContent).toBe(hits[0].title);
+ document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick();
+ expect(document.querySelector('.search-preview .search-answer')).not.toBeNull();
 });
 it('关闭自动总结后不请求模型',async()=>{
  enabled=false;await start();await search('协作');
  await vi.waitFor(()=>expect(document.querySelector('.search-result')).not.toBeNull());
  expect(requests).toHaveLength(0);expect(document.querySelector('.search-answer')).toBeNull();
+});
+it('结果列表按 Esc 返回总结，输入框中的 Esc 保留原文',async()=>{
+ await start();await search('协作');await vi.waitFor(()=>expect(requests).toHaveLength(1));
+ requests[0].resolve({text:'共同协作 [1]',evidence:requests[0].results});
+ await vi.waitFor(()=>expect(document.querySelector('.search-answer .citation')).not.toBeNull());
+ const list=document.querySelector<HTMLElement>('.search-results')!;
+ list.focus();list.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview-title strong')?.textContent).toBe('1.txt'));
+ const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;
+ input.focus();input.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick();
+ expect(document.querySelector('.search-preview-title strong')?.textContent).toBe('1.txt');
+ list.focus();list.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await tick();
+ expect(document.querySelector('.search-preview .search-answer')).not.toBeNull();
+});
+it('引用徽标只计实际引用，并在原文打开期间继续跟随流式总结',async()=>{
+ await start();await search('协作');await vi.waitFor(()=>expect(requests).toHaveLength(1));
+ const badges=()=>[...document.querySelectorAll('.search-result-group')].filter(node=>node.querySelector('.search-result-cited')).map(node=>[node.querySelector('strong')!.textContent,node.querySelector('.search-result-cited')!.textContent]);
+ const text='代码 `arr[1]` 与[链接 [3]](https://example.com)。实际依据 [2]。';
+ events.get('query-progress')!({payload:{id:requests[0].id,delta:text,replace:false}});
+ await vi.waitFor(()=>expect(document.querySelector('.search-answer .citation')?.textContent).toBe('1'));
+ expect(badges()).toEqual([['1.txt','1']]);
+ document.querySelector<HTMLButtonElement>('.search-answer .citation')!.click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview-title strong')?.textContent).toBe('1.txt'));
+ events.get('query-progress')!({payload:{id:requests[0].id,delta:' 还有依据 [4]。',replace:false}});
+ await vi.waitFor(()=>expect(badges()).toEqual([['1.txt','1'],['3.txt','2']]));
+ document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick();
+ await vi.waitFor(()=>expect([...document.querySelectorAll('.search-answer .citation')].map(node=>node.textContent)).toEqual(['1','2']));
+ requests[0].resolve({text:text+' 还有依据 [4]。',evidence:requests[0].results});
+ await vi.waitFor(()=>expect(document.querySelector('.search-answer[aria-busy="false"]')).not.toBeNull());
 });
 it('生成中可以折叠，完成后保持折叠，重新展开显示全文且不重复请求',async()=>{
  await start();await search('协作');await vi.waitFor(()=>expect(requests).toHaveLength(1));
@@ -64,7 +99,7 @@ it('新搜索和返回会取消旧摘要，迟到的文字不能覆盖当前搜�
  requests[0].resolve({text:'过期摘要',evidence:[]});
  events.get('query-progress')!({payload:{id:requests[0].id,delta:'过期流式文字'}});await tick();
  expect(document.querySelector('.search-answer')?.textContent).not.toContain('过期');
- document.querySelector<HTMLButtonElement>('[aria-label="返回搜索"]')!.click();
+ document.querySelector<HTMLButtonElement>('.search-new-query')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.search-answer')).toBeNull());
  requests[1].resolve({text:'迟到的摘要',evidence:[]});await tick();await tick();
  expect(document.querySelector('.search-answer')).toBeNull();
@@ -111,4 +146,47 @@ it('复制图标复制完整总结，折叠时仍可复制且不改变展开状�
   expect(document.querySelector('[aria-label="展开搜索总结"]')?.getAttribute('aria-expanded')).toBe('false');
   expect(document.querySelector('#notice')?.textContent).toContain('已复制');
  }finally{writeText.mockRestore()}
+});
+
+it('自动总结在后台运行，默认仍阅读首个文件且可切换回原文',async()=>{
+ await start();await search('协作',false);
+ await vi.waitFor(()=>expect(requests).toHaveLength(1));
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview-title strong')?.textContent).toBe('0.txt'));
+ expect(document.querySelector('.search-answer')).toBeNull();
+ document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick();
+ expect(document.querySelector('.search-answer')).not.toBeNull();
+ document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview-title strong')?.textContent).toBe('0.txt'));
+});
+
+it('选中第二片段后往返总结和列表，仍保留第二片段',async()=>{
+ await start();await search('协作',false);
+ await vi.waitFor(()=>expect(document.querySelector('.search-passage-trigger')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('.search-passage-trigger')!.click();await tick();
+ document.querySelectorAll<HTMLButtonElement>('.search-passage-option')[1].click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.search-passage-trigger')!.textContent).toContain('2 / 2'));
+ document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick();
+ document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.search-passage-trigger')!.textContent).toContain('2 / 2'));
+ document.querySelector<HTMLButtonElement>('.search-preview-back')!.click();await tick();
+ document.querySelector<HTMLElement>('.search-result')!.click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.search-passage-trigger')!.textContent).toContain('2 / 2'));
+});
+
+it('翻页后打开总结引用，仍可查看引用文件的所有相关片段',async()=>{
+ localStorage.setItem('sag.search.mode','deep_search');
+ await start();
+ const base=invoke.getMockImplementation()!;
+ const extra=Array.from({length:10},(_,i)=>({...hits[0],id:100+i,document_id:100+i,path:`/notes/extra-${i}.txt`,title:`extra-${i}.txt`}));
+ invoke.mockImplementation((command,args)=>command==='run_query'?Promise.resolve({terms:[],results:[hits[0],{...hits[0],id:90},...hits.slice(1),...extra],trace:[],conversation:null}):base(command,args));
+ await search('协作',false);await vi.waitFor(()=>expect(requests).toHaveLength(1));
+ requests[0].resolve({text:'摘要 [1]',evidence:requests[0].results});
+ document.querySelector<HTMLButtonElement>('[aria-label="下一页"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.search-result')).toHaveLength(2));
+ document.querySelector<HTMLButtonElement>('.search-summary-toggle')!.click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.search-answer .citation')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('.search-answer .citation')!.click();await tick();
+ await vi.waitFor(()=>expect(document.querySelector('.search-passage-trigger')!.textContent).toContain('1 / 2'));
+ document.querySelector<HTMLButtonElement>('.search-passage-trigger')!.click();await tick();
+ expect(document.querySelectorAll('.search-passage-option')).toHaveLength(2);
 });

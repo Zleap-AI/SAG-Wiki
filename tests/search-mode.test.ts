@@ -23,11 +23,11 @@ it('搜索默认直接使用深入模式',async()=>{
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
  expect(invoke.mock.calls.find(([command])=>command==='run_query')![1].query.kind).toBe('deep_search');
 });
-it('搜索框发送按钮前切换快速模式，已有查询自动重新搜索',async()=>{
+it('搜索框下方切换快速模式，已有查询自动重新搜索',async()=>{
  const input=await setup();
  const mode=document.querySelector<HTMLButtonElement>('.search-composer [aria-label="搜索模式"]');
  expect(mode).not.toBeNull();expect(mode!.textContent).toContain('深入');
- expect(mode!.parentElement?.querySelector('[aria-label="搜索文件"]')).not.toBeNull();
+ expect(document.querySelector('.search-composer [aria-label="搜索文件"]')).not.toBeNull();
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="停止搜索"]')).toBeNull());
  mode!.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
@@ -44,7 +44,7 @@ it('一百个文件分五页展示，合并同一文件的命中并保持后端�
  invoke.mockImplementation((command,args)=>command==='run_query'?Promise.resolve({results:[...hits,{...hits[0],id:101}],terms:['octx'],trace:[],conversation:null}):command==='read_document'?Promise.resolve({path:args.path,name:'file.md',body:'octx',hash:'same'}):base(command,args));
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(document.querySelectorAll('.search-result')).toHaveLength(20));
- expect(document.querySelector('.search-result')!.textContent).toContain('2 个片段');
+ expect(document.querySelector('.search-result-more')!.textContent).toContain('2 处相关片段');
  const titles:string[]=[];
  for(let page=0;page<5;page++){
   await vi.waitFor(()=>expect(document.querySelector('.search-result strong')!.textContent).toBe(`file-${page*20}.md`));

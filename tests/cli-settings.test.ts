@@ -17,6 +17,19 @@ beforeEach(()=>{installed=new Set(['cli']);setLanguage('zh-CN');invoke.mockImple
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();vi.restoreAllMocks();});
 function click(text:string){const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()===text);expect(button,text).toBeDefined();button!.click();}
 async function ready(){await vi.waitFor(()=>expect(document.querySelector('[aria-label="启用 CLI"]')).not.toBeNull());}
+it('Windows Skill 安装位置与下载提示显示普通路径',async()=>{
+ const path=String.raw`\\?\C:\Users\PC\skills\sag`;
+ invoke.mockImplementation(async command=>{
+  if(command==='get_cli_settings')return{access:{enabled:false,roots:[]},installations:[{name:'codex',path,installed:true,version:'0.1.0'}]};
+  if(command==='download_cli_skill')return path;
+ });
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
+ document.querySelector<HTMLButtonElement>('.cli-location button')!.click();await tick();
+ expect(document.querySelector('.cli-skill-path code')?.textContent).toBe(String.raw`C:\Users\PC\skills\sag`);
+ document.querySelector<HTMLButtonElement>('[aria-label="下载 SAG Skill"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain(String.raw`C:\Users\PC\skills\sag`));
+ expect(document.querySelector('.cli-feedback[role=status]')?.textContent).not.toContain('\\\\?\\');
+});
 
 it('saves CLI enabled changes only with the settings form, across tab switches and installation refreshes',async()=>{
  const onSave=vi.fn(),onClose=vi.fn();

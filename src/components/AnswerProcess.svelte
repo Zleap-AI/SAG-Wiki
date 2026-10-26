@@ -33,14 +33,15 @@
 {:else}<slot/>{/if}
 
 <style>
- .answer-process{margin:0 0 20px}
- .answer-process-summary{display:flex;align-items:center;gap:6px;padding:0 0 12px;border-bottom:1px solid var(--color-rule);list-style:none;color:var(--color-secondary);font-size:var(--text-caption);line-height:1.6;cursor:pointer}
+ .answer-process{margin:0 0 16px}
+ .answer-process-summary{display:inline-flex;align-items:center;gap:6px;min-height:28px;padding:3px 10px;border-radius:999px;background:var(--color-hover);list-style:none;color:var(--color-secondary);font-size:var(--text-caption);line-height:1.6;cursor:pointer;transition:background-color .15s,color .15s}
+ .answer-process-summary:hover{background:var(--color-selected);color:var(--color-ink)}
  .answer-process-summary::-webkit-details-marker{display:none}
  .answer-process-summary:focus-visible{outline:2px solid var(--color-focus);outline-offset:4px}
  .process-chevron{display:flex;align-items:center}
  .process-chevron :global(.icon){width:12px;height:12px}
  .answer-process[open] .process-chevron{transform:rotate(90deg)}
- .answer-process-content{padding-top:16px}
+ .answer-process-content{padding-top:12px}
  .answer-process:not(.collapsible),.answer-process:not(.collapsible)>.answer-process-content{display:contents}
  .answer-process:not(.collapsible)>.answer-process-summary{display:none}
 </style>

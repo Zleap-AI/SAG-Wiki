@@ -5,7 +5,7 @@
  import Input from './ui/Input.svelte';
  import {api} from '../lib/api';
  import {icon} from '../lib/icons';
- import {normalizeScope} from '../lib/domain';
+ import {displayPath,normalizeScope} from '../lib/domain';
  import {t} from '../lib/i18n';
  import type {FolderIndexOptions} from '../lib/types';
  import FolderIndexTypes from './FolderIndexTypes.svelte';
@@ -28,7 +28,7 @@
   try{
    const result=await api<Listing>('browse_folders',{path,showHidden});
    if(current!==request)return;
-   listing=result;pathInput=result.path;
+   listing=result;pathInput=displayPath(result.path);
   }catch(e){if(current===request)error=$t(String(e))}
   finally{if(current===request)loading=false}
  }
@@ -56,10 +56,10 @@
  <div class="folder-picker-list" aria-busy={loading}>
   {#if listing?.parent}<Button.Root type="button" class="folder-picker-parent" aria-label={$t('返回上级文件夹')} disabled={adding||loading} onclick={()=>browse(listing!.parent)}>{@html icon('back')}<span>{$t('返回上层')}</span></Button.Root>{/if}
   {#if loading}<p class="folder-picker-empty" role="status">{$t('正在读取文件夹…')}</p>
-  {:else if listing}{#each listing.folders as folder(folder.path)}<div class="folder-picker-row" class:selected={selected.includes(folder.path)}><Checkbox.Root class="ui-checkbox" aria-label={$t('选择 {value0}',{value0:folder.name})} checked={selected.includes(folder.path)} disabled={adding||roots.includes(folder.path)} onCheckedChange={()=>select(folder.path)}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root><Button.Root class="folder-picker-folder" disabled={adding} title={folder.path} onclick={()=>browse(folder.path)}>{@html icon('folder')}<span>{folder.name}</span>{#if roots.includes(folder.path)}<small>{$t('已加入知识库')}</small>{/if}{@html icon('chevron')}</Button.Root></div>{:else}<p class="folder-picker-empty">{$t('此目录没有子文件夹，可选择当前文件夹。')}</p>{/each}{/if}
+  {:else if listing}{#each listing.folders as folder(folder.path)}<div class="folder-picker-row" class:selected={selected.includes(folder.path)}><Checkbox.Root class="ui-checkbox" aria-label={$t('选择 {value0}',{value0:folder.name})} checked={selected.includes(folder.path)} disabled={adding||roots.includes(folder.path)} onCheckedChange={()=>select(folder.path)}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root><Button.Root class="folder-picker-folder" disabled={adding} title={displayPath(folder.path)} onclick={()=>browse(folder.path)}>{@html icon('folder')}<span>{folder.name}</span>{#if roots.includes(folder.path)}<small>{$t('已加入知识库')}</small>{/if}{@html icon('chevron')}</Button.Root></div>{:else}<p class="folder-picker-empty">{$t('此目录没有子文件夹，可选择当前文件夹。')}</p>{/each}{/if}
  </div>
- {#if chosen.length}<div class="folder-picker-selection" aria-label={$t('已选文件夹')}>{#each chosen as path(path)}<div><span title={path}>{path}</span><Button.Root class="icon-button" disabled={adding} aria-label={$t('取消选择 {value0}',{value0:path})} onclick={()=>selected=selected.filter(item=>item!==path)}>{@html icon('close')}</Button.Root></div>{/each}</div>{/if}
- {#if failures.length}<div class="folder-picker-error" role="alert">{#each failures as failure}<p>{failure.path}：{failure.error}</p>{/each}</div>{/if}
+ {#if chosen.length}<div class="folder-picker-selection" aria-label={$t('已选文件夹')}>{#each chosen as path(path)}<div><span title={displayPath(path)}>{displayPath(path)}</span><Button.Root class="icon-button" disabled={adding} aria-label={$t('取消选择 {value0}',{value0:displayPath(path)})} onclick={()=>selected=selected.filter(item=>item!==path)}>{@html icon('close')}</Button.Root></div>{/each}</div>{/if}
+ {#if failures.length}<div class="folder-picker-error" role="alert">{#each failures as failure}<p>{displayPath(failure.path)}：{failure.error}</p>{/each}</div>{/if}
  {#if optionsOpen}<div id="folder-index-options" class="folder-picker-index-options" bind:this={indexOptions}><p>{$t('应用于本次添加的文件夹。已有手写忽略规则会保留。')}</p><FolderIndexTypes bind:value={options} disabled={adding}/></div>{/if}
  </div>
  <div class="folder-picker-footer"><Button.Root class="folder-index-toggle" aria-expanded={optionsOpen} aria-controls="folder-index-options" disabled={adding} onclick={toggleOptions}>{@html icon('settings')}{$t('索引选项')}{@html icon(optionsOpen?'down':'chevron')}</Button.Root><Button.Root class="outline" disabled={adding} onclick={onClose}>{$t('取消')}</Button.Root><Button.Root class="primary" disabled={adding||loading||!chosen.length} onclick={add}>{adding?$t('正在添加…'):chosen.length?$t('添加 {value0} 个文件夹',{value0:chosen.length}):$t('添加到知识库')}</Button.Root></div>

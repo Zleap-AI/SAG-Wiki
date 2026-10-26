@@ -10,6 +10,15 @@ vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:a
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.resetAllMocks()});
 const options={file_types:{markdown:true,text:true,code:false,config:false},convert_other_formats:false};
+it('Windows 文件夹设置显示普通路径，保存使用原始路径',async()=>{
+ const path=String.raw`\\?\D:\资料`;
+ invoke.mockImplementation(async command=>command==='get_folder_index_options'?structuredClone(options):null);
+ app=mount(FolderIndexSettings,{target:document.body,props:{path,onSaved:vi.fn(),onClose:vi.fn()}});
+ await vi.waitFor(()=>expect(document.querySelector('#folder-type-code')).not.toBeNull());
+ expect(document.querySelector('.folder-path')?.textContent).toBe(String.raw`D:\资料`);
+ document.querySelector<HTMLButtonElement>('.dialog-footer .primary')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('save_folder_index_options',{path,options,rebuild:false}));
+});
 it('重新索引提交当前文件夹和选择，显示清除范围说明',async()=>{
  invoke.mockImplementation(async command=>command==='get_folder_index_options'?structuredClone(options):{installed:true,running:false});
  const onSaved=vi.fn(),onClose=vi.fn();
@@ -85,7 +94,7 @@ it('已安装后可选择具体扩展名，保存后重新打开保留选择',as
  invoke.mockImplementation(async(command,args)=>{
   if(command==='get_settings')return {conversion_workers:4};
   if(command==='get_folder_index_options')return structuredClone(saved);
-  if(command==='get_docling_status')return {installed:true,running:false,formats:[['电子书与邮件',['eml']],['Word',['dotx','dot']],['音频',['mp3','wav']]]};
+  if(command==='get_docling_status')return {installed:true,running:false,formats:[['PDF',['pdf']],['Word',['docx','doc']],['音频',['mp3','wav']]]};
   if(command==='save_folder_index_options'){saved=structuredClone(args.options);return;}
  });
  app=mount(FolderIndexSettings,{target:document.body,props:{path:'/notes',onSaved:vi.fn(),onClose:vi.fn()}});
@@ -93,20 +102,20 @@ it('已安装后可选择具体扩展名，保存后重新打开保留选择',as
  await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
  button('选择其他格式').click();await tick();
  // A legacy "all formats" preference opens with nothing preselected.
- expect(button('转换 .eml').getAttribute('aria-checked')).toBe('false');
+ expect(button('转换 .pdf').getAttribute('aria-checked')).toBe('false');
  expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('false');
- button('转换 .eml').click();
+ button('转换 .pdf').click();
  await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.docling-dialog .dialog-footer button')].find(button=>button.textContent==='应用')!.click();await tick();
  document.querySelector<HTMLButtonElement>('.folder-index-settings>.dialog-footer .primary')!.click();
- await vi.waitFor(()=>expect(saved.conversion_formats).toEqual(['eml']));
+ await vi.waitFor(()=>expect(saved.conversion_formats).toEqual(['pdf']));
  expect(saved.convert_other_formats).toBe(true);
  await unmount(app);document.body.innerHTML='';
  app=mount(FolderIndexSettings,{target:document.body,props:{path:'/notes',onSaved:vi.fn(),onClose:vi.fn()}});
  await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
  button('选择其他格式').click();await tick();
- expect(button('转换 .eml').getAttribute('aria-checked')).toBe('true');
- expect(button('转换 .dotx').getAttribute('aria-checked')).toBe('false');
+ expect(button('转换 .pdf').getAttribute('aria-checked')).toBe('true');
+ expect(button('转换 .docx').getAttribute('aria-checked')).toBe('false');
  expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('false');
  expect(invoke.mock.calls.some(([command])=>command==='install_docling')).toBe(false);
 });

@@ -1,3 +1,5 @@
+import {displayPath} from './domain';
+
 // Display MCP text as text; the complete response remains available as JSON.
 export function toolResultText(value:unknown,translate:(text:string,parameters?:Record<string,unknown>)=>string=(text,parameters={})=>text.replace(/\{(value\d+)\}/g,(_,key)=>String(parameters[key])),sagTool?:string):string {
  if(typeof value==='string')return value;
@@ -8,7 +10,7 @@ export function toolResultText(value:unknown,translate:(text:string,parameters?:
   delete data.note;
   if(sagTool==='search'&&Array.isArray(data.sources)){
    const sources=data.sources as {source_id:number;title:string;path:string;content:string}[];
-   const lines=sources.length?[translate('返回 {value0} 个原文片段',{value0:sources.length}),...sources.map(source=>`[${source.source_id}] ${source.title}\n${source.path}\n${source.content}`)]:[];
+   const lines=sources.length?[translate('返回 {value0} 个原文片段',{value0:sources.length}),...sources.map(source=>`[${source.source_id}] ${source.title}\n${displayPath(source.path)}\n${source.content}`)]:[];
    if(!lines.length)lines.push(translate(data.omitted_sources?'本轮没有新增原文片段。':'未找到相关内容。请尝试调整关键词，或检查文件是否已完成索引。'));
    return lines.join('\n\n');
   }

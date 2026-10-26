@@ -5,7 +5,7 @@ description: "Control search scope, file types and ignore rules."
 
 ## Add and index
 
-Add a directory in folder management. SAG Wiki indexes the selected file types while applying ignore rules. Later changes trigger incremental indexing.
+Switch the sidebar to **Folders** and add a directory in folder management. SAG Wiki indexes the selected file types while applying ignore rules. Later changes trigger incremental indexing.
 
 Markdown, plain text, RTF, Word, PowerPoint, Excel, OpenDocument, CSV, EPUB and text-based PDFs are enabled by default. Built-in anydoc parses Office, RTF, tables, ebooks and PDFs locally without downloading components. Code and configuration files follow their type settings. Install Docling when needed for scanned PDFs and other formats.
 
@@ -122,6 +122,12 @@ After you dismiss a failure notice, the app remembers the current failure detail
 **Removed files and folders → Restore** adds an excluded path back and starts indexing. Restore only content you want searchable again.
 
 ![Completed indexing history and file counts](/images/product-index-history-en.png)
+
+### Recent indexing and failures
+
+Index details shows the latest record for each folder. Expand older records to inspect earlier runs. A failed run includes a readable explanation and file details; use the file entry to locate the affected source. Clearing history removes records, not the existing index.
+
+![Index failure details](/images/product-index-failure-en.png)
 
 Indexing details show the **Text indexing → File conversion → Index converted files** stages, with progress for the current stage. Already indexed content remains searchable. Select **Pause indexing** to pause after in-progress files finish, or **Resume indexing** to continue.
 

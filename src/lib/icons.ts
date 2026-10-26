@@ -3,7 +3,7 @@ import {
  ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUp, Bold, Check, ChevronDown, ChevronRight, ChevronsLeft, CircleHelp, CodeXml, Copy,
  Download, Ellipsis, FileText, Folder, FolderUp, Globe, History, Info, Italic, List, ListOrdered,
  Maximize, MessageSquareText, Minus, Moon, PanelLeft, Pause, Play, Pencil, Plus, Quote,
- Redo2, RefreshCw, Search, SlidersHorizontal, Square, Strikethrough, Sun, Trash2, Undo2, X, Plug,
+ Redo2, RefreshCw, Search, SlidersHorizontal, Square, Strikethrough, Sun, Trash2, Undo2, X, Plug, CircleAlert,
  type LucideIconData,
 } from '@lucide/icons';
 import {buildLucideSvg} from '@lucide/icons/build';
@@ -16,7 +16,7 @@ const glyph:Record<string,LucideIconData>={
  strike:Strikethrough,bulletList:List,orderedList:ListOrdered,blockquote:Quote,
  codeBlock:CodeXml,undo:Undo2,redo:Redo2,stop:Square,minimize:Minus,maximize:Maximize,
  copy:Copy,delete:Trash2,pause:Pause,play:Play,history:History,
- plug:Plug,switch:ArrowLeftRight,help:CircleHelp,
+ plug:Plug,switch:ArrowLeftRight,help:CircleHelp,alert:CircleAlert,
 };
 export const icon=(name:string)=>buildLucideSvg(glyph[name],{
  className:'icon',hasA11yProp:false,attributes:{focusable:'false'},

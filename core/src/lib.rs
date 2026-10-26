@@ -13,6 +13,7 @@ pub mod folder_index;
 pub mod ignore_rules;
 pub mod mcp;
 pub mod models;
+pub mod notes;
 pub mod retrieval;
 pub mod sag2_v10;
 pub mod sag_mcp;

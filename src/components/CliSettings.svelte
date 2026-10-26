@@ -5,6 +5,7 @@
  import {api} from '../lib/api';
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
+ import {displayPath} from '../lib/domain';
  import type {CliAccess} from '../lib/types';
 
  export let access:CliAccess|undefined=undefined;
@@ -53,7 +54,7 @@
   pending=true;error='';notice='';connection='';operation={target:'other',kind:'download'};
   try{
    const path=await api<string|null>('download_cli_skill',{title:$t('选择 Skill 保存位置')});
-   if(path)notice=$t('Skill 已下载到 {value0}。请将 sag 文件夹添加到所用工具的 Skills 目录。',{value0:path});
+   if(path)notice=$t('Skill 已下载到 {value0}。请将 sag 文件夹添加到所用工具的 Skills 目录。',{value0:displayPath(path)});
   }catch(e){error=String(e);}finally{pending=false;operation=null;}
  }
 </script>
@@ -101,7 +102,7 @@
    <Collapsible.Trigger type="button" class="cli-disclosure cli-guide-trigger"><span aria-hidden="true">{@html icon('chevron')}</span>{$t('Skill 安装指南')}</Collapsible.Trigger>
    <Collapsible.Content class="cli-location-content">
     <div class="cli-skill-help"><p>{$t('点击上方对应 Agent 的“安装”按钮即可完成安装。')}</p><p>{$t('也可在终端运行对应命令，或让 Agent 执行安装。')}</p><p>{$t('安装完成后，请在对应 Agent 中新开会话以加载 Skill。')}</p></div>
-    {#each integrations as item(item.name)}<div class="cli-skill-path"><strong>{names[item.name]}</strong><code>{item.path}</code></div>{/each}
+    {#each integrations as item(item.name)}<div class="cli-skill-path"><strong>{names[item.name]}</strong><code>{displayPath(item.path)}</code></div>{/each}
    </Collapsible.Content>
   </Collapsible.Root>
  <Collapsible.Root class="cli-guide" open={false}>

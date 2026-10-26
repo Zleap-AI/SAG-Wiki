@@ -16,7 +16,7 @@ const log=()=>document.querySelector<HTMLElement>('.chat-log')!;
 const bottom=()=>log().scrollHeight-log().clientHeight;
 const openChat=async(title='较早对话')=>{
  if(!document.querySelector(`[title="${title}"]`)){
-  document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();
+  document.querySelector<HTMLButtonElement>('[aria-label="新建问答"]')!.click();
   await vi.waitFor(()=>expect(document.querySelector(`[title="${title}"]`)).not.toBeNull());
  }
  document.querySelector<HTMLButtonElement>(`[title="${title}"]`)!.click();await vi.waitFor(()=>expect(log()).not.toBeNull())

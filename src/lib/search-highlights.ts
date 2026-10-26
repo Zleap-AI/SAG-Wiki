@@ -34,6 +34,23 @@ export function searchSnippet(text:string,terms:string[]):string{
  const first=textMatches(text,terms)[0];const start=Math.max(0,(first?.from??0)-60),end=Math.min(text.length,start+180);
  return (start?'…':'')+highlightedText(text.slice(start,end),terms)+(end<text.length?'…':'');
 }
+// Readable text of a Markdown passage for result snippets, without syntax.
+export function plainText(path:string,content:string):string{
+ if(isHtml(path))return searchText(path,content);
+ if(!isMarkdown(path))return content.replace(/\s+/g,' ').trim();
+ return content
+  .replace(/^\s*(?:`{3,}|~{3,}).*$/gm,' ')
+  .replace(/!\[([^\]]*)\]\([^)]*\)/g,'$1')
+  .replace(/\[([^\]]+)\](?:\([^)]*\)|\[[^\]]*\])/g,'$1')
+  .replace(/^\s{0,3}(?:#{1,6}\s+|>\s?|[-+*]\s+(?:\[[ xX]\]\s+)?|\d+[.)]\s+)/gm,'')
+  .replace(/^\s*\|?(?:\s*:?-{3,}:?\s*\|)+\s*(?::?-{3,}:?\s*)?$/gm,' ')
+  .replace(/(\*\*|__|~~|`)(?=\S)([\s\S]*?\S)\1/g,'$2')
+  .replace(/(^|[^*\w])[*_](?=\S)([^*_\n]*?\S)[*_](?![*\w])/g,'$1$2')
+  .replace(/<[^>]+>/g,' ')
+  .replace(/\s*\|\s*/g,' ')
+  .replace(/\s+/g,' ')
+  .trim();
+}
 export function searchText(path:string,content:string):string{
  if(!isHtml(path))return content;
  const tail=/<\/(style|script)\s*>/i.exec(content);
@@ -100,6 +117,11 @@ export async function citationTerms(candidate:Candidate,body:string):Promise<str
   const ranges=candidate.source_spans?.length?candidate.source_spans.map(span=>({from:decoder.decode(bytes.subarray(0,span.start_byte)).length,to:decoder.decode(bytes.subarray(0,span.end_byte)).length})):[{from:lines.slice(0,candidate.start_line-1).join('\n').length+(candidate.start_line>1?1:0),to:lines.slice(0,candidate.end_line).join('\n').length}];
   html=renderMarkdown(markdownCitation(body,ranges));
  }else html=isHtml(candidate.path)?candidate.content:`<pre>${escaped(candidate.content)}</pre>`;
+ return blockTexts(html);
+}
+
+// The distinct text of each block in rendered HTML: the terms that mark a citation.
+export function blockTexts(html:string):string[]{
  const doc=new DOMParser().parseFromString(html,'text/html');
  doc.querySelectorAll('script,style,template,noscript,svg').forEach(node=>node.remove());
  return [...new Set(textBlocks(doc).map(nodes=>nodes.map(node=>node.data).join('').trim()).filter(Boolean))];

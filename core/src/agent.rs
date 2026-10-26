@@ -763,6 +763,7 @@ mod tests {
             retrieval_question: String::new(),
             tool_calls: vec![],
             context: None,
+            note_path: None,
         }
     }
     fn candidate(id: i64, content: &str) -> Candidate {

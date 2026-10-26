@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
-Version 0.2.0 includes document outlines, Mermaid previews, document-scoped questions, conversation summarization, and a standalone web clipper. See the [bilingual documentation](docs-site/README.md) and [extension build guide](browser-extension/README.md). The download link below points to the latest stable GitHub Release.
+Version 0.2.2 adds Markdown notes with verifiable citations, redesigns the search reader and speeds up large-document previews. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below points to the latest stable GitHub Release.
 
 ## Contents
 
@@ -110,9 +110,9 @@ SAG-Wiki itself is free and open source. External service charges depend on your
 
 ### 1. Download and add a folder
 
-Download the DMG from the table above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
+Download the macOS DMG from the latest release link above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
 
-Install and open SAG-Wiki, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
+Install and open SAG-Wiki, switch the sidebar to **Folders**, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
 
 <p align="center">
   <img src="docs/assets/readme/product-folders-en.png" alt="Local folders and documents in SAG-Wiki" width="940" />

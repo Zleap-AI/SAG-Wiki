@@ -34,7 +34,7 @@
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
- let settings={...structuredClone(value),updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false;
  async function openAboutLink(event:MouseEvent,target:'project'|'company'|'302-api-keys'){event.preventDefault();error='';try{await api('open_about_link',{target})}catch(e){error=String(e)}}
  let languageSaved=false;
@@ -88,7 +88,7 @@
    settings={...settings};
   };
  }
- async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
+ async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
 </script>
@@ -182,6 +182,11 @@
       <div class="setting-row"><label for="answer-context"><strong>{$t("回答上下文预算（tokens）")}</strong><p>{$t("控制问题、历史、工具记录和引用的输入规模。默认 64K，无固定最大值，请按模型支持的上下文大小填写。输出长度由模型服务决定。")}</p></label><Input id="answer-context" aria-label={$t("回答上下文预算（tokens）")} type="number" min="4096" step="1" required bind:value={settings.answer_context_tokens}/></div>
       <div class="setting-row"><label for="model-timeout"><strong>{$t("请求超时")}</strong><p>{$t("单位：秒")}</p></label><Input id="model-timeout" aria-label={$t("请求超时")} type="number" min="10" max="600" bind:value={settings.timeout_secs}/></div>
      </section>
+     <section class="settings-group settings-fields note-settings">
+      <div class="settings-group-heading"><h3>{$t("笔记")}</h3></div>
+      <div class="setting-row"><label for="notes-folder"><strong>{$t("默认保存文件夹")}</strong><p>{$t("保存回答为笔记时的默认位置。留空使用文稿/sag-wiki/notes，不存在时自动创建并加入知识库。")}</p></label><Input id="notes-folder" aria-label={$t("默认保存文件夹")} placeholder={$t("文稿/sag-wiki/notes")} bind:value={settings.notes.folder}/></div>
+      <div class="setting-row"><div><strong>{$t("每次询问保存位置")}</strong><p>{$t("关闭后，记住位置的保存会直接写入默认文件夹。")}</p></div><Switch bind:checked={settings.notes.ask_location} label={$t("每次询问保存位置")}/></div>
+     </section>
 
     {:else if page==='retrieval'}
      <section class="settings-group"><div class="setting-row"><div><strong>{$t("搜索结果自动总结")}</strong><p>{$t("搜索后使用问答模型，根据问题和参考结果生成简短总结。")}</p></div><Switch bind:checked={settings.search_summary_enabled} label={$t("搜索结果自动总结")}/></div><div class="setting-row"><div><strong>{$t("自动总结参考数量")}</strong><p>{$t("默认 10 条，不设最大值；超过模型上下文预算时自动裁剪。")}</p></div><Input type="number" min="1" step="1" required bind:value={settings.search_summary_sources} aria-label={$t("自动总结参考数量")}/></div></section>
@@ -202,9 +207,12 @@
     {:else if page==='shortcuts'}
      <section class="settings-group settings-shortcuts">{#each [[$t("搜索文件"),'⌘ / Ctrl + K'],[$t("新建问答"),'⌘ / Ctrl + N'],[$t("保存文档"),'⌘ / Ctrl + S'],[$t("发送或搜索"),'Enter'],[$t("问题换行"),'Shift + Enter'],[$t("引用文件"),'@'],[$t("选择引用"),'↑ ↓ / Enter / Esc']] as [label,key]}<div class="setting-row"><strong>{label}</strong><kbd>{key}</kbd></div>{/each}</section>
     {:else}
-     <div class="settings-about">{@html logo}<h3>SAG Wiki</h3><p>{$t("向你的文件提问")}</p><span>{appVersion} · Tauri + Rust + SQLite</span>
+     <section class="settings-about" aria-label={$t('关于 SAG Wiki')}>
+      <div class="settings-about-mark">{@html logo}</div>
+      <div class="settings-about-copy"><h3>SAG Wiki</h3><p>{$t("向你的文件提问")}</p><span>{$t('Tauri + Rust + SQLite')}</span></div>
+      <span class="settings-about-version">v{appVersion}</span>
       <div class="settings-about-links"><a href="https://github.com/Zleap-AI/SAG-Wiki" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'project')}>{$t('开源项目')} · GitHub</a><a href="https://zleap.com" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'company')}>{$t('开发公司')} · Zleap</a></div>
-     </div>
+     </section>
      <AppUpdates bind:config={settings.updates} onBeforeInstall={onBeforeUpdate}/>
     {/if}
    </div>

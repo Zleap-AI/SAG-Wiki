@@ -44,7 +44,7 @@ describe('深入搜索分页',()=>{
   const visible=()=>[...document.querySelectorAll('.search-result-title strong')].map(node=>node.textContent);
   await vi.waitFor(()=>expect(visible()).toEqual(ranked.slice(0,20).map(c=>c.title)));
   expect(document.querySelector('.search-summary')!.textContent).toContain('45 个文件');
-  expect(document.querySelector('.search-result small')!.textContent).toContain('2 个片段');
+  expect(document.querySelector('.search-result-more')!.textContent).toContain('2 处相关片段');
   const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;
   input.value='未提交的新问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
   document.querySelector('.search-results')!.scrollTop=300;
@@ -123,7 +123,7 @@ describe('搜索的本地结果和深度分析',()=>{
   expect(document.querySelector('.search-result')).toBeNull();
   expect(document.querySelector('.search-preview')).toBeNull();
   expect(document.querySelector('.search-loading[role="status"]')).not.toBeNull();
-  expect(document.querySelector('.search-loading .icon')).not.toBeNull();
+  expect(document.querySelector('.search-loading .search-skeleton')).not.toBeNull();
   events.get('query-progress')!({payload:{id:calls[1][1].query.id,stage:'正在加载搜索索引',count:0,delta:null}});await tick();
   expect(document.querySelector('.search-loading')!.textContent).toContain('正在加载搜索索引');
   events.get('query-progress')!({payload:{id:calls[1][1].query.id,stage:'正在扩展检索',count:1,delta:null}});await tick();
@@ -158,7 +158,7 @@ describe('搜索结果里的原文高亮',()=>{
   await setup();await vi.waitFor(()=>expect(document.querySelectorAll('.search-preview .search-hit')).toHaveLength(2));
   expect(document.querySelector('.search-result mark')!.textContent).toBe('octx');
   expect(document.querySelector('.search-preview .search-hit.active')!.textContent).toBe('OCTX');
-  await click('下一处匹配');expect(document.querySelector('.search-preview .search-hit.active')!.textContent).toBe('octx');
+  await click('在文档中查找');await click('下一处匹配');expect(document.querySelector('.search-preview .search-hit.active')!.textContent).toBe('octx');
   const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;input.value='新问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
   expect(document.querySelectorAll('.search-preview .search-hit')).toHaveLength(2);
  });

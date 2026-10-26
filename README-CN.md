@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
-0.2.0 新增文档目录、Mermaid 预览、当前文档问答、长会话摘要和独立网页剪藏。操作说明见[双语文档站](docs-site/README.md)，扩展构建见[网页剪藏说明](browser-extension/README.md)。下方下载入口指向 GitHub 最新正式版。
+0.2.2 新增可核对引用的 Markdown 笔记，重新设计搜索阅读界面，并加快大文档预览。详见[更新日志](CHANGELOG.md)与[双语文档站](docs-site/README.md)。下方下载入口指向 GitHub 最新正式版。
 
 ## 目录
 
@@ -110,9 +110,9 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 
 ### 1. 下载，添加文件夹
 
-从上方表格下载 DMG，打开后将 SAG Wiki 拖入 Applications。当前 macOS 版本尚未通过 Apple 公证，首次打开可能出现系统安全提示。
+从上方最新版本链接下载 macOS DMG，打开后将 SAG Wiki 拖入 Applications。当前 macOS 版本尚未通过 Apple 公证，首次打开可能出现系统安全提示。
 
-安装并打开 SAG-Wiki，点击“文件夹管理”旁的 **+**，添加需要检索的文件夹。原文件保留在原处。
+安装并打开 SAG-Wiki，先切换到侧栏“文件夹”，再点击“文件夹管理”旁的 **+**，添加需要检索的文件夹。原文件保留在原处。
 
 <p align="center">
   <img src="docs/assets/readme/product-folders-cn.png" alt="SAG-Wiki 中已添加的本地文件夹和文档" width="940" />
