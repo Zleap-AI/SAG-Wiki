@@ -60,5 +60,5 @@ it('成功后文件夹列表立即清空，会话记录保留',async()=>{
  removeButton().click();await tick();confirmButton().click();
  await vi.waitFor(()=>expect(document.querySelector('[title="/notes"]')).toBeNull());
  expect(document.querySelector('.folder-empty-state')?.textContent).toContain('添加文件夹');
- expect(document.querySelector('.conversation-sidebar-item')?.textContent).toContain('保留的会话');
+ expect(document.querySelector('.conversation-item')?.textContent).toContain('保留的会话');
 });

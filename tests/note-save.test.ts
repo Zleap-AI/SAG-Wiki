@@ -93,6 +93,7 @@ it('保存期间关闭面板仍然完成并提示；切换会话后不污染当�
  await vi.waitFor(()=>expect(saveArgs).not.toBeNull());
  document.querySelector<HTMLButtonElement>('.save-note-dialog [aria-label="关闭"]')!.click();await tick();
  expect(document.querySelector('.save-note-dialog')).toBeNull();
+ document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();await tick();
  // Switch to another conversation while the save is still in flight.
  const other:Conversation={id:'other',title:'另一个会话',updated:1,deleted:false,messages:[{question:'别的问题',answer:'别的回答',scope:[],references:[],model:'test',evidence:[],status:'complete',error:null,retrieval_question:'别的问题'}]};
  invoke.mockImplementation(async(command,args)=>command==='list_conversations'?[saved,other]:command==='save_note'?new Promise<NoteDetail>(resolve=>{resolveSave=resolve}):base(command,args));

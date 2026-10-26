@@ -120,10 +120,10 @@ describe('回答中的处理进度',()=>{
   expect([...document.querySelectorAll('.reasoning button')].every(node=>node.getAttribute('aria-expanded')==='false')).toBe(true);
   savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer:'我先查询文档🙂这是最终回答。',reasoning:blocks.map(block=>block.content).join(''),reasoning_blocks:blocks,tool_calls:[call],status:'complete'}]};
   resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});await tick();await tick();
-  await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[aria-label="新建问答"]')!.disabled).toBe(false));
-  document.querySelector<HTMLButtonElement>('[aria-label="新建问答"]')!.click();await tick();
-  await vi.waitFor(()=>expect(document.querySelector('.conversation-sidebar-item[title="已有对话"]:not([aria-current])')).not.toBeNull());
-  document.querySelector<HTMLButtonElement>('.conversation-sidebar-item[title="已有对话"]')!.click();await tick();
+  await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.disabled).toBe(false));
+  document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();await tick();
+  await vi.waitFor(()=>expect(document.querySelector('.conversation-item[title="已有对话"]:not([aria-current])')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('.conversation-item[title="已有对话"]')!.click();await tick();
   await vi.waitFor(()=>expect(order()).toEqual(expected));
  });
  it('思考过程按 Markdown 渲染，流式追加后保持段落和代码结构',async()=>{
@@ -230,10 +230,10 @@ describe('SAG2 工具调用卡片',()=>{
   const answer=intro+'这是检索后的回答。';
   savedConversation={...conversation,messages:[previous,{...previous,question:'这次问题',answer,tool_calls:[{...call,source_count:2}],status:'complete'}]};
   resolveQuery({terms:[],results:[],trace:[],conversation:savedConversation});await tick();await tick();
-  await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[aria-label="新建问答"]')!.disabled).toBe(false));
-  document.querySelector<HTMLButtonElement>('[aria-label="新建问答"]')!.click();await tick();
-  await vi.waitFor(()=>expect(document.querySelector('.conversation-sidebar-item[title="已有对话"]:not([aria-current])')).not.toBeNull());
-  document.querySelector<HTMLButtonElement>('.conversation-sidebar-item[title="已有对话"]')!.click();await tick();
+  await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.disabled).toBe(false));
+  document.querySelector<HTMLButtonElement>('[aria-label="返回会话列表"]')!.click();await tick();
+  await vi.waitFor(()=>expect(document.querySelector('.conversation-item[title="已有对话"]:not([aria-current])')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('.conversation-item[title="已有对话"]')!.click();await tick();
   await vi.waitFor(()=>expect(content()).toEqual([intro,'工具','这是检索后的回答。']));
  });
  it('接收真实工具参数与完成事件，显示独立卡片和返回数量',async()=>{
