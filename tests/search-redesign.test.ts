@@ -77,6 +77,26 @@ it('片段面板 Escape 关闭并归还焦点，选择不会改变文件列表',
  expect(title()).toBe('a.md');
 });
 
+it.each(['鼠标','键盘'])('%s 切换回文件时定位高亮，不恢复偏离高亮的阅读位置',async method=>{
+ const scroll=vi.spyOn(HTMLElement.prototype,'scrollIntoView');
+ try{
+  await search();
+  await vi.waitFor(()=>expect(document.querySelector('.search-hit.active')?.textContent).toBe('甲 octx'));
+  const reader=document.querySelector<HTMLElement>('.markdown-reader')!;
+  reader.scrollTop=640;reader.dispatchEvent(new Event('scroll'));
+  const list=document.querySelector<HTMLElement>('.search-results')!;
+  if(method==='鼠标')document.querySelectorAll<HTMLElement>('.search-result')[1].click();
+  else key(list,{key:'ArrowDown'});
+  await vi.waitFor(()=>expect(document.querySelector('.search-hit.active')?.textContent).toBe('丙 octx'));
+  scroll.mockClear();
+  if(method==='鼠标')document.querySelectorAll<HTMLElement>('.search-result')[0].click();
+  else key(list,{key:'ArrowUp'});
+  await vi.waitFor(()=>expect(document.querySelector('.search-hit.active')?.textContent).toBe('甲 octx'));
+  expect(document.querySelector<HTMLElement>('.markdown-reader')!.scrollTop).not.toBe(640);
+  expect(scroll.mock.contexts).toContain(document.querySelector('.search-hit.active'));
+ }finally{scroll.mockRestore()}
+});
+
 it('正文查找与专注阅读按需展开，Escape 先关闭查找再退出专注',async()=>{
  await search();
  await vi.waitFor(()=>expect(document.querySelector('.search-preview-body')).not.toBeNull());

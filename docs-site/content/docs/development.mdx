@@ -20,6 +20,8 @@ npm run tauri dev
 
 Tauri 开发命令会先构建 debug CLI，再启动 Vite 和桌面后端。前端改动使用热更新；Rust 改动需要重新编译后端。日常界面开发不需要反复生成安装包。
 
+桌面开发服务不监听 `.cache/`、`docs-site/` 和 `browser-extension/build/`，文档及扩展构建不会触发桌面窗口刷新。
+
 只启动前端开发服务器：
 
 ```sh
