@@ -5,6 +5,29 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.2.2
+
+### Features and improvements
+
+- **Verifiable notes**: save completed answers as Markdown with the citations actually used and their original passages. Edit the file name, choose a folder and remember the save location.
+- **Citation status**: locally check sources for unchanged, moved, edited, missing or unverified passages. Compare changes word by word, open sources and filter notes needing attention, without calling a model.
+- **Search and reading**: group results by file and give source text more reading space. Navigate related passages, find text within a document, enter focus mode and resize the result list, with reading positions preserved.
+- **Large-document previews**: show the target passage first, render remaining content progressively and load images as needed to reduce waits when opening long documents or following citations.
+- **Bilingual documentation**: refresh desktop screenshots in both READMEs and the documentation site, with updated search, Q&A, indexing and MCP instructions.
+
+### Upgrading
+
+The desktop app and bundled CLI both use 0.2.2 for macOS and Windows, retaining the current update-signing channel. Existing conversations remain compatible. Notes are local Markdown files; verification requires accessible source files registered in the knowledge base.
+
+## 0.2.1
+
+- Share the sidebar between conversations and folders, with date grouping and conversation search.
+- Group indexing history by folder and show clearer failure reasons and file details.
+- Group tool calls into research steps and improve input during generation and the citation source panel.
+- Fix event handling after cancellation, history refreshes overwriting new answers and empty-library mention hints.
+
+The desktop app and bundled CLI both use 0.2.1 and retain the current update-signing channel.
+
 ## 0.2.0
 
 Changes since 0.1.9.

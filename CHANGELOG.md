@@ -1,5 +1,33 @@
 # 更新日志 / Changelog
 
+## 0.2.2
+
+相对 0.2.1 的更新 / Changes since 0.2.1.
+
+### 新功能与改进
+
+- **可核对笔记**：将已完成的回答保存为 Markdown，保留实际引用及保存时的原文；支持修改文件名、选择目录和记住保存位置。
+- **引用状态**：来源变化后在本地核对引用，区分一致、位置更新、内容修改、缺失和未核对；支持查看词级对照、打开原文及筛选待核对笔记，无需调用模型。
+- **搜索与阅读**：结果按文件归组，原文使用更大的阅读区域；新增相关片段切换、文内查找、专注阅读和可调整的列表宽度，并记住阅读位置。
+- **大文档预览**：优先显示目标段落，分批渲染其余内容、按需加载图片，减少打开长文档与跳转引用时的等待。
+- **双语文档**：刷新 README 和文档站的桌面截图，同步搜索、问答、索引与 MCP 操作说明。
+
+### 升级说明
+
+桌面端与随包 CLI 统一为 0.2.2，适用于 macOS 和 Windows，沿用现行更新签名通道。旧会话保持兼容；笔记保存在本地 Markdown 中，核对需要来源文件可访问并已加入知识库。
+
+### Features and improvements
+
+- **Verifiable notes**: save completed answers as Markdown with the citations actually used and their original passages. Edit the file name, choose a folder and remember the save location.
+- **Citation status**: locally check sources for unchanged, moved, edited, missing or unverified passages. Compare changes word by word, open sources and filter notes needing attention, without calling a model.
+- **Search and reading**: group results by file and give source text more reading space. Navigate related passages, find text within a document, enter focus mode and resize the result list, with reading positions preserved.
+- **Large-document previews**: show the target passage first, render remaining content progressively and load images as needed to reduce waits when opening long documents or following citations.
+- **Bilingual documentation**: refresh desktop screenshots in both READMEs and the documentation site, with updated search, Q&A, indexing and MCP instructions.
+
+### Upgrading
+
+The desktop app and bundled CLI both use 0.2.2 for macOS and Windows, retaining the current update-signing channel. Existing conversations remain compatible. Notes are local Markdown files; verification requires accessible source files registered in the knowledge base.
+
 ## 0.2.1
 
 本次版本包含桌面端体验更新。

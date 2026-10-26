@@ -41,9 +41,9 @@ Citations help you verify the answer. Read the surrounding context when informat
 
 ## Save as a note
 
-After an answer finishes, click **Save as note** below it to store the answer as a Markdown file inside your knowledge base. The first save opens a panel: the file name comes from the question, and the default location is Documents / sag-wiki / notes, created and added to the library when missing. You can pick any other registered folder and check **Remember this location** to skip the panel next time. Change the default folder under **Settings → Q&A → Notes**.
+After an answer finishes, click **Save as note** below it to store the answer as a Markdown file inside your knowledge base. The first save opens a panel: the file name comes from the question, and the default location is Documents / sag-wiki / notes, created and added to the library when missing. You can pick any other registered folder and check **Remember this location**. Turn off **Ask for a location every time** under **Settings → Chat settings → Notes** to save directly to the remembered folder. Hold Option (macOS) or Alt (Windows) while clicking Save to reopen the panel. You can also change the default folder in that settings group.
 
-The top of the note records the question, time, model, scope, and for each citation the file path, file hash, byte and line range, and the passage as it was when saved. The body is the answer itself; only sources the prose actually cites are kept and renumbered in order of first use, followed by a Sources list. Everything needed to verify the note travels with the file, so it still checks out after copying or syncing with git.
+The top of the note records the question, time, model, scope, and for each citation the file path, file hash, byte and line range, and the passage as it was when saved. The body is the answer itself; only sources the prose actually cites are kept and renumbered in order of first use, followed by a Sources list. This metadata travels with the note. After copying or syncing it, the source paths must still resolve and the sources must be registered in the current knowledge base.
 
 ## Verify citations
 
