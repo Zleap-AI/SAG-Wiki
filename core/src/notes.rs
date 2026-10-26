@@ -627,23 +627,26 @@ mod tests {
 
     #[test]
     fn note_round_trips_through_render_and_parse() {
-        let dir = Path::new("/home/me/Documents/sag-wiki/notes");
+        let home = if cfg!(windows) { Path::new(r"C:\Users\test") } else { Path::new("/home/me") };
+        let dir = home.join("Documents").join("sag-wiki").join("notes");
+        let scope = home.join("project").join("src");
+        let source = scope.join("auth").join("guard.rs");
         let header = NoteHeader {
             question: "权限在哪里校验？\"引号\"".into(),
             asked_at: Some(1_761_370_800_000),
             model: "m".into(),
-            scope: vec!["/home/me/project/src".into()],
+            scope: vec![scope.to_string_lossy().into_owned()],
             sources: vec![NoteSource {
-                id: 1, path: "/home/me/project/src/auth/guard.rs".into(), display_path: None, hash: "abc".into(),
+                id: 1, path: source.to_string_lossy().into_owned(), display_path: None, hash: "abc".into(),
                 start_byte: 10, end_byte: 40, start_line: 2, end_line: 3,
                 text: "fn check()\n    // 第二行 : with colon\n".into(),
             }],
         };
-        let body = render(&header, dir, "答案 [1]。", false);
+        let body = render(&header, &dir, "答案 [1]。", false);
         assert!(is_note(&body));
         assert!(body.contains("path: \"../../../project/src/auth/guard.rs\""));
         assert!(body.contains("## 依据"));
-        let parsed = parse(&body, dir).unwrap();
+        let parsed = parse(&body, &dir).unwrap();
         assert_eq!(parsed.question, header.question);
         assert_eq!(parsed.asked_at, header.asked_at);
         assert_eq!(parsed.scope, header.scope);
@@ -651,7 +654,7 @@ mod tests {
         expected[0].text = "fn check()\n    // 第二行 : with colon".into();
         assert_eq!(parsed.sources, expected);
         // CRLF files parse too.
-        let parsed = parse(&body.replace('\n', "\r\n"), dir).unwrap();
+        let parsed = parse(&body.replace('\n', "\r\n"), &dir).unwrap();
         assert_eq!(parsed.sources[0].text, expected[0].text);
     }
 
