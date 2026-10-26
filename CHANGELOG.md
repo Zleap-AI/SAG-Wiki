@@ -1,22 +1,22 @@
 # 更新日志 / Changelog
 
-## 0.2.3（待发布）
+## 0.2.3
 
 - **文件夹侧栏**：恢复首版直接展示文件夹的布局，移除会话／文件夹切换，保留文件夹导入。
 - **问答首页**：恢复会话列表、时间与历史搜索；会话内可返回列表，生成或取消中的回答受到保护。
 - **布局修复**：收起侧栏后仍可浏览首页会话列表。
 - **文档截图**：使用当前界面重新生成中英文桌面截图，同步 README 与文档站。
 
-桌面端与随包 CLI 版本统一为 0.2.3。本版本尚未发布。
+桌面端与随包 CLI 版本统一为 0.2.3。
 
-## 0.2.3 (Unreleased)
+### English
 
 - **Folder sidebar**: restore the original folder-first layout, remove the conversation/folder switch and retain folder import.
 - **Q&A home**: restore conversation history, timestamps and search. Return to the list from a conversation, with active generation and cancellation protected.
 - **Layout fix**: keep conversation history visible when the sidebar is collapsed.
 - **Documentation screenshots**: regenerate bilingual desktop screenshots from the current UI and synchronize the READMEs and documentation site.
 
-The desktop app and bundled CLI both use 0.2.3. This version has not been released.
+The desktop app and bundled CLI both use 0.2.3.
 
 ## 0.2.2
 
