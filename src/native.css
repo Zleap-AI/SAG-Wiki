@@ -382,7 +382,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .index-status-dismiss:hover{color:var(--color-ink);background:var(--color-selected)}
 
 
-.real-client .sidebar-pane>.tree{flex:1;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
+.real-client .sidebar>.tree{flex:1;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
 
 
 .real-client .workspace-back{position:absolute;top:27px;left:18px;z-index:2;width:32px;height:32px;background:var(--color-paper);color:var(--color-secondary)}
@@ -403,10 +403,10 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .folder-empty-state button{display:flex;align-items:center;justify-content:center;gap:6px;width:100%;margin-top:14px;padding:8px;font-size:var(--text-ui)}
 .real-client .folder-empty-state .icon{width:16px;height:16px}
 
-.real-client .sidebar-pane>.tree-heading{border-top:1px solid var(--color-window-border);margin-top:6px;padding-top:14px;height:42px;flex-shrink:0}
+.real-client .sidebar>.tree-heading{border-top:1px solid var(--color-window-border);margin-top:6px;padding-top:14px;height:42px;flex-shrink:0}
 
 .real-client:not(.compact-sidebar) .sidebar .brand-row{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
-.real-client .sidebar-pane>.tree-heading>.icon-button{width:28px;height:28px}
+.real-client .sidebar>.tree-heading>.icon-button{width:28px;height:28px}
 .real-client:not(.compact-sidebar) .sidebar-bottom{padding-right:0;overflow-y:hidden;scrollbar-gutter:stable}
 .real-client .sidebar-tools>button:last-child{width:28px;height:28px;min-height:28px;padding:6px;justify-content:center}
 .real-client .sidebar-tools{gap:4px}
@@ -416,12 +416,12 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client.windows-client.compact-sidebar .sidebar-titlebar>.icon-button{margin:0 auto}
 :root:has(.windows-client){--window-bar-height:32px}
 
-.real-client:not(.compact-sidebar) .sidebar-pane>.tree-heading{padding-right:0}
+.real-client:not(.compact-sidebar) .sidebar>.tree-heading{padding-right:0}
 .real-client .sidebar .tree-more{width:28px;min-width:28px;height:28px;margin:0}
 
 .real-client .sidebar .tree-row{padding-right:0}
 
-.real-client .sidebar-titlebar>.icon-button:focus-visible,.real-client .sidebar-pane>.tree-heading>.icon-button:focus-visible,.real-client .sidebar-tools>button:focus-visible{outline-offset:-2px}
+.real-client .sidebar-titlebar>.icon-button:focus-visible,.real-client .sidebar>.tree-heading>.icon-button:focus-visible,.real-client .sidebar-tools>button:focus-visible{outline-offset:-2px}
 
 .real-client .library-folder-action{margin-left:auto;flex-shrink:0;display:flex;align-items:center;gap:6px;height:32px;padding:5px 10px;font-size:var(--text-ui)}
 .real-client .library-folder-action>.icon{width:15px;height:15px}
@@ -459,28 +459,7 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .docling-progress>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .real-client.compact-sidebar .docling-progress{flex:none;width:36px;padding:4px 0}.real-client.compact-sidebar .docling-progress>span{font-size:10px}
 
-/* One sidebar, two panes: conversations while asking, the folder tree while browsing files. */
-.real-client .sidebar-new-chat{display:flex;align-items:center;gap:9px;flex-shrink:0;height:38px;margin:2px 0 12px;padding:0 10px 0 12px;border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper);box-shadow:0 1px 2px var(--color-shadow);font-size:var(--text-ui);font-weight:500;color:var(--color-ink);transition:border-color .15s,box-shadow .15s}
-.real-client .sidebar-new-chat>.icon{width:16px;height:16px;flex-shrink:0}
-.real-client .sidebar-new-chat>span{flex:1;min-width:0;text-align:left;white-space:nowrap}
-.real-client .sidebar-new-chat>kbd{font:500 11px/1 var(--font-body);color:var(--color-muted);letter-spacing:.3px}
-.real-client .sidebar-new-chat:not(:disabled):hover{background:var(--color-paper);border-color:var(--color-window-border);box-shadow:0 2px 8px var(--color-control-shadow)}
-.real-client .sidebar-new-chat:disabled{opacity:.55;cursor:not-allowed}
-.real-client .sidebar-tabs{display:flex;gap:2px;flex-shrink:0;margin-bottom:10px;padding:3px;border-radius:9px;background:var(--color-hover)}
-.real-client .sidebar-tab{display:flex;align-items:center;justify-content:center;gap:6px;flex:1;min-width:0;height:28px;min-height:28px;padding:0 8px;border-radius:7px;font-size:var(--text-caption);color:var(--color-secondary);transition:background-color .15s,color .15s}
-.real-client .sidebar-tab>.icon{width:14px;height:14px;flex-shrink:0}
-.real-client .sidebar-tab:hover{background:transparent;color:var(--color-ink)}
-.real-client .sidebar-tab.active{background:var(--color-paper);color:var(--color-ink);font-weight:550;box-shadow:0 1px 3px var(--color-control-shadow)}
-.real-client .sidebar-pane{display:flex;flex-direction:column;flex:1;min-height:0}
-.real-client .sidebar-pane[hidden]{display:none}
-.real-client .sidebar-pane>.tree-heading{border-top:0;margin-top:0;padding-top:0;height:32px}
-.real-client.compact-sidebar .sidebar-new-chat{justify-content:center;width:36px;height:36px;margin:0 auto 10px;padding:0}
-.real-client.compact-sidebar .sidebar-new-chat>:is(span,kbd),.real-client.compact-sidebar .sidebar-tab>span{display:none}
-.real-client.compact-sidebar .sidebar-tabs{flex-direction:column;gap:4px;padding:0;background:transparent}
-.real-client.compact-sidebar .sidebar-tab{flex:none;width:36px;height:36px;margin:0 auto}
-.real-client.compact-sidebar .sidebar-tab>.icon{width:17px;height:17px}
-.real-client.compact-sidebar .sidebar-tab.active{background:var(--color-selected);box-shadow:none}
-.real-client.compact-sidebar .sidebar-pane{display:none}
+.real-client .sidebar>.tree-heading{border-top:0;margin-top:0;padding-top:0;height:32px}
 .real-client .ask-layout{display:flex;height:100%;min-height:0;overflow:hidden}
 .real-client .ask-layout>.ask-content{flex:1 1 0;min-width:0}
 
@@ -543,11 +522,23 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .tool-group .tool-call summary:hover .tool-chevron,.real-client .tool-group .tool-call[open] .tool-chevron{opacity:1}
 .real-client .tool-group .tool-call:not([data-phase=complete]) .tool-state+.tool-chevron{margin-left:0}
 
-/* Restore the original Q&A welcome above the bottom composer, independent of history. */
-.real-client .ask-content.ask-home{overflow:auto;overscroll-behavior:contain;padding-bottom:20px}
-.real-client .ask-home>.welcome{flex:1 0 auto;min-height:230px;margin:0;padding:24px 32px 48px}
+/* Original Q&A home: welcome, composer, then conversation history. */
 .real-client .ask-home>.welcome .welcome-mark{width:48px;height:48px;margin-bottom:18px;border:0;border-radius:0;background:transparent;box-shadow:none}
 .real-client .ask-home>.welcome .welcome-mark>.icon{width:40px;height:40px}
+.real-client .ask-content.ask-home{overflow:auto;scrollbar-gutter:stable;overscroll-behavior:contain;padding-bottom:32px}
+.real-client .ask-home>.welcome{flex:none;min-height:200px;margin-top:clamp(16px,calc(8vh - 56px),48px);padding-bottom:28px}
+.real-client .ask-home>.recent-conversations{display:block;flex-shrink:0;width:100%;max-width:800px;margin:28px auto 0;padding:0 36px;border:0}
+.real-client .ask-home .recent-heading{padding:0;margin-bottom:12px;height:auto;font-size:var(--text-ui)}
+.real-client .ask-home .recent-list{max-height:none;margin:0;padding:0;overflow:visible}
+.real-client .ask-home .history-row{min-height:46px;border-bottom:1px solid var(--color-rule);border-radius:0;margin:0}
+.real-client .ask-home .conversation-item{display:flex;align-items:center;text-align:left;min-height:46px;padding:10px 4px;gap:10px}
+.real-client .ask-home .conversation-item>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.real-client .ask-home .history-more{flex-shrink:0}
+@media(max-width:1080px){.real-client .ask-home>.recent-conversations{padding-left:28px;padding-right:28px}}
+
+.real-client .ask-content.ask-home:not(.has-history){padding-block:0 clamp(180px,26vh,260px)}
+.real-client .ask-home:not(.has-history)>.welcome{margin-top:auto}
+.real-client .ask-home:not(.has-history)>.composer-wrap{margin-bottom:auto}
 
 /* Citation drawer: a floating card matching the workspace, with a clear header, toolbar and footer. */
 .source-dialog .source-panel{top:8px;right:8px;bottom:8px;width:min(520px,calc(100vw - 96px));border:1px solid var(--color-window-border);border-radius:14px;overflow:hidden;box-shadow:0 12px 40px var(--color-control-shadow),0 2px 6px var(--color-shadow)}
