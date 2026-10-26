@@ -1,5 +1,6 @@
 <script lang="ts">
- import {onMount} from 'svelte';
+ import {onDestroy,onMount,tick} from 'svelte';
+ import {fade} from 'svelte/transition';
  import {Button,Collapsible} from 'bits-ui';
  import Switch from './ui/Switch.svelte';
  import {api} from '../lib/api';
@@ -11,15 +12,33 @@
  export let access:CliAccess|undefined=undefined;
  export let pending=false;
  export let saving=false;
+ export let connection='';
+ export let connectionOpen=false;
+ export let connectionSuccessUntil=0;
  type Installation={name:string;path:string;installed:boolean;version:string|null};
- let installations:Installation[]=[],loaded=false,error='',notice='',connection='';
+ let installations:Installation[]=[],loaded=false,error='',notice='';
+ let connectionSuccessVisible=false,disposed=false;
+ let connectionTimer:ReturnType<typeof setTimeout>|undefined;
  let operation:{target:string;kind:'install'|'uninstall'|'test'|'download'}|null=null;
  let copiedCommand:string|null=null;
  let savedAccess:CliAccess|undefined;
+ const successFadeDuration=window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:800;
  const names:Record<string,string>={'claude-code':'Claude Code',codex:'Codex',opencode:'OpenCode'};
  $: disabled=pending||saving;
  $: unsaved=!!access&&!!savedAccess&&access.enabled!==savedAccess.enabled;
  $: integrations=installations.filter(item=>item.name in names);
+ $: showConnectionFeedback(connection,connectionSuccessUntil);
+ function showConnectionFeedback(result:string,expiresAt:number){
+  clearTimeout(connectionTimer);
+  const remaining=expiresAt-Date.now();
+  connectionSuccessVisible=!!result&&remaining>0;
+  if(connectionSuccessVisible)connectionTimer=setTimeout(()=>connectionSuccessVisible=false,remaining);
+ }
+ onDestroy(()=>{disposed=true;clearTimeout(connectionTimer)});
+ function clearConnection(){
+  clearTimeout(connectionTimer);
+  connection='';connectionOpen=false;connectionSuccessVisible=false;connectionSuccessUntil=0;
+ }
 
  async function load(){
   const config=await api<{access:CliAccess;installations:Installation[];install_error?:string|null}>('get_cli_settings');
@@ -31,7 +50,7 @@
  onMount(()=>{void refresh();});
  async function manage(item:Installation){
   const uninstall=item.installed;
-  pending=true;error='';notice='';connection='';operation={target:item.name,kind:uninstall?'uninstall':'install'};
+  pending=true;error='';notice='';operation={target:item.name,kind:uninstall?'uninstall':'install'};
   try{
    await api('install_cli_integration',{target:item.name,uninstall});
    await load();
@@ -46,12 +65,18 @@
   }catch(e){error=$t('复制失败：{value0}',{value0:String(e)});}
  }
  async function testConnection(){
-  pending=true;error='';notice='';connection='';operation={target:'cli',kind:'test'};
-  try{connection=await api<string>('test_cli_connection');}
-  catch(e){error=String(e);}finally{pending=false;operation=null;}
+  if(pending||saving||unsaved)return;
+  clearConnection();
+  pending=true;error='';notice='';operation={target:'cli',kind:'test'};
+  try{
+   await tick();
+   if(disposed)return;
+   const result=await api<string>('test_cli_connection');
+   if(!disposed){connectionSuccessUntil=Date.now()+3000;connection=result;}
+  }catch(e){if(!disposed)error=String(e);}finally{pending=false;operation=null;}
  }
  async function downloadSkill(){
-  pending=true;error='';notice='';connection='';operation={target:'other',kind:'download'};
+  pending=true;error='';notice='';operation={target:'other',kind:'download'};
   try{
    const path=await api<string|null>('download_cli_skill',{title:$t('选择 Skill 保存位置')});
    if(path)notice=$t('Skill 已下载到 {value0}。请将 sag 文件夹添加到所用工具的 Skills 目录。',{value0:displayPath(path)});
@@ -59,7 +84,7 @@
  }
 </script>
 
-<!-- Hallmark · component: settings · existing monochrome tokens · P5 H4 E4 S5 R5 V4 -->
+<!-- Hallmark · component: settings · existing theme tokens · P5 H4 E4 S5 R5 V4 -->
 <div class="cli-settings" aria-busy={pending}>
  {#if !loaded}
   <div class="cli-loading" role="status">{$t('正在读取 CLI 设置…')}</div>
@@ -69,11 +94,16 @@
    <div class="cli-panel">
     <div class="cli-access-row">
      <div><strong>{$t('启用 CLI')}</strong><p>{$t('首次启动自动安装并启用。搜索当前目录下已加入知识库的内容。')}</p></div>
-     <Switch checked={access.enabled} onCheckedChange={enabled=>access={enabled}} disabled={disabled} label={$t('启用 CLI')}/>
+     <Switch checked={access.enabled} onCheckedChange={enabled=>{access={enabled};if(!enabled)clearConnection();}} disabled={disabled} label={$t('启用 CLI')}/>
     </div>
     <p class="cli-auto-scope">{$t('无需选择授权范围。Agent 可运行 sag add，将当前项目加入知识库后搜索。')}</p>
     {#if unsaved}<p class="cli-auto-scope">{$t('请先保存 CLI 开关，再测试连接。')}</p>{/if}
-    {#if connection}<div class="cli-connection-result" role="status"><strong>{$t('连接状态')}</strong><pre>{connection}</pre></div>{/if}
+    {#if connection}
+     <div class="cli-connection-result">
+      <Button.Root type="button" class="cli-disclosure cli-connection-trigger" aria-expanded={connectionOpen} aria-controls="cli-connection-details" data-state={connectionOpen?'open':'closed'} onclick={()=>connectionOpen=!connectionOpen}><span aria-hidden="true">{@html icon('chevron')}</span><strong>{$t('连接状态')}</strong><span class="cli-connection-summary" role="status">{#if connectionSuccessVisible}<span class="cli-connection-badge" out:fade={{duration:connection?successFadeDuration:0}}>{$t('连接成功')}</span>{/if}</span></Button.Root>
+      <div id="cli-connection-details" class="cli-connection-content" hidden={!connectionOpen}><pre>{connection}</pre></div>
+     </div>
+    {/if}
    </div>
   </section>
 
@@ -197,9 +227,13 @@ sag --help</code></pre>
  .cli-feedback{padding:12px 14px;border:1px solid var(--color-rule);border-radius:8px;background:var(--color-paper);color:var(--color-ink)}
  .cli-error{color:var(--color-ink);border-color:var(--color-secondary)}
  .cli-error strong{display:block;font-size:var(--text-caption);font-weight:500;margin-bottom:3px}
- .cli-connection-result{padding:14px 16px;border-top:1px solid var(--color-rule)}
- .cli-connection-result>strong{font-size:var(--text-caption);font-weight:500}
- .cli-connection-result pre{margin:8px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.7 var(--font-mono);color:var(--color-secondary)}
+ .cli-settings :global(.cli-connection-result){border-top:1px solid var(--color-rule)}
+ .cli-settings :global(.cli-connection-trigger){padding:14px 16px;color:var(--color-ink)}
+ .cli-settings :global(.cli-connection-trigger strong){font-size:var(--text-caption);font-weight:500}
+ .cli-connection-summary{margin-left:auto;min-height:24px;align-items:center;color:var(--color-success)}
+ .cli-connection-badge{display:inline-flex;align-items:center;padding:2px 8px;border:1px solid color-mix(in srgb,var(--color-success) 28%,transparent);border-radius:6px;background:color-mix(in srgb,var(--color-success) 10%,var(--color-paper));font-size:12px;font-weight:500;line-height:18px;white-space:nowrap}
+ .cli-settings :global(.cli-connection-content){padding:0 16px 14px}
+ .cli-settings :global(.cli-connection-content pre){margin:0;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.7 var(--font-mono);color:var(--color-secondary)}
  .cli-loading{padding:24px 0;font-size:var(--text-ui);color:var(--color-secondary)}
  .cli-settings :global(.cli-guide-trigger){padding:14px 16px;font-size:var(--text-ui);font-weight:500;color:var(--color-ink)}
  .cli-settings :global(.cli-guide-content){padding:16px 16px 24px;font-size:var(--text-caption);line-height:1.7;color:var(--color-secondary)}
