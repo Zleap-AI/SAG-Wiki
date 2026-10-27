@@ -111,6 +111,7 @@ test('fails closed when release environment protection is incomplete', () => {
   const environment = {can_admins_bypass: false, deployment_branch_policy: {custom_branch_policies: true, protected_branches: false}, protection_rules: [{type: 'required_reviewers', prevent_self_review: true, reviewers: [{reviewer: {login: 'release-owner'}}]}]};
   const policies = [{type: 'tag', name: 'v*'}];
   assert.doesNotThrow(() => validateEnvironment(environment, policies));
+  assert.throws(() => validateEnvironment({...environment, can_admins_bypass: true}, policies), /bypass/);
   assert.throws(() => validateEnvironment({...environment, protection_rules: []}, policies));
   assert.throws(() => validateEnvironment(environment, [{type: 'branch', name: 'main'}]));
   assert.throws(() => validateEnvironment(environment, [...policies, {type: 'branch', name: '*'}]));

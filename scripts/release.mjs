@@ -159,6 +159,7 @@ function assemble({input, output, 'signed-macos': signedMacOS}) {
 }
 
 export function validateEnvironment(environment, policies) {
+  assert.equal(environment.can_admins_bypass, false, 'Administrators must not bypass release approval');
   const reviewers = environment.protection_rules?.find(rule => rule.type === 'required_reviewers');
   assert.ok(reviewers?.reviewers?.length > 0, 'release environment must require reviewers');
   assert.equal(reviewers.prevent_self_review, true, 'Self-approval must be disabled');
