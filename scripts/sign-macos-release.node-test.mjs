@@ -20,7 +20,8 @@ const python = [process.env.SAG_TEST_PYTHON, process.platform === 'win32' ? 'pyt
 assert.ok(python, 'Signing tests require Python 3.12+');
 const portable = path => path.replaceAll('\\', '/');
 function execute(command, args, options = {}) {
-  const result = spawnSync(command === 'python3' ? python : command, args, {encoding: 'utf8', ...options, env: {...process.env, ...options.env, COPYFILE_DISABLE: '1'}});
+  const executable = command === 'python3' ? python : command === 'tar' && process.platform === 'win32' ? join(process.env.SystemRoot, 'System32', 'tar.exe') : command;
+  const result = spawnSync(executable, args, {encoding: 'utf8', ...options, env: {...process.env, ...options.env, COPYFILE_DISABLE: '1'}});
   assert.equal(result.status, 0, result.stderr || result.error?.message);
   return {stdout: result.stdout ?? '', stderr: result.stderr ?? ''};
 }
