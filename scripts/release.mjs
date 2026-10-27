@@ -68,7 +68,9 @@ function stage({platform, target}) {
     const dmgs = readdirSync(join(bundle, 'dmg')).filter(name => name.endsWith('.dmg'));
     assert.equal(dmgs.length, 1, 'Expected exactly one DMG');
     copyFileSync(join(bundle, 'dmg', dmgs[0]), join(output, names[0]));
-    run('tar', ['-czf', join(output, names[1]), '-C', join(bundle, 'macos'), 'SAG Wiki.app']);
+    // This is an ad-hoc build input. The protected finalizer adds Apple tickets
+    // before creating the public updater archive with its metadata preserved.
+    run('tar', ['-czf', join(output, names[1]), '-C', join(bundle, 'macos'), 'SAG Wiki.app'], {env:{...process.env, COPYFILE_DISABLE:'1'}});
   } else {
     const installers = readdirSync(join(bundle, 'nsis')).filter(name => name.endsWith('.exe'));
     assert.equal(installers.length, 1, 'Expected exactly one NSIS installer');
@@ -106,27 +108,49 @@ export function validateStagedArtifacts(input, version, commit) {
   return manifests;
 }
 
+export function validateSignedMacOSArtifacts(directory, source) {
+  const metadata = json(join(directory, 'metadata.json'));
+  for (const field of ['schema', 'version', 'commit', 'platform', 'target', 'build_identity']) {
+    assert.deepEqual(metadata[field], source[field], `Signed macOS ${field} mismatch`);
+  }
+  assert.equal(source.platform, 'macos', 'Expected original macOS build');
+  assert.deepEqual(metadata.source_files, source.files, 'Signed macOS artifacts must derive from the tested source');
+  assert.deepEqual(Object.keys(metadata.files).sort(), expectedFiles('macos', source.version).sort(), 'Unexpected signed macOS artifacts');
+  assert.deepEqual(readdirSync(directory).sort(), [...Object.keys(metadata.files), 'metadata.json'].sort(), 'Untracked signed macOS files');
+  assert.match(metadata.apple_signing?.team_id ?? '', /^[A-Z0-9]{10}$/, 'Missing Apple team');
+  for (const kind of ['app', 'dmg']) {
+    assert.match(metadata.apple_signing?.[`${kind}_notarization_id`] ?? '', /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i, `Missing ${kind} notarization`);
+  }
+  for (const [name, sha256] of Object.entries(metadata.files)) {
+    assert.equal(basename(name), name, 'Invalid signed artifact path');
+    assert.equal(digest(join(directory, name)), sha256, 'Signed artifact checksum mismatch');
+  }
+  return metadata;
+}
+
 function releaseNotes(version) {
-  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8');
+  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').replace(/\r\n/g, '\n');
   const section = changelog.split(/^## /m).find(text => text.startsWith(`${version}\n`) || text.startsWith(`${version} `));
   assert.ok(section, 'Changelog must describe this release');
   return `## ${section.trim()}\n\n### 更新签名迁移 / Update signing migration\n\n0.1.8 及更早版本的用户请手动下载安装一次 0.1.9。旧更新通道保留在 0.1.8，后续自动更新从 0.1.9 的新签名通道继续。\n\nUsers on 0.1.8 or earlier must manually install 0.1.9 once. The legacy update channel remains on 0.1.8; subsequent automatic updates use the new signing channel.\n`;
 }
 
-function assemble({input, output}) {
+function assemble({input, output, 'signed-macos': signedMacOS}) {
   const version = validateVersions();
   const commit = git('rev-parse', 'HEAD');
   const source = resolve(input ?? 'release-artifacts');
   const metadata = validateStagedArtifacts(source, version, commit);
+  const signed = resolve(signedMacOS ?? 'signed-release-artifacts/macos');
+  metadata.macos = validateSignedMacOSArtifacts(signed, metadata.macos);
   const destination = resolve(output ?? join(root, 'releases', version, 'updates'));
   assert.ok(!existsSync(destination), 'Release output must be fresh');
   mkdirSync(destination, {recursive: true});
   const notes = releaseNotes(version);
   packageUpdates({version, notes, output: destination,
-    macos: join(source, 'macos', `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`),
+    macos: join(signed, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`),
     windows: join(source, 'windows', `SAG-Wiki-${version}-Windows-x64-setup.exe`),
   });
-  copyFileSync(join(source, 'macos', `SAG-Wiki-${version}-macOS-arm64.dmg`), join(destination, `SAG-Wiki-${version}-macOS-arm64.dmg`));
+  copyFileSync(join(signed, `SAG-Wiki-${version}-macOS-arm64.dmg`), join(destination, `SAG-Wiki-${version}-macOS-arm64.dmg`));
   writeFileSync(join(destination, 'release-notes.md'), notes);
   writeFileSync(join(destination, 'build-metadata.json'), JSON.stringify({repository, commit, version, platforms: metadata}, null, 2) + '\n');
   const checksums = readdirSync(destination).sort().map(name => `${digest(join(destination, name))}  ${name}`).join('\n') + '\n';
@@ -135,6 +159,7 @@ function assemble({input, output}) {
 }
 
 export function validateEnvironment(environment, policies) {
+  assert.equal(environment.can_admins_bypass, false, 'Administrators must not bypass release approval');
   const reviewers = environment.protection_rules?.find(rule => rule.type === 'required_reviewers');
   assert.ok(reviewers?.reviewers?.length > 0, 'release environment must require reviewers');
   assert.equal(reviewers.prevent_self_review, true, 'Self-approval must be disabled');
@@ -151,7 +176,7 @@ export function verifyEnvironment() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries(['platform', 'target', 'input', 'output'].map(name => [name, {type: 'string'}]))});
+  const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries(['platform', 'target', 'input', 'output', 'signed-macos'].map(name => [name, {type: 'string'}]))});
   const commands = {validate, stage, assemble, 'verify-environment': verifyEnvironment};
   assert.ok(commands[positionals[0]], 'Use validate, stage, assemble or verify-environment');
   commands[positionals[0]](values);
