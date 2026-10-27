@@ -42,41 +42,29 @@ node scripts/release.mjs verify-environment
 
 The configured single-maintainer policy lets `luoshuai990529` request a release and manually approve the bot-started signing job. Keep prevention of self-approval enabled: the deployment initiator is the bot. This is one human confirmation, not independent two-person review. For two-person review, configure a separate reachable maintainer as reviewer.
 
-## Apple credentials: approved encrypted handoff
+## Apple credentials: administrator provisioning
 
-The user has authorized Wiki to use SAG's current company publishing identity. Historical Wiki 0.1.5 and 0.1.6 packages used `SONIER PTE. LTD.`, Team ID `2M9T9QTT55`; that is a different identity. Recovering the historical Apple private key is not a prerequisite for the newly approved route. This authorization does not approve credential migration, version changes, tags or Releases by itself.
+The credential owner and repository administrator provision Apple credentials directly in **Zleap-AI/SAG-Wiki → Settings → Environments → release → Environment secrets → Add Secret**. Use the company publishing identity approved for Wiki; prefer credentials managed and rotated independently for Wiki. The signing workflow does not retrieve or transfer credentials from another repository.
 
-The preferred route is a separate SAG infrastructure change, pending review and merge: `.github/workflows/wiki-apple-secrets.yml` and `scripts/wiki-signing-bootstrap/`. Its reviewed manifest fixes the destination to `Zleap-AI/SAG-Wiki`, environment `release`, and that environment's public key. It accepts no arbitrary destination or public-key inputs and changes no application version.
-
-SAG's source `desktop-release` environment currently allows only `main` and `v*` refs and has **no required GitHub reviewer rule**. Do not treat it as reviewer approval. Manually dispatch the handoff on SAG `main` only after explicit user approval of the credential migration and merge of the reviewed SAG infrastructure PR. The workflow seals these five existing values with the destination GitHub public key inside the source runner:
+1. The credential owner provides a valid **Developer ID Application** signing identity as a password-protected `.p12` containing the certificate and its private key. A public `.cer` alone cannot sign. Recover the complete identity from the approved vault or original signing machine; if unavailable, the Apple account owner must arrange a new identity. See [Apple's export instructions](https://developer.apple.com/documentation/Xcode/sharing-your-teams-signing-certificates).
+2. Prepare the certificate's Base64 text and export password, an Apple account with access to the matching developer team, and that team's ID. Generate a dedicated app-specific password labelled for Wiki at **account.apple.com → Sign-In and Security → App-Specific Passwords**. This is not the Apple account's login password. See [Apple's app-specific password instructions](https://support.apple.com/en-us/102654).
+3. A Wiki repository administrator adds the following five **Environment secrets** to the existing `release` environment:
 
 | Secret | Value |
 | --- | --- |
 | `APPLE_CERTIFICATE_BASE64` | Base64 of the Developer ID Application `.p12`, including its private key. |
 | `APPLE_CERTIFICATE_PASSWORD` | The `.p12` export password. |
 | `APPLE_ID` | The Apple account email used for notarization. |
-| `APPLE_APP_SPECIFIC_PASSWORD` | The app-specific password used for notarization. |
-| `APPLE_TEAM_ID` | The Apple developer Team ID matching the certificate. |
+| `APPLE_APP_SPECIFIC_PASSWORD` | The app-specific password generated for Wiki. |
+| `APPLE_TEAM_ID` | The Apple developer Team ID matching the certificate and account access. |
 
-Plaintext is scoped to the encryption step and is never logged or written to its output. The only handoff output contains sealed values; its artifact has one-day retention. GitHub cannot return stored Secret plaintext. Keep Wiki's `release` reviewers, prevention of self-approval, disabled administrator bypass and `v*` tag restrictions, plus the existing two `TAURI_SIGNING_*` secrets.
+Keep the existing two `TAURI_SIGNING_*` secrets and the environment's required reviewers, prevention of self-approval, disabled administrator bypass and `v*` tag restrictions. Do not recreate the environment to add credentials. Private values go directly from the authorized administrator into GitHub's secret settings; never put them in source files, chat, issues, artifacts or logs. Keep an independent recovery copy in the organization's approved vault. The macOS signing job imports the identity into a temporary keychain and cleans it up afterward.
 
-After reviewing the exact successful source run and full SAG `main` commit, inspect the handoff from the Wiki checkout:
-
-```sh
-node scripts/import-apple-signing-secrets.mjs --run-id ID --source-commit APPROVED_FULL_SAG_MAIN_SHA
-```
-
-Replace the placeholders with the approved run ID and full commit SHA. The default is a **dry run with no secret writes**. It validates the approved source, current attempt's successful sealing job, artifact identity and digest, exact envelope, fixed destination and live destination public key. Add `--apply` only after concrete approval of that verified migration. It sends the sealed values unchanged as GitHub API `encrypted_value` fields; plaintext does not pass through the operator or model.
-
-Preflight rejects any existing destination Apple secret name. GitHub's PUT API has no atomic create-only operation, so avoid concurrent target-secret edits between preflight and application. A partial failure may have written some names, including the failed request. Inspect destination names and review the result before retrying; do not automatically overwrite or delete existing credentials. Actual migration and new notarization have not run.
-
-### Fallback: administrator supplies credentials directly
-
-Use this only if an administrator chooses direct provisioning instead of the encrypted handoff. It does not assume the current maintainer has a local certificate. The administrator supplies a Developer ID Application `.p12` containing its private key, its password and the matching account/team values under the five names above in Wiki's `release` environment. A public `.cer` alone cannot sign. Keep recovery material in the approved credential vault; never paste values into chat, issues, source files or logs. The signing workflow uses a temporary keychain and cleans it up afterward. Adding secrets does not re-sign published installers or prove signing and notarization work.
+After setup, report only that the five names have been configured. Real signing, notarization and final-package acceptance are deferred until credentials are ready and the corrected workflow is available. Adding secrets or rerunning the old workflow does not notarize existing installers. Provisioning does not approve a version change, tag or Release: publication remains blocked until both platforms pass formal-signature acceptance and the user explicitly approves the release operation.
 
 ## Windows formal signing is pending
 
-The Windows signing provider and handover resources are still being checked; no working signing service is established here. The protected `windows-verify` job **verifies only** and does not sign files. It intentionally rejects the current unsigned build until an approved signing provider is connected.
+The Windows signing provider and resources are still being checked; no working signing service is established here. The protected `windows-verify` job **verifies only** and does not sign files. It intentionally rejects the current unsigned build until an approved signing provider is connected.
 
 The NSIS installer, installed desktop executable, bundled CLI and NSIS uninstaller must each have a valid **embedded Authenticode signature**, the approved `WINDOWS_SIGNING_PUBLISHER`, and a trusted timestamp. The release assembler also requires proof from this run's successful protected Windows verification job, bound to the installer bytes and source. Updater signatures do not satisfy these checks. No next release is ready until real macOS signing/notarization and Windows formal-signature verification both pass.
 
@@ -91,7 +79,7 @@ The NSIS installer, installed desktop executable, bundled CLI and NSIS uninstall
 
 Actions are pinned to full commit SHAs. Checkout does not persist credentials. Build jobs have read-only repository permissions; signing, publishing and provenance permissions are limited to the jobs that need them. Dependencies use committed npm and Cargo lock files. Do not overwrite published artifacts to repair a failed build; fix the source and release a higher version.
 
-Inspection of historical installers confirms that **0.1.5 and 0.1.6 are notarized and accepted by Gatekeeper; 0.1.9 is ad-hoc signed, has no stapled tickets and is rejected by Gatekeeper.** Do not characterize every earlier release as unnotarized. The publicly published 0.2.4 installers remain unchanged, including their lack of Apple notarization and Windows formal signing. Those historical assets do not authorize another unsigned release. Apple migration/notarization have not run and the Windows signing provider is pending; a new version remains blocked until both actual platform checks pass.
+Inspection of historical installers confirms that **0.1.5 and 0.1.6 are notarized and accepted by Gatekeeper; 0.1.9 is ad-hoc signed, has no stapled tickets and is rejected by Gatekeeper.** Do not characterize every earlier release as unnotarized. The publicly published 0.2.4 installers remain unchanged, including their lack of Apple notarization and Windows formal signing. Those historical assets do not authorize another unsigned release. Apple credential setup and real signing/notarization validation are pending and the Windows signing provider is pending; a new version remains blocked until both actual platform checks pass.
 
 Only after the separate version/tag/release approvals and signing readiness above, use the reviewed, clean `main` checkout:
 

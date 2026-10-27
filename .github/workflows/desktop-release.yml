@@ -54,7 +54,7 @@ jobs:
         id: source
         run: node scripts/release.mjs validate
       - name: Test release validation and signing
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/import-apple-signing-secrets.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs
 
       - name: Find a verified main build for this exact commit
         id: cache
@@ -135,7 +135,7 @@ jobs:
       - name: Install locked JavaScript dependencies
         run: npm ci
       - name: Regress release assembly, signatures and artifact transfer on this platform
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/import-apple-signing-secrets.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs
       - name: Regress Windows code-signing verification
         if: matrix.platform == 'windows'
         shell: pwsh
