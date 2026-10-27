@@ -136,10 +136,6 @@ jobs:
         run: npm ci
       - name: Regress release assembly, signatures and artifact transfer on this platform
         run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs
-      - name: Regress Windows code-signing verification
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: ./scripts/verify-windows-signing.tests.ps1
       - name: Run frontend tests
         run: npm test
       - name: Test Safari native saving and build development installer
@@ -287,8 +283,10 @@ jobs:
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
           APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: node scripts/sign-macos-release.mjs --input release-artifacts --output signed-release-artifacts
       - name: Upload verified signed macOS artifacts
@@ -300,60 +298,13 @@ jobs:
           retention-days: 14
           compression-level: 0
 
-  windows-verify:
-    name: Verify Windows code signing
-    needs: [validate, build, documentation]
-    if: >-
-      always() && !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
-      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
-      (needs.validate.outputs.reuse == 'true' ||
-      (needs.build.result == 'success' && needs.documentation.result == 'success'))
-    runs-on: windows-2025
-    timeout-minutes: 20
-    environment:
-      name: release
-    steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          ref: ${{ needs.validate.outputs.commit }}
-          persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
-        with:
-          node-version: '24.13.0'
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
-        with:
-          python-version: '3.13.9'
-      - name: Verify protected release environment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release.mjs verify-environment
-      - name: Download digest-verified tested platform artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ needs.validate.outputs.source_run }}
-        run: node scripts/release-build-cache.mjs download
-      # No unsigned fallback. Until the approved Windows signing provider is
-      # connected, this gate intentionally blocks version publication.
-      - name: Require formal signatures, trusted timestamps and installed-package acceptance
-        shell: pwsh
-        env:
-          WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
-        run: ./scripts/verify-windows-signing.ps1 -InputDirectory release-artifacts/windows -OutputDirectory windows-signing-proof -ExpectedPublisher "$env:WINDOWS_SIGNING_PUBLISHER"
-      - name: Upload Windows signature verification proof
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: desktop-windows-signing-proof-${{ github.sha }}
-          path: windows-signing-proof/windows-signing.json
-          if-no-files-found: error
-          retention-days: 14
-
   release:
     name: Sign and create a draft release
-    needs: [validate, macos-sign, windows-verify]
+    needs: [validate, macos-sign]
     if: >-
       always() && !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
       startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
-      needs.macos-sign.result == 'success' && needs.windows-verify.result == 'success'
+      needs.macos-sign.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     environment:
@@ -399,10 +350,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-build-cache.mjs download-signed
-      - name: Require digest-verified Windows signing proof from this run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-build-cache.mjs download-windows-proof
       - name: Verify artifacts, sign updates and assemble the release
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

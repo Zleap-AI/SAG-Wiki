@@ -9,7 +9,7 @@ import {validateStagedArtifacts, validateVersions} from './release.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const appName = 'SAG Wiki.app';
-const credentialNames = ['APPLE_CERTIFICATE_BASE64', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_ID', 'APPLE_APP_SPECIFIC_PASSWORD', 'APPLE_TEAM_ID'];
+const credentialNames = ['APPLE_CERTIFICATE_BASE64', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_SIGNING_IDENTITY', 'APPLE_TEAM_ID', 'APPLE_API_KEY', 'APPLE_API_ISSUER', 'APPLE_API_PRIVATE_KEY'];
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 const external = (command, args, options = {}) => {
   const result = spawnSync(command, args, {cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, ...options});
@@ -21,14 +21,18 @@ const external = (command, args, options = {}) => {
 export function validateAppleCredentials(environment) {
   for (const name of credentialNames) assert.ok(typeof environment[name] === 'string' && environment[name].trim(), `Missing Apple release credential: ${name}`);
   assert.match(environment.APPLE_TEAM_ID, /^[A-Z0-9]{10}$/, 'Invalid Apple team ID');
+  assert.match(environment.APPLE_API_KEY, /^[A-Z0-9]{10}$/, 'Invalid Apple API key ID');
+  assert.match(environment.APPLE_API_ISSUER, /^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i, 'Invalid Apple API issuer');
+  assert.match(environment.APPLE_API_PRIVATE_KEY, /^-----BEGIN PRIVATE KEY-----\r?\n[\s\S]+\r?\n-----END PRIVATE KEY-----\s*$/, 'Invalid Apple API private key');
+  assert.ok(environment.APPLE_SIGNING_IDENTITY.startsWith('Developer ID Application: ') && environment.APPLE_SIGNING_IDENTITY.endsWith(`(${environment.APPLE_TEAM_ID})`), 'Invalid Apple signing identity');
   const certificate = environment.APPLE_CERTIFICATE_BASE64.replace(/\s/g, '');
   assert.ok(certificate.length > 0 && Buffer.from(certificate, 'base64').toString('base64') === certificate, 'Invalid APPLE_CERTIFICATE_BASE64');
   return Object.fromEntries(credentialNames.map(name => [name, environment[name]]));
 }
 
-export function selectSigningIdentity(output, team) {
-  const identities = [...output.matchAll(/^\s*\d+\) ([A-Fa-f0-9]{40}) "Developer ID Application: [^"\n]+ \(([A-Z0-9]{10})\)"\s*$/gm)]
-    .filter(match => match[2] === team);
+export function selectSigningIdentity(output, team, expectedIdentity) {
+  const identities = [...output.matchAll(/^\s*\d+\) ([A-Fa-f0-9]{40}) "(Developer ID Application: [^"\n]+ \(([A-Z0-9]{10})\))"\s*$/gm)]
+    .filter(match => match[3] === team && (!expectedIdentity || match[2] === expectedIdentity));
   assert.equal(identities.length, 1, 'Expected exactly one valid Developer ID Application identity for the Apple team');
   return identities[0][1];
 }
@@ -137,6 +141,8 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
       originalSearchList = run('security', ['list-keychains', '-d', 'user']).stdout.trim().split('\n').filter(Boolean).map(line => JSON.parse(line.trim()));
       const certificate = join(temporary, 'certificate.p12');
       writeFileSync(certificate, Buffer.from(credentials.APPLE_CERTIFICATE_BASE64, 'base64'), {mode: 0o600});
+      const apiKey = join(temporary, `AuthKey_${credentials.APPLE_API_KEY}.p8`);
+      writeFileSync(apiKey, credentials.APPLE_API_PRIVATE_KEY, {mode: 0o600});
       searchListChanged = true;
       keychainCreated = true;
       run('security', ['create-keychain', '-p', password, keychain]);
@@ -145,7 +151,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
       run('security', ['list-keychains', '-d', 'user', '-s', keychain, ...originalSearchList]);
       run('security', ['import', certificate, '-k', keychain, '-P', credentials.APPLE_CERTIFICATE_PASSWORD, '-T', '/usr/bin/codesign', '-T', '/usr/bin/security']);
       run('security', ['set-key-partition-list', '-S', 'apple-tool:,apple:,codesign:', '-s', '-k', password, keychain]);
-      const identity = selectSigningIdentity(run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]).stdout, credentials.APPLE_TEAM_ID);
+      const identity = selectSigningIdentity(run('security', ['find-identity', '-v', '-p', 'codesigning', keychain]).stdout, credentials.APPLE_TEAM_ID, credentials.APPLE_SIGNING_IDENTITY);
       const sign = (path, {runtime = true} = {}) => run('codesign', ['--force', '--sign', identity, '--keychain', keychain, ...(runtime ? ['--options', 'runtime'] : []), '--timestamp', path]);
       const verify = (path, options) => {
         run('codesign', ['--verify', ...(path.endsWith('.app') ? ['--deep'] : []), '--strict', '--verbose=2', path]);
@@ -161,7 +167,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
       sign(app);
       verify(cli);
       verify(app);
-      const notarize = path => validateNotarization(run('xcrun', ['notarytool', 'submit', path, '--apple-id', credentials.APPLE_ID, '--password', credentials.APPLE_APP_SPECIFIC_PASSWORD, '--team-id', credentials.APPLE_TEAM_ID, '--wait', '--timeout', '30m', '--output-format', 'json'], {timeout: 31 * 60 * 1000}).stdout);
+      const notarize = path => validateNotarization(run('xcrun', ['notarytool', 'submit', path, '--key', apiKey, '--key-id', credentials.APPLE_API_KEY, '--issuer', credentials.APPLE_API_ISSUER, '--wait', '--timeout', '30m', '--output-format', 'json'], {timeout: 31 * 60 * 1000}).stdout);
       const staple = path => {
         run('xcrun', ['stapler', 'staple', path]);
         run('xcrun', ['stapler', 'validate', path]);

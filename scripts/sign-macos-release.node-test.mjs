@@ -1,7 +1,7 @@
 // Apple services are exercised by the macOS release job, never simulated as acceptance here.
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -12,7 +12,15 @@ const moduleUrl = new URL('./sign-macos-release.mjs', import.meta.url);
 const implementation = () => import(moduleUrl.href);
 const team = 'ABCDE12345';
 const uuid = '12345678-1234-1234-1234-123456789abc';
-const environment = {APPLE_CERTIFICATE_BASE64: Buffer.from('private p12 fixture').toString('base64'), APPLE_CERTIFICATE_PASSWORD: 'p12-secret', APPLE_ID: 'release@example.test', APPLE_APP_SPECIFIC_PASSWORD: 'apple-secret', APPLE_TEAM_ID: team};
+const environment = {
+  APPLE_CERTIFICATE_BASE64: Buffer.from('private p12 fixture').toString('base64'),
+  APPLE_CERTIFICATE_PASSWORD: 'p12-secret',
+  APPLE_SIGNING_IDENTITY: `Developer ID Application: Example (${team})`,
+  APPLE_TEAM_ID: team,
+  APPLE_API_KEY: 'KEY1234567',
+  APPLE_API_ISSUER: uuid,
+  APPLE_API_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nprivate-api-key-fixture\n-----END PRIVATE KEY-----\n',
+};
 const details = `Executable=/SAG Wiki.app\nCodeDirectory v=20500 size=123 flags=0x10000(runtime) hashes=3+7 location=embedded\nAuthority=Developer ID Application: Example (${team})\nAuthority=Developer ID Certification Authority\nAuthority=Apple Root CA\nTimestamp=Oct 27, 2026 at 10:00:00 AM\nTeamIdentifier=${team}\n`;
 const digest = file => createHash('sha256').update(readFileSync(file)).digest('hex');
 const python = [process.env.SAG_TEST_PYTHON, process.platform === 'win32' ? 'python' : 'python3', 'python3.12', 'python3.13', 'python3.14']
@@ -29,16 +37,22 @@ function execute(command, args, options = {}) {
 test('requires every Apple credential without disclosing any secret value', async () => {
   const {validateAppleCredentials} = await implementation();
   for (const name of Object.keys(environment)) {
-    assert.throws(() => validateAppleCredentials({...environment, [name]: ''}), error => error.message.includes(name) && !error.message.includes('p12-secret') && !error.message.includes('apple-secret'));
+    assert.throws(() => validateAppleCredentials({...environment, [name]: ''}), error => error.message.includes(name) && !error.message.includes('p12-secret') && !error.message.includes('private-api-key-fixture'));
   }
   assert.equal(validateAppleCredentials(environment).APPLE_TEAM_ID, team);
   assert.throws(() => validateAppleCredentials({...environment, APPLE_TEAM_ID: 'wrong'}), /team/i);
+  assert.throws(() => validateAppleCredentials({...environment, APPLE_API_KEY: 'wrong'}), /key ID/i);
+  assert.throws(() => validateAppleCredentials({...environment, APPLE_API_ISSUER: 'wrong'}), /issuer/i);
+  assert.throws(() => validateAppleCredentials({...environment, APPLE_API_PRIVATE_KEY: 'wrong'}), /private key/i);
+  assert.throws(() => validateAppleCredentials({...environment, APPLE_SIGNING_IDENTITY: `Apple Development: Example (${team})`}), /identity/i);
 });
 
 test('selects exactly one valid Developer ID Application identity belonging to the expected team', async () => {
   const {selectSigningIdentity} = await implementation();
   const valid = `  1) ${'A'.repeat(40)} "Developer ID Application: Example (${team})"\n     1 valid identities found\n`;
   assert.equal(selectSigningIdentity(valid, team), 'A'.repeat(40));
+  assert.equal(selectSigningIdentity(valid, team, environment.APPLE_SIGNING_IDENTITY), 'A'.repeat(40));
+  assert.throws(() => selectSigningIdentity(valid, team, `Developer ID Application: Different (${team})`), /exactly one/i);
   assert.throws(() => selectSigningIdentity(valid.replace(team, 'OTHER12345'), team), /exactly one/i);
   assert.throws(() => selectSigningIdentity(valid.replace('Developer ID Application:', 'Apple Development:'), team), /exactly one/i);
   assert.throws(() => selectSigningIdentity(valid + valid.replaceAll('A'.repeat(40), 'B'.repeat(40)), team), /exactly one/i);
@@ -113,6 +127,7 @@ function appleRunner(fixture, {rejectNotarization = false, rejectDmgNotarization
   const state = {restored: false, deleted: false, detached: false, cliSigned: false, submissions: 0, gates: []};
   let imageApp;
   const run = (command, args, options = {}) => {
+    for (const name of Object.keys(environment)) assert.equal(options.env?.[name], undefined, 'Subprocess environments must not inherit signing credentials');
     if (command === 'uname') return {stdout: hostArchitecture, stderr: ''};
     if (command === 'git') return {stdout: fixture.commit, stderr: ''};
     if (command === 'security') {
@@ -135,6 +150,14 @@ function appleRunner(fixture, {rejectNotarization = false, rejectDmgNotarization
       }
       if (args.includes('--display')) return {stdout: '', stderr: details};
     } else if (command === 'xcrun' && args[0] === 'notarytool') {
+      assert.equal(args.includes('--apple-id'), false);
+      assert.equal(args.includes('--password'), false);
+      assert.equal(args[args.indexOf('--key-id') + 1], environment.APPLE_API_KEY);
+      assert.equal(args[args.indexOf('--issuer') + 1], environment.APPLE_API_ISSUER);
+      const keyPath = args[args.indexOf('--key') + 1];
+      assert.equal(readFileSync(keyPath, 'utf8'), environment.APPLE_API_PRIVATE_KEY);
+      if (process.platform !== 'win32') assert.equal(statSync(keyPath).mode & 0o777, 0o600);
+      assert.equal(args.includes(environment.APPLE_API_PRIVATE_KEY), false, 'Private key contents must not enter command arguments');
       state.submissions++;
       return {stdout: JSON.stringify({id: uuid, status: rejectNotarization || (rejectDmgNotarization && state.submissions === 2) ? 'Invalid' : 'Accepted'}), stderr: ''};
     } else if (command === 'xcrun' && args[0] === 'stapler' && args.at(-1).endsWith('.app')) {

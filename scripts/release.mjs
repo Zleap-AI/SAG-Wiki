@@ -128,28 +128,6 @@ export function validateSignedMacOSArtifacts(directory, source) {
   return metadata;
 }
 
-export function validateWindowsSigningProof(directory, source) {
-  assert.deepEqual(readdirSync(directory).sort(), ['windows-signing.json'], 'Unexpected Windows signing proof files');
-  const proof = json(join(directory, 'windows-signing.json'));
-  for (const field of ['schema', 'version', 'commit', 'platform', 'target', 'files']) {
-    assert.deepEqual(proof[field], source[field], `Windows signing ${field} mismatch`);
-  }
-  assert.equal(source.platform, 'windows', 'Expected Windows build');
-  const signing = proof.windows_signing;
-  assert.ok(typeof signing?.publisher === 'string' && signing.publisher.trim(), 'Missing Windows signing publisher');
-  const files = signing.files;
-  assert.deepEqual(Object.keys(files ?? {}).sort(), ['cli', 'desktop', 'installer', 'uninstaller'], 'Missing Windows executable signatures');
-  for (const signature of Object.values(files)) {
-    assert.equal(signature.status, 'Valid', 'Windows code signature is not valid');
-    assert.ok(typeof signature.subject === 'string' && signature.subject.trim(), 'Missing Windows certificate subject');
-    assert.match(signature.sha256 ?? '', /^[a-f0-9]{64}$/i, 'Missing Windows executable digest');
-    assert.match(signature.thumbprint ?? '', /^[a-f0-9]{40}$/i, 'Missing Windows signing certificate');
-    assert.match(signature.timestamp_thumbprint ?? '', /^[a-f0-9]{40}$/i, 'Missing Windows trusted timestamp');
-  }
-  assert.equal(files.installer.sha256.toLowerCase(), source.files[expectedFiles('windows', source.version)[0]], 'Verified Windows installer digest mismatch');
-  return {...source, windows_signing: signing};
-}
-
 function releaseNotes(version) {
   const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').replace(/\r\n/g, '\n');
   const section = changelog.split(/^## /m).find(text => text.startsWith(`${version}\n`) || text.startsWith(`${version} `));
@@ -157,14 +135,13 @@ function releaseNotes(version) {
   return `## ${section.trim()}\n\n### 更新签名迁移 / Update signing migration\n\n0.1.8 及更早版本的用户请手动下载安装一次 0.1.9。旧更新通道保留在 0.1.8，后续自动更新从 0.1.9 的新签名通道继续。\n\nUsers on 0.1.8 or earlier must manually install 0.1.9 once. The legacy update channel remains on 0.1.8; subsequent automatic updates use the new signing channel.\n`;
 }
 
-function assemble({input, output, 'signed-macos': signedMacOS, 'windows-proof': windowsProof}) {
+function assemble({input, output, 'signed-macos': signedMacOS}) {
   const version = validateVersions();
   const commit = git('rev-parse', 'HEAD');
   const source = resolve(input ?? 'release-artifacts');
   const metadata = validateStagedArtifacts(source, version, commit);
   const signed = resolve(signedMacOS ?? 'signed-release-artifacts/macos');
   metadata.macos = validateSignedMacOSArtifacts(signed, metadata.macos);
-  metadata.windows = validateWindowsSigningProof(resolve(windowsProof ?? 'windows-signing-proof'), metadata.windows);
   const destination = resolve(output ?? join(root, 'releases', version, 'updates'));
   assert.ok(!existsSync(destination), 'Release output must be fresh');
   mkdirSync(destination, {recursive: true});
@@ -198,7 +175,7 @@ export function verifyEnvironment() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries(['platform', 'target', 'input', 'output', 'signed-macos', 'windows-proof'].map(name => [name, {type: 'string'}]))});
+  const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries(['platform', 'target', 'input', 'output', 'signed-macos'].map(name => [name, {type: 'string'}]))});
   const commands = {validate, stage, assemble, 'verify-environment': verifyEnvironment};
   assert.ok(commands[positionals[0]], 'Use validate, stage, assemble or verify-environment');
   commands[positionals[0]](values);

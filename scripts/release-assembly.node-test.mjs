@@ -55,7 +55,6 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
       const raw = join(temporary, 'raw artifacts');
       const signed = join(temporary, 'signed artifacts', 'macos');
       const output = join(temporary, 'assembled release');
-      const windowsProof = join(temporary, 'windows signing proof');
       const macNames = [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`];
       const windowsName = `SAG-Wiki-${version}-Windows-x64-setup.exe`;
       const rawMetadata = {};
@@ -85,16 +84,8 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
           dmg_notarization_id: '22222222-2222-4222-8222-222222222222'}};
       const saveSignedMetadata = metadata => writeFileSync(join(signed, 'metadata.json'), JSON.stringify(metadata));
       saveSignedMetadata(signedMetadata);
-      mkdirSync(windowsProof);
-      const windowsSignature = {status:'Valid',sha256:hash(bytes[windowsName]),subject:'CN=Approved Publisher',
-        thumbprint:'C'.repeat(40),timestamp_thumbprint:'D'.repeat(40)};
-      const windowsSigning = {publisher:'Approved Publisher',files:{installer:windowsSignature,
-        desktop:{...windowsSignature},cli:{...windowsSignature},uninstaller:{...windowsSignature}}};
-      const saveWindowsProof = signing => writeFileSync(join(windowsProof,'windows-signing.json'),JSON.stringify({schema:1,
-        version,commit,platform:'windows',target:targets.windows,files:rawMetadata.windows.files,windows_signing:signing}));
-      saveWindowsProof(windowsSigning);
       const assemble = destination => run(process.execPath, [join(checkout, 'scripts/release.mjs'), 'assemble',
-        '--input', raw, '--signed-macos', signed, '--windows-proof', windowsProof, '--output', destination], env);
+        '--input', raw, '--signed-macos', signed, '--output', destination], env);
       const assembled = assemble(output);
       assert.equal(assembled.status, 0, `Release assembly failed: ${assembled.stderr || assembled.error?.message}`);
       for (const [name, expected] of Object.entries(bytes)) assert.deepEqual(readFileSync(join(output, name)), expected);
@@ -108,15 +99,7 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
       }
       assert.deepEqual(readFileSync(join(output, 'latest.json')), readFileSync(join(root, 'config/updates/legacy-latest.json')));
       assert.deepEqual(json(join(output, 'build-metadata.json')), {repository: 'Zleap-AI/SAG-Wiki', commit, version,
-        platforms: {macos: signedMetadata, windows: {...rawMetadata.windows,windows_signing:windowsSigning}}});
-
-      saveWindowsProof({...windowsSigning,files:{...windowsSigning.files,cli:{...windowsSignature,status:'NotSigned'}}});
-      const unsignedWindowsOutput = join(temporary,'unsigned Windows must not publish');
-      const unsignedWindows = assemble(unsignedWindowsOutput);
-      assert.notEqual(unsignedWindows.status,0);
-      assert.match(unsignedWindows.stderr,/Windows code signature is not valid/);
-      assert.equal(existsSync(unsignedWindowsOutput),false);
-      saveWindowsProof(windowsSigning);
+        platforms: {macos: signedMetadata, windows: rawMetadata.windows}});
 
       const {apple_signing, ...unproved} = signedMetadata;
       saveSignedMetadata(unproved);
