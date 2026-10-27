@@ -44,7 +44,9 @@ The configured single-maintainer policy lets `luoshuai990529` request a release 
 
 ## Manually configure Apple signing and notarization secrets
 
-Configure Apple credentials under **Zleap-AI/SAG-Wiki → Settings → Environments → release**, the same protected environment used for updater signing. Secrets in SAG's `desktop-release` environment are not automatically available to Wiki. GitHub cannot reveal an existing Secret's value. Use the original credential backup or export the certificate again from the Mac that holds its private key. Keep the existing reviewers, prevention of self-approval, disabled administrator bypass, and `v*` tag restrictions.
+When signing directly in Wiki's own workflow, configure Apple credentials under **Zleap-AI/SAG-Wiki → Settings → Environments → release**, the same protected environment used for updater signing. Secrets in SAG's `desktop-release` environment are not automatically available to Wiki. GitHub cannot reveal an existing Secret's value. Keep the existing reviewers, prevention of self-approval, disabled administrator bypass, and `v*` tag restrictions.
+
+First establish the previous signing environment and approved publishing identity. Inspected Wiki 0.1.5 and 0.1.6 packages use `SONIER PTE. LTD.`, Team ID `2M9T9QTT55`; successful signing does not establish that the current maintainer has local credentials. Until the original execution environment is identified, investigate it or assess reuse of an existing protected signing service rather than requiring a local certificate export as the only option. SAG's workflow is a useful implementation reference, but confirm its credential team before changing Wiki's publisher identity. The following steps apply when an administrator has approved supplying credentials directly to Wiki's environment.
 
 1. Obtain a **Developer ID Application** `.p12` backup containing both the certificate and its private key. A public `.cer` certificate alone cannot sign an app. Without the original `.p12`, open **Keychain Access → login → My Certificates** on the original Mac, find the Developer ID Application entry and confirm it has a private key, then export it as `.p12` with a securely stored export password. Do not substitute an Apple Development or App Store distribution certificate.
 2. On that Mac, encode the `.p12` as one Base64 line directly to the clipboard. Replace the sample path with your certificate's path. This command does not print its contents:
@@ -87,7 +89,7 @@ Handle values only in GitHub's Secret input and the organization's approved cred
 
 Actions are pinned to full commit SHAs. Checkout does not persist credentials. Build jobs have read-only repository permissions; signing, publishing and provenance permissions are limited to the jobs that need them. Dependencies use committed npm and Cargo lock files. Do not overwrite published artifacts to repair a failed build; fix the source and release a higher version.
 
-**Published macOS artifacts through 0.2.4 remain unnotarized.** This workflow does not modify them; release a higher version to provide artifacts accepted by the new pipeline. Windows code signing remains unconfigured, with the NSIS installer retaining its current unsigned status and full installation smoke checks plus installed-CLI E2E.
+Inspection of historical installers confirms that **0.1.5 and 0.1.6 are notarized and accepted by Gatekeeper; 0.1.9 is ad-hoc signed, has no stapled tickets and is rejected by Gatekeeper.** Do not characterize every earlier release as unnotarized. The current 0.2.4 automatic release workflow also lacks Apple notarization. This change does not modify published artifacts; a higher version is required. Windows code signing remains unconfigured, with the NSIS installer retaining its current unsigned status and full installation smoke checks plus installed-CLI E2E.
 
 For example, from the reviewed, clean `main` checkout:
 
