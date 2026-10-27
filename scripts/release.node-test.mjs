@@ -149,3 +149,25 @@ test('accepts only notarized final macOS artifacts tied to the original tested p
     assert.throws(() => release.validateSignedMacOSArtifacts(directory, original), /checksum/);
   } finally { rmSync(directory, {recursive: true, force: true}); }
 });
+
+test('requires trusted timestamped Windows signatures for installer, desktop and CLI before release', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'sag-windows-signing-proof-'));
+  const source = {schema:1,version:'0.2.4',commit:'a'.repeat(40),platform:'windows',target:targets.windows,
+    build_identity:{version:'0.2.4',channel:'release'},files:{'SAG-Wiki-0.2.4-Windows-x64-setup.exe':'b'.repeat(64)}};
+  const signature = {sha256:'b'.repeat(64),subject:'CN=Approved Publisher',thumbprint:'C'.repeat(40),timestamp_thumbprint:'D'.repeat(40),status:'Valid'};
+  const proof = {schema:1,version:source.version,commit:source.commit,platform:'windows',target:targets.windows,files:source.files,
+    windows_signing:{publisher:'Approved Publisher',files:{installer:signature,desktop:{...signature},cli:{...signature},uninstaller:{...signature}}}};
+  const save = value => writeFileSync(join(directory,'windows-signing.json'),JSON.stringify(value));
+  try {
+    save(proof);
+    assert.deepEqual(release.validateWindowsSigningProof(directory,source).windows_signing,proof.windows_signing);
+    for(const patch of [{windows_signing:undefined},{commit:'e'.repeat(40)},{files:{...source.files,'unexpected.exe':'b'.repeat(64)}},
+      {windows_signing:{...proof.windows_signing,publisher:''}},
+      {windows_signing:{...proof.windows_signing,files:{installer:signature,desktop:signature,cli:signature}}},
+      {windows_signing:{...proof.windows_signing,files:{...proof.windows_signing.files,cli:{...signature,status:'NotSigned'}}}},
+      {windows_signing:{...proof.windows_signing,files:{...proof.windows_signing.files,desktop:{...signature,timestamp_thumbprint:''}}}},
+      {windows_signing:{...proof.windows_signing,files:{...proof.windows_signing.files,installer:{...signature,sha256:'f'.repeat(64)}}}}]) {
+      save({...proof,...patch});assert.throws(()=>release.validateWindowsSigningProof(directory,source));
+    }
+  } finally {rmSync(directory,{recursive:true,force:true});}
+});

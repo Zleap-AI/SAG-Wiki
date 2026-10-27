@@ -71,3 +71,16 @@ test('signed artifacts must come from this run and a successful latest macOS sig
  assert.throws(()=>cache.selectSignedArtifact([{...artifact,workflow_run:{...artifact.workflow_run,id:1}}],current));
  assert.throws(()=>cache.selectSignedArtifact([{...artifact,digest:null}],current));
 });
+
+test('requires a current successful Windows signing verification job and its own proof artifact', () => {
+ const current={...run(),id:2,head_branch:'v0.2.4',event:'workflow_dispatch',status:'in_progress',conclusion:null};
+ const verified={name:'Verify Windows code signing',run_attempt:1,conclusion:'success'};
+ cache.validateWindowsSigningRun(current,[verified],ctx);
+ assert.throws(()=>cache.validateWindowsSigningRun(current,[],ctx));
+ assert.throws(()=>cache.validateWindowsSigningRun(current,[verified,{...verified,run_attempt:2,conclusion:'failure'}],ctx));
+ assert.throws(()=>cache.validateWindowsSigningRun({...current,id:1},[verified],ctx));
+ const artifact={...artifacts()[1],name:`desktop-windows-signing-proof-${commit}`,workflow_run:{...artifacts()[1].workflow_run,id:2}};
+ assert.equal(cache.selectWindowsSigningArtifact([artifact],current).id,artifact.id);
+ assert.throws(()=>cache.selectWindowsSigningArtifact(artifacts(),current));
+ assert.throws(()=>cache.selectWindowsSigningArtifact([{...artifact,digest:null}],current));
+});

@@ -5,7 +5,7 @@ import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
-import {validateSignedMacOSArtifacts, validateStagedArtifacts, validateVersions} from './release.mjs';
+import {validateSignedMacOSArtifacts, validateStagedArtifacts, validateVersions, validateWindowsSigningProof} from './release.mjs';
 
 const repository = 'Zleap-AI/SAG-Wiki';
 const workflow = '.github/workflows/desktop-release.yml';
@@ -62,7 +62,7 @@ export function selectArtifacts(artifacts, run, now = Date.now()) {
   return ['macos', 'windows'].map(platform => ({...selectArtifact(artifacts, run, `desktop-${platform}-${run.head_sha}`, now), platform}));
 }
 
-export function validateSignedRun(run, jobs, ctx) {
+function validateProtectedRun(run, jobs, ctx, jobName) {
   assert.equal(run.id, ctx.currentRunId, 'Signing must belong to this release run');
   assert.equal(run.repository?.full_name, repository, 'Wrong signing repository');
   assert.equal(run.head_repository?.full_name, repository, 'Fork signing source');
@@ -71,11 +71,23 @@ export function validateSignedRun(run, jobs, ctx) {
   assert.equal(run.path, workflow, 'Wrong signing workflow path');
   assert.match(run.head_branch ?? '', /^v\d+\.\d+\.\d+$/, 'Signing requires a version tag');
   assert.ok(['push', 'workflow_dispatch'].includes(run.event), 'Untrusted signing event');
-  return successfulJob(jobs, 'Sign and notarize macOS');
+  return successfulJob(jobs, jobName);
+}
+
+export function validateSignedRun(run, jobs, ctx) {
+  return validateProtectedRun(run, jobs, ctx, 'Sign and notarize macOS');
+}
+
+export function validateWindowsSigningRun(run, jobs, ctx) {
+  return validateProtectedRun(run, jobs, ctx, 'Verify Windows code signing');
 }
 
 export function selectSignedArtifact(artifacts, run, now = Date.now()) {
   return selectArtifact(artifacts, run, `desktop-macos-signed-${run.head_sha}`, now);
+}
+
+export function selectWindowsSigningArtifact(artifacts, run, now = Date.now()) {
+  return selectArtifact(artifacts, run, `desktop-windows-signing-proof-${run.head_sha}`, now);
 }
 
 export function verifyArchive(bytes, expected) {
@@ -138,7 +150,7 @@ function downloadArtifacts(artifacts, destination) {
       mkdirSync(target, {recursive:true});
       // Validate archive paths and reject symlinks before extracting into the signing workspace.
       const code = 'import zipfile,sys,pathlib,stat\nz=zipfile.ZipFile(sys.argv[1])\nfor i in z.infolist():\n p=pathlib.PurePosixPath(i.filename)\n assert not p.is_absolute() and ".." not in p.parts and "\\\\" not in i.filename and not stat.S_ISLNK(i.external_attr >> 16), "Unsafe archive entry"\nz.extractall(sys.argv[2])';
-      const extracted = spawnSync('python3', ['-c', code, zip, target], {encoding:'utf8'});
+      const extracted = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-c', code, zip, target], {encoding:'utf8'});
       assert.equal(extracted.status, 0, extracted.stderr);
     }
   } finally { rmSync(temp, {recursive:true, force:true}); }
@@ -166,8 +178,20 @@ function downloadSignedBuild() {
   console.log(`Verified signed macOS archive and notarization metadata from run ${run.id}`);
 }
 
+function downloadWindowsSigningProof() {
+  const ctx = context();
+  const run = api(`actions/runs/${ctx.currentRunId}`);
+  const job = validateWindowsSigningRun(run, pages(`actions/runs/${run.id}/jobs?filter=all`, 'jobs'), ctx);
+  const artifact = selectWindowsSigningArtifact(pages(`actions/runs/${run.id}/artifacts`, 'artifacts'), run);
+  assert.ok(Date.parse(artifact.created_at) >= Date.parse(job.started_at) && Date.parse(artifact.created_at) <= Date.parse(job.completed_at), 'Windows signing proof predates the accepted verification job');
+  downloadArtifacts([{...artifact, platform:''}], 'windows-signing-proof');
+  const source = validateStagedArtifacts(resolve('release-artifacts'), validateVersions(), ctx.commit);
+  validateWindowsSigningProof(resolve('windows-signing-proof'), source.windows);
+  console.log(`Verified Windows code-signing proof from run ${run.id}`);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const commands = {resolve:resolveBuild, download:downloadBuild, 'download-signed':downloadSignedBuild};
-  assert.ok(commands[process.argv[2]], 'Use resolve, download or download-signed');
+  const commands = {resolve:resolveBuild, download:downloadBuild, 'download-signed':downloadSignedBuild, 'download-windows-proof':downloadWindowsSigningProof};
+  assert.ok(commands[process.argv[2]], 'Use resolve, download, download-signed or download-windows-proof');
   commands[process.argv[2]]();
 }
