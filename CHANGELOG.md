@@ -1,5 +1,21 @@
 # 更新日志 / Changelog
 
+## 0.2.5
+
+- **macOS 签名与公证**：为应用、包内 CLI 和 DMG 接入 Developer ID 正式签名、可信时间戳、Apple 公证及公证票据装订。正式发布制品需通过票据和 Gatekeeper 检查后才能进入发布组装。
+- **发布制品校验**：核对构建来源、提交、版本与文件摘要，只接收本次成功签名任务的 macOS 制品；检查 DMG 与更新包内容一致性，并对最终包内 CLI 运行回归。失败时停止创建 Release 草稿。
+- **Windows 分发状态**：保留现有构建、安装验证及应用更新签名方式；本次不新增 Windows 正式代码签名。
+
+桌面端与随包 CLI 版本统一为 0.2.5，沿用现行更新签名通道；本次更新不涉及数据库迁移。
+
+### English
+
+- **macOS signing and notarization**: finalize the app, bundled CLI and DMG with Developer ID signatures, secure timestamps, Apple notarization and stapled tickets. Release assembly requires successful ticket validation and Gatekeeper assessment.
+- **Release artifact verification**: verify build provenance, commit, version and file digests, accepting macOS artifacts only from this run's successful signing job. Check DMG/updater payload parity and regress the final bundled CLI. Failures stop draft Release creation.
+- **Windows distribution status**: retain existing builds, installation checks and updater signatures. This update does not add formal Windows code signing.
+
+The desktop app and bundled CLI both use 0.2.5, retaining the current update-signing channel. This update requires no database migration.
+
 ## 0.2.4
 
 - **CLI 连接反馈**：测试成功后默认收起详情，支持展开查看；在设置分类间切换时保留最近结果和展开状态。
