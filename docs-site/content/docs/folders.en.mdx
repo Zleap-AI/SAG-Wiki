@@ -99,6 +99,10 @@ Off by default. It affects only the right-side file list; the left sidebar still
 
 Defaults to 8, allows 1–64 and applies to the next indexing task. Changing only worker count does not rebuild existing indexes. Lower it for large files if resource use is too high.
 
+Text index preparation shares a 512 MiB budget, with at least 64 MiB reserved per file. This budget also limits concurrency; later files wait when it is fully reserved. Total application memory includes additional database and cache usage.
+
+Each file has a chunk budget of at least 16 MiB. Heading costs are counted per final chunk, without counting a heading again for paragraphs merged into that chunk. Files exceeding resource limits are reported in index history, and their original contents remain unchanged.
+
 ### Excluded directory names
 
 Enter one name per line. Defaults include `.git`, `node_modules`, `dist`, `target`, `.venv`, `venv` and `__pycache__`. Excluded directories remain browsable but are not indexed.

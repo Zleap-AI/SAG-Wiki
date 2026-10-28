@@ -17,7 +17,8 @@ use std::{
 
 // This is an application allocation budget, not a promise about exact OS RSS.
 // Leave room for source/decoded strings, chunk metadata, tokenization and vocabulary.
-const TEXT_PREPARATION_BUDGET: usize = 256 * 1024 * 1024;
+const TEXT_PREPARATION_BUDGET: usize = 512 * 1024 * 1024;
+const MIN_TEXT_PREPARATION_BYTES: usize = 64 * 1024 * 1024;
 const MAX_TEXT_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_TEXT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PREPARED_TEXT_BYTES: usize = 64 * 1024 * 1024;
@@ -56,7 +57,7 @@ impl Drop for PreparationPermit {
 }
 fn preparation_reservation(path: &Path) -> usize {
     let bytes = fs::metadata(path).map_or(0, |metadata| metadata.len().min(MAX_TEXT_INPUT_BYTES as u64) as usize);
-    (bytes.saturating_mul(16) + 16 * 1024 * 1024).min(TEXT_PREPARATION_BUDGET)
+    (bytes.saturating_mul(16) + 16 * 1024 * 1024).clamp(MIN_TEXT_PREPARATION_BYTES, TEXT_PREPARATION_BUDGET)
 }
 struct PreparedChunk {
     chunk: text::Chunk,
@@ -3334,6 +3335,56 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
             }
         }).unwrap();
         assert!(observed.get());
+    }
+
+    #[test]
+    fn bounded_text_indexes_a_long_policy_title_with_many_paragraphs() {
+        let (_dir, store, root) = setup();
+        let path = root.join("customs-policy.md");
+        let source = format!("# {}\r\n\r\n{}\r\ncustomsfinalmarker\r\n",
+            "海关".repeat(332),
+            "第十条 进出境旅客应当按照规定向海关如实申报。\r\n\r\n".repeat(2488));
+        fs::write(&path, &source).unwrap();
+        assert_eq!(store.scan(root.to_str().unwrap(), |_| {}).unwrap(), 1);
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        assert_eq!(store.search_files("customsfinalmarker", &[], 10).unwrap().len(), 1);
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn bounded_text_reserves_eight_small_files_and_queues_the_next() {
+        let (_dir, _store, root) = setup();
+        let path = root.join("small.md");
+        fs::write(&path, "Short document.").unwrap();
+        let reserved = preparation_reservation(&path);
+        assert_eq!(reserved, 64 * 1024 * 1024);
+        assert_eq!(TEXT_PREPARATION_BUDGET, 512 * 1024 * 1024);
+        let budget = PreparationBudget::new(TEXT_PREPARATION_BUDGET);
+        let mut permits: Vec<_> = (0..8).map(|_| budget.reserve(reserved, || false).unwrap()).collect();
+        let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+        let (admitted_tx, admitted_rx) = std::sync::mpsc::channel();
+        let pending = budget.clone();
+        let worker = thread::spawn(move || {
+            let announced = std::sync::atomic::AtomicBool::new(false);
+            let permit = pending.reserve(reserved, || {
+                if !announced.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    waiting_tx.send(()).unwrap();
+                }
+                false
+            }).unwrap();
+            admitted_tx.send(()).unwrap();
+            permit
+        });
+        waiting_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(admitted_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+        drop(permits.pop());
+        admitted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let last = worker.join().unwrap();
+        assert_eq!(*budget.used.lock().unwrap(), TEXT_PREPARATION_BUDGET);
+        drop(permits);
+        drop(last);
+        assert_eq!(*budget.used.lock().unwrap(), 0);
     }
 
     #[test]
