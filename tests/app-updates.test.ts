@@ -19,7 +19,7 @@ const click=(text:string)=>{
  expect(button, text).toBeDefined();button!.click();
 };
 beforeEach(()=>{setLanguage('zh-CN');updateDownload.set({key:'',version:'',stage:'idle',downloaded:0,total:null,error:''});updateState.set({key:'',checking:false,info:null,error:''});invoke.mockReset();invoke.mockResolvedValue(latest)});
-afterEach(async()=>{for(const app of apps.splice(0))await unmount(app);document.body.innerHTML=''});
+afterEach(async()=>{for(const app of apps.splice(0))await unmount(app);vi.useRealTimers();document.body.innerHTML=''});
 
 it('checks at startup, shows a new-version prompt and opens About on click',async()=>{
  const onOpen=vi.fn();
@@ -29,6 +29,35 @@ it('checks at startup, shows a new-version prompt and opens About on click',asyn
  document.querySelector<HTMLButtonElement>('.update-open')!.click();await tick();
  expect(onOpen).toHaveBeenCalledOnce();
  expect(document.querySelector('.update-notification')).toBeNull();
+});
+
+it('checks every eight hours while mounted and stops checking after unmount',async()=>{
+ vi.useFakeTimers({toFake:['setInterval','clearInterval']});
+ const interval=8*60*60*1000;
+ apps.push(mount(UpdateNotification,{target:document.body,props:{config:{...defaultUpdateSettings},onOpen:vi.fn()}}));
+ await tick();expect(invoke).toHaveBeenCalledOnce();
+ await vi.advanceTimersByTimeAsync(interval-1);
+ expect(invoke).toHaveBeenCalledOnce();
+ await vi.advanceTimersByTimeAsync(1);
+ expect(invoke).toHaveBeenCalledTimes(2);
+ await vi.advanceTimersByTimeAsync(interval);
+ expect(invoke).toHaveBeenCalledTimes(3);
+ await unmount(apps.pop()!);
+ await vi.advanceTimersByTimeAsync(interval);
+ expect(invoke).toHaveBeenCalledTimes(3);
+});
+
+it('skips scheduled checks while a request is pending and retries on a later interval',async()=>{
+ vi.useFakeTimers({toFake:['setInterval','clearInterval']});
+ let resolve!:(info:UpdateInfo)=>void;
+ invoke.mockImplementationOnce(()=>new Promise<UpdateInfo>(done=>resolve=done));
+ apps.push(mount(UpdateNotification,{target:document.body,props:{config:{...defaultUpdateSettings},onOpen:vi.fn()}}));
+ await tick();expect(invoke).toHaveBeenCalledOnce();
+ await vi.advanceTimersByTimeAsync(8*60*60*1000);
+ expect(invoke).toHaveBeenCalledOnce();
+ resolve(latest);await tick();
+ await vi.advanceTimersByTimeAsync(8*60*60*1000);
+ expect(invoke).toHaveBeenCalledTimes(2);
 });
 
 it('downloads in app, keeps progress across settings navigation, and only installs on request',async()=>{

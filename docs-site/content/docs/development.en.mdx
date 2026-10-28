@@ -20,6 +20,8 @@ npm run tauri dev
 
 The Tauri development command builds the debug CLI first, then starts Vite and the desktop backend. Frontend changes use hot reload; Rust changes require recompiling the backend. Routine UI development does not require repeatedly generating installers.
 
+The desktop development server ignores `.cache/`, `docs-site/`, and `browser-extension/build/`, so documentation and extension builds do not reload the desktop window.
+
 To start only the frontend development server:
 
 ```sh

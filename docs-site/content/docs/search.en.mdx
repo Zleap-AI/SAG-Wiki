@@ -9,11 +9,15 @@ Enter words from your documents to search locally. Quick search needs no model k
 
 ![Search results and source highlights](/images/product-search-en.png)
 
-Results are grouped by file. Select a result to read its source on the right, or open its related passages to choose a match within that file. Use match navigation to move through the source. The document actions menu lets you open the document or reveal it in its folder.
+Results are grouped by file. Select a result to read its source on the right. Use the Back button at the top left of the reader to return to the search summary, or open related passages to choose a match within that file. Use match navigation to move through the source. The document actions menu lets you open the document or reveal it in its folder.
+
+Edit the query in the input above and submit it to search again. Use the top-left Back button to clear the query and view recent searches.
+
+The active match emphasizes its entire source paragraph. Markdown uses a dark background with light text in the light theme; HTML outlines the paragraph while preserving the source text and background colors to maintain contrast. Markdown previews use the selected passage's source position, so semantic results remain highlighted even when they do not contain the original search words. Find-in-document still locates the words you enter and uses the corresponding paragraph marker style.
 
 ## Read search results
 
-- Drag the divider between the results and source text to resize the list. Switching files restores their reading positions within the current search.
+- Drag the divider between the results and source text to resize the list. Switching files with the mouse or keyboard automatically scrolls to the currently selected passage highlight.
 - Use find-in-document, related passages and focus mode in the reader header to inspect matches.
 - Large documents show the target passage first and load the remaining content progressively. In narrow windows, use Back to return to the results.
 
@@ -26,6 +30,8 @@ How does this project handle login and permissions?
 ```
 
 SAG2 retrieves candidate passages, uses Jev to assess evidence relevance, expands the search when needed, and returns relevant sources. This is useful for questions spanning multiple files.
+
+![Semantic results highlight the selected source passage](/images/product-search-semantic-en.png)
 
 ## Comparing search modes
 
@@ -48,7 +54,9 @@ Location: **Settings → Search settings**. Read [Technical overview](/en/docs/s
 
 ### Automatic search summary
 
-On by default. After retrieval, the answer model writes a short summary from the question and selected results. This is a separate post-retrieval step. Disabling it preserves search and source viewing while avoiding answer-model calls for summaries.
+On by default. When a search finds results, Search summary opens and expands automatically, using the question and selected results to generate a short summary. Select a result on the left to read its source, then select Search summary to return. If automatic summaries are disabled or no answer model is configured, the first file opens instead.
+
+![Search summary opens automatically](/images/product-search-summary-en.png)
 
 Configure an [answer model](/en/docs/models) first. Provider charges may apply. Summary time is separate from pure retrieval time.
 

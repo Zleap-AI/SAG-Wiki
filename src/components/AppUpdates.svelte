@@ -23,7 +23,7 @@
 
 <section class="settings-group app-updates" aria-label={$t('软件更新')}>
  <div class="setting-row">
-  <div><strong>{$t('软件更新')}</strong><p>{$t('启动时自动检查，更新在后台下载，完成后可重启安装。')}</p></div>
+  <div><strong>{$t('软件更新')}</strong><p>{$t('启动时及运行期间每隔 8 小时检查，发现新版后可下载并重启安装。')}</p></div>
   <Button.Root type="button" class={state?.info?.available?'primary':'outline'} disabled={state?.checking||transferring||confirming} onclick={action}>{state?.checking?$t('正在检查更新…'):transfer?.stage==='installing'?$t('正在安装更新…'):transfer?.stage==='verifying'?$t('正在校验更新…'):transfer?.stage==='downloading'?$t('正在下载更新…'):transfer?.stage==='ready'?$t('重启并更新'):state?.info?.available?$t('下载更新'):$t('检查更新')}</Button.Root>
  </div>
  <div class="update-content">
