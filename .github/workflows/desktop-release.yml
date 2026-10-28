@@ -3,8 +3,6 @@ name: Desktop build and release
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 # Building an untrusted pull request must never require a signing secret or a
