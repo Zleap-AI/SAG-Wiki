@@ -5,15 +5,15 @@ on:
     branches: [main]
   workflow_dispatch:
 
-# Building an untrusted pull request must never require a signing secret or a
-# token that can write to the repository. Only the release job gains write access.
+# Main builds need no signing secrets or repository write token.
+# Only protected tag release jobs gain signing credentials and write access.
 permissions:
   contents: read
   actions: read
 
 concurrency:
-  group: desktop-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
 
 defaults:
   run:
@@ -21,6 +21,8 @@ defaults:
 
 env:
   CARGO_INCREMENTAL: '0'
+  # Share compatible CLI/desktop dependencies; Cargo separates profiles and targets.
+  CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
   RUST_BACKTRACE: '1'
   # Native tests create their own async runtimes and child processes. Bound
   # concurrent tests on the small hosted runners without reducing coverage.
@@ -78,6 +80,25 @@ jobs:
       - run: npm --prefix docs-site ci
       - run: npm --prefix docs-site run build
 
+  frontend:
+    name: Test frontend
+    needs: validate
+    if: needs.validate.outputs.reuse != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.13.0'
+          cache: npm
+      - run: npm ci
+      - name: Run platform-independent frontend tests once
+        run: npm test
+
   build:
     name: Build and test ${{ matrix.platform }}
     needs: validate
@@ -118,24 +139,37 @@ jobs:
         with:
           toolchain: '1.98.1'
           targets: ${{ matrix.target }}
+      # Cache dependency libraries/build metadata, not app or integration-test binaries.
+      # Stable keys avoid a multi-GiB snapshot for every main commit.
       - name: Restore Rust debug cache
         id: rust-debug
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            cli/target/debug
-            src-tauri/target/debug
-          key: rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-debug-${{ github.sha }}
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target/debug/.fingerprint/*
+            src-tauri/target/debug/build/*
+            src-tauri/target/debug/deps/*.rlib
+            src-tauri/target/debug/deps/*.rmeta
+            src-tauri/target/debug/deps/*.d
+            src-tauri/target/debug/deps/*.a
+            src-tauri/target/debug/deps/*.lib
+            src-tauri/target/debug/deps/*.so
+            src-tauri/target/debug/deps/*.dylib
+            src-tauri/target/debug/deps/*.dll
+            !src-tauri/target/debug/.fingerprint/sag-*
+            !src-tauri/target/debug/build/sag-*
+            !src-tauri/target/debug/deps/libsag_*
+            !src-tauri/target/debug/deps/sag_*
+          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
           restore-keys: |
-            rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-debug-
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Install locked JavaScript dependencies
         run: npm ci
       - name: Regress release assembly, signatures and artifact transfer on this platform
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs
-      - name: Run frontend tests
-        run: npm test
+        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
       - name: Test Safari native saving and build development installer
         if: matrix.platform == 'macos'
         run: |
@@ -152,12 +186,12 @@ jobs:
           name: safari-development-${{ github.sha }}
           path: browser-extension/build/sag-web-clipper-safari-development.dmg
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
       - name: Run native tests with locked dependencies
         run: |
-          cargo test --locked --manifest-path protocol/Cargo.toml --target-dir cli/target
-          cargo test --locked --manifest-path client/Cargo.toml --target-dir cli/target
-          cargo test --locked --manifest-path core/Cargo.toml --target-dir cli/target
+          cargo test --locked --manifest-path protocol/Cargo.toml
+          cargo test --locked --manifest-path client/Cargo.toml
+          cargo test --locked --manifest-path core/Cargo.toml
           # Fail within a bounded regression test if daemon pipes leak again,
           # before running CLI tests that collect complete subprocess output.
           cargo test --locked --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
@@ -168,30 +202,65 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            cli/target/debug
-            src-tauri/target/debug
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target/debug/.fingerprint/*
+            src-tauri/target/debug/build/*
+            src-tauri/target/debug/deps/*.rlib
+            src-tauri/target/debug/deps/*.rmeta
+            src-tauri/target/debug/deps/*.d
+            src-tauri/target/debug/deps/*.a
+            src-tauri/target/debug/deps/*.lib
+            src-tauri/target/debug/deps/*.so
+            src-tauri/target/debug/deps/*.dylib
+            src-tauri/target/debug/deps/*.dll
+            !src-tauri/target/debug/.fingerprint/sag-*
+            !src-tauri/target/debug/build/sag-*
+            !src-tauri/target/debug/deps/libsag_*
+            !src-tauri/target/debug/deps/sag_*
           key: ${{ steps.rust-debug.outputs.cache-primary-key }}
       # Ordinary bundles have no updater signing enabled. The release job signs
       # the exact artifacts produced and tested here, without rebuilding them.
       - name: Free debug test outputs before production compilation
         run: |
-          node --input-type=module -e "import {rmSync} from 'node:fs'; for (const path of ['cli/target/debug', 'src-tauri/target/debug']) rmSync(path, {recursive:true, force:true});"
+          node --input-type=module -e "import {rmSync} from 'node:fs'; for (const path of ['src-tauri/target/debug']) rmSync(path, {recursive:true, force:true});"
       - name: Restore Rust release cache
         id: rust-release
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            cli/target/release
-            src-tauri/target/release
-            !src-tauri/target/release/bundle
-            cli/target/${{ matrix.target }}/release
-            src-tauri/target/${{ matrix.target }}/release
-            !src-tauri/target/${{ matrix.target }}/release/bundle
-          key: rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-release-${{ github.sha }}
+            src-tauri/target/release/.fingerprint/*
+            src-tauri/target/release/build/*
+            src-tauri/target/release/deps/*.rlib
+            src-tauri/target/release/deps/*.rmeta
+            src-tauri/target/release/deps/*.d
+            src-tauri/target/release/deps/*.a
+            src-tauri/target/release/deps/*.lib
+            src-tauri/target/release/deps/*.so
+            src-tauri/target/release/deps/*.dylib
+            src-tauri/target/release/deps/*.dll
+            !src-tauri/target/release/.fingerprint/sag-*
+            !src-tauri/target/release/build/sag-*
+            !src-tauri/target/release/deps/libsag_*
+            !src-tauri/target/release/deps/sag_*
+            src-tauri/target/${{ matrix.target }}/release/.fingerprint/*
+            src-tauri/target/${{ matrix.target }}/release/build/*
+            src-tauri/target/${{ matrix.target }}/release/deps/*.rlib
+            src-tauri/target/${{ matrix.target }}/release/deps/*.rmeta
+            src-tauri/target/${{ matrix.target }}/release/deps/*.d
+            src-tauri/target/${{ matrix.target }}/release/deps/*.a
+            src-tauri/target/${{ matrix.target }}/release/deps/*.lib
+            src-tauri/target/${{ matrix.target }}/release/deps/*.so
+            src-tauri/target/${{ matrix.target }}/release/deps/*.dylib
+            src-tauri/target/${{ matrix.target }}/release/deps/*.dll
+            !src-tauri/target/${{ matrix.target }}/release/.fingerprint/sag-*
+            !src-tauri/target/${{ matrix.target }}/release/build/sag-*
+            !src-tauri/target/${{ matrix.target }}/release/deps/libsag_*
+            !src-tauri/target/${{ matrix.target }}/release/deps/sag_*
+          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
           restore-keys: |
-            rust-v1-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '.github/workflows/desktop-release.yml') }}-release-
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
       - name: Build unsigned desktop installers
         run: |
           config_args=()
@@ -234,22 +303,44 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
-            cli/target/release
-            src-tauri/target/release
-            !src-tauri/target/release/bundle
-            cli/target/${{ matrix.target }}/release
-            src-tauri/target/${{ matrix.target }}/release
-            !src-tauri/target/${{ matrix.target }}/release/bundle
+            src-tauri/target/release/.fingerprint/*
+            src-tauri/target/release/build/*
+            src-tauri/target/release/deps/*.rlib
+            src-tauri/target/release/deps/*.rmeta
+            src-tauri/target/release/deps/*.d
+            src-tauri/target/release/deps/*.a
+            src-tauri/target/release/deps/*.lib
+            src-tauri/target/release/deps/*.so
+            src-tauri/target/release/deps/*.dylib
+            src-tauri/target/release/deps/*.dll
+            !src-tauri/target/release/.fingerprint/sag-*
+            !src-tauri/target/release/build/sag-*
+            !src-tauri/target/release/deps/libsag_*
+            !src-tauri/target/release/deps/sag_*
+            src-tauri/target/${{ matrix.target }}/release/.fingerprint/*
+            src-tauri/target/${{ matrix.target }}/release/build/*
+            src-tauri/target/${{ matrix.target }}/release/deps/*.rlib
+            src-tauri/target/${{ matrix.target }}/release/deps/*.rmeta
+            src-tauri/target/${{ matrix.target }}/release/deps/*.d
+            src-tauri/target/${{ matrix.target }}/release/deps/*.a
+            src-tauri/target/${{ matrix.target }}/release/deps/*.lib
+            src-tauri/target/${{ matrix.target }}/release/deps/*.so
+            src-tauri/target/${{ matrix.target }}/release/deps/*.dylib
+            src-tauri/target/${{ matrix.target }}/release/deps/*.dll
+            !src-tauri/target/${{ matrix.target }}/release/.fingerprint/sag-*
+            !src-tauri/target/${{ matrix.target }}/release/build/sag-*
+            !src-tauri/target/${{ matrix.target }}/release/deps/libsag_*
+            !src-tauri/target/${{ matrix.target }}/release/deps/sag_*
           key: ${{ steps.rust-release.outputs.cache-primary-key }}
 
   macos-sign:
     name: Sign and notarize macOS
-    needs: [validate, build, documentation]
+    needs: [validate, build, documentation, frontend]
     if: >-
       always() && !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
       startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
       (needs.validate.outputs.reuse == 'true' ||
-      (needs.build.result == 'success' && needs.documentation.result == 'success'))
+      (needs.build.result == 'success' && needs.documentation.result == 'success' && needs.frontend.result == 'success'))
     runs-on: macos-15
     timeout-minutes: 90
     environment:
@@ -293,7 +384,7 @@ jobs:
           name: desktop-macos-signed-${{ github.sha }}
           path: signed-release-artifacts/macos/
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 3
           compression-level: 0
 
   release:

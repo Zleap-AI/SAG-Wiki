@@ -150,3 +150,21 @@ test('accepts only notarized final macOS artifacts tied to the original tested p
     assert.throws(() => release.validateSignedMacOSArtifacts(directory, original), /checksum/);
   } finally { rmSync(directory, {recursive: true, force: true}); }
 });
+
+test('release staging locates both standalone and shared-target CLI artifacts', () => {
+ const directory = join(tmpdir(), 'release checkout with spaces');
+ for (const [platform, target] of Object.entries(targets)) {
+  const name = platform === 'windows' ? 'sag.exe' : 'sag';
+  assert.deepEqual(release.buildArtifactPaths({directory, platform, target, env:{}}), {
+   bundle:join(directory, 'src-tauri/target', target, 'release/bundle'),
+   cli:join(directory, 'cli/target', target, 'release', name),
+  });
+  for (const shared of ['src-tauri/target', join(tmpdir(), 'shared target with spaces')]) {
+   const targetDir = shared.startsWith('/') || /^[A-Za-z]:/.test(shared) ? shared : join(directory, shared);
+   assert.deepEqual(release.buildArtifactPaths({directory, platform, target, env:{CARGO_TARGET_DIR:shared}}), {
+    bundle:join(targetDir, target, 'release/bundle'),
+    cli:join(targetDir, target, 'release', name),
+   });
+  }
+ }
+});
