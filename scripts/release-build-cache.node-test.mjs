@@ -5,7 +5,7 @@ import {validateRun, selectArtifacts, verifyArchive} from './release-build-cache
 import * as cache from './release-build-cache.mjs';
 const commit = 'a'.repeat(40);
 const run = () => ({id:1, repository:{id:3, full_name:'Zleap-AI/SAG-Wiki'}, head_repository:{full_name:'Zleap-AI/SAG-Wiki'}, head_sha:commit, workflow_id:4, path:'.github/workflows/desktop-release.yml', head_branch:'main', event:'push', status:'completed', conclusion:'success'});
-const jobs = () => ['Validate release source','Build bilingual documentation','Build and test macos','Build and test windows'].map(name => ({name, conclusion:'success', run_attempt:1}));
+const jobs = () => ['Validate release source','Build bilingual documentation','Test frontend','Build and test macos','Build and test windows'].map(name => ({name, conclusion:'success', run_attempt:1}));
 const ctx = {commit, workflowId:4, currentRunId:2};
 const artifacts = () => ['macos','windows'].map((platform,i) => ({id:i+10,name:`desktop-${platform}-${commit}`,expired:false,expires_at:'2099-01-01T00:00:00Z',digest:`sha256:${'b'.repeat(64)}`,workflow_run:{id:1,head_sha:commit,repository_id:3,head_repository_id:3}}));
 test('accepts exact-commit successful trusted main build with both platforms', () => {
@@ -15,7 +15,7 @@ test('rejects wrong commit, workflow, fork, event, branch and unsuccessful sourc
  for(const patch of [{head_sha:'b'.repeat(40)},{workflow_id:9},{path:'other.yml'},{repository:{full_name:'evil/repo'}},{head_repository:{full_name:'evil/repo'}},{event:'pull_request'},{head_branch:'feature'},{status:'in_progress'},{conclusion:'failure'}]) assert.throws(()=>validateRun({...run(),...patch},jobs(),ctx));
 });
 test('requires each successful job, including documentation, on latest attempt', () => {
- for(let i=0;i<4;i++){ const j=jobs(); j[i].conclusion='skipped'; assert.throws(()=>validateRun(run(),j,ctx)); }
+ for(let i=0;i<jobs().length;i++){ const j=jobs(); j[i].conclusion='skipped'; assert.throws(()=>validateRun(run(),j,ctx)); }
  assert.throws(()=>validateRun(run(),jobs().slice(1),ctx));
  assert.throws(()=>validateRun(run(),[...jobs(),jobs()[0]],ctx));
 });
@@ -70,4 +70,16 @@ test('signed artifacts must come from this run and a successful latest macOS sig
  assert.throws(()=>cache.selectSignedArtifact([artifact,artifact],current));
  assert.throws(()=>cache.selectSignedArtifact([{...artifact,workflow_run:{...artifact.workflow_run,id:1}}],current));
  assert.throws(()=>cache.selectSignedArtifact([{...artifact,digest:null}],current));
+});
+
+// A common Linux job must gate both promoted-main and fresh-tag release inputs.
+test('frontend failure, skip or missing latest result cannot be used for release', () => {
+ for (const conclusion of ['failure', 'skipped', null]) {
+  const failed = jobs().map(job => job.name === 'Test frontend' ? {...job, conclusion} : job);
+  assert.throws(() => validateRun(run(), failed, ctx), /Test frontend/);
+  const current = {...run(), id:2, head_branch:'v0.2.5', event:'workflow_dispatch', status:'in_progress', conclusion:null};
+  assert.throws(() => validateRun(current, failed, ctx), /Test frontend/);
+ }
+ assert.throws(() => validateRun(run(), jobs().filter(job => job.name !== 'Test frontend'), ctx), /Test frontend/);
+ assert.throws(() => validateRun(run(), [...jobs(), {name:'Test frontend', conclusion:'failure', run_attempt:2}], ctx), /Test frontend/);
 });

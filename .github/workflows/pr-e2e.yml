@@ -20,10 +20,12 @@ jobs:
         include:
           - platform: macos
             runner: macos-15
-            binary: cli/target/debug/sag
+            target: aarch64-apple-darwin
+            binary: src-tauri/target/debug/sag
           - platform: windows
             runner: windows-2025
-            binary: cli/target/debug/sag.exe
+            target: x86_64-pc-windows-msvc
+            binary: src-tauri/target/debug/sag.exe
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     defaults:
@@ -31,6 +33,7 @@ jobs:
         shell: bash
     env:
       CARGO_INCREMENTAL: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       PYTHONUTF8: '1'
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -42,6 +45,31 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: '1.98.1'
+      # Restore the same trusted-main debug dependency cache; PRs never save it.
+      - name: Restore trusted Rust E2E dependencies
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target/debug/.fingerprint/*
+            src-tauri/target/debug/build/*
+            src-tauri/target/debug/deps/*.rlib
+            src-tauri/target/debug/deps/*.rmeta
+            src-tauri/target/debug/deps/*.d
+            src-tauri/target/debug/deps/*.a
+            src-tauri/target/debug/deps/*.lib
+            src-tauri/target/debug/deps/*.so
+            src-tauri/target/debug/deps/*.dylib
+            src-tauri/target/debug/deps/*.dll
+            !src-tauri/target/debug/.fingerprint/sag-*
+            !src-tauri/target/debug/build/sag-*
+            !src-tauri/target/debug/deps/libsag_*
+            !src-tauri/target/debug/deps/sag_*
+          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
+          restore-keys: |
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       # Only compile the CLI needed by E2E, without Tauri or installers.
       - name: Prepare E2E executable
         run: cargo build --locked --manifest-path cli/Cargo.toml
