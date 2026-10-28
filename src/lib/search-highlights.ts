@@ -3,6 +3,15 @@ import {escaped,isHtml,isMarkdown} from './domain';
 import type {Candidate} from './types';
 export type TextMatch={from:number;to:number};
 const segmenter=new Intl.Segmenter(undefined,{granularity:'grapheme'});
+const textBlockSelector='p,li,pre,td,th,h1,h2,h3,h4,h5,h6,div,blockquote,text';
+export function selectSearchMatches(root:ParentNode,marks:HTMLElement[]){
+ root.querySelectorAll('.search-hit.active').forEach(mark=>mark.classList.remove('active'));
+ root.querySelectorAll('.search-active-paragraph').forEach(block=>block.classList.remove('search-active-paragraph'));
+ for(const mark of marks){
+  mark.classList.add('active');
+  mark.parentElement!.closest(textBlockSelector)?.classList.add('search-active-paragraph');
+ }
+}
 export function textMatches(text:string,terms:string[]):TextMatch[]{
  const words=[...new Set(terms.map(term=>term.normalize('NFKC').toLowerCase()).filter(Boolean))].sort((a,b)=>b.length-a.length);
  if(!words.length)return [];
@@ -96,7 +105,7 @@ function textBlocks(doc:Document):Text[][]{
  while(walker.nextNode()){
   const node=walker.currentNode as Text;
   if(node.parentElement!.closest('script,style,textarea,svg'))continue;
-  const block=node.parentElement!.closest('p,li,pre,td,th,h1,h2,h3,h4,h5,h6,div,blockquote,text')||doc.body;
+  const block=node.parentElement!.closest(textBlockSelector)||doc.body;
   const nodes=groups.get(block)||[];nodes.push(node);groups.set(block,nodes);
  }
  return [...groups.values()];

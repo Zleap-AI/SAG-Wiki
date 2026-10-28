@@ -1,7 +1,7 @@
 <script lang="ts">
  import {onDestroy,onMount} from 'svelte';
  import {hydrateImages} from '../lib/markdown';
- import {highlightDocument} from '../lib/search-highlights';
+ import {highlightDocument,selectSearchMatches} from '../lib/search-highlights';
  import {pieceHtml,pieceIndex,piecePrefixHtml,type MarkdownModel} from '../lib/document-model';
  import MatchNavigation from './MatchNavigation.svelte';
  import {quietScroll} from '../lib/quiet-scroll';
@@ -86,10 +86,9 @@
 
  function activate(next:{piece:number;local:number},scroll=true){
   if(destroyed)return;
-  host.querySelectorAll('.search-hit.active').forEach(mark=>mark.classList.remove('active'));
   current=next;
   const marks=[...hitsIn(next.piece)].filter(mark=>mark.dataset.searchMatch===String(next.local));
-  marks.forEach(mark=>mark.classList.add('active'));
+  selectSearchMatches(host,marks);
   if(scroll)marks[0]?.scrollIntoView({block:'center'});
   updatePosition();
  }

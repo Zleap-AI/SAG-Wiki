@@ -23,12 +23,12 @@ async function search(question:string){
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(document.querySelector('.search-page')!.getAttribute('aria-busy')).toBe('false'));
 }
-async function back(){document.querySelector<HTMLButtonElement>('.search-options-row .search-new-query')!.click();await vi.waitFor(()=>expect(document.querySelector('.search-page.has-results')).toBeNull())}
+async function back(){document.querySelector<HTMLButtonElement>('[aria-label="返回搜索"]')!.click();await vi.waitFor(()=>expect(document.querySelector('.search-page.has-results')).toBeNull())}
 it('结果页返回时清空输入，并在输入框下显示最近搜索，点击可再次搜索',async()=>{
  await start();expect(document.querySelector('[aria-label="最近搜索"]')).toBeNull();
  await search('Token 路由器');
- expect(document.querySelector('.search-options-row .search-new-query')).not.toBeNull();
- expect(document.querySelector('.search-composer .search-new-query')).toBeNull();
+ expect(document.querySelector('[aria-label="返回搜索"]')).not.toBeNull();
+ expect(document.querySelector('.search-new-query')).toBeNull();
  await back();
  expect(document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!.value).toBe('');
  expect(document.activeElement).toBe(document.querySelector('[aria-label="搜索关键词"]'));
