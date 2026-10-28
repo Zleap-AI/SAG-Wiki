@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
-Version 0.2.5 adds Developer ID signing, Apple notarization and final-package verification to macOS releases. This update does not add formal Windows code signing. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below points to the latest stable GitHub Release.
+Version 0.2.5 improves search summaries and source navigation, fixes HTML highlight contrast, checks for updates every eight hours, and adds signing and notarization to the macOS release workflow. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below points to the latest stable GitHub Release.
 
 ## Contents
 
