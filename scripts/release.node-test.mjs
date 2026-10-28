@@ -9,6 +9,7 @@ import test from 'node:test';
 import {verifyUpdate} from './verify-update.mjs';
 import {targets, validateStagedArtifacts, validateEnvironment, validateVersions} from './release.mjs';
 import {legacyDigest} from './package-updates.mjs';
+import * as release from './release.mjs';
 
 const fixture = new URL('../src-tauri/src/update-fixtures/', import.meta.url);
 const payload = readFileSync(new URL('SAG-Test.app.tar.gz', fixture));
@@ -110,8 +111,42 @@ test('fails closed when release environment protection is incomplete', () => {
   const environment = {can_admins_bypass: false, deployment_branch_policy: {custom_branch_policies: true, protected_branches: false}, protection_rules: [{type: 'required_reviewers', prevent_self_review: true, reviewers: [{reviewer: {login: 'release-owner'}}]}]};
   const policies = [{type: 'tag', name: 'v*'}];
   assert.doesNotThrow(() => validateEnvironment(environment, policies));
+  assert.throws(() => validateEnvironment({...environment, can_admins_bypass: true}, policies), /bypass/);
   assert.throws(() => validateEnvironment({...environment, protection_rules: []}, policies));
   assert.throws(() => validateEnvironment(environment, [{type: 'branch', name: 'main'}]));
   assert.throws(() => validateEnvironment(environment, [...policies, {type: 'branch', name: '*'}]));
   assert.throws(() => validateEnvironment(environment, []));
+});
+
+test('accepts only notarized final macOS artifacts tied to the original tested payload', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'sag-apple-release-'));
+  const version = '0.2.4';
+  const commit = 'a'.repeat(40);
+  const names = [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`];
+  const original = {schema: 1, version, commit, platform: 'macos', target: targets.macos,
+    build_identity: {version, channel: 'release'}, files: Object.fromEntries(names.map(name => [name, 'b'.repeat(64)]))};
+  const bytes = Buffer.from('final signed and stapled app fixture');
+  const files = Object.fromEntries(names.map(name => [name, createHash('sha256').update(bytes).digest('hex')]));
+  const signed = {...original, files, source_files: original.files, apple_signing: {
+    team_id: 'ABCDEFGHIJ', app_notarization_id: '11111111-1111-4111-8111-111111111111',
+    dmg_notarization_id: '22222222-2222-4222-8222-222222222222',
+  }};
+  const save = metadata => writeFileSync(join(directory, 'metadata.json'), JSON.stringify(metadata));
+  try {
+    for (const name of names) writeFileSync(join(directory, name), bytes);
+    save(signed);
+    assert.deepEqual(release.validateSignedMacOSArtifacts(directory, original), signed);
+    for (const patch of [
+      {apple_signing: undefined}, {apple_signing: {...signed.apple_signing, team_id: ''}},
+      {apple_signing: {...signed.apple_signing, app_notarization_id: 'not-accepted'}},
+      {source_files: files}, {commit: 'c'.repeat(40)},
+      {build_identity: {...original.build_identity, channel: 'development'}},
+    ]) {
+      save({...signed, ...patch});
+      assert.throws(() => release.validateSignedMacOSArtifacts(directory, original));
+    }
+    save(signed);
+    writeFileSync(join(directory, names[0]), 'tampered after notarization');
+    assert.throws(() => release.validateSignedMacOSArtifacts(directory, original), /checksum/);
+  } finally { rmSync(directory, {recursive: true, force: true}); }
 });

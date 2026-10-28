@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {validateRun, selectArtifacts, verifyArchive} from './release-build-cache.mjs';
+import * as cache from './release-build-cache.mjs';
 const commit = 'a'.repeat(40);
 const run = () => ({id:1, repository:{id:3, full_name:'Zleap-AI/SAG-Wiki'}, head_repository:{full_name:'Zleap-AI/SAG-Wiki'}, head_sha:commit, workflow_id:4, path:'.github/workflows/desktop-release.yml', head_branch:'main', event:'push', status:'completed', conclusion:'success'});
 const jobs = () => ['Validate release source','Build bilingual documentation','Build and test macos','Build and test windows'].map(name => ({name, conclusion:'success', run_attempt:1}));
@@ -51,4 +52,22 @@ test('main needs no API and tag lookup failure safely selects a full build', asy
    assert.equal(result.status,0,result.stderr);assert.equal(readFileSync(output,'utf8'),'source_run=2\nreuse=false\n');
   }
  }finally{rmSync(dir,{recursive:true,force:true});}
+});
+
+test('signed artifacts must come from this run and a successful latest macOS signing job', () => {
+ const current = {...run(), id:2, head_branch:'v0.2.4', event:'workflow_dispatch', status:'in_progress', conclusion:null};
+ const signing = {name:'Sign and notarize macOS',run_attempt:1,conclusion:'success'};
+ cache.validateSignedRun(current,[signing],ctx);
+ for (const patch of [{id:1}, {head_sha:'b'.repeat(40)}, {head_branch:'feature'}, {event:'pull_request'}, {workflow_id:9}]) {
+  assert.throws(()=>cache.validateSignedRun({...current,...patch},[signing],ctx));
+ }
+ assert.throws(()=>cache.validateSignedRun(current,[],ctx));
+ assert.throws(()=>cache.validateSignedRun(current,[signing,{...signing,run_attempt:2,conclusion:'failure'}],ctx));
+ assert.throws(()=>cache.validateSignedRun(current,[signing,signing],ctx));
+ const artifact = {...artifacts()[0],name:`desktop-macos-signed-${commit}`,workflow_run:{...artifacts()[0].workflow_run,id:2}};
+ assert.equal(cache.selectSignedArtifact([artifact],current).id,artifact.id);
+ assert.throws(()=>cache.selectSignedArtifact(artifacts(),current));
+ assert.throws(()=>cache.selectSignedArtifact([artifact,artifact],current));
+ assert.throws(()=>cache.selectSignedArtifact([{...artifact,workflow_run:{...artifact.workflow_run,id:1}}],current));
+ assert.throws(()=>cache.selectSignedArtifact([{...artifact,digest:null}],current));
 });

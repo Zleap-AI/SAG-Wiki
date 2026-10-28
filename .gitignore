@@ -9,6 +9,7 @@ src-tauri/target/
 
 releases/
 /release-artifacts/
+/signed-release-artifacts/
 **/__pycache__/
 .ruff_cache/
 .DS_Store
