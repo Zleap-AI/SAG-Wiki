@@ -39,13 +39,13 @@ jobs:
       source_run: ${{ steps.cache.outputs.source_run }}
     steps:
       - name: Check out the event commit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.13.0'
       - name: Validate versions, commit and release tag
@@ -67,10 +67,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.13.0'
           cache: npm
@@ -100,17 +100,17 @@ jobs:
       RELEASE_VERSION: ${{ needs.validate.outputs.version }}
     steps:
       - name: Check out the validated commit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.commit }}
           persist-credentials: false
       - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.13.0'
           cache: npm
       - name: Set up Python
-        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13.9'
       - name: Set up Rust
@@ -120,7 +120,7 @@ jobs:
           targets: ${{ matrix.target }}
       - name: Restore Rust debug cache
         id: rust-debug
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -147,7 +147,7 @@ jobs:
           npm run build:clipper:safari
       - name: Upload Safari development installer for acceptance
         if: matrix.platform == 'macos'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: safari-development-${{ github.sha }}
           path: browser-extension/build/sag-web-clipper-safari-development.dmg
@@ -165,7 +165,7 @@ jobs:
           cargo test --locked --manifest-path src-tauri/Cargo.toml
       - name: Save trusted main Rust debug cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-debug.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry
@@ -180,7 +180,7 @@ jobs:
           node --input-type=module -e "import {rmSync} from 'node:fs'; for (const path of ['cli/target/debug', 'src-tauri/target/debug']) rmSync(path, {recursive:true, force:true});"
       - name: Restore Rust release cache
         id: rust-release
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             cli/target/release
@@ -221,7 +221,7 @@ jobs:
           INSTALLED_CLI: ${{ steps.windows-smoke.outputs.cli }}
         run: python tests/local-jev-e2e.py --binary "$INSTALLED_CLI"
       - name: Upload only staged public artifacts
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: desktop-${{ matrix.platform }}-${{ github.sha }}
           path: release-artifacts/${{ matrix.platform }}/
@@ -231,7 +231,7 @@ jobs:
 
       - name: Save trusted main Rust release cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-release.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             cli/target/release
@@ -318,13 +318,13 @@ jobs:
       RELEASE_TAG: ${{ github.ref_name }}
     steps:
       - name: Check out the validated release commit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.validate.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
       - name: Set up Node.js
-        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.13.0'
       - name: Require protected release environment and an unpublished tag
@@ -354,7 +354,7 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: node scripts/release.mjs assemble --input release-artifacts --output "releases/$RELEASE_VERSION/updates"
       - name: Attest the final public release artifacts
-        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: releases/${{ needs.validate.outputs.version }}/updates/*
       - name: Create a draft release without replacing existing assets
