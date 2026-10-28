@@ -1,5 +1,27 @@
 # 更新日志 / Changelog
 
+## 0.2.5
+
+- **搜索总结**：有结果且回答模型可用时默认展示自动总结，支持从原文返回已有总结。
+- **原文定位**：Markdown 按所选片段的来源位置高亮段落，语义结果不含搜索原词时也能定位；切换文件后滚动到所选片段。
+- **HTML 高亮修复**：使用段落轮廓标记，保留原文的文字和背景色，避免白底白字等对比度问题。
+- **定时更新检查**：运行期间每隔 8 小时检查新版，发现更新后可由用户选择下载与安装。
+- **开发窗口刷新修复**：文档、缓存及扩展构建目录的变化不再触发桌面开发窗口刷新。
+- **macOS 签名与公证**：发布流程为应用、包内 CLI 和 DMG 接入 Developer ID 签名、Apple 公证及票据装订，并增加最终安装包校验。
+
+桌面端与随包 CLI 版本统一为 0.2.5，沿用现行更新签名通道；本次更新不涉及数据库迁移。
+
+### English
+
+- **Search summaries**: open the automatic summary by default when results and an answer model are available, and return to an existing summary from its source.
+- **Source navigation**: highlight Markdown paragraphs using the selected passage's source position, including semantic results without the original search words. Scroll to the selected passage when switching files.
+- **HTML highlight fix**: outline the selected paragraph while preserving source text and background colors, preventing white-on-white text and other contrast problems.
+- **Periodic update checks**: check for updates every eight hours while the app is running, with downloads and installation controlled by the user.
+- **Development reload fix**: changes to documentation, caches and extension build output no longer reload the desktop development window.
+- **macOS signing and notarization**: add Developer ID signing, Apple notarization, stapled tickets and final-package verification to the release workflow for the app, bundled CLI and DMG.
+
+The desktop app and bundled CLI both use 0.2.5, retaining the current update-signing channel. This update requires no database migration.
+
 ## 0.2.4
 
 - **CLI 连接反馈**：测试成功后默认收起详情，支持展开查看；在设置分类间切换时保留最近结果和展开状态。
