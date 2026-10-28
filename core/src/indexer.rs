@@ -17,6 +17,13 @@ pub enum IndexRequest {
     Paths { root: String, paths: Vec<PathBuf> },
 }
 
+pub fn queue_scan(store: &Store, scan: &mpsc::Sender<IndexRequest>, root: String) -> Result<()> {
+    // Readiness must include queued work, before the worker starts its scan.
+    store.mark_root_pending(&root)?;
+    scan.send(IndexRequest::Scan { root, verify: false })?;
+    Ok(())
+}
+
 pub fn add_root(
     store: &Store,
     watcher: &std::sync::Mutex<notify::RecommendedWatcher>,
@@ -27,8 +34,7 @@ pub fn add_root(
     let mut watcher = watcher.lock().unwrap();
     let root = store.add_root(path)?;
     watcher.watch(std::path::Path::new(&root), notify::RecursiveMode::Recursive)?;
-    store.mark_root_pending(&root)?;
-    scan.send(IndexRequest::Scan { root: root.clone(), verify: false })?;
+    queue_scan(store, scan, root.clone())?;
     Ok(root)
 }
 
@@ -175,6 +181,25 @@ mod tests {
     };
     use notify::{RecursiveMode, Watcher};
     use std::fs;
+
+    #[test]
+    fn queued_startup_scan_reports_pending_until_the_worker_finishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("notes");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("one.md"), "persisted evidence").unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let root = store.add_root(&folder).unwrap();
+        store.scan(&root, |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        let (tx, rx) = mpsc::channel();
+        queue_scan(&store, &tx, root).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "pending");
+        assert_eq!(store.files().unwrap().len(), 1, "Queueing must preserve the persisted index");
+        apply_request(&store, rx.recv().unwrap(), |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        assert_eq!(store.files().unwrap().len(), 1);
+    }
 
     fn apply(store: &Store, event: Event) -> Result<()> {
         let requests = event_requests(&event, &store.roots()?, &store.settings()?);

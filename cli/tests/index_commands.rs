@@ -149,6 +149,31 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
     assert!(String::from_utf8(run(&["check"]).stdout).unwrap().contains("原生索引格式：md,py,ts"));
     assert!(run(&["service", "stop"]).status.success());
+    // The next command starts the service, whose startup rescan is asynchronous.
+    // Only a real pending scan may be waited on; errors or lost coverage fail.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let output = run(&["check", ".", "--json"]);
+        let diagnostic = format!("status={} stdout={} stderr={}", output.status,
+            String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+        let checked: Value = serde_json::from_slice(&output.stdout).expect(&diagnostic);
+        assert_eq!(checked["coverage"], "included", "{diagnostic}");
+        assert_eq!(checked["enabled"], true, "{diagnostic}");
+        assert_eq!(checked["indexed_files"], 3, "{diagnostic}");
+        assert_eq!(checked["extensions"], serde_json::json!(["md", "py", "ts"]), "{diagnostic}");
+        if output.status.success() {
+            assert_eq!(checked["index_ready"], true, "{diagnostic}");
+            break;
+        }
+        assert_eq!(output.status.code(), Some(1), "{diagnostic}");
+        assert_eq!(checked["index_ready"], false, "{diagnostic}");
+        let roots = checked["roots"].as_array().expect(&diagnostic);
+        assert!(roots.iter().any(|root| matches!(root["status"].as_str(), Some("pending" | "indexing"))), "{diagnostic}");
+        assert!(roots.iter().all(|root| root["error"].is_null()
+            && matches!(root["status"].as_str(), Some("pending" | "indexing" | "ready"))), "{diagnostic}");
+        assert!(std::time::Instant::now() < deadline, "Startup rescan timed out: {diagnostic}");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
     assert_eq!(check(".")["indexed_files"], 3);
     assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
 

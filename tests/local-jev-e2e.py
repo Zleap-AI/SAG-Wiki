@@ -303,6 +303,22 @@ def run(binary):
             completed.append("six base/full/trailing-slash endpoints: TestModel, deep search, CLI search")
 
             cli("service", "restart")
+            # Restart opens the service before its asynchronous startup rescan
+            # finishes. Wait for indexing itself, not a connection/model call.
+            deadline = time.monotonic() + 60
+            while True:
+                with CoreClient(data) as core:
+                    roots = core.call("list_roots")
+                require(len(roots) == 1, f"service restart lost indexed roots: {roots}")
+                if roots[0]["status"] == "ready":
+                    break
+                require(roots[0]["status"] in ("pending", "indexing") and not roots[0].get("error"),
+                        f"startup indexing failed: {roots}")
+                require(time.monotonic() < deadline, f"startup indexing did not finish: {roots}")
+                time.sleep(0.05)
+            coverage = json.loads(cli("check", "--json").stdout)
+            require(coverage["index_ready"] and coverage["indexed_files"] == len(DOCUMENTS),
+                    "service restart did not preserve the indexed documents")
             persisted = settings()["jev"]
             require(persisted["url"] == fixture.origin + "/decisions/" and persisted["model"] == MODEL
                     and persisted["auth_mode"] == "none", "service restart lost the local Jev configuration")
