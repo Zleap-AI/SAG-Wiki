@@ -160,7 +160,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
       };
       // Resources/bin/sag is not a standard nested-code location: enumerate Mach-O files explicitly.
       for (const path of walk(app).filter(isMachO).sort((a, b) => b.split('/').length - a.split('/').length)) {
-        run('lipo', ['-verify_arch', 'arm64', path]);
+        run('lipo', [path, '-verify_arch', 'arm64']);
         sign(path);
       }
       for (const path of walk(app).filter(path => lstatSync(path).isDirectory() && /\.(?:app|framework|xpc|appex)$/.test(path)).sort((a, b) => b.length - a.length)) sign(path);
