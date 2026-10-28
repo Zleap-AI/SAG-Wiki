@@ -2,9 +2,31 @@
 import {loadDocumentBridge} from './helpers/document-bridge';
 import {afterEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
+import {JSDOM} from 'jsdom';
 import HtmlDocument from '../src/components/HtmlDocument.svelte';
 let app:ReturnType<typeof mount>|null=null;
 afterEach(async()=>{if(app)await unmount(app);app=null;document.body.innerHTML='';});
+it.each([
+ {label:'白底黑字',style:'background-color:#fff;color:#000',color:'rgb(0, 0, 0)',background:'rgb(255, 255, 255)'},
+ {label:'透明背景黑字',style:'color:#000',color:'rgb(0, 0, 0)',background:'rgba(0, 0, 0, 0)'},
+ {label:'深底白字',style:'background-color:#111;color:#fff',color:'rgb(255, 255, 255)',background:'rgb(17, 17, 17)'},
+])('选中 HTML 段落时保留原文对比度：$label',async({style,color,background})=>{
+ app=mount(HtmlDocument,{target:document.body,props:{body:`<p style="background-color:#fff;color:#000">needle <span style="${style}">原文内容</span></p>`,terms:['needle'],paragraphHighlight:true}});
+ await tick();
+ const frame=document.querySelector('iframe')!;
+ const doc=new DOMParser().parseFromString(frame.getAttribute('srcdoc')!,'text/html');
+ loadDocumentBridge(frame,doc);await tick();
+ expect(doc.querySelector('.search-active-paragraph')?.tagName).toBe('P');
+ // Evaluate the real generated styles after the real bridge selects a match.
+ const rendered=new JSDOM(doc.documentElement.outerHTML);
+ try{
+  const paragraph=rendered.window.document.querySelector('p')!;
+  const content=rendered.window.document.querySelector('span')!;
+  expect(rendered.window.getComputedStyle(content).color).toBe(color);
+  expect(rendered.window.getComputedStyle(content).backgroundColor).toBe(background);
+  expect(rendered.window.getComputedStyle(paragraph).backgroundColor).toBe('rgb(255, 255, 255)');
+ }finally{rendered.window.close()}
+});
 it('搜索原文按完整段落选中，嵌套列表不会连带选中父项，切换时清除旧段落',async()=>{
  app=mount(HtmlDocument,{target:document.body,props:{body:'<ul><li>父项<ul><li><p>段首 <strong>needle</strong> 段尾。</p></li></ul></li></ul><p>下一段 needle。</p>',terms:['needle'],paragraphHighlight:true}});
  await tick();
