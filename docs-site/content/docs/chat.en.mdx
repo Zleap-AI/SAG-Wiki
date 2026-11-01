@@ -77,6 +77,14 @@ Very long histories are summarized in batches and merged. The summary is saved w
 
 Enter your provider endpoint, model and API key in settings. Configure Jev as well for semantic retrieval. Jev finds evidence; the answer model composes the response.
 
+## Cross-language sources
+
+Q&A instructs the model to include equivalent Chinese and English wording in the same natural-language search, preserving the original constraints. This helps Chinese questions retrieve English sources. Chinese questions receive Chinese answers by default; you can request a different answer language in your question.
+
+This behavior is guided by the Q&A prompt. Expand the processing details to inspect the actual query, and open citations to check the English source. Exact text, code and file paths do not need translation.
+
+The Search page and standalone MCP calls continue to search the supplied query. When using a third-party MCP client, that client determines the query language.
+
 ## Q&A settings in detail
 
 Location: **Settings → Q&A settings**. Select the answer model you want to configure first.
