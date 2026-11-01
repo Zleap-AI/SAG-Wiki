@@ -55,11 +55,20 @@ function expectedFiles(platform, version) {
     : [`SAG-Wiki-${version}-Windows-x64-setup.exe`];
 }
 
+// Cargo's explicit directory is shared by CLI and Tauri in CI. Preserve the
+// standalone local layout when CARGO_TARGET_DIR is unset.
+export function buildArtifactPaths({directory = root, platform, target, env = process.env}) {
+  return {
+    bundle: join(resolve(directory, env.CARGO_TARGET_DIR || 'src-tauri/target'), target, 'release/bundle'),
+    cli: join(resolve(directory, env.CARGO_TARGET_DIR || 'cli/target'), target, 'release', platform === 'windows' ? 'sag.exe' : 'sag'),
+  };
+}
+
 function stage({platform, target}) {
   assert.equal(target, targets[platform], 'Unexpected release target');
   const version = validateVersions();
   const commit = git('rev-parse', 'HEAD');
-  const bundle = join(root, 'src-tauri/target', target, 'release/bundle');
+  const {bundle, cli} = buildArtifactPaths({platform, target});
   const output = join(root, 'release-artifacts', platform);
   assert.ok(!existsSync(output), 'Staging directory must be fresh');
   mkdirSync(output, {recursive: true});
@@ -76,7 +85,6 @@ function stage({platform, target}) {
     assert.equal(installers.length, 1, 'Expected exactly one NSIS installer');
     copyFileSync(join(bundle, 'nsis', installers[0]), join(output, names[0]));
   }
-  const cli = join(root, 'cli/target', target, 'release', platform === 'windows' ? 'sag.exe' : 'sag');
   const identity = JSON.parse(run(cli, ['--build-info']));
   assert.equal(identity.version, version, 'Bundled CLI version mismatch');
   assert.equal(identity.channel, 'release', 'Development executable cannot be released');

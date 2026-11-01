@@ -98,7 +98,7 @@ test('extracts an app with safe framework links and rejects traversal, escaping 
   } finally { rmSync(directory, {recursive: true, force: true}); }
 });
 
-function releaseFixture() {
+function releaseFixture(executable = Buffer.concat([Buffer.from('cffaedfe', 'hex'), Buffer.from('fixture')])) {
   const directory = mkdtempSync(join(tmpdir(), 'sag-finalizer-test-'));
   const input = join(directory, 'input');
   const output = join(directory, 'output');
@@ -108,7 +108,7 @@ function releaseFixture() {
   for (const name of ['Contents/MacOS/sag-desktop', 'Contents/Resources/bin/sag']) {
     const file = join(app, name);
     mkdirSync(dirname(file), {recursive: true});
-    writeFileSync(file, Buffer.concat([Buffer.from('cffaedfe', 'hex'), Buffer.from('fixture')]));
+    writeFileSync(file, executable);
   }
   for (const platform of Object.keys(targets)) {
     const destination = join(input, platform);
@@ -192,6 +192,36 @@ function appleRunner(fixture, {rejectNotarization = false, rejectDmgNotarization
   };
   return {run, state};
 }
+
+test('checks bundled Mach-O architecture with real lipo and rejects non-arm64 code', {skip: process.platform !== 'darwin'}, async () => {
+  const {signMacosRelease} = await implementation();
+  const directory = mkdtempSync(join(tmpdir(), 'sag-lipo-test-'));
+  try {
+    for (const architecture of ['arm64', 'x86_64']) {
+      const object = join(directory, `${architecture}.o`);
+      execute('clang', ['-arch', architecture, '-x', 'c', '-c', '-o', object, '-'], {input: 'int fixture(void) { return 0; }\n'});
+      const fixture = releaseFixture(readFileSync(object));
+      const apple = appleRunner(fixture);
+      let checks = 0;
+      const run = (command, args, options) => {
+        if (command === 'lipo') { checks++; return execute(command, args, options); }
+        return apple.run(command, args, options);
+      };
+      try {
+        if (architecture === 'arm64') {
+          signMacosRelease(fixture, {run, environment, platform: 'darwin', arch: 'arm64'});
+          assert.equal(checks, 2, 'Both desktop and bundled CLI require architecture checks');
+          assert.equal(apple.state.submissions, 2);
+        } else {
+          assert.throws(() => signMacosRelease(fixture, {run, environment, platform: 'darwin', arch: 'arm64'}));
+          assert.equal(checks, 1);
+          assert.equal(apple.state.submissions, 0, 'Wrong architecture must fail before notarization');
+          assert.equal(existsSync(join(fixture.output, 'macos/metadata.json')), false);
+        }
+      } finally { rmSync(fixture.directory, {recursive: true, force: true}); }
+    }
+  } finally { rmSync(directory, {recursive: true, force: true}); }
+});
 
 test('publishes only final hashes and provenance after both notarizations and mounted-app gates', async () => {
   const {signMacosRelease} = await implementation();

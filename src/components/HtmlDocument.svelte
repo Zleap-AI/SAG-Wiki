@@ -23,7 +23,7 @@
   count=highlightDocument(doc,terms);ready=false;
   const style=doc.createElement('style');
   style.textContent=`mark.search-hit{background:rgba(80,80,80,.1)!important;color:inherit!important;border-radius:2px}mark.search-hit.active{background:rgba(80,80,80,.2)!important;box-shadow:0 1px 0 rgba(80,80,80,.35)}tspan.search-hit{stroke:rgba(80,80,80,.1)!important;stroke-width:4px!important;paint-order:stroke fill}tspan.search-hit.active{stroke:rgba(80,80,80,.2)!important}
-   .search-active-paragraph{background:#202020!important;color:#fff!important;border-radius:2px}.search-active-paragraph *{color:inherit!important}.search-active-paragraph :is(mark.search-hit,code){background:transparent!important;box-shadow:none}
+   .search-active-paragraph{outline:2px solid #777!important;outline-offset:2px;border-radius:2px}
    *{scrollbar-width:thin;scrollbar-color:transparent transparent}html.sag-scroll-active,html.sag-scroll-active *{scrollbar-color:rgba(100,100,100,.4) transparent}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:transparent;border-radius:6px}html.sag-scroll-active::-webkit-scrollbar-thumb,html.sag-scroll-active ::-webkit-scrollbar-thumb{background:rgba(100,100,100,.4)}`;
   doc.head.append(style);
   html='<!DOCTYPE html>'+doc.documentElement.outerHTML;

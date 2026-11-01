@@ -1082,10 +1082,7 @@ impl Service {
             if Path::new(&root.path).exists() {
                 watcher.watch(Path::new(&root.path), RecursiveMode::Recursive)?;
             }
-            tx.send(IndexRequest::Scan {
-                root: root.path,
-                verify: false,
-            })?;
+            indexer::queue_scan(&store, &tx, root.path)?;
         }
         let worker_store = store.clone();
         let handle = event_sink.clone();

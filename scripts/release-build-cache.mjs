@@ -9,7 +9,7 @@ import {validateSignedMacOSArtifacts, validateStagedArtifacts, validateVersions}
 
 const repository = 'Zleap-AI/SAG-Wiki';
 const workflow = '.github/workflows/desktop-release.yml';
-const requiredJobs = ['Validate release source', 'Build bilingual documentation', 'Build and test macos', 'Build and test windows'];
+const requiredJobs = ['Validate release source', 'Build bilingual documentation', 'Test frontend', 'Build and test macos', 'Build and test windows'];
 const gh = (...args) => {
   const result = spawnSync('gh', args, {encoding:'utf8', maxBuffer:16 * 1024 * 1024, timeout:60000});
   assert.equal(result.status, 0, `GitHub request failed: ${result.stderr}`);
