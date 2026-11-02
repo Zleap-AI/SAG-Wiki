@@ -1,6 +1,6 @@
 {
   "name": "@zleap-ai/sag",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Search local project files with SAG. Desktop app optional.",
   "private": true,
   "bin": { "sag": "bin/sag.cjs" },
