@@ -23,15 +23,15 @@ type CommandResult<T> = Result<T, String>;
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
-struct AppState {
+struct AppState<R: tauri::Runtime = tauri::Wry> {
     client: Mutex<Client>,
     reconnect: tokio::sync::Mutex<()>,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     data_dir: PathBuf,
     service_binary: PathBuf,
     cli_install_error: Mutex<Option<String>>,
 }
-fn emit(app: &tauri::AppHandle, event: &str, payload: impl serde::Serialize + Clone) {
+fn emit<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &str, payload: impl serde::Serialize + Clone) {
     if let Err(error) = app.emit(event, payload) {
         eprintln!("{event}: {error}");
     }
@@ -71,7 +71,7 @@ fn output_value(output: Output) -> CommandResult<serde_json::Value> {
     };
     Ok(value)
 }
-async fn rpc(state: &AppState, operation: Operation) -> CommandResult<serde_json::Value> {
+async fn rpc<R: tauri::Runtime>(state: &AppState<R>, operation: Operation) -> CommandResult<serde_json::Value> {
     let mut client = state.client.lock().unwrap().clone();
     if !client.is_connected() {
         let _guard = state.reconnect.lock().await;
@@ -143,7 +143,7 @@ fn connect_on_startup(state: Arc<AppState>, fresh_library: bool) {
         }
     });
 }
-fn forward_events(state: Arc<AppState>) {
+fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let mut reported: Option<String> = None;
         loop {
@@ -234,8 +234,11 @@ fn forward_events(state: Arc<AppState>) {
                 }
             }
         }
-    });
+    })
 }
+
+#[cfg(test)]
+mod event_tests;
 fn show_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     let window = app.get_webview_window("main").unwrap();
     window.show()?;
