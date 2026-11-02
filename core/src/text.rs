@@ -1,6 +1,6 @@
 use jieba_rs::Jieba;
 use regex::Regex;
-use std::{collections::HashSet, sync::{LazyLock, Mutex}};
+use std::{collections::HashSet, sync::{Arc, LazyLock, Mutex}};
 use indexmap::IndexMap;
 use unicode_normalization::UnicodeNormalization;
 
@@ -245,6 +245,7 @@ const CODE_EXTENSIONS: &[&str] = &[
 const CONFIG_EXTENSIONS: &[&str] = &["json", "jsonc", "yaml", "yml", "toml", "ini", "cfg", "conf", "xml"];
 pub fn enabled_extensions(types: &crate::types::FileTypes) -> Vec<String> {
     [(types.markdown, MARKDOWN_EXTENSIONS), (types.text, TEXT_EXTENSIONS),
+     (types.text, crate::anydoc::EXTENSIONS),
      (types.code, CODE_EXTENSIONS), (types.config, CONFIG_EXTENSIONS)]
         .into_iter().filter(|(enabled, _)| *enabled)
         .flat_map(|(_, extensions)| extensions.iter().map(|extension| (*extension).into())).collect()
@@ -417,6 +418,7 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
     let heading_re = Regex::new(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$").unwrap();
     let fence_re = Regex::new(r"^\s{0,3}(`{3,}|~{3,})").unwrap();
     let mut headings = vec![];
+    let mut current_heading: Arc<str> = Arc::from("");
     let mut start = None;
     let mut fence: Option<String> = None;
     let mut front = markdown
@@ -424,34 +426,29 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
             .spans
             .first()
             .is_some_and(|(s, e)| content[*s..*e].trim() == "---");
-    let mut blocks: Vec<(String, usize, usize, bool)> = vec![];
+    let mut blocks: Vec<(Arc<str>, usize, usize, bool)> = vec![];
     let mut block_bytes = 0usize;
-    let mut flush = |last: usize,
+    let flush = |last: usize,
                  start: &mut Option<usize>,
-                 headings: &Vec<String>,
+                 heading: &Arc<str>,
                  code: bool,
-                 blocks: &mut Vec<(String, usize, usize, bool)>| -> Result<(), ResourceLimit> {
+                 blocks: &mut Vec<(Arc<str>, usize, usize, bool)>,
+                 block_bytes: &mut usize| -> Result<(), ResourceLimit> {
         if let Some(first) = start.take() {
             let s = lines.spans[first].0;
             let e = lines.spans[last].1;
             if !content[s..e].trim().is_empty() {
-                let heading = headings
-                        .iter()
-                        .filter(|s| !s.is_empty())
-                        .cloned()
-                        .collect::<Vec<_>>()
-                        .join(" / ");
                 if let Some(limit) = byte_limit {
-                    charge(&mut block_bytes, heading.len() + std::mem::size_of::<(String, usize, usize, bool)>(), limit)?;
+                    charge(block_bytes, std::mem::size_of::<(Arc<str>, usize, usize, bool)>(), limit)?;
                 }
-                blocks.push((heading, s, e, code));
+                blocks.push((heading.clone(), s, e, code));
             }
         }
         Ok(())
     };
     if !markdown {
         if !content.trim().is_empty() {
-            blocks.push((String::new(), 0, content.len(), code));
+            blocks.push((current_heading.clone(), 0, content.len(), code));
         }
     } else {
         for (i, (s, e)) in lines.spans.iter().enumerate() {
@@ -466,7 +463,7 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
                 let f = m[1].to_owned();
                 if fence.is_none() {
                     if i > 0 {
-                        flush(i - 1, &mut start, &headings, false, &mut blocks)?;
+                        flush(i - 1, &mut start, &current_heading, false, &mut blocks, &mut block_bytes)?;
                     }
                     start = Some(i);
                     fence = Some(f);
@@ -475,7 +472,7 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
                     .is_some_and(|old| old.starts_with(&f[..1]) && f.len() >= old.len())
                 {
                     fence = None;
-                    flush(i, &mut start, &headings, true, &mut blocks)?;
+                    flush(i, &mut start, &current_heading, true, &mut blocks, &mut block_bytes)?;
                 }
                 continue;
             }
@@ -484,7 +481,7 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
             }
             if let Some(h) = heading_re.captures(line) {
                 if i > 0 {
-                    flush(i - 1, &mut start, &headings, false, &mut blocks)?;
+                    flush(i - 1, &mut start, &current_heading, false, &mut blocks, &mut block_bytes)?;
                 }
                 let level = h[1].len();
                 if byte_limit.is_some() && h[2].len() > 16 * 1024 {
@@ -493,11 +490,16 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
                 headings.resize(level, String::new());
                 headings.truncate(level);
                 headings[level - 1] = h[2].to_owned();
+                current_heading = headings.iter().filter(|heading| !heading.is_empty())
+                    .cloned().collect::<Vec<_>>().join(" / ").into();
+                if let Some(limit) = byte_limit {
+                    charge(&mut block_bytes, current_heading.len() + 2 * std::mem::size_of::<usize>(), limit)?;
+                }
                 continue;
             }
             if line.trim().is_empty() {
                 if i > 0 {
-                    flush(i - 1, &mut start, &headings, false, &mut blocks)?;
+                    flush(i - 1, &mut start, &current_heading, false, &mut blocks, &mut block_bytes)?;
                 }
             } else if start.is_none() {
                 start = Some(i);
@@ -506,9 +508,10 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
         flush(
             lines.spans.len() - 1,
             &mut start,
-            &headings,
+            &current_heading,
             fence.is_some(),
             &mut blocks,
+            &mut block_bytes,
         )?;
     }
     let overlap = if max_chars >= 160 { 80 } else { 0 };
@@ -533,22 +536,26 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
                 return Err(ResourceLimit("单个完整句子/代码行不得超过 256 KiB".into()));
             }
             let sentence_parts = sentence_ranges(content, s, e, code);
-            if let Some(limit) = byte_limit {
-                let metadata = std::mem::size_of::<Chunk>() + std::mem::size_of::<crate::types::SourceSpan>()
-                    + std::mem::size_of::<(usize, usize)>() * (1 + sentence_parts.len());
-                // Charge heading copies too: a long title repeated on thousands of chunks is not free.
-                charge(&mut result_bytes, heading.len() + part.len() + 2 + metadata, limit)?;
-            }
             let n = part.encode_utf16().count();
+            let new_chunk = result.last().is_none_or(|c| c.heading != heading.as_ref()) || length + 2 + n > body_limit;
+            if let Some(limit) = byte_limit {
+                let metadata = std::mem::size_of::<crate::types::SourceSpan>()
+                    + std::mem::size_of::<(usize, usize)>() * (1 + sentence_parts.len());
+                // Merged paragraphs share the final chunk's heading and container metadata.
+                let overhead = if new_chunk {
+                    heading.len() + std::mem::size_of::<Chunk>() + std::mem::size_of::<Vec<(usize, usize)>>()
+                } else { 2 };
+                charge(&mut result_bytes, part.len() + metadata + overhead, limit)?;
+            }
             let span = lines.span(content, s, e);
             let last_line = if e > 0 && content.as_bytes()[e - 1] == b'\n' {
                 span.end_line.saturating_sub(1).max(span.start_line)
             } else {
                 span.end_line
             };
-            if result.last().is_none_or(|c| c.heading != heading) || length + 2 + n > body_limit {
+            if new_chunk {
                 result.push(Chunk {
-                    heading: heading.clone(),
+                    heading: heading.to_string(),
                     content: part.into(),
                     ranges: vec![(span.start_line, last_line)],
                     spans: vec![span],
@@ -619,6 +626,15 @@ pub(crate) fn source_content(source: &str, spans: &[crate::types::SourceSpan]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_chunks_count_a_long_heading_once_per_merged_chunk() {
+        let source = format!("# {}\n\n{}", "heading".repeat(100), "Evidence sentence.\n\n".repeat(200));
+        let expected = chunks(&source, 512);
+        let actual = chunks_for_index(&source, 512, std::path::Path::new("test.md"), 32 * 1024).unwrap();
+        assert_eq!(actual, expected);
+        assert_eq!(unique_content(&source, &actual), "Evidence sentence.".repeat(200));
+    }
+
     #[test]
     fn bounded_chunks_reject_heading_amplification_and_metadata_without_truncation() {
         let source = format!("# {}\n\n{}", "heading".repeat(100), "Evidence sentence.\n\n".repeat(200));

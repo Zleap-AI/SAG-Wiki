@@ -87,7 +87,7 @@
 <div class="setting-row other-formats">
  <div class="description">
   <strong>{$t('其他格式')}</strong>
-  <p>{$t('PDF、Office、EPUB 等文档内置转换，无需下载。图片识别与音视频转写按需安装组件。')}</p>
+  <p>{$t('扫描 PDF、图片、音视频等可按需安装 Docling，普通文档无需下载。')}</p>
   {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
  </div>
  <div class="other-formats-actions"><Button.Root type="button" class="outline other-formats-action" aria-label={$t('选择其他格式')} disabled={loading||disabled} onclick={showDetails}>{$t('选择')}</Button.Root></div>

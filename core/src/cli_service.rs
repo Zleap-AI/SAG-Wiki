@@ -383,9 +383,10 @@ impl CliService {
                         .map(|extension| extension.trim().trim_start_matches('.').to_ascii_lowercase()).collect();
                     if extensions.is_empty() { bail!("请至少指定一种文件扩展名") }
                     for extension in &extensions {
-                        if extension.is_empty() || !crate::text::is_supported(Path::new(&format!("file.{extension}")))
+                        let path = PathBuf::from(format!("file.{extension}"));
+                        if extension.is_empty() || !(crate::text::is_supported(&path) || crate::anydoc::handles(&path))
                             || extension.contains(['/', '\\', '.']) {
-                            bail!("不支持的索引格式：{extension}。--types 仅支持原生文本和代码格式，如 md,txt,html,py,js,ts,json,yaml")
+                            bail!("不支持的索引格式：{extension}。--types 支持文本、代码及内置文档格式，如 md,txt,html,py,docx,pdf,xlsx")
                         }
                     }
                     extensions.sort();
