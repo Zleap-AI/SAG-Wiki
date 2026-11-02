@@ -2793,7 +2793,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn model_profiles_and_tool_limit_persist_and_validate() {
         let (_dir, store, _) = setup();
         let mut settings = store.settings().unwrap();
-        assert_eq!(settings.max_tool_calls, 10);
+        assert_eq!(settings.max_tool_calls, 0);
         settings.mcp_servers.push(McpServer {
             id: "wiki".into(),
             name: "Wiki".into(),
