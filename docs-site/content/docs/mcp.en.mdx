@@ -22,13 +22,15 @@ Enable **SAG (built-in MCP)** without additional connection settings. Expand its
 | `getTime` | Get the current time |
 | `calculate` | Perform calculations |
 
-File tools respect the current query scope. Disabling the entire group prevents that model from retrieving the local knowledge base through these tools. Availability does not require a call on every turn. The default limit is 10 calls per turn, shared by SAG and MCP tools; set the Q&A limit to 0 to remove the count limit.
+File tools respect the current query scope. Disabling the entire group prevents that model from retrieving the local knowledge base through these tools. Availability does not require a call on every turn. Calls are unlimited by default; setting a Q&A limit greater than 0 applies that shared limit to all tools.
 
 ![Built-in SAG tools and external MCP bindings](/images/product-tools-en.png)
 
 ## Add an external server
 
-Select **Add server**, or **Add DeepWiki example** for a preset connection. Test the example too, and review its confirmation setting before use.
+Select **Add server**, or **Add DeepWiki example** for a preset connection. Fill in the dialog and select **Add server**. Headers, environment variables and confirmation controls are under **Advanced settings**. Test the example before use.
+
+![Connection settings in the Add MCP service dialog](/images/product-mcp-add-en.png)
 
 | Field | Value |
 | --- | --- |
@@ -67,7 +69,7 @@ The importer accepts `mcpServers`, `servers` or a single server object. This pub
 }
 ```
 
-Importing does not connect automatically. Rename duplicate server names. Streamable HTTP and stdio are supported; SSE, `inputs` and unresolved variable placeholders are not. Keep real configurations containing keys out of public documentation.
+Select **Import JSON**, paste the configuration in the dialog and select **Import configuration**. Importing does not connect automatically. Rename duplicate server names. Streamable HTTP and stdio are supported; SSE, `inputs` and unresolved variable placeholders are not. Keep real configurations containing keys out of public documentation.
 
 ## Remove a server
 
