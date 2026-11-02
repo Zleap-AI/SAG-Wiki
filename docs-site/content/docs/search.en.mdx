@@ -3,6 +3,22 @@ title: "Search"
 description: "Find known terms or retrieve evidence for a complete question."
 ---
 
+## Quick Search popup
+
+Quick Search is enabled by default. The search home page shows the current shortcut. Dismissing this hint keeps it hidden when you reopen the app; the shortcut remains available.
+
+![Quick Search shortcut on the search home page](/images/product-search-home-en.png)
+
+While SAG Wiki is running, press **⌘⇧Space on macOS** or **Ctrl+Shift+Space on Windows** to open Quick Search from another app. You can also choose **Quick Search** from the menu bar or tray. The shortcut remains available after closing the main window and stops when you quit the app.
+
+![Quick Search popup](/images/product-quick-search-en.png)
+
+Typing searches the existing local index and shows up to ten matching files in a scrollable left-hand list. Use **↑ / ↓** to select, **Enter** to open the matching passage in the main window. Clicking a file or moving with the arrow keys updates the highlighted original text on the right. Use **Esc** to dismiss and return to the previous app. Clicking outside also dismisses the popup. Use **⌘ / Ctrl+Enter** or **Full search** to see all results in the main window.
+
+**Deep search** requires a configured Jev service and runs only when you click it. The popup does not automatically generate search summaries. Opening a passage or the full results preserves the search mode used in the popup.
+
+Go to **Settings → Shortcuts → Quick Search** to enable or disable the global shortcut. Click the shortcut field, press a key combination, then choose **Apply shortcut** to save and activate it immediately. You do not need to click the main **Save settings** button. If the shortcut is already in use, an error is shown and the previous shortcut remains available.
+
 ## Quick search
 
 Enter words from your documents to search locally. Quick search needs no model key and works well for names, terms and known passages.
@@ -14,6 +30,14 @@ Results are grouped by file. Select a result to read its source on the right. Us
 Edit the query in the input above and submit it to search again. Use the top-left Back button to clear the query and view recent searches.
 
 The active match emphasizes its entire source paragraph. Markdown uses a dark background with light text in the light theme; HTML outlines the paragraph while preserving the source text and background colors to maintain contrast. Markdown previews use the selected passage's source position, so semantic results remain highlighted even when they do not contain the original search words. Find-in-document still locates the words you enter and uses the corresponding paragraph marker style.
+
+HTML tables in Markdown render as tables in search previews, Quick Search, and citation previews, preserving merged cells and bold formatting. Editing retains the original HTML; table examples explicitly placed in code blocks continue to display their source.
+
+![HTML table with merged headers and formatted values](/images/product-html-table.png)
+
+HTML paragraphs, headings and links also render with their alignment and image dimensions preserved. Local images with relative paths load from the document's folder; PNG, JPEG, GIF, WebP and SVG are supported. External images are not loaded automatically. Editing retains the original HTML, and HTML examples inside code blocks remain source code.
+
+![Local logo, centered heading and links in a README](/images/product-readme-html.png)
 
 ## Read search results
 

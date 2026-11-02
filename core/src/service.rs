@@ -1021,6 +1021,7 @@ fn load_image(path: String, state: &Arc<Service>) -> CommandResult<String> {
         "jpg" | "jpeg" => "image/jpeg",
         "gif" => "image/gif",
         "webp" => "image/webp",
+        "svg" => "image/svg+xml",
         _ => return Err("暂不支持此图片格式".into()),
     };
     let bytes = std::fs::read(p).map_err(error)?;

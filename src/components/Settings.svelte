@@ -18,6 +18,7 @@
  import CliSettings from './CliSettings.svelte';
  import WebClipper from './WebClipper.svelte';
  import AppUpdates from './AppUpdates.svelte';
+ import QuickSearchSettings from './QuickSearchSettings.svelte';
  import {defaultUpdateSettings} from '../lib/updates';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
  export let onShowGuide:(()=>void)|undefined=undefined;
@@ -206,6 +207,7 @@
      <div class="setting-row clear-data-settings"><div><strong>{$t("清除所有数据")}</strong><p>{$t("清空所有对话、文件夹及索引、搜索记录、模型设置、密钥和草稿，所有设置恢复默认。本地原文件保留。")}</p></div><Button.Root type="button" class="clear-conversations-button" onclick={()=>{clearDataError='';confirmClearData=true}}>{$t("清除所有数据")}</Button.Root></div>
      </section>
     {:else if page==='shortcuts'}
+     <QuickSearchSettings/>
      <section class="settings-group settings-shortcuts">{#each [[$t("搜索文件"),'⌘ / Ctrl + K'],[$t("新建问答"),'⌘ / Ctrl + N'],[$t("保存文档"),'⌘ / Ctrl + S'],[$t("发送或搜索"),'Enter'],[$t("问题换行"),'Shift + Enter'],[$t("引用文件"),'@'],[$t("选择引用"),'↑ ↓ / Enter / Esc']] as [label,key]}<div class="setting-row"><strong>{label}</strong><kbd>{key}</kbd></div>{/each}</section>
     {:else}
      <section class="settings-about" aria-label={$t('关于 SAG Wiki')}>

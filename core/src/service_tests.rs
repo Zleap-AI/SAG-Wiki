@@ -285,6 +285,26 @@ async fn call(client: &Client, operation: Operation) -> Output {
         .await
         .unwrap()
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_svg_image_uses_image_data_url_and_folder_authorization() {
+    let (dir, client, server) = start().await;
+    let notes = dir.path().join("notes");
+    std::fs::create_dir(&notes).unwrap();
+    let logo = notes.join("logo.svg");
+    let svg = "<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"10\" height=\"10\"/></svg>";
+    std::fs::write(&logo, svg).unwrap();
+    call(&client, Operation::AddRoot { path: notes.display().to_string() }).await;
+    let Output::Text(image) = call(&client, Operation::LoadImage { path: logo.display().to_string() }).await else { panic!("image") };
+    use base64::Engine;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(image.strip_prefix("data:image/svg+xml;base64,").unwrap()).unwrap();
+    assert_eq!(bytes, svg.as_bytes());
+    let outside = dir.path().join("outside.svg");
+    std::fs::write(&outside, svg).unwrap();
+    let result = client.call(Operation::LoadImage { path: outside.display().to_string() }, Duration::from_secs(5)).await;
+    assert!(matches!(result, Err(error) if error.to_string().contains("不在已添加的文件夹内")));
+    stop(&client, server).await;
+}
 async fn stop(client: &Client, task: tokio::task::JoinHandle<anyhow::Result<()>>) {
     call(client, Operation::Shutdown).await;
     tokio::time::timeout(Duration::from_secs(10), task)

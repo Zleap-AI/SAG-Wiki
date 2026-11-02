@@ -63,6 +63,7 @@ it('restores saved English across all settings pages and preserves original file
  const saved={...settings,language:'en' as const};
  invoke.mockImplementation(async(command)=>{
   if(command==='get_settings')return saved;
+  if(command==='get_quick_search')return {preferences:{enabled:true,shortcut:'CommandOrControl+Shift+Space'},error:null};
   if(command==='list_roots')return [{path:'/资料',name:'资料',status:'ready',count:1,error:null}];
   if(command==='list_conversations')return [{id:'1',title:'用户原来的问题',messages:[],updated:0,deleted:false}];
   return [];
