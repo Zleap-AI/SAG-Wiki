@@ -3,9 +3,9 @@ import {mermaidPreview} from './mermaid';
 import {get} from 'svelte/store';
 import {t} from './i18n';
 import type {Candidate,ToolCallRecord,ReasoningBlock} from './types';
-import {getHTMLFromFragment,getSchema,type JSONContent} from '@tiptap/core';import {Node as ProseMirrorNode} from '@tiptap/pm/model';import StarterKit from '@tiptap/starter-kit';import {MarkdownManager}from '@tiptap/markdown';import {BoundedTableKit,BoundedTaskList,TaskItem} from './markdown-extensions';import {splitMarkdown} from './markdown-chunks';import Image from '@tiptap/extension-image';import DOMPurify from 'dompurify';import{api}from './api';import{dirname}from './domain';
+import {getHTMLFromFragment,getSchema,type JSONContent} from '@tiptap/core';import {Node as ProseMirrorNode} from '@tiptap/pm/model';import StarterKit from '@tiptap/starter-kit';import {MarkdownManager}from '@tiptap/markdown';import {BoundedTableKit,BoundedTaskList,TaskItem,ReadHtmlAlignment} from './markdown-extensions';import {splitMarkdown} from './markdown-chunks';import Image from '@tiptap/extension-image';import DOMPurify from 'dompurify';import{api}from './api';import{dirname}from './domain';
 export const LocalImage=Image.extend({renderHTML({node,HTMLAttributes}){return['img',{...HTMLAttributes,src:'',alt:node.attrs.alt||get(t)('图片'),'data-source':node.attrs.src}]}});
-const extensions=[StarterKit,...BoundedTableKit,LocalImage,BoundedTaskList,TaskItem.configure({nested:true})];const parser=new MarkdownManager({extensions});
+const extensions=[StarterKit,...BoundedTableKit,LocalImage.configure({inline:true}),ReadHtmlAlignment,BoundedTaskList,TaskItem.configure({nested:true})];const parser=new MarkdownManager({extensions});
 // generateHTML rebuilds the schema on every call; documents render in many pieces.
 const schema=getSchema(extensions);
 type Links=Record<string,{href:string;title:string|null}>;
@@ -44,7 +44,7 @@ export function markdownLinks(body:string):LinkDefinition[]{
    // Rendering protects raw HTML before lexing. Apply that same transformation
    // inside the original block: any revealed definitions still belong to this
    // block's source offset, independent of the inserted protection fences.
-   const protectedBlock=protectHtml(token.raw);
+   const protectedBlock=protectHtml(token.raw,true);
    parser.instance.walkTokens(protectedBlock===token.raw?[token]:parser.instance.lexer(protectedBlock),visit);
    cursor=start+token.raw.length;
   }
@@ -63,12 +63,22 @@ function firstDefinitions(links:LinkDefinition[],before?:number):Links{
 // splitMarkdown end in one empty line, which tiptap would turn into a trailing
 // empty paragraph unless the piece ends the document.
 export function renderMarkdownPiece(text:string,links:LinkDefinition[]=[],{offset=0,last=true}:{offset?:number;last?:boolean}={}):string{
- const source=protectHtml(last?text:text.replace(/\r?\n$/,'')).replace(/\r\n|\r/g,'\n');
+ const source=protectHtml(last?text:text.replace(/\r?\n$/,''),true).replace(/\r\n|\r/g,'\n');
  const lexer=internals.createLexer();
  Object.assign(lexer.tokens.links,firstDefinitions(links,offset));
  const previous=internals.activeParseLexer;internals.activeParseLexer=lexer;
  try{
   lexer.blockTokens(source,lexer.tokens);
+  // Marked ends an HTML block at a blank line. Parse each table as one HTML
+  // fragment so Tiptap retains its rows and merged cells across blank lines.
+  for(let index=0;index<lexer.tokens.length;index++){
+   const token=lexer.tokens[index] as {type:string;raw:string};
+   if(token.type!=='html'||!/^ {0,3}<table(?:\s|>)/i.test(token.raw))continue;
+   const parts=[token.raw];let end=index+1;
+   while(!/<\/table\s*>/i.test(parts[parts.length-1])&&end<lexer.tokens.length)parts.push((lexer.tokens[end++] as {raw:string}).raw);
+   const raw=parts.join('');
+   lexer.tokens.splice(index,end-index,{type:'html',raw,text:raw,block:true});
+  }
   for(const [tag,link] of Object.entries(firstDefinitions(links)))if(!(tag in lexer.tokens.links))lexer.tokens.links[tag]=link;
   for(const item of lexer.inlineQueue)lexer.inlineTokens(item.src,item.tokens);
   lexer.inlineQueue=[];

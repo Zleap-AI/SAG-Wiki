@@ -10,6 +10,7 @@
  import HtmlDocument from './HtmlDocument.svelte';
  import HighlightedDocument from './HighlightedDocument.svelte';
  export let source:Candidate;
+ export let compact=false;
  export let onOpen:(terms:string[])=>void;
  async function load(candidate:Candidate){
   const document=await api<Document>('read_document',{path:candidate.path});
@@ -32,12 +33,12 @@
  <div class="context-body citation-body">
   {#if result.document.hash!==source.hash}<p class="source-warning">{@html icon('info')}{$t('原文件已更新，以下显示当前内容。')}</p>{/if}
   <div class="citation-document">
-   {#if result.reader}<svelte:component this={result.reader.Reader} model={result.reader.model} terms={result.terms} target={result.reader.ranges[0].from} within={result.reader.ranges} path={source.path} label="citation"/>
-   {:else if isHtml(source.path)}<HtmlDocument body={result.document.body} terms={result.terms} initialMatch={result.initialMatch}/>
-   {:else}<HighlightedDocument html={result.html} terms={result.terms} path={source.path} initialMatch={result.initialMatch}/>{/if}
+   {#if result.reader}<svelte:component this={result.reader.Reader} model={result.reader.model} terms={result.terms} target={result.reader.ranges[0].from} within={result.reader.ranges} path={source.path} label={compact?'match':'citation'} showNavigation={!compact}/>
+   {:else if isHtml(source.path)}<HtmlDocument body={result.document.body} terms={result.terms} initialMatch={result.initialMatch} showNavigation={!compact}/>
+   {:else}<HighlightedDocument html={result.html} terms={result.terms} path={source.path} initialMatch={result.initialMatch} showNavigation={!compact}/>{/if}
   </div>
  </div>
- <div class="panel-footer"><span class="citation-hint">{$t('高亮为回答引用的段落')}</span><Button.Root class="primary citation-open" onclick={()=>onOpen(result.terms)}>{$t('打开当前文档')}{@html icon('forward')}</Button.Root></div>
+ {#if !compact}<div class="panel-footer"><span class="citation-hint">{$t('高亮为回答引用的段落')}</span><Button.Root class="primary citation-open" onclick={()=>onOpen(result.terms)}>{$t('打开当前文档')}{@html icon('forward')}</Button.Root></div>{/if}
 {:catch error}
  <div class="context-body"><p class="form-error">{$t(String(error))}</p></div>
 {/await}

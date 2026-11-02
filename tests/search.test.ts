@@ -8,10 +8,11 @@ vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async(name,handler)=>{events.
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
-afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
+afterEach(async()=>{await unmount(app);document.body.innerHTML='';localStorage.removeItem('sag.search.mode');localStorage.removeItem('sag.quick-search-hint.dismissed');vi.clearAllMocks()});
 const hit={id:1,document_id:1,path:'/files/open-octx.md',title:'open-octx.md',heading:'',content:'OCTX 是一种格式。',start_line:3,end_line:3,source_ranges:[[3,3]],source_spans:[],bm25:-1,score:0,order:0,hash:'same'};
-async function setup(pending=false,mode='deep_search',paginated=false,deepResults?:typeof hit[]){
+async function setup(pending=false,mode='deep_search',paginated=false,deepResults?:typeof hit[],searchNow=true){
  invoke.mockImplementation(async(command,args)=>{
+  if(command==='get_quick_search')return {preferences:{enabled:true,shortcut:'CommandOrControl+Shift+Space'},error:null};
   if(command==='get_settings')return {theme:'light',start_page:'search',editor_size:15,answer:{url:'https://example.com/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:true},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:0};
   if(command==='run_query'){
    if(pending)return new Promise(()=>{});
@@ -22,6 +23,7 @@ async function setup(pending=false,mode='deep_search',paginated=false,deepResult
   return [];
  });
  app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('[aria-label="搜索关键词"]')).not.toBeNull());
+ if(!searchNow)return;
  if(mode==='search')await selectMode('search');
  const input=document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!;input.value='octx';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
 }
@@ -33,6 +35,57 @@ async function selectMode(value:string){
 }
 const click=async(label:string)=>{await vi.waitFor(()=>expect(document.querySelector(`[aria-label="${label}"]`)).not.toBeNull());const button=document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`);expect(button).not.toBeNull();button!.click();await tick()};
 describe('深入搜索分页',()=>{
+ it('关闭快捷搜索提示后重新打开应用也不再显示，不修改快捷键开关',async()=>{
+  await setup(false,'deep_search',false,undefined,false);
+  await vi.waitFor(()=>expect(document.querySelector('.quick-search-hint')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('[aria-label="关闭快捷搜索提示"]')!.click();await tick();
+  expect(document.querySelector('.quick-search-hint')).toBeNull();
+  expect(localStorage.getItem('sag.quick-search-hint.dismissed')).toBe('1');
+  expect(invoke.mock.calls.some(([command])=>command==='save_quick_search')).toBe(false);
+  await unmount(app);
+  await setup(false,'deep_search',false,undefined,false);
+  expect(document.querySelector('.quick-search-hint')).toBeNull();
+ });
+ it('搜索首页提示当前全局快捷键，设置变更后更新，关闭后隐藏',async()=>{
+  await setup(false,'deep_search',false,undefined,false);
+  await vi.waitFor(()=>expect(document.querySelector('.quick-search-hint')?.textContent).toContain('Space'));
+  expect(document.querySelector('.quick-search-hint')?.textContent).toContain('打开快捷搜索');
+  const base=invoke.getMockImplementation()!;
+  let enabled=true;
+  invoke.mockImplementation((command,args)=>command==='get_quick_search'?Promise.resolve({preferences:{enabled,shortcut:'Control+Alt+KeyK'},error:null}):base(command,args));
+  document.querySelector<HTMLButtonElement>('.sidebar-settings')!.click();await tick();
+  document.querySelector<HTMLButtonElement>('.settings-cancel')!.click();await tick();
+  await vi.waitFor(()=>expect(document.querySelector('.quick-search-hint kbd')?.textContent).toBe('Ctrl + Alt + K'));
+  enabled=false;
+  document.querySelector<HTMLButtonElement>('.sidebar-settings')!.click();await tick();
+  document.querySelector<HTMLButtonElement>('.settings-cancel')!.click();await tick();
+  await vi.waitFor(()=>expect(document.querySelector('.quick-search-hint')).toBeNull());
+ });
+ it('从快捷搜索打开原文时关闭设置并直接阅读选中片段，不重新检索或总结',async()=>{
+  await setup(false,'search');
+  await vi.waitFor(()=>expect(document.querySelector('.search-result')).not.toBeNull());
+  document.querySelector<HTMLButtonElement>('.sidebar-settings')!.click();await tick();
+  expect(document.querySelector('.settings-dialog')).not.toBeNull();
+  const base=invoke.getMockImplementation()!;
+  invoke.mockImplementation((command,args)=>command==='take_quick_search_request'?Promise.resolve({query:'来自快捷搜索',candidate:hit,deep:false}):command==='get_quick_search'?Promise.resolve({preferences:{enabled:true,shortcut:'Control+Shift+Space'},error:null}):base(command,args));
+  const searches=invoke.mock.calls.filter(([command])=>command==='run_query').length;
+  const summaries=invoke.mock.calls.filter(([command])=>command==='summarize_search').length;
+  events.get('quick-search-open')!({payload:null});
+  await vi.waitFor(()=>expect(document.querySelector('.settings-dialog')).toBeNull());
+  await vi.waitFor(()=>expect(document.querySelector('.search-preview-title')?.textContent).toContain('open-octx.md'));
+  expect(document.querySelector<HTMLInputElement>('[aria-label="搜索关键词"]')!.value).toBe('来自快捷搜索');
+  expect(document.querySelector('.search-summary')?.textContent).toContain('快速搜索');
+  expect(invoke.mock.calls.filter(([command])=>command==='run_query')).toHaveLength(searches);
+  expect(invoke.mock.calls.filter(([command])=>command==='summarize_search')).toHaveLength(summaries);
+ });
+ it('从快捷搜索查看完整结果时保留深入检索方式',async()=>{
+  await setup(false,'search');
+  await vi.waitFor(()=>expect(document.querySelector('.search-result')).not.toBeNull());
+  const base=invoke.getMockImplementation()!;
+  invoke.mockImplementation((command,args)=>command==='take_quick_search_request'?Promise.resolve({query:'来自深入检索',candidate:null,deep:true}):base(command,args));
+  events.get('quick-search-open')!({payload:null});
+  await vi.waitFor(()=>expect(invoke.mock.calls.filter(([c])=>c==='run_query').at(-1)![1].query).toMatchObject({kind:'deep_search',question:'来自深入检索'}));
+ });
  it('按已有文件顺序每页显示 20 个，翻页只更新片段，不重复搜索或重排',async()=>{
   const ranked=Array.from({length:45},(_,index)=>{
    const id=(index*17)%45+1;

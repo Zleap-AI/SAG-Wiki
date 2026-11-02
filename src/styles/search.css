@@ -5,6 +5,11 @@
 .search-query-row{display:flex;align-items:center;gap:16px;flex-shrink:0}
 .has-results .search-query-row{padding:18px 28px 0}
 .real-client .search-query-row>.search-composer{flex:1;min-width:0}
+.quick-search-hint{display:flex;align-items:center;justify-content:center;gap:7px;margin:12px 0 0;color:var(--color-muted);font-size:12px;line-height:1.5}
+.quick-search-hint kbd{font:inherit;padding:2px 6px;border:1px solid var(--color-rule);border-radius:4px;background:var(--color-panel)}
+.quick-search-hint-close{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:3px;border:0;border-radius:4px;color:inherit;background:transparent}
+.quick-search-hint-close .icon{width:12px;height:12px}
+.quick-search-hint-close:hover{background:var(--color-hover);color:var(--color-ink)}
 .real-client .search-composer.compact{display:flex;align-items:center;gap:12px;padding:6px 8px 6px 16px;border-radius:12px;box-shadow:0 1px 6px var(--color-shadow)}
 .real-client .search-composer.compact .search-entry{flex:1;min-width:0}
 .real-client .search-composer.compact .search-entry input{padding:6px 0;font-size:var(--text-reading)}

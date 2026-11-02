@@ -9,6 +9,7 @@ import {LocalImage,markdownCitation,markdownLinks,renderMarkdown,renderMarkdownP
 import {chunkAt,splitMarkdown} from '../src/lib/markdown-chunks';
 import {protectHtml,splitFrontmatter} from '../src/lib/markdown-source';
 import {fixture} from '../bench/fixtures';
+import {ReadHtmlAlignment} from '../src/lib/markdown-extensions';
 
 const tricky=[
  '---\ntitle: 前言\n---\n# 标题\n\n段落一，引用[链接][late]。\n\n- 宽松列表\n\n- 第二项\n\n  续段落\n\n段落二\n',
@@ -21,10 +22,35 @@ const tricky=[
 
 function wholeHtml(markdown:string,extensions:unknown[]){
  const parser=new MarkdownManager({extensions:extensions as never});
- return finishHtml(generateHTML(parser.parse(protectHtml(splitFrontmatter(markdown).body)),extensions as never));
+ return finishHtml(generateHTML(parser.parse(protectHtml(splitFrontmatter(markdown).body,true)),extensions as never));
 }
 
-const originalExtensions=[StarterKit,TableKit,LocalImage,TaskList,TaskItem.configure({nested:true})];
+const originalExtensions=[StarterKit,TableKit,LocalImage.configure({inline:true}),ReadHtmlAlignment,TaskList,TaskItem.configure({nested:true})];
+
+const htmlTable='<table>\n  <thead>\n    <tr><th rowspan="2">方法</th><th colspan="2">MuSiQue</th></tr>\n    <tr><th>R@5</th><th>R@10</th></tr>\n  </thead>\n  <tbody>\n    <tr><td>SAG2</td><td>80.68</td><td><strong>86.62</strong></td></tr>\n  </tbody>\n</table>';
+
+it('阅读模式渲染 HTML 表格，保留合并单元格与格式，源码编辑仍可往返',()=>{
+ const doc=new DOMParser().parseFromString(renderMarkdown('表格前文\n\n'+htmlTable+'\n\n表格后文'),'text/html');
+ expect(doc.querySelector('table')).not.toBeNull();
+ expect(doc.querySelector('th[rowspan="2"]')?.textContent).toBe('方法');
+ expect(doc.querySelector('th[colspan="2"]')?.textContent).toBe('MuSiQue');
+ expect(doc.querySelector('td strong')?.textContent).toBe('86.62');
+ expect(doc.querySelector('pre')).toBeNull();
+ expect(protectHtml(htmlTable)).toContain('````sag-raw');
+});
+
+it('HTML 表格跨空行与阅读分块保持完整，代码示例仍显示源码且不执行 HTML',()=>{
+ const table=htmlTable.replace('  <tbody>','\n  <tbody>');
+ const body='前文\n\n'+table+'\n\n```html\n'+htmlTable+'\n```\n\n<table><tr><td onclick="alert(1)">内容<script>alert(1)</script><img src="https://example.com/pixel" onerror="alert(1)"></td></tr></table>';
+ const pieces=splitMarkdown(body,1),links=markdownLinks(body);
+ const html=finishHtml(pieces.map((piece,index)=>renderMarkdownPiece(body.slice(piece.from,piece.to),links,{offset:piece.from,last:index===pieces.length-1})).join(''));
+ const doc=new DOMParser().parseFromString(html,'text/html');
+ expect(doc.querySelectorAll('table')).toHaveLength(2);
+ expect(doc.querySelector('table strong')?.textContent).toBe('86.62');
+ expect(doc.querySelector('pre code')?.textContent).toBe(htmlTable);
+ expect(doc.querySelector('script,[onclick],[onerror],img[src^="https:"]')).toBeNull();
+ expect(html).toBe(renderMarkdown(body));
+});
 
 it('CRLF 文档仍按段落切块，并保留原文偏移和整篇渲染结果',()=>{
  const short='one\r\n\r\ntwo\r\n\r\nthree';
@@ -95,7 +121,7 @@ it('切块渲染与整篇渲染结果一致',()=>{
   const links=markdownLinks(markdown);
   const chunked=finishHtml(pieces.map((piece,index)=>renderMarkdownPiece(content.slice(piece.from,piece.to),links,{offset:piece.from,last:index===pieces.length-1})).join(''));
   expect(chunked).toBe(renderMarkdown(markdown));
-  expect(chunked).toBe(wholeHtml(markdown,[StarterKit,TableKit,LocalImage,TaskList,TaskItem.configure({nested:true})]));
+  expect(chunked).toBe(wholeHtml(markdown,originalExtensions));
  }
 });
 

@@ -2,6 +2,7 @@ mod cli_commands;
 mod folder_picker;
 mod updates;
 mod web_clipper;
+mod quick_search;
 #[cfg(windows)]
 mod windows_icon;
 #[path = "../../cli/src/install.rs"]
@@ -261,7 +262,8 @@ fn tray_menu(app: &tauri::AppHandle, language: &str) -> tauri::Result<Menu<tauri
         true,
         None::<&str>,
     )?;
-    Menu::with_items(app, &[&open, &quit])
+    let quick = MenuItem::with_id(app, "sag-quick-search", if english { "Quick Search" } else { "快捷搜索" }, true, None::<&str>)?;
+    Menu::with_items(app, &[&quick, &open, &quit])
 }
 #[tauri::command]
 fn reveal_main_window(app: tauri::AppHandle) -> CommandResult<()> {
@@ -482,12 +484,14 @@ pub fn run() {
                 false
             }).build())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(quick_search::handle).build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::UpdateSession::default())
         .setup(|app| {
             #[cfg(windows)]
             windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
             let data = protocol::data_dir()?;
+            quick_search::initialize(app.handle(), &data)?;
             let fresh_library = !data.join("sag.sqlite").try_exists()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
             let source = cli_commands::service_source(app.handle(), cli_install_error.is_none())
@@ -525,6 +529,9 @@ pub fn run() {
                 .menu(&tray_menu(app.handle(), language)?)
                 .show_menu_on_left_click(!cfg!(target_os = "windows"))
                 .on_menu_event(|app, event| match event.id.as_ref() {
+                    "sag-quick-search" => {
+                        if let Err(e) = quick_search::toggle(app) { emit(app, "app-error", e); }
+                    }
                     "sag-open" => {
                         if let Err(e) = show_main_window(app) {
                             emit(app, "app-error", e.to_string());
@@ -566,6 +573,14 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
+            if window.label() == "quick-search" {
+                let restore = matches!(event, tauri::WindowEvent::CloseRequested { .. });
+                if let tauri::WindowEvent::CloseRequested { api, .. } = event { api.prevent_close(); }
+                if restore || matches!(event, tauri::WindowEvent::Focused(false)) {
+                    if let Err(e) = quick_search::dismiss(window.app_handle(), restore) { emit(window.app_handle(), "app-error", e); }
+                }
+                return;
+            }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 if let Err(e) = window.hide() {
@@ -574,6 +589,13 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            quick_search::get_quick_search,
+            quick_search::save_quick_search,
+            quick_search::show_quick_search,
+            quick_search::hide_quick_search,
+            quick_search::open_quick_search_result,
+            quick_search::take_quick_search_request,
+            quick_search::quick_search_main_ready,
             web_clipper::get_web_clipper,
             web_clipper::add_web_clipper_folder,
             web_clipper::export_web_clipper,

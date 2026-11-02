@@ -72,6 +72,7 @@ When a PDF contains pages requiring OCR, or the built-in parser explicitly repor
 - **Select all / Clear selection** selects or clears all conversion formats. An empty selection disables additional formats without affecting enabled built-in documents.
 - **Apply** applies the format selection; global settings still need to be saved.
 - **Conversion workers** defaults to 1, allows 1–16, is shared across folders and takes effect on the next indexing task. Actual concurrency is also limited by the shared resource budget. Previously saved values are preserved.
+- **Conversion memory** is calculated from physical memory when the backend service first starts a conversion. All Docling tasks share half of physical memory; each task may use one quarter. On smaller machines, the task allowance retains 4 GiB for OCR where possible, without exceeding the total budget. For example, a 64 GiB computer allows 16 GiB per task and 32 GiB in total. Each task includes its child processes. Additional tasks queue when the budget is reserved; failure to read physical memory is reported as an error.
 - **Uninstall related components** removes SAG-managed document and media components, runtimes, recognition models, FFmpeg and download caches. Original files, converted files and existing indexes remain; built-in document parsing stays available.
 
 Native text is indexed first, built-in documents and enabled additional formats are parsed in parallel, and finished results are then indexed. Already indexed content can be searched before every conversion finishes.
