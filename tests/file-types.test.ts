@@ -7,7 +7,7 @@ import type {Settings} from '../src/lib/types';
 const value:Settings={answer:{url:'http://localhost',model:'test',models:['test'],has_key:false},jev:{url:'http://localhost',model:'jev',models:[],has_key:false},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:1000},theme:'light',start_page:'ask',editor_size:15,show_hidden:true,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048};
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';setLanguage('zh-CN')});
-it('默认只勾选 Markdown 和文本，保存后记住手动开启的类别',async()=>{
+it('默认启用文本与内置文档，保存后记住手动选择',async()=>{
  const onSave=vi.fn(async(_settings:Settings)=>{});
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'files',onSave,onClose:()=>{}}});
  await vi.waitFor(()=>expect(document.querySelectorAll('.file-types [role=checkbox]')).toHaveLength(4));
@@ -19,6 +19,8 @@ it('默认只勾选 Markdown 和文本，保存后记住手动开启的类别',a
  document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
  expect(onSave.mock.calls[0][0].file_types).toEqual({markdown:true,text:true,code:true,config:false});
  expect(value.file_types).toBeUndefined();
+ expect(document.querySelector('.file-types')?.textContent).toContain('文本与文档');
+ expect(document.querySelector('.file-types')?.textContent).toContain('无需下载组件');
 });
 it('恢复已保存的选择，取消不会保存，并支持英文',async()=>{
  setLanguage('en');

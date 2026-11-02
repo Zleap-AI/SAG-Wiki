@@ -10,10 +10,9 @@ use std::{fs, path::Path, time::Duration};
 
 /// Extensions the built-in converter owns. Everything else that Docling can
 /// read stays with Docling.
-/// RTF is deliberately absent: the indexer already reads it natively.
 pub const EXTENSIONS: &[&str] = &[
     "pdf", "doc", "docx", "docm", "ppt", "pps", "pot", "pptx", "pptm", "ppsx", "ppsm",
-    "xls", "xlsx", "xlsm", "xlsb", "csv", "odt", "ods", "odp", "epub",
+    "xls", "xlsx", "xlsm", "xlsb", "csv", "rtf", "odt", "ods", "odp", "epub",
 ];
 /// Bump when the parser or our normalization changes so cached conversions are rebuilt.
 pub const CACHE_VERSION: &str = "anydoc-0.2.4:adapter-1";
