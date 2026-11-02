@@ -37,7 +37,7 @@ impl Rules {
         self.directory(&directory)
     }
     pub fn converts_files(&self) -> bool {
-        self.directories.values().any(|options| options.convert_other_formats)
+        self.directories.values().any(|options| options.file_types.text || options.convert_other_formats || options.extensions.as_ref().is_some_and(|extensions| extensions.iter().any(|extension| crate::anydoc::handles(Path::new(&format!("file.{extension}"))))))
     }
 }
 

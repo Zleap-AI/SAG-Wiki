@@ -129,7 +129,7 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
         serde_json::from_slice::<Value>(&output.stdout).unwrap()["files"].as_array().unwrap()
             .iter().map(|file| file["path"].as_str().unwrap().to_owned()).collect::<Vec<_>>()
     };
-    for types in ["pdf", "md,unknown", "", "md,,py", "../md"] {
+    for types in ["zip", "md,unknown", "", "md,,py", "../md"] {
         let output = run(&["add", "--types", types]);
         assert!(!output.status.success(), "accepted {types}");
         assert_eq!(fs::read_to_string(project.join(".sagignore")).unwrap(), "# User rule\nignored.ts\n");
@@ -147,7 +147,7 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     assert!(files.iter().any(|path| Path::new(path).ends_with("child/main.ts")));
     assert!(run(&["add"]).status.success());
     assert_eq!(check(".")["extensions"], serde_json::json!(["md", "py", "ts"]));
-    assert!(String::from_utf8(run(&["check"]).stdout).unwrap().contains("原生索引格式：md,py,ts"));
+    assert!(String::from_utf8(run(&["check"]).stdout).unwrap().contains("索引格式：md,py,ts"));
     assert!(run(&["service", "stop"]).status.success());
     // The next command starts the service, whose startup rescan is asynchronous.
     // Only a real pending scan may be waited on; errors or lost coverage fail.
@@ -208,4 +208,27 @@ fn add_selects_extensions_persists_them_and_replaces_only_the_requested_scope() 
     for name in ["page.html", "settings.json", "child/main.js"] {
         assert!(files.iter().any(|file| Path::new(&file.path).ends_with(name)), "missing index entry: {name}");
     }
+}
+
+#[test]
+fn add_supports_builtin_documents_without_docling() {
+    let temp = tempfile::tempdir().unwrap();
+    let data = temp.path().join("data");
+    let _cleanup = support::ServiceCleanup(data.clone());
+    let project = temp.path().join("documents");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("table.csv"), "name,value\n张三,builtindocumentevidence\n").unwrap();
+    fs::write(project.join("note.md"), "excludedmarkdown").unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", &data).current_dir(&project).args(args).output().unwrap();
+    let added = run(&["add", "--types", "csv", "--json"]);
+    assert!(added.status.success(), "{}", String::from_utf8_lossy(&added.stderr));
+    let check = run(&["check", "--json"]);
+    assert!(check.status.success(), "{}", String::from_utf8_lossy(&check.stderr));
+    let check: Value = serde_json::from_slice(&check.stdout).unwrap();
+    assert_eq!(check["extensions"], serde_json::json!(["csv"]));
+    assert_eq!(check["indexed_files"], 1);
+    assert!(project.join(".sag-converted/table.csv.md").is_file());
+    assert!(!data.join("docling").exists());
+    assert_eq!(fs::read_to_string(project.join("note.md")).unwrap(), "excludedmarkdown");
 }

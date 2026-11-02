@@ -17,7 +17,8 @@ use std::{
 
 // This is an application allocation budget, not a promise about exact OS RSS.
 // Leave room for source/decoded strings, chunk metadata, tokenization and vocabulary.
-const TEXT_PREPARATION_BUDGET: usize = 256 * 1024 * 1024;
+const TEXT_PREPARATION_BUDGET: usize = 512 * 1024 * 1024;
+const MIN_TEXT_PREPARATION_BYTES: usize = 64 * 1024 * 1024;
 const MAX_TEXT_INPUT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DECODED_TEXT_BYTES: usize = 32 * 1024 * 1024;
 const MAX_PREPARED_TEXT_BYTES: usize = 64 * 1024 * 1024;
@@ -56,7 +57,7 @@ impl Drop for PreparationPermit {
 }
 fn preparation_reservation(path: &Path) -> usize {
     let bytes = fs::metadata(path).map_or(0, |metadata| metadata.len().min(MAX_TEXT_INPUT_BYTES as u64) as usize);
-    (bytes.saturating_mul(16) + 16 * 1024 * 1024).min(TEXT_PREPARATION_BUDGET)
+    (bytes.saturating_mul(16) + 16 * 1024 * 1024).clamp(MIN_TEXT_PREPARATION_BYTES, TEXT_PREPARATION_BUDGET)
 }
 struct PreparedChunk {
     chunk: text::Chunk,
@@ -758,7 +759,7 @@ impl Store {
         let path = self.authorize(path)?;
         let path = if crate::docling::is_source(&path) {
             let output: Option<String> = self.connection().query_row("SELECT output FROM conversions WHERE source=? AND valid=1", [path_text(&path)?], |row| row.get(0)).optional()?;
-            self.authorize(Path::new(&output.context("请启用其他格式并完成转换后查看文档")?))?
+            self.authorize(Path::new(&output.context("请启用对应文件类型并完成转换后查看文档")?))?
         } else { path };
         let raw = fs::read(&path)?;
         let body = crate::document_text::read_borrowed(&path, &raw)?;
@@ -902,7 +903,7 @@ impl Store {
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
-        let result = self.indexing.checkpoint().and_then(|_| self.scan_inner(root, Path::new(root), |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
+        let result = self.indexing.checkpoint().and_then(|_| self.scan_inner(root, Path::new(root), false, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
             Err(e) if !self.indexing.stopped() => self.root_status(root, "error", Some(&e.to_string()))?,
@@ -993,27 +994,23 @@ impl Store {
         }
         if paths.iter().any(|path| path.starts_with(root) && ignore_rules::is_rule_file(path)) {
             let directory = if paths.len() == 1 { paths[0].parent().unwrap() } else { Path::new(root) };
-            return self.scan_inner(root, directory, progress);
+            return self.scan_inner(root, directory, true, progress);
         }
         let mut rules = crate::folder_index::Rules::new(Path::new(root), &settings)?;
         let excluded = self.excluded_directories()?;
         for path in paths.iter().filter(|path| path.starts_with(root) && !crate::docling::in_output(path)) {
             let options = rules.file(path)?;
-            // A changed source needs the conversion pass. Directories keep the
-            // previous rule: only folders that opted into component conversion
-            // rescan from the root; built-in sources inside them are picked up
-            // by the per-directory walk below.
-            if crate::docling::is_source(path) && crate::docling::should_convert(path, options)
-                || options.convert_other_formats && (path.is_dir() || !path.exists()) {
-                return self.scan_inner(root, Path::new(root), progress);
+            let converted_descendants = if path.is_dir() || !path.exists() {
+                let source = path_text(path)?;
+                let prefix = format!("{}{}", source.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+                self.connection().query_row("SELECT EXISTS(SELECT 1 FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1))", params![root,source,prefix], |row| row.get::<_, bool>(0))?
+            } else { false };
+            let new_documents = path.is_dir()
+                && !self.conversion_files(Path::new(root), path, &settings, &excluded)?.0.is_empty();
+            if crate::docling::should_convert(path, options) || converted_descendants || new_documents {
+                return self.scan_inner(root, Path::new(root), true, progress);
             }
-            // Built-in formats are always converted, so a new or moved directory that
-            // holds a convertible source needs the conversion pass for that subtree.
-            if path.is_dir() && walkdir::WalkDir::new(path).follow_links(false).into_iter()
-                .filter_map(Result::ok)
-                .any(|entry| entry.file_type().is_file() && crate::anydoc::handles(entry.path()) && !crate::docling::in_output(entry.path())) {
-                return self.scan_inner(root, path, progress);
-            }
+
         }
         let mut ignore = ignore_rules::matcher(Path::new(root));
         enum Work { Directory(PathBuf, Vec<PathBuf>), File(PathBuf), Remove(PathBuf) }
@@ -1112,14 +1109,14 @@ impl Store {
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
         Ok(removed)
     }
-    fn scan_inner(&self, root: &str, directory: &Path, progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn scan_inner(&self, root: &str, directory: &Path, verify: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let settings = self.settings()?;
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         };
         let excluded = self.excluded_directories()?;
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(false))?;
-        let count = self.scan_directory(root, directory, &files, &settings, false, Some(false), &progress)?;
+        let count = self.scan_directory(root, directory, &files, &settings, verify, Some(false), &progress)?;
         let (sources, convert) = self.conversion_files(Path::new(root), directory, &settings, &excluded)?;
         let issues = if convert { self.convert_sources(root, directory, &sources, &settings, &progress)? } else { vec![] };
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(true))?;
@@ -1138,6 +1135,8 @@ impl Store {
     pub(crate) fn indexable_path(path: &Path, settings: &FolderIndexOptions) -> bool {
         if crate::docling::in_output(path) {
             text::is_markdown(path) && crate::docling::should_convert(&path.with_extension(""), settings)
+        } else if crate::docling::is_source(path) {
+            false
         } else if let Some(extensions) = &settings.extensions {
             path.extension().and_then(|extension| extension.to_str())
                 .is_some_and(|extension| extensions.iter().any(|selected| selected.eq_ignore_ascii_case(extension)))
@@ -1173,8 +1172,9 @@ impl Store {
         Ok((files, convert))
     }
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
+        let workers = settings.conversion_workers;
         let mut issues = vec![];
-        let mut rules = crate::folder_index::Rules::new(Path::new(root), &self.settings()?)?;
+        let mut rules = crate::folder_index::Rules::new(Path::new(root), settings)?;
         // Keep ownership beside the derived files so removing/re-adding a library
         // can reuse them without mistaking user files for disposable output.
         let metadata_path = crate::docling::output_path(Path::new(root), &Path::new(root).join(".ownership"))?
@@ -1217,13 +1217,15 @@ impl Store {
             self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
             self.remove_indexed(&output)?;
         }
-        self.indexing.phase(root, "converting", sources.len());
-        progress(IndexProgress { count: 0, total: sources.len() });
+        if !sources.is_empty() {
+            self.indexing.phase(root, "converting", sources.len());
+            progress(IndexProgress { count: 0, total: sources.len() });
+        }
         let next = std::sync::atomic::AtomicUsize::new(0);
         thread::scope(|scope| -> Result<()> {
             let (tx, rx) = std::sync::mpsc::channel();
             let mut handles = Vec::new();
-            for _ in 0..settings.conversion_workers.min(sources.len()) {
+            for _ in 0..workers.min(sources.len()) {
                 let tx = tx.clone();
                 let next = &next;
                 handles.push(scope.spawn(move || -> Result<()> {
@@ -2301,12 +2303,12 @@ cat "$source" > "$output"
     fn converted_text_resource_failure_preserves_readable_previous_markdown_and_index() {
         let (_dir, store, root) = converted_text_fixture();
         fs::create_dir(root.join("nested")).unwrap();
-        let source = root.join("nested/report.docx");
+        let source = root.join("nested/report.eml");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
         let previous = fs::read(&output).unwrap();
-        assert!(std::str::from_utf8(&previous).unwrap().contains("../../nested/report.docx"));
+        assert!(std::str::from_utf8(&previous).unwrap().contains("../../nested/report.eml"));
         let previous_hash = hash(&previous);
         fs::write(&source, "unbrokenword ".repeat(25_000)).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
@@ -2321,14 +2323,14 @@ cat "$source" > "$output"
         assert_eq!(store.document(&source).unwrap().body.as_bytes(), previous);
         assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
         let names: Vec<_> = fs::read_dir(output.parent().unwrap()).unwrap().map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned()).collect();
-        assert_eq!(names, vec!["report.docx.md"]);
+        assert_eq!(names, vec!["report.eml.md"]);
     }
 
     #[cfg(unix)]
     #[test]
     fn converted_text_database_failure_rolls_back_markdown_and_index_together() {
         let (_dir, store, root) = converted_text_fixture();
-        let source = root.join("report.docx");
+        let source = root.join("report.eml");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
@@ -2351,7 +2353,7 @@ cat "$source" > "$output"
     #[test]
     fn converted_text_commit_failure_restores_the_published_markdown() {
         let (_dir, store, root) = converted_text_fixture();
-        let source = root.join("report.docx");
+        let source = root.join("report.eml");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
@@ -2373,7 +2375,7 @@ cat "$source" > "$output"
     #[test]
     fn converted_text_cancel_during_paused_acceptance_removes_staging_and_keeps_old_markdown() {
         let (dir, store, root) = converted_text_fixture();
-        let source = root.join("report.docx");
+        let source = root.join("report.eml");
         fs::write(&source, "previousconvertedevidence.").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let output = crate::docling::output_path(&root, &source).unwrap();
@@ -2793,7 +2795,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn model_profiles_and_tool_limit_persist_and_validate() {
         let (_dir, store, _) = setup();
         let mut settings = store.settings().unwrap();
-        assert_eq!(settings.max_tool_calls, 10);
+        assert_eq!(settings.max_tool_calls, 0);
         settings.mcp_servers.push(McpServer {
             id: "wiki".into(),
             name: "Wiki".into(),
@@ -3336,6 +3338,56 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     }
 
     #[test]
+    fn bounded_text_indexes_a_long_policy_title_with_many_paragraphs() {
+        let (_dir, store, root) = setup();
+        let path = root.join("customs-policy.md");
+        let source = format!("# {}\r\n\r\n{}\r\ncustomsfinalmarker\r\n",
+            "海关".repeat(332),
+            "第十条 进出境旅客应当按照规定向海关如实申报。\r\n\r\n".repeat(2488));
+        fs::write(&path, &source).unwrap();
+        assert_eq!(store.scan(root.to_str().unwrap(), |_| {}).unwrap(), 1);
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        assert_eq!(store.search_files("customsfinalmarker", &[], 10).unwrap().len(), 1);
+        assert_eq!(fs::read_to_string(path).unwrap(), source);
+        assert_eq!(*store.text_preparation.used.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn bounded_text_reserves_eight_small_files_and_queues_the_next() {
+        let (_dir, _store, root) = setup();
+        let path = root.join("small.md");
+        fs::write(&path, "Short document.").unwrap();
+        let reserved = preparation_reservation(&path);
+        assert_eq!(reserved, 64 * 1024 * 1024);
+        assert_eq!(TEXT_PREPARATION_BUDGET, 512 * 1024 * 1024);
+        let budget = PreparationBudget::new(TEXT_PREPARATION_BUDGET);
+        let mut permits: Vec<_> = (0..8).map(|_| budget.reserve(reserved, || false).unwrap()).collect();
+        let (waiting_tx, waiting_rx) = std::sync::mpsc::channel();
+        let (admitted_tx, admitted_rx) = std::sync::mpsc::channel();
+        let pending = budget.clone();
+        let worker = thread::spawn(move || {
+            let announced = std::sync::atomic::AtomicBool::new(false);
+            let permit = pending.reserve(reserved, || {
+                if !announced.swap(true, std::sync::atomic::Ordering::Relaxed) {
+                    waiting_tx.send(()).unwrap();
+                }
+                false
+            }).unwrap();
+            admitted_tx.send(()).unwrap();
+            permit
+        });
+        waiting_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(matches!(admitted_rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Empty)));
+        drop(permits.pop());
+        admitted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        let last = worker.join().unwrap();
+        assert_eq!(*budget.used.lock().unwrap(), TEXT_PREPARATION_BUDGET);
+        drop(permits);
+        drop(last);
+        assert_eq!(*budget.used.lock().unwrap(), 0);
+    }
+
+    #[test]
     fn bounded_text_resource_failure_preserves_the_previous_index_and_reports_an_issue() {
         let (_dir, store, root) = setup();
         let path = root.join("large.txt");
@@ -3743,7 +3795,6 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         }
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn rtf_search_uses_visible_text_and_exact_citations_without_changing_source() {
         let (_dir, store, root) = setup();
@@ -3754,7 +3805,9 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let results = store.search_files("rtfmarker", &[], 10).unwrap();
         assert_eq!(results.len(), 1);
         let doc = store.document(&path).unwrap();
-        assert_eq!(doc.body, "Release\n星河 rtfmarker LYRA-73492\ncafé 😀");
+        assert!(doc.body.contains("**Release**"));
+        assert!(doc.body.contains("星河 rtfmarker LYRA-73492"));
+        assert!(doc.body.contains("café 😀"));
         let hit = &results[0];
         assert_eq!(hit.content, hit.source_spans.iter().map(|s| &doc.body[s.start_byte..s.end_byte]).collect::<Vec<_>>().join("\n\n"));
         assert!(store.search_files("metadataonlytitle metadataonlyfont", &[], 10).unwrap().is_empty());
@@ -3762,7 +3815,6 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         assert_eq!(fs::read(&path).unwrap(), bytes);
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
     fn long_rtf_citations_and_incremental_changes_use_the_same_body() {
         let (_dir, store, root) = setup();
@@ -3775,15 +3827,15 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         fs::write(&path, &bytes).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let doc = store.document(&path).unwrap();
-        assert_eq!(doc.body, original);
+        assert!(doc.body.contains(original.lines().nth(1).unwrap()));
         let results = store.search_files("rtfdeepmarker", &[], 10).unwrap();
         assert_eq!(results.len(), 1);
         let hit = &results[0];
         assert!(hit.content.contains("RELEASE-73492"));
         for span in &hit.source_spans {
             assert_eq!(&doc.body[span.start_byte..span.end_byte], hit.content);
-            assert_eq!(span.start_line, 2);
-            let line_start = doc.body.find('\n').unwrap() + 1;
+            assert_eq!(span.start_line, doc.body[..span.start_byte].bytes().filter(|byte| *byte == b'\n').count() + 1);
+            let line_start = doc.body[..span.start_byte].rfind('\n').map_or(0, |index| index + 1);
             assert_eq!(span.start_column, doc.body[line_start..span.start_byte].chars().count() + 1);
         }
         assert_eq!(fs::read_to_string(&path).unwrap(), bytes);
@@ -3795,7 +3847,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let renamed = root.join("renamed.rtf");
         fs::rename(&path, &renamed).unwrap();
         store.update_paths(root.to_str().unwrap(), &[path, renamed.clone()], |_| {}).unwrap();
-        assert_eq!(store.search_files("updatedrtfmarker", &[], 10).unwrap()[0].path, renamed.to_str().unwrap());
+        assert_eq!(store.search_files("updatedrtfmarker", &[], 10).unwrap()[0].path, crate::docling::output_path(&root, &renamed).unwrap().to_str().unwrap());
         fs::remove_file(&renamed).unwrap();
         store.update_paths(root.to_str().unwrap(), &[renamed], |_| {}).unwrap();
         assert!(store.search_files("updatedrtfmarker", &[], 10).unwrap().is_empty());

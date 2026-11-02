@@ -28,7 +28,7 @@ const FORMATS: &[(&str, &str)] = &[
     ("PDF", "pdf"),
     ("Word", "docx dotx docm dotm doc dot rtf"),
     ("PowerPoint", "pptx potx ppsx pptm potm ppsm ppt pot pps"),
-    ("Excel / CSV", "xlsx xlsm xltx xltm xls xlt csv"),
+    ("Excel / CSV", "xlsx xlsm xlsb xltx xltm xls xlt csv"),
     ("OpenDocument", "odt ott ods ots odp otp"),
     ("Apple iWork", "pages key numbers"),
     ("图片与扫描件（OCR）", "jpg jpeg png tif tiff bmp webp gif"),
@@ -47,7 +47,7 @@ const FORMATS: &[(&str, &str)] = &[
 /// Formats that need a downloaded Docling component. Formats the built-in
 /// converter handles are listed by [`builtin_formats`] instead.
 pub fn formats() -> Vec<(String, Vec<String>)> {
-    grouped_formats(|ext| !crate::anydoc::handles_extension(ext))
+    grouped_formats(|ext| ext == "pdf" || !crate::anydoc::handles_extension(ext))
 }
 /// Formats converted in process without any download.
 pub fn builtin_formats() -> Vec<(String, Vec<String>)> {
@@ -70,12 +70,30 @@ fn grouped_formats(select: impl Fn(&str) -> bool) -> Vec<(String, Vec<String>)> 
 /// built-in formats always are; component formats only when the user
 /// enabled and selected them.
 pub fn should_convert(path: &Path, options: &crate::types::FolderIndexOptions) -> bool {
-    crate::anydoc::handles(path)
-        || options.convert_other_formats && is_selected(path, &options.conversion_formats)
+    if crate::anydoc::handles(path) {
+        if let Some(extensions) = &options.extensions {
+            return path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    extensions
+                        .iter()
+                        .any(|selected| selected.eq_ignore_ascii_case(extension))
+                });
+        }
+        return options.file_types.text;
+    }
+    options.convert_other_formats && is_selected(path, &options.conversion_formats)
 }
 
 pub fn is_source(path: &Path) -> bool {
-    if crate::text::is_supported(path) || in_output(path) {
+    if in_output(path) {
+        return false;
+    }
+    if crate::anydoc::handles(path) {
+        return true;
+    }
+    if crate::text::is_supported(path) {
         return false;
     }
     let name = path
@@ -90,6 +108,7 @@ pub fn is_source(path: &Path) -> bool {
         })
     })
 }
+
 
 fn is_image(path: &Path) -> bool {
     path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext| {

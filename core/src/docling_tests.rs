@@ -699,7 +699,7 @@ fn builtin_formats_convert_without_any_component_and_component_formats_stay_opt_
     assert!(!library.join(OUTPUT_DIRECTORY).join("photo.png.md").exists());
     let status = store.docling.status();
     assert!(status.builtin_formats.iter().any(|(_, ext)| ext.iter().any(|e| e == "pdf")));
-    assert!(status.formats.iter().all(|(_, ext)| ext.iter().all(|e| !crate::anydoc::handles_extension(e))));
+    assert!(status.formats.iter().all(|(_, ext)| ext.iter().all(|e| e == "pdf" || !crate::anydoc::handles_extension(e))));
     assert!(status.formats.iter().any(|(_, ext)| ext.iter().any(|e| e == "png")));
 }
 
@@ -1913,4 +1913,79 @@ fn converter_cache_hit_keeps_user_edits_and_version_change_does_not_overwrite_th
     store.scan(&root, |_| {}).unwrap();
     assert_eq!(fs::read_to_string(&output).unwrap(), "usereditedcacheevidence");
     assert!(store.roots().unwrap()[0].error.as_ref().unwrap().contains("手动修改"));
+}
+
+#[test]
+fn built_in_documents_follow_type_settings_updates_and_migrate_old_conversion_cache() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("library");
+    fs::create_dir(&root).unwrap();
+    let root = root.canonicalize().unwrap();
+    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let source = root.join("中文.csv");
+    let bytes = "姓名,内容\n张三,nativewordevidence\n";
+    fs::write(&source, bytes).unwrap();
+    let root_text = store.add_root(&root).unwrap();
+    store.scan(&root_text, |_| {}).unwrap();
+    assert!(!store.docling.installed());
+    assert_eq!(
+        store
+            .search_files("nativewordevidence", &[], 5)
+            .unwrap()
+            .len(),
+        1
+    );
+    let output = output_path(&root, &source).unwrap();
+    assert!(fs::read_to_string(&output).unwrap().contains("张三"));
+    store
+        .connection()
+        .execute(
+            "UPDATE conversions SET source_hash=? WHERE source=?",
+            rusqlite::params![fingerprint(&source).unwrap(), source.to_str().unwrap()],
+        )
+        .unwrap();
+    store.scan(&root_text, |_| {}).unwrap();
+    let source_hash: String = store
+        .connection()
+        .query_row(
+            "SELECT source_hash FROM conversions WHERE source=?",
+            [source.to_str().unwrap()],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(source_hash.starts_with(crate::anydoc::CACHE_VERSION));
+    fs::write(&source, "姓名,内容\n李四,updatednativeevidence\n").unwrap();
+    store
+        .update_paths(&root_text, &[source.clone()], |_| {})
+        .unwrap();
+    assert!(store
+        .search_files("nativewordevidence", &[], 5)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        store
+            .search_files("updatednativeevidence", &[], 5)
+            .unwrap()
+            .len(),
+        1
+    );
+    let mut settings = store.settings().unwrap();
+    settings.file_types.text = false;
+    store.save_settings(&settings).unwrap();
+    store.scan(&root_text, |_| {}).unwrap();
+    assert!(store
+        .search_files("updatednativeevidence", &[], 5)
+        .unwrap()
+        .is_empty());
+    settings.file_types.text = true;
+    store.save_settings(&settings).unwrap();
+    store.scan(&root_text, |_| {}).unwrap();
+    assert_eq!(
+        store
+            .search_files("updatednativeevidence", &[], 5)
+            .unwrap()
+            .len(),
+        1
+    );
+    assert!(source.exists());
 }

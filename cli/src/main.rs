@@ -437,7 +437,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
                         IndexCoverage::Excluded => "已排除",
                         IndexCoverage::None => "未加入索引",
                     }, output.index_ready, output.enabled, output.indexed_files);
-                if let Some(extensions) = &output.extensions { println!("原生索引格式：{}", extensions.join(",")); }
+                if let Some(extensions) = &output.extensions { println!("索引格式：{}", extensions.join(",")); }
                 if !output.roots.is_empty() { print_roots(&output.roots); }
                 match output.coverage {
                     IndexCoverage::None | IndexCoverage::Partial => println!("如需索引整个目录，请在该目录运行 sag add。"),

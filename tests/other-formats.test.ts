@@ -8,7 +8,7 @@ import type {DoclingStatus} from '../src/lib/types';
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 let app:ReturnType<typeof mount>;
-const initial:DoclingStatus={installed:false,running:false,stage:'',message:'',downloaded:0,total:null,error:null,formats:[['PDF',['pdf']],['Word',['docx','doc']],['PowerPoint',['pptx']]]};
+const initial:DoclingStatus={installed:false,running:false,stage:'',message:'',downloaded:0,total:null,error:null,formats:[['电子书与邮件',['eml']],['Word',['dotx','dot']],['音频',['mp3','wav']]]};
 const find=(label:string)=>document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();vi.useRealTimers();setLanguage('zh-CN');doclingStatus.set(null);doclingDownloadOpen.set(false)});
 
@@ -19,8 +19,8 @@ it('未安装时只有选择入口，从所选格式确认后才安装',async()=
  expect(find('选择其他格式').textContent).toBe('选择');
  expect(document.querySelector('.other-formats [role="checkbox"]')).toBeNull();
  expect(document.querySelector('.format-select')).toBeNull();
- expect(document.querySelector('.other-formats p')?.textContent).toContain('内置转换');
- find('选择其他格式').click();await tick();find('转换 .pdf').click();await tick();
+ expect(document.querySelector('.other-formats p')?.textContent).toBe('扫描 PDF、图片、音视频等可按需安装 Docling，普通文档无需下载。');
+ find('选择其他格式').click();await tick();find('转换 .eml').click();await tick();
  await vi.waitFor(()=>expect(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')?.disabled).toBe(false));
  (Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')!).click();await tick();
  expect(document.body.textContent).toContain('安装文件解析支持');
@@ -37,7 +37,7 @@ it('下载展示实际字节与阶段，成功后显示选择，失败可重试'
  });
  app=mount(OtherFormats,{target:document.body});
  await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));
- find('选择其他格式').click();await tick();find('转换 .pdf').click();await tick();
+ find('选择其他格式').click();await tick();find('转换 .eml').click();await tick();
  await vi.waitFor(()=>expect(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')?.disabled).toBe(false));
  (Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')!).click();await tick();
  (Array.from(document.querySelectorAll<HTMLButtonElement>('.docling-dialog:not(.docling-formats-dialog) button')).find(button=>button.textContent==='安装')!).click();
@@ -102,14 +102,14 @@ it('选择窗口说明转换位置，主页通过系统浏览器打开，卸载�
  expect(document.querySelector('.conversion-info code')?.textContent).toContain('.sag-converted/资料/报告.pdf.md');
  document.querySelector<HTMLAnchorElement>('.docling-component a')!.click();await tick();
  expect(invoke).toHaveBeenCalledWith('open_about_link',{target:'docling'});
- expect(find('转换 .docx').getAttribute('aria-checked')).toBe('false');
- find('转换 .docx').click();await tick();
+ expect(find('转换 .dotx').getAttribute('aria-checked')).toBe('false');
+ find('转换 .dotx').click();await tick();
  document.querySelector<HTMLButtonElement>('.uninstall-docling')!.click();await tick();
  expect(invoke.mock.calls.some(([command])=>command==='uninstall_docling')).toBe(false);
  expect(document.querySelector('.docling-uninstall-dialog')?.textContent).toContain('原文件、.sag-converted 中的转换文件及已有索引都会保留');
  find('确认卸载 Docling').click();
  await vi.waitFor(()=>expect(document.querySelector('.docling-uninstall-dialog [role="alert"]')?.textContent).toContain('Docling 正在使用'));
- expect(find('转换 .docx').getAttribute('aria-checked')).toBe('true');
+ expect(find('转换 .dotx').getAttribute('aria-checked')).toBe('true');
  fail=false;find('确认卸载 Docling').click();
  await vi.waitFor(()=>expect(find('选择其他格式')?.textContent).toBe('选择'));
  await vi.waitFor(()=>expect(document.querySelector('.docling-formats-dialog')).toBeNull());
@@ -127,7 +127,7 @@ it('其他格式可保留并保存已配置的转换并行数，输入错误后�
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
  find('选择其他格式').click();
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.disabled).toBe(false));
- find('转换 .pdf').click();await tick();
+ find('转换 .eml').click();await tick();
  const input=document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')!;
  expect(input.value).toBe('4');
  expect(document.querySelector('.conversion-info')?.textContent).toContain('先索引 Markdown');

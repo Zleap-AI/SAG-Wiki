@@ -340,7 +340,7 @@ impl Default for Settings {
             timeout_secs: 120,
             answer_context_tokens: 65536,
             answer_output_tokens: 2048,
-            max_tool_calls: 10,
+            max_tool_calls: 0,
             search_summary_enabled: true,
             search_summary_sources: 10,
             model_profiles: BTreeMap::new(),
@@ -502,9 +502,9 @@ mod default_tests {
         );
     }
     #[test]
-    fn tool_call_limit_preserves_default_and_accepts_explicit_unlimited() {
-        assert_eq!(Settings::default().max_tool_calls, 10);
-        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().max_tool_calls, 10);
+    fn tool_call_limit_defaults_to_unlimited() {
+        assert_eq!(Settings::default().max_tool_calls, 0);
+        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().max_tool_calls, 0);
         assert_eq!(serde_json::from_str::<Settings>(r#"{"max_tool_calls":10}"#).unwrap().max_tool_calls, 10);
     }
 
