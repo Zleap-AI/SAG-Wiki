@@ -27,7 +27,7 @@ it('每个模型独立保存提示词、工具选择和调用次数',async()=>{
  expect([...document.querySelectorAll('.settings-content h3')].map(item=>item.textContent)).toEqual(['提示词','工具绑定','上下文与请求','笔记']);
  await vi.waitFor(()=>expect(query('系统提示词')).not.toBeNull());
  expect(document.querySelector('.model-profile-settings')?.contains(query('配置问答模型'))).toBe(true);
- expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('10');
+ expect(query<HTMLInputElement>('每轮工具调用上限').value).toBe('0');
  expect(query('启用 SAG 内置工具').getAttribute('aria-checked')).toBe('true');
  query('启用 SAG 内置工具').click();await tick();
  await input('系统提示词','第一个模型的提示词');

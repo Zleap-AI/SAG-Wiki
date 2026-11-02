@@ -21,9 +21,17 @@ Main implementation entry points:
 
 - Clicking a directory name opens it; clicking the tree arrow only expands or collapses it.
 - Adding a folder submits background indexing and displays actual progress and errors.
-- Markdown is editable. Other supported formats use read-only views.
+- Files can be filtered by all, indexed or not indexed while subfolders stay visible. Converted source files inherit the index status of their Markdown output.
+- Markdown is editable. Opening a converted Office document or PDF displays its Markdown output; saving changes only that output. Other directly read formats use read-only views.
+- Creating a document inside a folder uses that directory. From the overview, a destination is selected first; saving writes the file and updates its index.
 - Removing a knowledge-base directory preserves the original files. Removed subdirectories remain excluded and can be restored from settings.
 - External file changes refresh directory data without resetting current input or scroll position.
+
+## Markdown reading and editing
+
+The editor builds a heading outline with navigation, current-section highlighting while scrolling, and updates when headings are edited.
+
+Pele renders Mermaid code blocks locally as SVG. The editor shows the diagram by default, switches to source with **Edit**, and returns to the diagram with **Preview**. Saving preserves the Markdown code block. Search previews, citation sources and Q&A also use local diagram rendering.
 
 ## Relationship data
 

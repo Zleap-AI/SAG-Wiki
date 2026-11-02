@@ -17,6 +17,8 @@ credentials.json
 *.sqlite
 *.sqlite-*
 src-tauri/gen/
+src-tauri/clipper/
+browser-extension/build/
 
 cli/target/
 src-tauri/bin/
