@@ -1,8 +1,8 @@
 # SAG Wiki 文档站 / Documentation site
 
-文档站位于 SAG Wiki 仓库的 `docs-site/`，与桌面端、CLI 一起维护。使用 Next.js、Fumadocs、React 和 Tailwind CSS，独立运行，不会启动或修改桌面应用。
+文档站位于 SAG Wiki 仓库的 `docs-site/`，与桌面端、CLI 一起提交和同步到 GitHub、GitLab。使用 Next.js、Fumadocs、React 和 Tailwind CSS，独立运行，不会启动或修改桌面应用。
 
-The documentation site lives in `docs-site/` within the SAG Wiki repository. Maintain it alongside the desktop app and CLI. It uses Next.js, Fumadocs, React and Tailwind CSS and runs independently from the desktop app.
+The documentation site lives in `docs-site/` within the SAG Wiki repository. Commit and synchronize it with the desktop app and CLI to GitHub and GitLab. It uses Next.js, Fumadocs, React and Tailwind CSS and runs independently from the desktop app.
 
 ## 本地运行 / Local preview
 
