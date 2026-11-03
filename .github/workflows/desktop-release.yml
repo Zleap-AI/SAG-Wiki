@@ -189,7 +189,6 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Run native tests with locked dependencies
-        if: matrix.platform != 'windows' || github.event_name != 'workflow_dispatch' || github.ref != 'refs/heads/fix/release-clipper-ci-dependencies'
         run: |
           cargo test --locked --manifest-path protocol/Cargo.toml
           cargo test --locked --manifest-path client/Cargo.toml
@@ -198,18 +197,11 @@ jobs:
           # before running CLI tests that collect complete subprocess output.
           cargo test --locked --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
           cargo test --locked --manifest-path cli/Cargo.toml -- --nocapture
-          cargo test --locked --manifest-path src-tauri/Cargo.toml
-      - name: Diagnose Windows test loader
-        if: matrix.platform == 'windows' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/release-clipper-ci-dependencies'
-        shell: pwsh
-        run: ./scripts/diagnose-windows-tests.ps1
-      - name: Upload Windows loader evidence
-        if: always() && matrix.platform == 'windows' && github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/fix/release-clipper-ci-dependencies'
-        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
-        with:
-          name: windows-loader-evidence
-          path: windows-loader-evidence/
-          retention-days: 3
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            pwsh -NoProfile -File scripts/test-windows-desktop.ps1
+          else
+            cargo test --locked --manifest-path src-tauri/Cargo.toml
+          fi
       - name: Save trusted main Rust debug cache
         if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-debug.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
