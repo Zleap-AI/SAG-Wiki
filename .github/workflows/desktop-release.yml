@@ -177,6 +177,7 @@ jobs:
           "$RUNNER_TEMP/clip-file-tests"
           swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/DefaultDirectoryTests.swift -o "$RUNNER_TEMP/clip-default-tests"
           "$RUNNER_TEMP/clip-default-tests"
+          npm --prefix browser-extension ci --ignore-scripts
           node --test scripts/clipper-build.node-test.mjs
           npm run build:clipper:safari
       - name: Upload Safari development installer for acceptance
