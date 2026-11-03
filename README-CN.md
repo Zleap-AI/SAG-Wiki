@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
-0.2.5 改进搜索总结与原文定位，修复 HTML 高亮对比度，新增每 8 小时更新检查，并为 macOS 发布流程接入签名与公证。详见[更新日志](CHANGELOG.md)与[双语文档站](docs-site/README.md)。下方下载入口指向 GitHub 最新正式版。
+0.2.6 新增带全局快捷键的快捷搜索弹窗，问答支持中英文跨语言检索，内置文档默认纳入索引，并调整转换与索引的内存预算。详见[更新日志](CHANGELOG.md)与[双语文档站](docs-site/README.md)。下方下载入口指向 GitHub 最新正式版。
 
 ## 目录
 

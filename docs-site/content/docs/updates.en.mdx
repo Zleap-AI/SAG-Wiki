@@ -5,6 +5,35 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.2.6
+
+- **Quick Search**: a global shortcut (⌘⇧Space on macOS, Ctrl+Shift+Space on Windows) opens a search popup that lists local matches and opens the passage in the main window, then returns to the previous app. Settings can enable, disable or rebind it.
+- **Cross-language retrieval**: Q&A includes equivalent Chinese and English wording in the same search and answers Chinese questions in Chinese; exact text and code stay untranslated.
+- **Tool calls**: calls per turn are unlimited by default and can still be capped at 1–100.
+- **Indexing**: text-based PDF, Office, RTF, CSV and EPUB files are indexed by default. Conversion memory follows physical memory, and text preparation allows 512 MiB.
+- **Setup and display**: CLI settings provide a local Skill setup instruction; previews, Quick Search and citations render HTML tables, alignment and local images, including SVG.
+
+The desktop app and bundled CLI both use 0.2.6.
+
+## 0.2.5
+
+- **Search summaries**: open the automatic summary by default when results and an answer model are available.
+- **Source navigation**: highlight Markdown paragraphs from the selected passage's source position and scroll to it when switching files.
+- **HTML highlight fix**: outline the selected paragraph while keeping its text and background colors.
+- **Periodic update checks**: check for updates every eight hours, with downloads and installation controlled by the user.
+- **macOS signing and notarization**: sign, notarize and staple the app, bundled CLI and DMG in the release workflow.
+
+The desktop app and bundled CLI both use 0.2.5.
+
+## 0.2.4
+
+- **CLI connection feedback**: collapse successful connection details by default, with an option to expand them.
+- **Connection state updates**: clear stale results before retesting and prevent duplicate requests; clear cached feedback when CLI access is disabled.
+- **Model settings**: align the LLM and Jev connection-test buttons at the bottom right of their cards.
+- **Windows window controls**: restore minimize, maximize/restore and close to the top of the sidebar.
+
+The desktop app and bundled CLI both use 0.2.4.
+
 ## 0.2.3
 
 - **Folder sidebar**: restore the original folder-first layout, remove the conversation/folder switch and retain folder import.

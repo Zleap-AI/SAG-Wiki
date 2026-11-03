@@ -1,5 +1,31 @@
 # 更新日志 / Changelog
 
+## 0.2.6
+
+- **快捷搜索**：新增独立的快捷搜索窗口，默认用 macOS 的 ⌘⇧Space、Windows 的 Ctrl+Shift+Space 在其他应用中唤起，也可从菜单栏或托盘打开。输入即在本地索引中搜索，最多列出 10 个文件；↑ ↓ 选择、Enter 在主窗口打开原文、⌘ / Ctrl+Enter 查看全部结果、Esc 关闭并返回原应用。设置中的“快捷键”页可启用、关闭或改键，搜索首页显示当前快捷键。
+- **跨语言检索**：问答要求模型在同一次自然语言检索中同时给出中英文等义表述并保留原问题的条件与限定，中文提问默认用中文回答；精确文字、代码和文件路径不翻译。
+- **工具调用默认不限制**：每轮工具调用上限的默认值由 10 次改为 0（不限制），仍可设为 1–100 限制 SAG 与 MCP 工具的总调用次数。
+- **内置文档默认纳入索引**：文本型 PDF、Office、RTF、CSV、EPUB 等内置解析格式统一算作文本类型，默认索引且无需下载转换组件；`sag add --types` 可直接选择这些扩展名，是否转换沿用文件夹的文件类型设置，旧转换缓存继续复用。
+- **本机 Skill 接入**：后台服务在同一端口提供 `/sag-wiki.md` 及其 `references/` 文档；CLI 设置的“其他”一栏改为复制 `set up: http://127.0.0.1:端口/sag-wiki.md` 指令，由 Agent 直接读取，不再下载 Skill 文件夹。
+- **转换与索引内存预算**：Docling 转换按物理内存计算预算，全部任务合计为一半、单任务为四分之一，低内存机器尽量保留 4 GiB 的 OCR 运行空间，读取物理内存失败时给出明确错误；文本准备预算提高到 512 MiB 且单文件至少预留 64 MiB，长标题与段落密集的文档可以正常索引。
+- **HTML 与本地图片**：搜索预览、快捷搜索和引用原文会渲染 HTML 表格（保留合并单元格与加粗）、段落和标题对齐、链接与图片尺寸；相对路径的本地图片支持 PNG、JPEG、GIF、WebP 和 SVG，编辑仍保留原始 HTML。
+- **文档**：文档站补充快捷搜索、HTML 表格与本地图片、转换内存与索引预算、跨语言问答、MCP 添加服务流程和 Skill 接入说明，并更新中英文截图。
+
+桌面端与随包 CLI 版本统一为 0.2.6，沿用现行更新签名通道；本次更新不涉及数据库迁移。
+
+### English
+
+- **Quick Search**: add a dedicated popup opened from other apps with ⌘⇧Space on macOS or Ctrl+Shift+Space on Windows, or from the menu bar and tray. Typing searches the local index and lists up to ten files; use ↑ ↓ to select, Enter to open the passage in the main window, ⌘ / Ctrl+Enter for all results and Esc to close and return to the previous app. Settings → Shortcuts can enable, disable or rebind the shortcut, and the search home page shows the current one.
+- **Cross-language retrieval**: Q&A now asks the model to include equivalent Chinese and English wording in the same natural-language search while keeping the original constraints, and answers Chinese questions in Chinese. Exact text, code and file paths are not translated.
+- **Unlimited tool calls by default**: the per-turn tool-call limit now defaults to 0 (unlimited) instead of 10; 1–100 still caps combined SAG and MCP calls.
+- **Built-in documents indexed by default**: text-based PDF, Office, RTF, CSV and EPUB files count as text, are indexed without downloading a conversion component, and can be selected with `sag add --types`. Per-folder file-type settings still decide conversion, and existing conversion caches keep working.
+- **Local Skill setup**: the background service now serves `/sag-wiki.md` and its `references/` on the same port. The "Other" row in CLI settings copies a `set up: http://127.0.0.1:PORT/sag-wiki.md` instruction for the agent to read, replacing the Skill folder download.
+- **Conversion and indexing memory budgets**: Docling conversions budget half of physical memory in total and one quarter per job, keep 4 GiB for OCR on smaller machines and report a clear error when physical memory cannot be read. Text preparation now allows 512 MiB overall with at least 64 MiB per file, so long headings and paragraph-dense documents index reliably.
+- **HTML and local images**: search previews, Quick Search and citations render HTML tables with merged cells and bold text, paragraph and heading alignment, links and image sizes. Local images load from relative paths, including PNG, JPEG, GIF, WebP and SVG, while editing keeps the original HTML.
+- **Documentation**: the documentation site covers Quick Search, HTML tables and local images, conversion memory and indexing budgets, cross-language Q&A, adding MCP servers and Skill setup, with refreshed Chinese and English screenshots.
+
+The desktop app and bundled CLI both use 0.2.6, retaining the current update-signing channel. This update requires no database migration.
+
 ## 0.2.5
 
 - **搜索总结**：有结果且回答模型可用时默认展示自动总结，支持从原文返回已有总结。
