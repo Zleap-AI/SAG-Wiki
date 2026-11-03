@@ -10,6 +10,7 @@ pub struct IntegrationSettings {
     access: Access,
     installations: Vec<install::Installation>,
     install_error: Option<String>,
+    skill_url: String,
 }
 #[tauri::command]
 pub async fn get_cli_settings(
@@ -24,9 +25,14 @@ pub async fn get_cli_settings(
                 .map_err(error)?,
         );
     }
+    let access = serde_json::from_value(rpc(&state, Operation::GetAccess).await?).map_err(error)?;
+    let endpoint: sag_protocol::Endpoint = serde_json::from_slice(
+        &std::fs::read(state.data_dir.join("sag-service.json")).map_err(error)?,
+    ).map_err(error)?;
     Ok(IntegrationSettings {
-        access: serde_json::from_value(rpc(&state, Operation::GetAccess).await?).map_err(error)?,
+        access,
         install_error: state.cli_install_error.lock().unwrap().clone(),
+        skill_url: format!("http://127.0.0.1:{}/sag-wiki.md", endpoint.port),
         installations,
     })
 }

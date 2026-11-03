@@ -11,24 +11,21 @@ const value:Settings={answer:{url:'https://example.com/v1',model:'test',models:[
 let installed=new Set(['cli']);
 beforeEach(()=>{installed=new Set(['cli']);setLanguage('zh-CN');invoke.mockImplementation(async(command,args)=>{
  if(command==='list_roots')return [{path:'/project',name:'Project',status:'ready',count:5,error:null}];
- if(command==='get_cli_settings')return {access:{enabled:false,roots:[]},installations:['cli','claude-code','codex','opencode'].map(name=>({name,path:`/home/skills/${name}`,installed:installed.has(name),version:installed.has(name)?'0.1.0':null}))};
+ if(command==='get_cli_settings')return {skill_url:'http://127.0.0.1:24680/sag-wiki.md',access:{enabled:false,roots:[]},installations:['cli','claude-code','codex','opencode'].map(name=>({name,path:`/home/skills/${name}`,installed:installed.has(name),version:installed.has(name)?'0.1.0':null}))};
  if(command==='install_cli_integration'){args.uninstall?installed.delete(args.target):installed.add(args.target);return 'installed';}
 });});
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.useRealTimers();vi.clearAllMocks();vi.restoreAllMocks();});
 function click(text:string){const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()===text);expect(button,text).toBeDefined();button!.click();}
 async function ready(){await vi.waitFor(()=>expect(document.querySelector('[aria-label="启用 CLI"]')).not.toBeNull());}
-it('Windows Skill 安装位置与下载提示显示普通路径',async()=>{
+it('Windows Skill 安装位置显示普通路径',async()=>{
  const path=String.raw`\\?\C:\Users\PC\skills\sag`;
  invoke.mockImplementation(async command=>{
-  if(command==='get_cli_settings')return{access:{enabled:false,roots:[]},installations:[{name:'codex',path,installed:true,version:'0.1.0'}]};
-  if(command==='download_cli_skill')return path;
+  if(command==='get_cli_settings')return{skill_url:'http://127.0.0.1:24680/sag-wiki.md',access:{enabled:false,roots:[]},installations:[{name:'codex',path,installed:true,version:'0.1.0'}]};
  });
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
  document.querySelector<HTMLButtonElement>('.cli-location button')!.click();await tick();
  expect(document.querySelector('.cli-skill-path code')?.textContent).toBe(String.raw`C:\Users\PC\skills\sag`);
- document.querySelector<HTMLButtonElement>('[aria-label="下载 SAG Skill"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain(String.raw`C:\Users\PC\skills\sag`));
- expect(document.querySelector('.cli-feedback[role=status]')?.textContent).not.toContain('\\\\?\\');
+
 });
 
 it('saves CLI enabled changes only with the settings form, across tab switches and installation refreshes',async()=>{
@@ -82,7 +79,7 @@ it.each([['claude-code','Claude Code'],['codex','Codex'],['opencode','OpenCode']
  installed.clear();
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
  expect(document.querySelectorAll('.cli-install-row')).toHaveLength(4);
- for(const row of document.querySelectorAll('.cli-install-row')){
+ for(const row of [...document.querySelectorAll('.cli-install-row')].slice(0,3)){
   expect(row.querySelectorAll('.cli-action')).toHaveLength(1);
   expect(row.textContent).not.toMatch(/已安装|未安装/);
  }
@@ -288,37 +285,37 @@ it('shows the usage guide last, collapsed by default, without submitting setting
  expect(trigger.getAttribute('aria-expanded')).toBe('false');
 });
 
-it('downloads the complete skill through the last Other row without installing an integration',async()=>{
+it('copies the local setup instruction from Other without installing or downloading',async()=>{
+ const writeText=vi.spyOn(navigator.clipboard,'writeText').mockResolvedValue(undefined);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
- const rows=document.querySelectorAll('.cli-install-row');
- expect(rows[rows.length-1].textContent).toContain('其他');
- expect(rows[rows.length-1].textContent).toContain('下载完整 Skill 文件夹');
- const download=document.querySelector<HTMLButtonElement>('[aria-label="下载 SAG Skill"]')!;
- expect(download.textContent).toBe('下载');
- invoke.mockImplementationOnce(async()=>'/Downloads/sag');download.click();
- await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain('/Downloads/sag'));
- expect(invoke).toHaveBeenCalledWith('download_cli_skill',{title:'选择 Skill 保存位置'});
- expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration')).toBe(false);
- expect(download.textContent).toBe('下载');
+ const row=document.querySelectorAll('.cli-install-row')[3];
+ expect(row.textContent).toContain('其他');
+ expect(row.querySelector('code')?.textContent).toBe('set up: http://127.0.0.1:24680/sag-wiki.md');
+ expect(row.textContent).not.toContain('下载');
+ row.querySelector<HTMLButtonElement>('[aria-label="复制其他 Agent 安装指令"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain('已复制 其他 Agent 的安装命令'));
+ expect(writeText).toHaveBeenCalledWith('set up: http://127.0.0.1:24680/sag-wiki.md');
+ expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration'||command==='download_cli_skill')).toBe(false);
 });
 
-it('keeps cancellation silent and makes a failed download retryable',async()=>{
+it('shows copy failures and allows retrying the local setup instruction',async()=>{
+ const writeText=vi.spyOn(navigator.clipboard,'writeText').mockRejectedValueOnce(Error('Clipboard unavailable')).mockResolvedValue(undefined);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
- const download=document.querySelector<HTMLButtonElement>('[aria-label="下载 SAG Skill"]')!;
- invoke.mockResolvedValueOnce(null);download.click();await tick();
- await vi.waitFor(()=>expect(download.disabled).toBe(false));
- expect(document.querySelector('.cli-feedback')).toBeNull();
- invoke.mockRejectedValueOnce(Error('无法创建 Skill 文件夹'));download.click();
- await vi.waitFor(()=>expect(document.querySelector('.cli-error')?.textContent).toContain('无法创建 Skill 文件夹'));
- expect(download.disabled).toBe(false);
+ const copy=document.querySelector<HTMLButtonElement>('[aria-label="复制其他 Agent 安装指令"]')!;
+ copy.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-error')?.textContent).toContain('Clipboard unavailable'));
+ expect(copy.disabled).toBe(false);copy.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain('已复制'));
+ expect(writeText).toHaveBeenCalledTimes(2);expect(document.querySelector('.cli-error')).toBeNull();
 });
 
-it('translates the download row and success message',async()=>{
+it('translates the local setup row and copy feedback',async()=>{
+ vi.spyOn(navigator.clipboard,'writeText').mockResolvedValue(undefined);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'cli',onSave:vi.fn(),onClose:vi.fn()}});await ready();
  setLanguage('en');await tick();
- const download=document.querySelector<HTMLButtonElement>('[aria-label="Download SAG Skill"]')!;
+ const copy=document.querySelector<HTMLButtonElement>('[aria-label="Copy setup instruction for other agents"]')!;
  expect(document.querySelectorAll('.cli-install-row')[3].textContent).toContain('Other');
- invoke.mockResolvedValueOnce('/Downloads/sag');download.click();
- await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain('Skill downloaded to /Downloads/sag'));
- expect(invoke).toHaveBeenCalledWith('download_cli_skill',{title:'Choose where to save the Skill'});
+ copy.click();
+ await vi.waitFor(()=>expect(document.querySelector('.cli-feedback[role=status]')?.textContent).toContain('Other agents'));
+ expect(document.querySelector('code[aria-label="Setup instruction for other agents"]')?.textContent).toBe('set up: http://127.0.0.1:24680/sag-wiki.md');
 });
