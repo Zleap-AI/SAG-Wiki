@@ -21,7 +21,10 @@ const files=[
 const docs=files.map(([name,size],index)=>{
  const converted=!name.endsWith('.md');
  const path=converted?`${root}/.sag-converted/${name}.md`:`${root}/${index%3===0?'笔记/':''}${name}`;
- return {path,name:converted?`${name}.md`:name,body:fixture(size,'KV Cache',300).body};
+ const sample=params.get('lang')==='en'
+  ? `# ${name}\n\n## Working notes\n\nKV Cache stores keys and values that have already been computed. During text generation, these results can be reused to reduce repeated computation.\n\n## What to check\n\nA reusable prefix must match the original input. When the prompt changes, check which part of the cached prefix remains valid.\n\nKeep stable instructions before changing user content. Record the prompt, output length and memory use when comparing runs.\n\n## Evaluation checklist\n\n- Use the same input for each comparison.\n- Separate first-response latency from generation speed.\n- Inspect the source passage before drawing a conclusion.\n\nThe remaining sections describe the setup and observation notes.`
+  : `# ${name}\n\n## 工作原理\n\nKV Cache 会保存已经计算的键和值。在逐步生成文本时，可以复用这些结果，减少重复计算。\n\n## 使用条件\n\n复用缓存时，需要确认输入前缀是否一致。提示词发生变化后，应检查哪些部分仍然满足复用条件。\n\n固定说明可以放在变化的用户内容之前。比较不同设置时，同时记录提示词、输出长度和显存占用。\n\n## 测试记录\n\n- 使用相同的输入进行比较。\n- 分别记录首字延迟和生成速度。\n- 核对原文及适用条件后，再整理结论。\n\n后续章节记录具体配置、观察结果和待验证的问题。`;
+ return {path,name:converted?`${name}.md`:name,body:params.has('quick')?sample:fixture(size,'KV Cache',300).body};
 });
 const results:Candidate[]=[];let id=1;
 docs.forEach((doc,index)=>{
@@ -40,11 +43,12 @@ const settings={theme:params.get('theme')==='dark'?'dark':'light',language:param
 const delay=(ms:number)=>new Promise(resolve=>setTimeout(resolve,ms));
 const handlers:Record<string,(args:Record<string,unknown>)=>unknown>={
  get_settings:()=>settings,
+ get_quick_search:()=>({preferences:{enabled:true,shortcut:'CommandOrControl+Shift+Space'},error:null}),
  list_roots:()=>[{path:root,name:'一些 AI 文章资料',status:'ready',count:52,error:null}],
  list_files:()=>docs.map((doc,index)=>({id:index+1,path:doc.path,name:doc.name})),
  get_index_status:()=>({paused:false,tasks:[]}),
  list_conversations:()=>[],list_drafts:()=>[],list_entries:()=>[],list_removed_directories:()=>[],
- run_query:async args=>{await delay(Number(params.get('delay')??600));const query=args.query as {kind:string};return {terms:['KV Cache','KV','Cache'],elapsed_ms:4100,results:query.kind==='deep_search'?results:results.slice(0,40),pagination:null,trace:[],conversation:null}},
+ run_query:async args=>{await delay(Number(params.get('delay')??600));const query=args.query as {kind:string};return {terms:['KV Cache','KV','Cache'],elapsed_ms:4100,results:params.has('quick')?results.filter(row=>!row.content.trimStart().startsWith('#')).filter((row,index,all)=>all.findIndex(other=>other.document_id===row.document_id)===index):query.kind==='deep_search'?results:results.slice(0,40),pagination:null,trace:[],conversation:null}},
  summarize_search:async args=>{await delay(900);return {text:summary,evidence:(args.results as Candidate[]).slice(0,10)}},
  read_document:args=>{const doc=docs.find(doc=>doc.path===args.path)!;return {id:1,path:doc.path,name:doc.name,body:doc.body,hash:`h${docs.indexOf(doc)}`}},
  load_image:()=>'data:image/svg+xml,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="640" height="300"><rect width="640" height="300" fill="#e8e6df"/></svg>'),
@@ -57,11 +61,11 @@ const handlers:Record<string,(args:Record<string,unknown>)=>unknown>={
  convertFileSrc:(path:string)=>path,
 };
 localStorage.setItem('sag.search.mode','deep_search');localStorage.setItem('sag.onboarding.seen','1');
-const {default:App}=await import('../src/App.svelte');
+const {default:App}=params.has('quick')?await import('../src/QuickSearch.svelte'):await import('../src/App.svelte');
 mount(App,{target:document.getElementById('app')!});
 const query=params.get('q');
 if(query){
- const input=await new Promise<HTMLInputElement>(resolve=>{const poll=()=>{const node=document.querySelector<HTMLInputElement>('.search-entry input');node?resolve(node):setTimeout(poll,50)};poll()});
+ const input=await new Promise<HTMLInputElement>(resolve=>{const poll=()=>{const node=document.querySelector<HTMLInputElement>(params.has('quick')?'.quick-input-row input':'.search-entry input');node?resolve(node):setTimeout(poll,50)};poll()});
  input.value=query;input.dispatchEvent(new Event('input',{bubbles:true}));
- await delay(50);input.closest('form')!.requestSubmit();
+ await delay(50);if(!params.has('quick'))input.closest('form')!.requestSubmit();
 }

@@ -1,6 +1,17 @@
 import {Table,TableCell,TableHeader,TableRow} from '@tiptap/extension-table';
 import {TaskItem,TaskList} from '@tiptap/extension-list';
 import type {AnyExtension,MarkdownTokenizer} from '@tiptap/core';
+import {Extension} from '@tiptap/core';
+
+// Reading keeps the alignment used by README HTML without accepting arbitrary styles.
+export const ReadHtmlAlignment=Extension.create({
+ name:'readHtmlAlignment',
+ addGlobalAttributes(){return [{types:['paragraph','heading'],attributes:{textAlign:{
+  default:null,
+  parseHTML:element=>{const align=element.getAttribute('align')||element.style.textAlign;return /^(left|center|right|justify)$/.test(align)?align:null},
+  renderHTML:attributes=>attributes.textAlign?{style:`text-align: ${attributes.textAlign}`}:{},
+ }}}]},
+});
 
 // The upstream Table and TaskList Markdown tokenizers split the whole remaining
 // source on every block, which makes parsing quadratic: a 1 MB document took

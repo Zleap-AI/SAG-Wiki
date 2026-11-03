@@ -7,6 +7,9 @@ const fencePattern=/^ {0,3}(`{3,}|~{3,})(.*)$/;
 const listMarker=/^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)/;
 const definitionStart=/^\[(?:\\[\s\S]|[^\]\\]){1,999}\]:/;
 const htmlBlocks:[RegExp,RegExp][]=[
+ [/^ {0,3}<table(?:\s|>|$)/i,/<\/table\s*>/i],
+ [/^ {0,3}<p(?:\s|>|$)/i,/<\/p\s*>/i],
+ [/^ {0,3}<h[1-6](?:\s|>|$)/i,/<\/h[1-6]\s*>/i],
  [/^ {0,3}<(?:script|pre|style|textarea)(?:\s|>|$)/i,/<\/(?:script|pre|style|textarea)>/i],
  [/^ {0,3}<!--/,/-->/],
  [/^ {0,3}<\?/,/\?>/],
@@ -19,7 +22,7 @@ const htmlBlocks:[RegExp,RegExp][]=[
 // never continue the previous block (lists, indented code, and lazy lines all
 // need indentation or no blank line). Fences and the HTML blocks that may hold
 // blank lines (CommonMark types 1-5: script/pre/style/textarea, comments,
-// processing instructions, declarations, CDATA) are never split. A single
+// processing instructions, declarations, CDATA) and HTML content blocks are never split. A single
 // empty line also matters to tiptap, which turns extra trailing blank lines into
 // empty paragraphs; see renderMarkdownPiece.
 export function splitMarkdown(text:string,target=4000):Chunk[]{

@@ -20,6 +20,19 @@
         "minHeight": 600,
         "titleBarStyle": "Overlay",
         "hiddenTitle": true
+      },
+      {
+        "label": "quick-search",
+        "title": "SAG Wiki — Quick Search",
+        "url": "index.html?quick-search",
+        "width": 900,
+        "height": 520,
+        "visible": false,
+        "resizable": false,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "center": true
       }
     ],
     "security": {

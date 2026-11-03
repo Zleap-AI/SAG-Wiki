@@ -5,21 +5,15 @@ use std::{
 };
 
 const GIB: u64 = 1024 * 1024 * 1024;
-/// Memory each conversion may use. Docling with OCR peaks above 2 GiB even
-/// on a one-page PDF (the macOS footprint includes GPU mappings), so a
-/// single job must always get this much when the machine can spare it.
-const JOB_BYTES: u64 = 4 * GIB;
-static GLOBAL: LazyLock<Budget> = LazyLock::new(|| Budget::new(budget_for(physical_memory())));
-/// Total conversion budget: a quarter of physical memory for parallelism,
-/// but never below one full job as long as 2 GiB stay free for the rest of
-/// the system. An 8 GiB machine therefore runs one 4 GiB job instead of
-/// killing every conversion at 2 GiB.
+static GLOBAL: LazyLock<Result<Budget, String>> =
+    LazyLock::new(|| physical_memory().map(|physical| Budget::new(budget_for(physical))));
+/// Reserve half of physical memory for the system and other applications.
 fn budget_for(physical: u64) -> u64 {
-    let floor = JOB_BYTES.min(physical.saturating_sub(2 * GIB)).max(256 * 1024 * 1024);
-    (physical / 4).max(floor).min(12 * GIB)
+    physical / 2
 }
 pub struct Budget {
     maximum: u64,
+    job_bytes: u64,
     used: Mutex<u64>,
     changed: Condvar,
 }
@@ -27,6 +21,9 @@ impl Budget {
     fn new(maximum: u64) -> Self {
         Self {
             maximum,
+            // A quarter of physical memory, with the existing OCR minimum
+            // bounded by the total budget on small machines.
+            job_bytes: (maximum / 2).max(4 * GIB).min(maximum),
             used: Mutex::new(0),
             changed: Condvar::new(),
         }
@@ -65,12 +62,16 @@ impl Drop for Permit<'_> {
 }
 #[cfg(test)]
 pub(crate) fn parallelism() -> usize {
-    (GLOBAL.maximum / JOB_BYTES.min(GLOBAL.maximum)) as usize
+    let budget = GLOBAL.as_ref().expect("读取物理内存失败");
+    (budget.maximum / budget.job_bytes) as usize
 }
 pub fn acquire(cancel: &dyn Fn() -> bool) -> Result<Permit<'static>, Failure> {
-    GLOBAL.acquire(JOB_BYTES, cancel)
+    let budget = GLOBAL
+        .as_ref()
+        .map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
+    budget.acquire(budget.job_bytes, cancel)
 }
-fn physical_memory() -> u64 {
+fn physical_memory() -> Result<u64, String> {
     #[cfg(target_os = "macos")]
     unsafe {
         let mut bytes = 0u64;
@@ -83,17 +84,25 @@ fn physical_memory() -> u64 {
             0,
         ) == 0
         {
-            return bytes;
+            return Ok(bytes);
         }
+        return Err(format!(
+            "无法读取物理内存：{}",
+            std::io::Error::last_os_error()
+        ));
     }
     #[cfg(target_os = "linux")]
-    if let Ok(mem) = std::fs::read_to_string("/proc/meminfo") {
-        if let Some(kib) = mem.lines().find_map(|line| {
-            line.strip_prefix("MemTotal:")
-                .and_then(|s| s.split_whitespace().next()?.parse::<u64>().ok())
-        }) {
-            return kib * 1024;
-        }
+    {
+        let mem = std::fs::read_to_string("/proc/meminfo")
+            .map_err(|error| format!("无法读取物理内存：{error}"))?;
+        let kib = mem
+            .lines()
+            .find_map(|line| {
+                line.strip_prefix("MemTotal:")
+                    .and_then(|s| s.split_whitespace().next()?.parse::<u64>().ok())
+            })
+            .ok_or_else(|| "无法读取物理内存：缺少有效的 MemTotal".to_owned())?;
+        return Ok(kib * 1024);
     }
     #[cfg(windows)]
     unsafe {
@@ -116,22 +125,44 @@ fn physical_memory() -> u64 {
         let mut status: Status = std::mem::zeroed();
         status.length = std::mem::size_of::<Status>() as u32;
         if GlobalMemoryStatusEx(&mut status) != 0 {
-            return status.physical;
+            return Ok(status.physical);
         }
+        return Err(format!(
+            "无法读取物理内存：{}",
+            std::io::Error::last_os_error()
+        ));
     }
-    // Unknown machines get one full job.
-    6 * GIB
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    Err("当前系统不支持读取物理内存".to_owned())
 }
 #[cfg(test)]
 mod tests {
     use super::*;
     #[test]
-    fn small_machines_still_admit_one_full_conversion_job() {
-        assert_eq!(budget_for(8 * GIB), 4 * GIB);
-        assert_eq!(budget_for(16 * GIB), 4 * GIB);
-        assert_eq!(budget_for(4 * GIB), 2 * GIB);
-        assert_eq!(budget_for(64 * GIB), 12 * GIB);
-        assert_eq!(budget_for(1 * GIB), 256 * 1024 * 1024);
+    fn conversion_limits_scale_with_physical_memory_and_preserve_ocr_minimum() {
+        for (physical, job, total) in [
+            (4, 2, 2),
+            (8, 4, 4),
+            (16, 4, 8),
+            (32, 8, 16),
+            (64, 16, 32),
+            (128, 32, 64),
+        ] {
+            let budget = Budget::new(budget_for(physical * GIB));
+            assert_eq!(budget.maximum, total * GIB);
+            let permit = budget.acquire(budget.job_bytes, &|| false).unwrap();
+            assert_eq!(permit.bytes, job * GIB);
+            assert!(permit.bytes <= budget.maximum);
+        }
+    }
+    #[test]
+    fn detected_host_memory_drives_the_live_budget() {
+        let physical = physical_memory().unwrap();
+        assert!(physical > 0);
+        let budget = GLOBAL.as_ref().unwrap();
+        assert_eq!(budget.maximum, physical / 2);
+        let permit = acquire(&|| false).unwrap();
+        assert_eq!(permit.bytes, (physical / 4).max(4 * GIB).min(physical / 2));
     }
     #[test]
     fn waiting_admission_is_cancelled_and_drop_releases_the_reservation() {
