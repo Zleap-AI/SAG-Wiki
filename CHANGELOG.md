@@ -2,7 +2,7 @@
 
 ## 0.2.7
 
-- **文档折叠**：Markdown 支持全文、简述、关键句、要点和主题五个阅读层级，可切换主题卡片与导图，保留原文供编辑。
+- **文档折叠**：Markdown 支持全文、简述、关键句、要点、卡片和导图六个阅读标签，保留原文供编辑。
 - **后台处理与缓存**：关闭折叠面板后继续处理，支持查看进度、主动停止和复用已完成的结果。
 - **长文档索引**：改进超长表格行、Windows 换行和数字内容的处理，保留完整原文及对应位置。
 
@@ -10,7 +10,7 @@
 
 ### English
 
-- **Document folding**: Markdown supports Full, Brief, Key, Takeaway and Topic reading levels, with topic cards and a map while keeping the source editable.
+- **Document folding**: Markdown offers Full, Brief, Key, Takeaway, Cards and Map tabs while keeping the source editable.
 - **Background processing and caching**: processing continues when the fold panel closes, with progress, explicit cancellation and reuse of completed results.
 - **Long-document indexing**: improve handling of long table rows, Windows line endings and numeric content while preserving complete source text and locations.
 
