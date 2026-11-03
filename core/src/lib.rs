@@ -26,3 +26,4 @@ pub mod protocol;
 pub mod explore;
 pub mod service;
 pub mod server;
+mod skill_http;

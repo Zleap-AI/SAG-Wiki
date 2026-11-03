@@ -16,10 +16,10 @@
  export let connectionOpen=false;
  export let connectionSuccessUntil=0;
  type Installation={name:string;path:string;installed:boolean;version:string|null};
- let installations:Installation[]=[],loaded=false,error='',notice='';
+ let installations:Installation[]=[],loaded=false,error='',notice='',skillUrl='';
  let connectionSuccessVisible=false,disposed=false;
  let connectionTimer:ReturnType<typeof setTimeout>|undefined;
- let operation:{target:string;kind:'install'|'uninstall'|'test'|'download'}|null=null;
+ let operation:{target:string;kind:'install'|'uninstall'|'test'}|null=null;
  let copiedCommand:string|null=null;
  let savedAccess:CliAccess|undefined;
  const successFadeDuration=window.matchMedia('(prefers-reduced-motion: reduce)').matches?0:800;
@@ -41,10 +41,10 @@
  }
 
  async function load(){
-  const config=await api<{access:CliAccess;installations:Installation[];install_error?:string|null}>('get_cli_settings');
+  const config=await api<{access:CliAccess;installations:Installation[];install_error?:string|null;skill_url:string}>('get_cli_settings');
   savedAccess=config.access;
   access=access??config.access;
-  installations=config.installations;error=config.install_error??'';loaded=true;
+  installations=config.installations;skillUrl=config.skill_url;error=config.install_error??'';loaded=true;
  }
  async function refresh(){pending=true;error='';try{await load();}catch(e){error=String(e);}finally{pending=false;}}
  onMount(()=>{void refresh();});
@@ -60,8 +60,8 @@
  async function copyCommand(name:string){
   error='';notice='';copiedCommand=null;
   try{
-   await navigator.clipboard.writeText(`sag install ${name}`);
-   copiedCommand=name;notice=$t('已复制 {value0} 的安装命令',{value0:names[name]});
+   await navigator.clipboard.writeText(name==='other'?`set up: ${skillUrl}`:`sag install ${name}`);
+   copiedCommand=name;notice=$t('已复制 {value0} 的安装命令',{value0:name==='other'?$t('其他 Agent'):names[name]});
   }catch(e){error=$t('复制失败：{value0}',{value0:String(e)});}
  }
  async function testConnection(){
@@ -74,13 +74,6 @@
    const result=await api<string>('test_cli_connection');
    if(!disposed){connectionSuccessUntil=Date.now()+3000;connection=result;}
   }catch(e){if(!disposed)error=String(e);}finally{pending=false;operation=null;}
- }
- async function downloadSkill(){
-  pending=true;error='';notice='';operation={target:'other',kind:'download'};
-  try{
-   const path=await api<string|null>('download_cli_skill',{title:$t('选择 Skill 保存位置')});
-   if(path)notice=$t('Skill 已下载到 {value0}。请将 sag 文件夹添加到所用工具的 Skills 目录。',{value0:displayPath(path)});
-  }catch(e){error=String(e);}finally{pending=false;operation=null;}
  }
 </script>
 
@@ -118,8 +111,7 @@
      </div>
     {/each}
     <div class="cli-install-row">
-     <div class="cli-install-info"><strong>{$t('其他')}</strong><p class="cli-download-description">{$t('下载完整 Skill 文件夹，接入到其他Agent。')}</p></div>
-     <Button.Root type="button" class="outline cli-action" disabled={disabled} aria-label={$t('下载 SAG Skill')} onclick={downloadSkill}>{operation?.kind==='download'?$t('下载中…'):$t('下载')}</Button.Root>
+     <div class="cli-install-info"><strong>{$t('其他')}</strong><p class="cli-setup-hint">{$t('复制以下指令，发送给你的 Agent 完成接入。')}</p><div class="cli-command-copy cli-setup-copy"><code class="cli-install-command" aria-label={$t('其他 Agent 的安装指令')}>set up: {skillUrl}</code><Button.Root type="button" class="icon-button cli-copy" disabled={disabled} aria-label={$t('复制其他 Agent 安装指令')} title={copiedCommand==='other'?$t('已复制'):$t('复制安装命令')} onclick={()=>copyCommand('other')}>{@html icon(copiedCommand==='other'?'check':'copy')}</Button.Root></div></div>
     </div>
    </div>
   </section>
@@ -197,7 +189,6 @@ sag --help</code></pre>
  .cli-install-row{display:flex;align-items:center;gap:12px;padding:14px 16px;min-height:68px}
  .cli-install-row+.cli-install-row{border-top:1px solid var(--color-rule)}
  .cli-install-info{flex:1;min-width:0}
- .cli-download-description{margin:4px 0 0;font-size:var(--text-caption);line-height:1.5;color:var(--color-secondary)}
  .cli-settings :global(.cli-action){min-width:66px;min-height:32px;white-space:nowrap;flex-shrink:0}
  .cli-settings :global(.cli-action.cli-uninstall){background:var(--color-danger);border-color:var(--color-danger);color:var(--color-danger-ink)}
  .cli-settings :global(button:disabled){opacity:.5;cursor:default}
@@ -211,6 +202,9 @@ sag --help</code></pre>
  .cli-settings :global(.cli-location-content code){display:block;overflow-wrap:anywhere;font:11px/1.6 var(--font-mono)}
  .cli-settings :global(.cli-location-content p){margin:6px 0 0}
  .cli-command-copy{display:flex;align-items:center;gap:6px;margin-top:3px}
+ .cli-setup-hint{margin:4px 0 0;font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
+ .cli-setup-copy{padding:7px 10px;margin-top:7px;border:1px solid var(--color-rule);border-radius:6px;background:var(--color-panel)}
+ .cli-setup-copy code{flex:1;min-width:0}
  .cli-settings :global(.cli-copy){display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex-shrink:0;color:var(--color-secondary)}
  .cli-settings :global(.cli-copy .icon){width:14px;height:14px}
  .cli-install-command{display:block;user-select:text;overflow-wrap:anywhere;font:11px/1.6 var(--font-mono);color:var(--color-secondary)}

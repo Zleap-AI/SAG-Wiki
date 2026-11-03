@@ -105,6 +105,13 @@ async fn serve(
     requests: Arc<Semaphore>,
 ) -> Result<()> {
     stream.set_nodelay(true)?;
+    let mut first = [0u8; 1];
+    if tokio::time::timeout(Duration::from_secs(10), stream.peek(&mut first)).await?? == 0 {
+        return Ok(());
+    }
+    if first[0].is_ascii_alphabetic() {
+        return crate::skill_http::serve(stream).await;
+    }
     let (read, write) = stream.into_split();
     let mut read = BufReader::new(read);
     let write = Arc::new(tokio::sync::Mutex::new(write));

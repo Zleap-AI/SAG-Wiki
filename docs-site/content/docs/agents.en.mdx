@@ -61,9 +61,17 @@ Location: the plug icon for **Connect Agent** at the top right, or **Settings �
 | Test connection | Check CLI-to-service connectivity | Save switch changes first. Connectivity does not prove project indexing is complete. |
 | Install for Claude Code / Codex / OpenCode | Install that agent's SAG Skill | Select Install; installed integrations can be removed. Start a new agent session to load the Skill. |
 | Copy installation command | Copy the corresponding `sag install` command | Run it locally or give it to the agent. |
-| Other → Download SAG Skill | Save the complete Skill folder | Place it in another agent's Skills directory manually. |
+| Other | Copy a local Skill setup instruction | Use the copy button beside the code block and send it to an agent on the same computer. |
 | Skill installation guide | Show setup steps and the actual location | Expand to inspect where files are installed. |
 | CLI usage guide | Basic commands, project scope and status checks | See the full [CLI reference](/en/docs/cli). |
+
+The **Other** row says “Copy the instruction below and send it to your agent to complete setup.” Use the copy icon beside the code block. The instruction uses the actual port shown in settings:
+
+```text
+set up: http://127.0.0.1:PORT/sag-wiki.md
+```
+
+The agent can read this link and its companion documents while reusing the local CLI and configuration. Keep the local service running; copy the current link again after restarting the service.
 
 No separate per-folder CLI authorization selection is required. Search still covers only indexed content beneath the current path and respects exclusions. Disabling CLI affects agent access without deleting originals or indexes.
 
