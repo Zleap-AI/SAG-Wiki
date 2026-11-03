@@ -14,8 +14,8 @@ reader payload in `src/lib/textfold-reader.ts`.
 supplies data through a same-origin parent/frame boundary and loads the original
 reader. `sag.css` hides standalone-app controls already provided by SAG, inherits
 SAG's palette/fonts, and preserves Markdown ordered list numbering/code blocks.
-It also puts reading instructions behind the `?` button and centers the
-cards/map selector above the reading-level selector, keeping the latter's vertical position fixed.
+It also puts reading instructions behind the `?` button and places
+Cards and Map in the primary level selector, with no secondary tab row.
 The isolated animation host receives the same palette and fonts as the visible
 document; its upstream `:host` defaults otherwise override inherited SAG colors.
 The iframe keeps the original window-scroll animation model and CSS isolated

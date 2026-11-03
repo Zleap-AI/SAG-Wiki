@@ -13,7 +13,7 @@
  let frame:HTMLIFrameElement,ready=false,level=3,scrollTop=0;
  let percent=0,stage='preparing';
  let progressSubscription:{id:string;timer:ReturnType<typeof setInterval>;stop?:UnlistenFn}|null=null;
- const names=['全文','简述','关键句','要点','阅读主题'];
+ const names=['全文','简述','关键句','要点','卡片','导图'];
  function stopProgress(id:string){if(progressSubscription?.id===id){clearInterval(progressSubscription.timer);progressSubscription.stop?.();progressSubscription=null;}}
  async function start(){
   if(open){await close();return;}

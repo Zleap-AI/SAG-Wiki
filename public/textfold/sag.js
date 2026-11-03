@@ -43,6 +43,30 @@
       document.addEventListener('keydown', event => {
         if (event.key === 'Escape' && !hint.hidden) { showHelp(false); help.focus(); event.stopPropagation(); }
       });
+      const bar = document.getElementById('zoombar'), views = document.querySelector('.tview');
+      const tabs = document.createElement('div'); tabs.className = 'sag-primary-tabs';
+      bar.before(tabs); tabs.append(bar);
+      const cards = bar.querySelector('[data-l="0"]'), map = document.createElement('button');
+      map.type = 'button'; map.className = 'sag-map-tab'; map.dataset.view = 'map'; tabs.append(map);
+      const syncTabs = () => {
+        const labels = window.DR_I18N.t(window.__reader.ui, true);
+        cards.textContent = labels.tv_cards; map.textContent = labels.tv_map;
+        const showingMap = window.__reader.level === 0 && views.querySelector('[data-view="map"]').getAttribute('aria-checked') === 'true';
+        tabs.dataset.map = String(showingMap);
+        cards.setAttribute('aria-pressed', String(window.__reader.level === 0 && !showingMap));
+        map.setAttribute('aria-pressed', String(showingMap)); map.classList.toggle('on', showingMap);
+        if (window.__reader.level === 0) bar.setAttribute('aria-valuetext', showingMap ? labels.tv_map : labels.tv_cards);
+      };
+      const chooseCards = () => views.querySelector('[data-view="cards"]').click();
+      bar.addEventListener('pointerdown', chooseCards, true);
+      bar.addEventListener('click', chooseCards, true);
+      map.addEventListener('click', () => {
+        views.querySelector('[data-view="map"]').click();
+        window.__reader.setLevel(0); syncTabs();
+      });
+      new MutationObserver(syncTabs).observe(views, {childList:true});
+      new MutationObserver(syncTabs).observe(document.getElementById('doc'), {attributes:true,attributeFilter:['data-level']});
+      syncTabs();
       document.querySelector('.zrow').append(help);
       // Markdown ordered lists retain their source numbering. TextFold's paper
       // parser emits unordered lists; adjust only those marked ordered by SAG.

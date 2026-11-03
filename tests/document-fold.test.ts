@@ -119,7 +119,8 @@ it('关闭后继续完成处理，重新打开直接显示结果且不重新请�
  await vi.waitFor(()=>expect(document.querySelector('.document-fold-toggle')).not.toBeNull());
  document.querySelector<HTMLButtonElement>('.document-fold-toggle')!.click();await tick();
  expect(document.querySelector('.document-fold-toggle')?.textContent).toBe('关闭');
- expect(document.querySelectorAll('.fold-levels button')).toHaveLength(5);
+ expect(document.querySelectorAll('.fold-levels button')).toHaveLength(6);
+ expect([...document.querySelectorAll('.fold-levels button')].map(button=>button.textContent)).toEqual(['全文','简述','关键句','要点','卡片','导图']);
  expect(document.querySelector('[role=status]')?.textContent).toContain('1%');
  document.querySelector<HTMLButtonElement>('.document-fold-toggle')!.click();await tick();
  expect(invoke.mock.calls.some(([command])=>command==='cancel_query')).toBe(false);
