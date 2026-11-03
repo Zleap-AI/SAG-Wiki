@@ -67,7 +67,7 @@ it('downloads in app, keeps progress across settings navigation, and only instal
  await vi.waitFor(()=>expect(document.body.textContent).toContain('发现新版本 0.1.6'));
  expect(document.querySelectorAll('.app-updates button')).toHaveLength(1);
  expect(document.querySelector('.app-updates .setting-row button')?.textContent).toBe('下载更新');
- expect(document.body.textContent).toContain('修复与改进');
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('修复与改进'));
  let finish!:()=>void;
  invoke.mockImplementationOnce((_command,args)=>new Promise<void>(resolve=>{
   finish=resolve;
