@@ -1,4 +1,8 @@
 {
+  "复制以下指令，发送给你的 Agent 完成接入。": "Copy the instruction below and send it to your agent to complete setup.",
+  "其他 Agent": "Other agents",
+  "其他 Agent 的安装指令": "Setup instruction for other agents",
+  "复制其他 Agent 安装指令": "Copy setup instruction for other agents",
   "从托盘或菜单栏重新打开，也可在那里退出。": "Reopen or quit from the system tray or menu bar.",
   "后台继续运行": "Keep running in the background",
   "正在索引，请等待当前任务完成": "Indexing is in progress. Wait for the current task to finish.",

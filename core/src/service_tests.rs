@@ -1289,3 +1289,35 @@ async fn save_note_writes_an_anchored_file_and_tracks_source_changes() {
     assert_eq!(all.len(), 1);
     stop(&client, server).await;
 }
+
+#[tokio::test]
+async fn local_skill_http_serves_bundled_files_without_affecting_rpc() {
+    let (dir, client, server) = start().await;
+    let endpoint: Endpoint = serde_json::from_slice(
+        &std::fs::read(dir.path().join("data/sag-service.json")).unwrap(),
+    ).unwrap();
+    let base = format!("http://127.0.0.1:{}", endpoint.port);
+    let http = reqwest::Client::new();
+    for (path, expected) in [
+        ("/sag-wiki.md", include_str!("../../cli/skills/sag/SKILL.md")),
+        ("/SKILL.md", include_str!("../../cli/skills/sag/SKILL.md")),
+        ("/references/setup.md", include_str!("../../cli/skills/sag/references/setup.md")),
+        ("/references/parameters.md", include_str!("../../cli/skills/sag/references/parameters.md")),
+        ("/references/ignores.md", include_str!("../../cli/skills/sag/references/ignores.md")),
+    ] {
+        let response = http.get(format!("{base}{path}")).send().await.unwrap();
+        assert_eq!(response.status(), 200);
+        assert_eq!(response.headers()["content-type"], "text/markdown; charset=utf-8");
+        assert_eq!(response.text().await.unwrap(), expected);
+    }
+    let head = http.head(format!("{base}/sag-wiki.md")).send().await.unwrap();
+    assert_eq!(head.status(), 200);
+    assert_eq!(head.headers()["content-length"], include_str!("../../cli/skills/sag/SKILL.md").len().to_string());
+    assert!(head.bytes().await.unwrap().is_empty());
+    for path in ["/credentials.json", "/references/other.md", "/sag-service.json"] {
+        assert_eq!(http.get(format!("{base}{path}")).send().await.unwrap().status(), 404);
+    }
+    assert_eq!(http.post(format!("{base}/sag-wiki.md")).send().await.unwrap().status(), 405);
+    assert!(matches!(call(&client, Operation::Info).await, Output::Info(_)));
+    stop(&client, server).await;
+}
