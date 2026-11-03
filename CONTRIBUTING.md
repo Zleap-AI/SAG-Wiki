@@ -18,6 +18,15 @@ Desktop builds, unit/component tests, documentation builds, installer smoke test
 
 ## CI resource use
 
+On Windows, run desktop Rust tests with
+`pwsh -NoProfile -File scripts/test-windows-desktop.ps1`. The locked Tauri
+build helper links its Common Controls v6 manifest into application binaries
+only. The wrapper compiles the test harnesses, embeds the manifest into exactly
+the test executables reported by Cargo, and runs the complete desktop test suite.
+This prevents `STATUS_ENTRYPOINT_NOT_FOUND` for `comctl32!TaskDialogIndirect`
+without modifying application binaries or skipping tests. It requires the
+Windows SDK manifest tool (`mt.exe`). macOS uses the regular `cargo test` command.
+
 Frontend unit tests run once on Linux in the main desktop workflow. Both native
 platforms retain Rust tests, installer builds and real packaged/installed CLI
 checks. Release signing accepts only the exact commit whose frontend,
