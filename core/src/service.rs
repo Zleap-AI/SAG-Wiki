@@ -34,12 +34,13 @@ fn emit(app: &EventSink, event: &str, payload: impl serde::Serialize + Clone) {
         "index-progress" => ServiceEvent::IndexProgress(serde_json::from_value(value).unwrap()),
         "app-error" => ServiceEvent::AppError(serde_json::from_value(value).unwrap()),
         "query-progress" => ServiceEvent::QueryProgress(serde_json::from_value(value).unwrap()),
+        "document-fold-progress" => ServiceEvent::DocumentFoldProgress(serde_json::from_value(value).unwrap()),
         "tool-approval" => ServiceEvent::ToolApproval(serde_json::from_value(value).unwrap()),
         _ => unreachable!("unknown service event"),
     };
     let owner = matches!(
         event,
-        ServiceEvent::QueryProgress(_) | ServiceEvent::ToolApproval(_)
+        ServiceEvent::QueryProgress(_) | ServiceEvent::DocumentFoldProgress(_) | ServiceEvent::ToolApproval(_)
     )
     .then(|| app.owner.clone());
     let _ = app.bus.send((
@@ -1384,6 +1385,11 @@ impl Service {
                 let store = self.store.clone();
                 tokio::task::spawn_blocking(move || store.clear_all_data().map_err(error))
                     .await.map_err(error)??;
+                match std::fs::remove_dir_all(self.data_dir.join("document-folds")) {
+                    Ok(()) => {},
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+                    Err(e) => return Err(error(e)),
+                }
                 models::clear_secrets(&self.data_dir).map_err(error)?;
                 self.cli.configure(sag_protocol::Access::default()).map_err(error)?;
                 Out::Unit
@@ -1396,6 +1402,19 @@ impl Service {
                 Out::Conversation(replace_messages(id, messages, self, app).await?)
             }
             Op::RunQuery { query } => Out::Query(run_query(query, self, app).await?),
+            Op::FoldDocument { id, document } => {
+                let _access = self.conversation_access.read().await;
+                let cancel = app.cancel.child_token();
+                self.tasks.lock().unwrap().insert((app.owner.clone(), id.clone()), cancel.clone());
+                let result = async {
+                    let settings = self.store.settings()?;
+                    crate::document_fold::generate(&self.client, &self.data_dir, &settings, &document, &cancel, |stage, percent| {
+                        emit(app, "document-fold-progress", sag_protocol::FoldProgress { id: id.clone(), stage: stage.into(), percent });
+                    }).await
+                }.await;
+                self.tasks.lock().unwrap().remove(&(app.owner.clone(), id));
+                Out::DocumentFold(result.map_err(error)?)
+            }
             Op::SummarizeSearch { id, question, results } =>
                 Out::SearchSummary(summarize_search(id, question, results, self, app).await?),
             Op::CancelQuery { id } => {

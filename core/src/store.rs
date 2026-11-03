@@ -2310,7 +2310,7 @@ cat "$source" > "$output"
         let previous = fs::read(&output).unwrap();
         assert!(std::str::from_utf8(&previous).unwrap().contains("../../nested/report.eml"));
         let previous_hash = hash(&previous);
-        fs::write(&source, "unbrokenword ".repeat(25_000)).unwrap();
+        fs::File::create(&source).unwrap().set_len(MAX_TEXT_INPUT_BYTES as u64 + 1).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "partial");
         assert!(fs::read(&output).unwrap() == previous, "a rejected replacement must not overwrite the source of the usable index");
@@ -3397,8 +3397,8 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
             "SELECT id,hash,(SELECT COUNT(*) FROM chunks WHERE document_id=documents.id) FROM documents WHERE path=?",
             [path.to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         ).unwrap();
-        // A modest synthetic input exercises the long-line/tokenizer limit without an OOM stress test.
-        fs::write(&path, "unbrokenword ".repeat(25_000)).unwrap();
+        // A sparse file exercises the input limit without allocating oversized text.
+        fs::File::create(&path).unwrap().set_len(MAX_TEXT_INPUT_BYTES as u64 + 1).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let state = &store.roots().unwrap()[0];
         assert_eq!(state.status, "partial");
@@ -3418,7 +3418,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn bounded_text_resource_failure_is_recorded_as_failed_in_history() {
         let (_dir, store, root) = setup();
         let path = root.join("long.txt");
-        fs::write(&path, "unbrokenword ".repeat(25_000)).unwrap();
+        fs::File::create(&path).unwrap().set_len(MAX_TEXT_INPUT_BYTES as u64 + 1).unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let id = store.index_history().unwrap()[0].id;
         let raw = store.index_history_log(id).unwrap().raw.unwrap();

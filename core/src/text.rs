@@ -330,45 +330,79 @@ impl Lines {
     }
 }
 // Sentence/line boundaries retain exact source offsets, including closing quotes.
-fn sentence_ranges(source: &str, start: usize, end: usize, code: bool) -> Vec<(usize, usize)> {
-    let mut parts = vec![];
+fn sentence_ranges(source: &str, start: usize, end: usize, code: bool) -> impl Iterator<Item = (usize, usize)> + '_ {
     let mut cursor = start;
     let mut chars = source[start..end].char_indices().peekable();
-    while let Some((offset, ch)) = chars.next() {
-        let boundary = if code {
-            ch == '\n'
-        } else {
-            "。！？!?".contains(ch)
-                || ch == '.' && chars.peek().is_none_or(|(_, next)| next.is_whitespace() || "\"'”’）)]}".contains(*next))
-        };
-        if !boundary { continue; }
-        let mut cut = start + offset + ch.len_utf8();
-        if !code {
-            while let Some(&(offset, ch)) = chars.peek() {
-                if !(ch.is_whitespace() || "。！？!?\"'”’）)]}".contains(ch)) { break; }
-                cut = start + offset + ch.len_utf8();
-                chars.next();
+    std::iter::from_fn(move || {
+        while let Some((offset, ch)) = chars.next() {
+            let boundary = if code {
+                ch == '\n'
+            } else {
+                "。！？!?".contains(ch)
+                    || ch == '.' && chars.peek().is_none_or(|(_, next)| next.is_whitespace() || "\"'”’）)]}".contains(*next))
+            };
+            if !boundary { continue; }
+            let mut cut = start + offset + ch.len_utf8();
+            if !code {
+                while let Some(&(offset, ch)) = chars.peek() {
+                    if !(ch.is_whitespace() || "。！？!?\"'”’）)]}".contains(ch)) { break; }
+                    cut = start + offset + ch.len_utf8();
+                    chars.next();
+                }
             }
+            let part = (cursor, cut);
+            cursor = cut;
+            return Some(part);
         }
-        parts.push((cursor, cut));
-        cursor = cut;
+        if cursor < end {
+            let part = (cursor, end);
+            cursor = end;
+            Some(part)
+        } else { None }
+    })
+}
+
+// Exceptionally long sentences/tables are split at word boundaries when possible.
+// Original byte ranges, Unicode columns and CRLF pairs remain intact.
+fn split_oversized_range(source: &str, mut start: usize, end: usize, limit: usize) -> Vec<(usize, usize)> {
+    let limit = limit.min(MAX_INDEX_LINE_BYTES / 4);
+    let mut parts = vec![];
+    while start < end {
+        let mut length = 0;
+        let mut whitespace = None;
+        let mut cut = end;
+        for (offset, ch) in source[start..end].char_indices() {
+            if length + ch.len_utf16() > limit {
+                cut = whitespace.unwrap_or(start + offset);
+                if source.as_bytes()[cut - 1] == b'\r' && source.as_bytes().get(cut) == Some(&b'\n') { cut -= 1; }
+                break;
+            }
+            length += ch.len_utf16();
+            if ch.is_whitespace() { whitespace = Some(start + offset + ch.len_utf8()); }
+        }
+        parts.push((start, cut));
+        start = cut;
     }
-    if cursor < end { parts.push((cursor, end)); }
     parts
 }
 
-// 512 is a target: never split a sentence (or a source-code line) to meet it.
+// 512 is a target; only resource-sized sentences/lines need the bounded fallback.
 fn split_block(
     source: &str,
     start: usize,
     end: usize,
     limit: usize,
     code: bool,
+    bounded: bool,
 ) -> Vec<(usize, usize)> {
     let mut parts = vec![];
     let mut cursor = start;
     let mut length = 0;
-    for (s, e) in sentence_ranges(source, start, end, code) {
+    let sentences = sentence_ranges(source, start, end, code).flat_map(|(s, e)| {
+        if bounded && e - s > MAX_INDEX_LINE_BYTES { split_oversized_range(source, s, e, limit) }
+        else { vec![(s, e)] }
+    });
+    for (s, e) in sentences {
         let size = source[s..e].encode_utf16().count();
         if length > 0 && length + size > limit {
             parts.push((cursor, s));
@@ -398,17 +432,12 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
     assert!(max_chars >= 2);
     let ranges = indexable_ranges(content, path);
     if byte_limit.is_some() {
-        if content.bytes().filter(|byte| matches!(byte, b'\r' | b'\n')).count() > MAX_INDEX_STRUCTURE_ITEMS {
+        if content.bytes().enumerate().filter(|&(i, byte)| byte == b'\n' || byte == b'\r' && content.as_bytes().get(i + 1) != Some(&b'\n')).count() > MAX_INDEX_STRUCTURE_ITEMS {
             return Err(ResourceLimit(format!("换行数量不得超过 {MAX_INDEX_STRUCTURE_ITEMS}")));
         }
         let mut boundaries = 0usize;
         for &(start, end) in &ranges {
-            for line in content[start..end].split(['\r', '\n']) {
-                if line.len() > MAX_INDEX_LINE_BYTES {
-                    return Err(ResourceLimit("单行可索引文本不得超过 256 KiB".into()));
-                }
-            }
-            boundaries += content[start..end].chars().filter(|ch| "。！？!?.\n".contains(*ch)).count();
+            boundaries += sentence_ranges(content, start, end, code).take(MAX_INDEX_STRUCTURE_ITEMS + 1).count();
             if boundaries > MAX_INDEX_STRUCTURE_ITEMS {
                 return Err(ResourceLimit(format!("句子/行边界数量不得超过 {MAX_INDEX_STRUCTURE_ITEMS}")));
             }
@@ -530,12 +559,12 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
         })
     });
     for (heading, start, end, code) in blocks {
-        for (s, e) in split_block(content, start, end, body_limit, code) {
+        for (s, e) in split_block(content, start, end, body_limit, code, byte_limit.is_some()) {
             let part = &content[s..e];
             if byte_limit.is_some() && part.len() > MAX_INDEX_LINE_BYTES {
                 return Err(ResourceLimit("单个完整句子/代码行不得超过 256 KiB".into()));
             }
-            let sentence_parts = sentence_ranges(content, s, e, code);
+            let sentence_parts: Vec<_> = sentence_ranges(content, s, e, code).collect();
             let n = part.encode_utf16().count();
             let new_chunk = result.last().is_none_or(|c| c.heading != heading.as_ref()) || length + 2 + n > body_limit;
             if let Some(limit) = byte_limit {
@@ -626,6 +655,44 @@ pub(crate) fn source_content(source: &str, spans: &[crate::types::SourceSpan]) -
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn bounded_index_counts_crlf_as_one_line_break() {
+        let source = format!("first marker.\r\n{}last marker.", "\r\n".repeat(70_000));
+        let chunks = chunks_for_index(&source, 512, std::path::Path::new("policy.md"), 16 * 1024 * 1024).unwrap();
+        assert!(chunks.first().unwrap().content.contains("first marker."));
+        assert!(chunks.last().unwrap().content.contains("last marker."));
+        assert_eq!(chunks.last().unwrap().spans.last().unwrap().end_line, 70_002);
+    }
+
+    #[test]
+    fn bounded_index_does_not_count_decimal_points_and_dot_leaders_as_sentences() {
+        let source = "wind-treating therapy......................................................3.14\r\n\r\n".repeat(5000);
+        let chunks = chunks_for_index(&source, 512, std::path::Path::new("policy.md"), 16 * 1024 * 1024).unwrap();
+        assert!(!chunks.is_empty());
+        assert!(chunks.last().unwrap().content.contains("3.14"));
+    }
+
+    #[test]
+    fn bounded_index_splits_oversized_table_lines_without_losing_source() {
+        let source = format!("车型名称 纯电动续驶里程 {}尾部车型标记", "汽车企业 CA5310 😀 续驶里程225 ".repeat(10_000));
+        let chunks = chunks_for_index(&source, 512, std::path::Path::new("policy.md"), 16 * 1024 * 1024).unwrap();
+        assert!(chunks.len() > 1);
+        let mut covered = 0;
+        for chunk in &chunks {
+            assert!(chunk.content.len() <= 4096, "oversized chunks still reach the tokenizer");
+            for span in &chunk.spans {
+                assert_eq!((span.start_line, span.end_line), (1, 1));
+                assert!(span.start_byte <= covered);
+                assert_eq!(span.start_column, source[..span.start_byte].chars().count() + 1);
+                assert_eq!(span.end_column, source[..span.end_byte].chars().count() + 1);
+                assert_eq!(source_content(&source, &chunk.spans), chunk.content);
+                covered = covered.max(span.end_byte);
+            }
+        }
+        assert_eq!(covered, source.len());
+        assert!(chunks.last().unwrap().content.contains("尾部车型标记"));
+    }
+
     #[test]
     fn bounded_chunks_count_a_long_heading_once_per_merged_chunk() {
         let source = format!("# {}\n\n{}", "heading".repeat(100), "Evidence sentence.\n\n".repeat(200));

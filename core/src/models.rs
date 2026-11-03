@@ -409,6 +409,17 @@ pub(crate) fn payload(config: &ModelConfig, messages: Vec<Value>, stream: bool) 
     }
     Ok(p)
 }
+// Reading layers use TextFold's no-reasoning default, independently of chat settings.
+pub(crate) fn fold_payload(config: &ModelConfig, messages: Vec<Value>) -> Result<Value> {
+    let mut config = config.clone();
+    config.reasoning_effort = model_capability(&config)
+        .filter(|entry| entry.levels.iter().any(|level| level.value == crate::types::ReasoningEffort::None))
+        .map(|_| crate::types::ReasoningEffort::None);
+    let mut value = payload(&config, messages, true)?;
+    value["response_format"] = json!({"type":"json_object"});
+    Ok(value)
+}
+
 fn answer_messages(
     question: &str,
     evidence: &[Candidate],

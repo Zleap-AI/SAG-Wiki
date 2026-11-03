@@ -34,3 +34,9 @@ test. The `many` and `diagram` fixture options demonstrate scrolling and Mermaid
 Refresh the matching bilingual MDX instructions whenever navigation or controls
 change. Preserve extension screenshots, branding, community QR codes and
 benchmark charts unless their owning features change.
+
+`node bench/docs/fold.cjs` refreshes folding and processing-progress screenshots. It also
+checks the embedded original TextFold renderer under the desktop CSP: moving
+text, fractional slider positions, chapter cards, preserved tables, local
+paragraph expansion, return to editing, dark mode, percentage progress, and cancellation. Set `DOCS_PORT` when using
+a separate fixture server (default 1437).

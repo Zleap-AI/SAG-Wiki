@@ -24,7 +24,7 @@
  function readHeadings(){
   headings=Array.from(scroller.querySelectorAll<HTMLElement>('h1,h2,h3,h4,h5,h6'))
    .map(element=>({element,text:element.textContent?.trim()??'',level:Number(element.tagName[1])}))
-   .filter(heading=>heading.text);
+   .filter(heading=>heading.text&&!heading.element.closest('[hidden]'));
   updateActive();
  }
  function navigate(index:number){

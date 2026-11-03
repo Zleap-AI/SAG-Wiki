@@ -116,6 +116,8 @@ Global **Reindex** checks all registered directories using saved types and exclu
 
 Open **Index history → View** to inspect progress, completion and failures. Check error paths and messages rather than assuming a total file count means everything succeeded.
 
+Exceptionally long table rows are indexed in smaller passages without editing the original file or its line breaks. Results still point to the original locations. File size and memory budgets remain enforced; exceeding them reports an error instead of writing an incomplete index.
+
 The bottom of the sidebar shows the current stage, progress and partial failures. Longer text wraps while keeping the close button available. Click the status to inspect failed files.
 
 After you dismiss a failure notice, the app remembers the current failure details and keeps that notice hidden when you reopen the interface. New indexing runs still show progress, and changed failure details trigger a new notice. You can still inspect dismissed failures through the index status card on the Files page or **Index history → View**.
