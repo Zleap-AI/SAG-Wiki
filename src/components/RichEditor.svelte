@@ -1,4 +1,5 @@
 <script lang="ts">
+ import DocumentFold from './DocumentFold.svelte';
  import {t} from '../lib/i18n';
  import Select from "./ui/Select.svelte";
  import DocumentOutline from './DocumentOutline.svelte';
@@ -9,6 +10,7 @@
  import{BoundedTableKit,BoundedTaskList,TaskItem}from '../lib/markdown-extensions';
  import{onMount,onDestroy}from 'svelte';import{Editor,Extension}from '@tiptap/core';import{Plugin,PluginKey}from '@tiptap/pm/state';import{Decoration,DecorationSet}from '@tiptap/pm/view';import{editorMatches}from '../lib/search-highlights';import type{TextMatch}from '../lib/search-highlights';import MatchNavigation from './MatchNavigation.svelte';import StarterKit from '@tiptap/starter-kit';import{Markdown}from '@tiptap/markdown';import Placeholder from '@tiptap/extension-placeholder';import{LocalImage,splitFrontmatter,protectHtml,restoreHtml,hydrateImages}from '../lib/markdown';
  export let searchTerms:string[]=[];export let body='';export let path='';export let initialMatch=0;export let onChange:(body:string)=>void=()=>{};
+ let folded=false;
  let host:HTMLDivElement;let editor:Editor;let style='paragraph';let active:string[]=[];let canUndo=false,canRedo=false;const original=splitFrontmatter(body);
  $:formatGroups=[
   [{name:'bold',label:$t("加粗")},{name:'italic',label:$t("斜体")},{name:'strike',label:$t("删除线")}],
@@ -30,7 +32,7 @@
  $:if(editor){editor.setOptions({editorProps:{...editor.options.editorProps,attributes:{role:'textbox','aria-label':$t('文档正文'),'aria-multiline':'true'}}});editor.view.dispatch(editor.state.tr.setMeta('language',true));}
  onDestroy(()=>editor?.destroy());
 </script>
-<div class="editor-toolbar native-editor-toolbar" role="group" aria-label={$t("文档格式")}>
+<div style:display={folded?'none':undefined} class="editor-toolbar native-editor-toolbar" role="group" aria-label={$t("文档格式")}>
  <div class="format-controls">
   <div class="paragraph-control"><Select label={$t("段落样式")} bind:value={style} onValueChange={()=>{if(style==='paragraph')editor.chain().focus().setParagraph().run();else editor.chain().focus().toggleHeading({level:Number(style)as 1|2|3}).run();}} items={[{value:'paragraph',label:$t("正文")},{value:'1',label:$t("标题 1")},{value:'2',label:$t("标题 2")},{value:'3',label:$t("标题 3")}]}/></div>
   {#each formatGroups as group}
@@ -48,5 +50,5 @@
   </div>
  </div>
 </div>
-<MatchNavigation count={matchCount} index={matchIndex} onMove={step=>selectMatch(matchIndex+step)}/>
-<DocumentOutline><div bind:this={host} id="rich-editor"></div></DocumentOutline>
+<div hidden={folded}><MatchNavigation count={matchCount} index={matchIndex} onMove={step=>selectMatch(matchIndex+step)}/></div>
+<DocumentOutline><div bind:this={host} id="rich-editor" hidden={folded} style:display={folded?'none':undefined}></div>{#if editor}<DocumentFold editor={editor.view.dom} {path} bind:active={folded}/>{/if}</DocumentOutline>

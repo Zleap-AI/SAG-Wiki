@@ -33,12 +33,25 @@ const history=[{id:3,path:root,name:roots[0].name,started_at:now-3600000,finishe
 const docling={installed:false,running:false,stage:'idle',message:'',downloaded:0,total:null,packages_done:null,packages_total:null,error:null,formats:[],builtin_formats:[['Documents',['pdf','docx','xlsx','epub']]],profiles:[]};
 const graphDocs=docs.map(({body,...d})=>({...d,file_type:'md'}));
 const graphEdges=[{source:1,target:2,source_hash:'demo-0',target_hash:'demo-1',score:.76,terms:[text('发布','release')],snapshot:'demo'},{source:1,target:3,source_hash:'demo-0',target_hash:'demo-2',score:.64,terms:[text('测试','tests')],snapshot:'demo'}];
+const callbacks=new Map<number,(value:any)=>void>(),listeners=new Map<number,{event:string;handler:number}>();let nextCallback=0;
+function fixtureEvent(event:string,payload:unknown){for(const [id,listener] of listeners)if(listener.event===event)callbacks.get(listener.handler)!({event,id,payload});}
 const handlers:Record<string,(a:any)=>any>={
+ fold_document:async a=>{
+  fixtureEvent('document-fold-progress',{id:a.id,stage:'preparing',percent:0});
+  if(params.has('fold-loading'))await new Promise(()=>{});
+  for(const [stage,percent] of [['generating',33],['summarizing',67]]){await new Promise(resolve=>setTimeout(resolve,250));fixtureEvent('document-fold-progress',{id:a.id,stage,percent});}
+  if(params.has('fold-progress'))await new Promise(()=>{});
+  fixtureEvent('document-fold-progress',{id:a.id,stage:'complete',percent:100});
+  return {units:a.document.sections.flatMap((s:any)=>s.units.map((u:any)=>({id:u.id,evidence:[0],key:u.sentences[0],takeaway:u.sentences[0],topic:en?['Release materials','Source context','Staged rollout','User guide','Trial feedback','Next review'][u.id]||s.title:['发布材料','上下文核对','分阶段发布','使用指南','试用反馈','评审安排'][u.id]||s.title,role:'claim',local:false,suppressed:false,hide_takeaway:false}))),sections:a.document.sections.filter((s:any)=>s.units.length||s.tables.length).map((s:any)=>({id:s.id,takeaway:s.title,topic:s.title})),warnings:[]};},
  explore_overview:()=>({scope:root,version:1,total:docs.length,documents:graphDocs,known_documents:graphDocs,indexing:false,partial:false}),explore_graph:()=>({scope:root,version:1,snapshot:'demo',documents:graphDocs,edges:graphEdges}),
  get_settings:()=>structuredClone(settings),list_roots:()=>roots,list_files:()=>docs.map(({body,...d})=>d),list_entries:()=>docs.map(d=>({path:d.path,name:d.name,directory:false,symlink:false})),get_index_status:()=>({paused:false,tasks:[]}),list_drafts:()=>[],list_removed_directories:()=>[],list_notes:()=>[],list_conversations:()=>[conversation,{...conversation,id:'previous',title:text('如何收集试用反馈？','How do we collect trial feedback?'),updated:now-86400000}],get_conversation:()=>conversation,read_document:a=>docs.find(d=>d.path===a.path)||docs[0],get_index_history:()=>history,get_index_history_log:()=>({raw:docs.map(d=>JSON.stringify({time:now,path:d.path,stage:'indexing',status:'complete',error:null})).join('\n')+'\n'+JSON.stringify({time:now,path:root+'/archive.pdf',stage:'converting',status:'failed',error:'File cannot be read'})}),
  run_query:()=>({terms:[text('发布','release')],elapsed_ms:120,results:evidence,pagination:null,trace:[],conversation}),summarize_search:()=>({text:answer,evidence}),get_docling_status:()=>docling,docling_status:()=>docling,get_cli_settings:()=>({skill_url:'http://127.0.0.1:24680/sag-wiki.md',access:{enabled:true},installations:['claude-code','codex','opencode'].map(name=>({name,path:'',installed:false,version:null}))}),get_web_clipper:()=>({packages:['chrome','safari']}),get_folder_index_options:()=>({file_types:{markdown:true,text:true,code:false,config:false},convert_other_formats:false,conversion_formats:[]}),check_updates:()=>({current_version:version,latest_version:version,available:false,notes:'',download_url:null}),
 };
-(window as any).__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebview:{windowLabel:'main',label:'main'}},invoke:async(command:string,args:any={})=>handlers[command]?handlers[command](args):command.startsWith('plugin:')?0:null,transformCallback:()=>1,unregisterCallback:()=>{},convertFileSrc:(path:string)=>path};
-(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:()=>{}};
+(window as any).__TAURI_INTERNALS__={metadata:{currentWindow:{label:'main'},currentWebview:{windowLabel:'main',label:'main'}},invoke:async(command:string,args:any={})=>{
+ if(command==='plugin:event|listen'){const id=++nextCallback;listeners.set(id,{event:args.event,handler:args.handler});return id;}
+ if(command==='plugin:event|unlisten'){listeners.delete(args.eventId);return;}
+ return handlers[command]?handlers[command](args):command.startsWith('plugin:')?0:null;
+},transformCallback:(callback:(value:any)=>void)=>{const id=++nextCallback;callbacks.set(id,callback);return id;},unregisterCallback:(id:number)=>callbacks.delete(id),convertFileSrc:(path:string)=>path};
+(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:(_event:string,id:number)=>{const listener=listeners.get(id);if(listener)callbacks.delete(listener.handler);listeners.delete(id);}};
 localStorage.clear();localStorage.setItem('sag.onboarding.seen','1');localStorage.setItem('sag.search.mode','search');setLanguage(en?'en':'zh-CN');
 const {default:App}=await import('../src/App.svelte');mount(App,{target:document.getElementById('app')!});

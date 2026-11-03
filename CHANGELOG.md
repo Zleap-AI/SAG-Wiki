@@ -1,5 +1,21 @@
 # 更新日志 / Changelog
 
+## 0.2.7
+
+- **文档折叠**：Markdown 支持全文、简述、关键句、要点和主题五个阅读层级，可切换主题卡片与导图，保留原文供编辑。
+- **后台处理与缓存**：关闭折叠面板后继续处理，支持查看进度、主动停止和复用已完成的结果。
+- **长文档索引**：改进超长表格行、Windows 换行和数字内容的处理，保留完整原文及对应位置。
+
+桌面端与随包 CLI 版本统一为 0.2.7。
+
+### English
+
+- **Document folding**: Markdown supports Full, Brief, Key, Takeaway and Topic reading levels, with topic cards and a map while keeping the source editable.
+- **Background processing and caching**: processing continues when the fold panel closes, with progress, explicit cancellation and reuse of completed results.
+- **Long-document indexing**: improve handling of long table rows, Windows line endings and numeric content while preserving complete source text and locations.
+
+The desktop app and bundled CLI both use 0.2.7.
+
 ## 0.2.6
 
 - **快捷搜索**：新增独立的快捷搜索窗口，默认用 macOS 的 ⌘⇧Space、Windows 的 Ctrl+Shift+Space 在其他应用中唤起，也可从菜单栏或托盘打开。输入即在本地索引中搜索，最多列出 10 个文件；↑ ↓ 选择、Enter 在主窗口打开原文、⌘ / Ctrl+Enter 查看全部结果、Esc 关闭并返回原应用。设置中的“快捷键”页可启用、关闭或改键，搜索首页显示当前快捷键。

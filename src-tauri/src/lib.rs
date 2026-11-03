@@ -62,6 +62,7 @@ fn output_value(output: Output) -> CommandResult<serde_json::Value> {
         Conversations(value) => serde_json::to_value(value).map_err(error)?,
         Conversation(value) => serde_json::to_value(value).map_err(error)?,
         Query(value) => serde_json::to_value(value).map_err(error)?,
+        DocumentFold(value) => serde_json::to_value(value).map_err(error)?,
         SearchSummary(value) => serde_json::to_value(value).map_err(error)?,
         Overview(value) => serde_json::to_value(value).map_err(error)?,
         Graph(value) => serde_json::to_value(value).map_err(error)?,
@@ -213,6 +214,9 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                         ServiceEvent::QueryProgress(value) => {
                             emit(&state.app, "query-progress", value)
                         }
+                        ServiceEvent::DocumentFoldProgress(value) => {
+                            emit(&state.app, "document-fold-progress", value)
+                        }
                         ServiceEvent::ToolApproval(value) => {
                             emit(&state.app, "tool-approval", value)
                         }
@@ -322,6 +326,7 @@ remote!(edit_conversation(id:String,title:Option<String>,deleted:Option<bool>) =
 remote!(replace_messages(id:String,messages:Vec<Message>) => ReplaceMessages);
 remote!(cancel_query(id:String) => CancelQuery);
 remote!(run_query(query:Query) => RunQuery);
+remote!(fold_document(id:String,document:sag_protocol::FoldDocument) => FoldDocument);
 remote!(summarize_search(id:String,question:String,results:Vec<Candidate>) => SummarizeSearch);
 remote!(load_image(path:String) => LoadImage);
 remote!(get_service_info() => Info);
@@ -658,6 +663,7 @@ pub fn run() {
             cancel_query,
             run_query,
             summarize_search,
+            fold_document,
             reveal_path,
             reveal_docling_log,
             open_data_directory,
