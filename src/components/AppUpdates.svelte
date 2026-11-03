@@ -33,7 +33,14 @@
      <strong>{$t('发现新版本 {value0}',{value0:state.info.latest_version})}</strong>
     {:else}<span>{$t('当前已是最新版本（{value0}）',{value0:state.info.current_version})}</span>{/if}
    </div>
-   {#if state.info.available&&state.info.notes}<details class="update-notes"><summary>{$t('更新说明')}</summary><pre>{state.info.notes}</pre></details>{/if}
+   {#if state.info.available&&state.info.notes}
+    <details class="update-notes">
+     <summary>{$t('更新说明')}</summary>
+     {#await import('../lib/markdown') then markdown}
+      <div class="update-notes-body tiptap">{@html markdown.renderMarkdown(state.info.notes)}</div>
+     {/await}
+    </details>
+   {/if}
   {/if}
   {#if transfer?.stage==='downloading'}
    <div class="update-progress" role="status">
@@ -54,7 +61,12 @@
  .update-result strong{font-weight:600}
  .update-notes{margin-top:16px;font-size:var(--text-caption);color:var(--color-secondary)}
  .update-notes summary{cursor:pointer}
- .update-notes pre{font:inherit;white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;margin:12px 0 0}
+ .update-notes-body{font:inherit;line-height:1.7;color:inherit;min-height:0;max-height:200px;overflow:auto;margin:12px 0 0}
+ .update-notes-body :global(h1),.update-notes-body :global(h2),.update-notes-body :global(h3){font-size:var(--text-ui);line-height:1.5;margin:16px 0 8px;font-weight:600}
+ .update-notes-body :global(p),.update-notes-body :global(ul),.update-notes-body :global(ol){margin:8px 0}
+ .update-notes-body :global(ul),.update-notes-body :global(ol){padding-left:20px}
+ .update-notes-body :global(>:first-child){margin-top:0}
+ .update-notes-body :global(>:last-child){margin-bottom:0}
  .update-progress{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px 12px;margin-top:16px;font-size:var(--text-caption);color:var(--color-secondary)}
  .update-progress progress{width:100%;height:6px;accent-color:var(--color-ink)}
  .update-progress p{grid-column:1/-1;margin:0}
