@@ -109,16 +109,18 @@ fn local_matching_marks_oversized_content_without_breaking_json() {
     let root = dir.path().join("project");
     fs::create_dir(&root).unwrap();
     fs::write(root.join("large.txt"), format!("needle {}\n", "x".repeat(600_000))).unwrap();
-    let added = Command::new(env!("CARGO_BIN_EXE_sag"))
-        .env("SAG_DATA_DIR", dir.path().join("data")).current_dir(&root).arg("add").output().unwrap();
-    assert!(!added.status.success(), "oversized semantic indexing must fail visibly");
-    assert!(String::from_utf8_lossy(&added.stderr).contains("资源上限"));
     let run = |args: &[&str]| {
         let output = Command::new(env!("CARGO_BIN_EXE_sag"))
             .env("SAG_DATA_DIR", dir.path().join("data")).current_dir(&root).args(args).output().unwrap();
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         output
     };
+    // Oversized lines are split into bounded passages for semantic indexing instead of rejected.
+    let added = run(&["add"]);
+    assert!(!String::from_utf8_lossy(&added.stderr).contains("资源上限"));
+    let listed: serde_json::Value = serde_json::from_slice(&run(&["list", "--json"]).stdout).unwrap();
+    assert_eq!(listed[0]["status"], "ready");
+    assert_eq!(listed[0]["count"], 1);
     let content = run(&["-F", "needle", "-c", "--json"]);
     let output: serde_json::Value = serde_json::from_slice(&content.stdout).unwrap();
     assert_eq!(output["truncated"], true);
