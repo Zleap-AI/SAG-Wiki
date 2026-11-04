@@ -1,0 +1,36 @@
+/* Host integration only; the upstream layout, tokens and animations stay intact. */
+.sag-embedded .topbar,.sag-embedded .madewith,.sag-embedded .chatbtn,
+.sag-embedded .chat,.sag-embedded .selbar,.sag-embedded .notespick,
+.sag-embedded .savebtn,.sag-embedded .typepick{display:none!important}
+.sag-embedded .mm-hint{display:none}
+.sag-embedded .doc{padding-top:18px}
+.sag-embedded .paper-head{margin-top:8px}
+.sag-embedded .paper-head .authors:empty{display:none}
+.sag-embedded .zoom{padding-bottom:18px}
+.sag-embedded .zrow{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);row-gap:8px;column-gap:10px}
+.sag-embedded .zrow>.zside{display:none}
+.sag-embedded .zrow>.tview{display:none!important}
+.sag-embedded .sag-primary-tabs{grid-column:2;grid-row:1;display:flex;align-items:center;pointer-events:auto;border:1px solid color-mix(in srgb,var(--line) 80%,transparent);border-radius:999px;background:color-mix(in srgb,var(--line-2) 75%,var(--surface));box-shadow:inset 0 1px 2px rgba(40,30,10,.07),0 10px 30px -16px rgba(40,30,10,.35)}
+.sag-embedded .sag-primary-tabs .zoombar{border:0;background:none;box-shadow:none}
+.sag-embedded .sag-map-tab{margin:3px 3px 3px 0;padding:6px 15px;border:0;border-radius:999px;background:none;font:500 14px var(--sans);color:var(--muted);cursor:pointer;white-space:nowrap}
+.sag-embedded .sag-map-tab.on{color:var(--ink);font-weight:600;background:var(--card);box-shadow:0 0 0 .5px rgba(30,20,0,.08),0 1px 1.5px rgba(30,20,0,.14),0 3px 9px rgba(30,20,0,.10)}
+.sag-embedded .sag-primary-tabs[data-map="true"] .zthumb{visibility:hidden}
+.sag-embedded .sag-primary-tabs[data-map="true"] [data-l="0"]{color:var(--muted);font-weight:500}
+.sag-embedded .sag-map-tab:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sag-embedded .fold-help{grid-column:3;grid-row:1;justify-self:start;pointer-events:auto;width:26px;height:26px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--card);color:var(--muted);font:600 14px var(--sans);cursor:pointer}
+.sag-embedded .fold-help:hover,.sag-embedded .fold-help[aria-expanded="true"]{color:var(--ink);border-color:var(--muted)}
+.sag-embedded .fold-help:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.sag-embedded .zoom .hint[hidden]{display:none!important}
+.sag-embedded .zoom .hint:not([hidden]){display:block!important;position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);box-sizing:border-box;width:min(400px,calc(100vw - 32px));padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--card);box-shadow:var(--pop);color:var(--ink-2);text-align:left;line-height:1.6;pointer-events:auto}
+.sag-embedded .u .strike{text-decoration:line-through}
+.sag-embedded ol.list{list-style-type:decimal}
+.sag-embedded pre{overflow:auto;padding:16px;border-radius:8px;background:var(--line-2);white-space:pre}
+.sag-embedded table{border-collapse:collapse;width:100%}
+.sag-embedded th,.sag-embedded td{padding:8px;border:1px solid var(--line);text-align:left}
+.sag-embedded .fig img{max-width:100%;height:auto}
+/* Topic chips must fit their card, including source URLs and other unbroken text. */
+.sag-embedded .doc[data-level="0"] .chunk{min-width:0}
+.sag-embedded .doc[data-level="0"] .chunk .body{min-width:0}
+.sag-embedded .doc[data-level="0"] .u[data-l="0"]{min-width:0;max-width:100%;box-sizing:border-box}
+.sag-embedded .doc[data-level="0"] .u[data-l="0"] .tx{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sag-embedded .doc[data-level="0"] .chunk>.hd,.sag-embedded .doc[data-level="0"] .chunk>.stake{overflow-wrap:anywhere}

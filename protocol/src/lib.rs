@@ -64,6 +64,56 @@ pub struct SearchSummary {
     pub evidence: Vec<Candidate>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FoldDocument {
+    pub title: String,
+    pub sections: Vec<FoldSection>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FoldSection {
+    pub id: usize,
+    pub title: String,
+    pub depth: usize,
+    pub units: Vec<FoldUnit>,
+    pub tables: Vec<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FoldUnit {
+    pub id: usize,
+    pub kind: String,
+    pub sentences: Vec<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FoldedUnit {
+    pub id: usize,
+    pub evidence: Vec<usize>,
+    pub key: String,
+    pub takeaway: String,
+    pub topic: String,
+    pub role: String,
+    pub local: bool,
+    pub suppressed: bool,
+    pub hide_takeaway: bool,
+    pub glue: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FoldedSection {
+    pub id: usize,
+    pub takeaway: String,
+    pub topic: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FoldResult {
+    pub units: Vec<FoldedUnit>,
+    pub sections: Vec<FoldedSection>,
+    pub warnings: Vec<String>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FoldProgress {
+    pub id: String,
+    pub stage: String,
+    pub percent: u8,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexEvent {
     pub path: String,
     pub count: usize,
@@ -126,6 +176,7 @@ pub enum ServiceEvent {
     IndexProgress(IndexEvent),
     AppError(String),
     QueryProgress(Progress),
+    DocumentFoldProgress(FoldProgress),
     ToolApproval(ToolApproval),
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -250,6 +301,7 @@ pub enum Operation {
     RunQuery {
         query: Query,
     },
+    FoldDocument { id: String, document: FoldDocument },
     SummarizeSearch {
         id: String,
         question: String,
@@ -341,6 +393,7 @@ pub enum Output {
     Conversation(Conversation),
     Query(QueryOutput),
     SearchSummary(SearchSummary),
+    DocumentFold(FoldResult),
     Overview(ExploreOverview),
     Graph(ExploreGraph),
     Neighbors(ExploreNeighbors),
