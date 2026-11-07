@@ -60,7 +60,6 @@ pub struct Service {
     conversation_access: tokio::sync::RwLock<()>,
     approvals: Mutex<HashMap<(String, String), tokio::sync::oneshot::Sender<bool>>>,
     scan: mpsc::Sender<IndexRequest>,
-    watcher: Arc<Mutex<notify::RecommendedWatcher>>,
     pub data_dir: PathBuf,
     pub events: broadcast::Sender<(Option<String>, EventEnvelope)>,
     pub stop: CancellationToken,
@@ -188,7 +187,7 @@ async fn explore_evidence(
     .map_err(error)?
 }
 fn add_root(path: String, state: &Arc<Service>) -> CommandResult<String> {
-    indexer::add_root(&state.store, &state.watcher, &state.scan, Path::new(&path)).map_err(error)
+    indexer::add_root(&state.store, &state.scan, Path::new(&path)).map_err(error)
 }
 fn list_removed_directories(state: &Arc<Service>) -> CommandResult<Vec<String>> {
     state.store.excluded_directories().map_err(error)
@@ -257,7 +256,7 @@ fn default_notes_folder(state: &Arc<Service>) -> anyhow::Result<PathBuf> {
     std::fs::create_dir_all(&folder)?;
     let library = library.canonicalize()?;
     if !state.store.roots()?.iter().any(|root| library.starts_with(&root.path)) {
-        indexer::add_root(&state.store, &state.watcher, &state.scan, &library)?;
+        indexer::add_root(&state.store, &state.scan, &library)?;
     }
     Ok(folder.canonicalize()?)
 }
@@ -1081,11 +1080,9 @@ impl Service {
                 Err(err) => emit(&watcher_app, "app-error", format!("文件监听失败：{err}")),
             })?;
         for root in store.roots()? {
-            if Path::new(&root.path).exists() {
-                watcher.watch(Path::new(&root.path), RecursiveMode::Recursive)?;
-            }
             indexer::queue_scan(&store, &tx, root.path)?;
         }
+        let worker_watcher = Arc::new(Mutex::new(watcher));
         let worker_store = store.clone();
         let handle = event_sink.clone();
         let worker_stop = stop.clone();
@@ -1104,6 +1101,12 @@ impl Service {
                         root.clone()
                     }
                 };
+                if matches!(request, IndexRequest::Scan { .. }) && Path::new(&root).exists() {
+                    // 先挂递归监视器再扫描，索引期间的文件变动不会丢失。
+                    if let Err(err) = worker_watcher.lock().unwrap().watch(Path::new(&root), RecursiveMode::Recursive) {
+                        emit(&handle, "app-error", format!("文件监听失败：{root}：{err}"));
+                    }
+                }
                 let last_update = std::cell::Cell::new(std::time::Instant::now());
                 if let Err(e) = indexer::apply_request(&worker_store, request, |progress| {
                     emit(
@@ -1123,13 +1126,11 @@ impl Service {
         });
         let client = reqwest::Client::builder().build()?;
 
-        let watcher = Arc::new(Mutex::new(watcher));
         let add_store = store.clone();
-        let add_watcher = watcher.clone();
         let add_tx = tx.clone();
         let add_events = event_sink.clone();
         let add_root = Arc::new(move |path: &Path| {
-            let root = indexer::add_root(&add_store, &add_watcher, &add_tx, path)?;
+            let root = indexer::add_root(&add_store, &add_tx, path)?;
             emit(&add_events, "data-changed", ());
             Ok(root)
         });
@@ -1156,7 +1157,6 @@ impl Service {
             conversation_access: tokio::sync::RwLock::new(()),
             approvals: Mutex::new(HashMap::new()),
             scan: tx,
-            watcher,
             data_dir: data,
             events,
             stop,

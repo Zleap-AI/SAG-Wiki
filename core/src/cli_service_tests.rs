@@ -25,10 +25,9 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
     store.save_settings(&settings).unwrap();
     store.add_root(&root).unwrap();
     store.scan(root.to_str().unwrap(), |_| {}).unwrap();
-    let watcher = Arc::new(std::sync::Mutex::new(notify::recommended_watcher(|_: notify::Result<notify::Event>| {}).unwrap()));
     let (tx, rx) = std::sync::mpsc::channel();
     let add_store = store.clone();
-    let add_root = Arc::new(move |path: &Path| crate::indexer::add_root(&add_store, &watcher, &tx, path));
+    let add_root = Arc::new(move |path: &Path| crate::indexer::add_root(&add_store, &tx, path));
     let remove_store = store.clone();
     let remove_root = Arc::new(move |path: &Path| remove_store.remove_path(path));
     let service = CliService::start(
