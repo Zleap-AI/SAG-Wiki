@@ -24,16 +24,9 @@ pub fn queue_scan(store: &Store, scan: &mpsc::Sender<IndexRequest>, root: String
     Ok(())
 }
 
-pub fn add_root(
-    store: &Store,
-    watcher: &std::sync::Mutex<notify::RecommendedWatcher>,
-    scan: &mpsc::Sender<IndexRequest>,
-    path: &std::path::Path,
-) -> Result<String> {
-    use notify::Watcher;
-    let mut watcher = watcher.lock().unwrap();
+/// 递归监视器由索引工作线程在扫描开始前挂载，调用方不必等待目录树规模。
+pub fn add_root(store: &Store, scan: &mpsc::Sender<IndexRequest>, path: &std::path::Path) -> Result<String> {
     let root = store.add_root(path)?;
-    watcher.watch(std::path::Path::new(&root), notify::RecursiveMode::Recursive)?;
     queue_scan(store, scan, root.clone())?;
     Ok(root)
 }

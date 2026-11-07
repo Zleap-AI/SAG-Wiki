@@ -236,7 +236,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  async function addFolders(paths:string[],options?:FolderIndexOptions){
   const failures:{path:string;error:string}[]=[];
   for(const path of paths){try{await api<string>(options?'add_root_with_options':'add_root',options?{path,options}:{path})}catch(e){failures.push({path,error:$t(String(e))})}}
-  if(failures.length<paths.length){await refresh();notify($t('已添加 {value0} 个文件夹，正在建立本地索引',{value0:paths.length-failures.length}))}
+  if(failures.length<paths.length){await refresh();notify($t('已添加 {value0} 个文件夹，正在后台建立索引，大文件夹可能耗时数分钟',{value0:paths.length-failures.length}))}
   return failures;
  }
  async function edit(path:string,terms:string[]=[],origin='',citation?:Candidate){
