@@ -164,3 +164,27 @@ fn extension_selection_applies_to_incremental_indexing_with_code_disabled_global
     store.update_paths(&root, &[python.clone()], |_| {}).unwrap();
     assert_eq!(store.document(&python).unwrap().body, "updated python evidence");
 }
+
+#[test]
+fn root_directory_events_use_root_options_and_keep_incremental_indexing_alive() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+    let path = store.add_root(&root).unwrap();
+    fs::write(root.join("note.md"), "root notification evidence").unwrap();
+    // FSEvents can coalesce root deletion/recreation and child writes to the root itself.
+    store.update_paths(&path, &[Path::new(&path).to_path_buf()], |_| {}).unwrap();
+    assert_eq!(store.files().unwrap().len(), 1);
+    assert_eq!(store.roots().unwrap()[0].status, "ready");
+}
+
+#[test]
+fn folder_rules_reject_queries_outside_the_registered_root() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("root");
+    fs::create_dir(&root).unwrap();
+    let mut rules = folder_index::Rules::new(&root, &Default::default()).unwrap();
+    assert!(rules.directory(temp.path()).is_err());
+    assert!(rules.directory(&root.join("../sibling")).is_err());
+}
