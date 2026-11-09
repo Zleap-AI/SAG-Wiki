@@ -205,6 +205,7 @@ fn refresh_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
         .into_iter()
         .find(|r| path.starts_with(&r.path))
         .ok_or("目录未加入")?;
+    state.scan.send(IndexRequest::ResetWatch { root: root.path.clone() }).map_err(error)?;
     state
         .scan
         .send(IndexRequest::Scan {
@@ -215,6 +216,7 @@ fn refresh_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
 }
 fn reindex_all(state: &Arc<Service>) -> CommandResult<Vec<Root>> {
     for root in state.store.prepare_reindex().map_err(error)? {
+        state.scan.send(IndexRequest::ResetWatch { root: root.clone() }).map_err(error)?;
         state
             .scan
             .send(IndexRequest::Scan { root, verify: true })
@@ -1102,6 +1104,12 @@ impl Service {
                 }
                 let root = match &request {
                     IndexRequest::SyncWatches => continue,
+                    IndexRequest::ResetWatch { root } => {
+                        if let Err(err) = worker_watcher.reset(root) {
+                            emit(&handle, "app-error", format!("文件监听重置失败：{root}：{err}"));
+                        }
+                        continue;
+                    },
                     IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } => {
                         root.clone()
                     }

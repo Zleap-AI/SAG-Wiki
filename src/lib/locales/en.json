@@ -1585,5 +1585,6 @@
   "导图": "Map",
   "文件监听": "File monitoring",
   "正在准备文件监听": "Preparing file monitoring",
-  "正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。": "Preparing file monitoring. Large folders may take a few minutes; indexed content remains searchable."
+  "正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。": "Preparing file monitoring. Large folders may take a few minutes; indexed content remains searchable.",
+  "文件监听失败，自动更新受限；请在索引设置中重建索引以重试。": "File monitoring failed; automatic updates are limited. Rebuild the index in indexing settings to retry."
 }

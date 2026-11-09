@@ -14,6 +14,7 @@ use std::{
 #[derive(Debug)]
 pub enum IndexRequest {
     SyncWatches,
+    ResetWatch { root: String },
     Scan { root: String, verify: bool },
     Paths { root: String, paths: Vec<PathBuf> },
 }
@@ -28,6 +29,7 @@ pub fn queue_scan(store: &Store, scan: &mpsc::Sender<IndexRequest>, root: String
 /// 递归监视器由索引工作线程在扫描开始前挂载，调用方不必等待目录树规模。
 pub fn add_root(store: &Store, scan: &mpsc::Sender<IndexRequest>, path: &std::path::Path) -> Result<String> {
     let root = store.add_root(path)?;
+    scan.send(IndexRequest::ResetWatch { root: root.clone() })?;
     queue_scan(store, scan, root.clone())?;
     Ok(root)
 }
@@ -88,9 +90,11 @@ pub fn event_requests(event: &Event, roots: &[Root], settings: &Settings) -> Vec
 pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRequest> {
     let mut roots = BTreeMap::<String, (Option<bool>, BTreeSet<PathBuf>)>::new();
     let mut sync_watches = false;
+    let mut resets = BTreeSet::new();
     for request in requests {
         match request {
             IndexRequest::SyncWatches => sync_watches = true,
+            IndexRequest::ResetWatch { root } => { resets.insert(root); },
             IndexRequest::Scan { root, verify } => {
                 let state = roots.entry(root).or_default();
                 state.0 = Some(state.0.unwrap_or(false) || verify);
@@ -122,6 +126,7 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
             }
         })
         .collect();
+    batch.splice(0..0, resets.into_iter().map(|root| IndexRequest::ResetWatch { root }));
     if sync_watches { batch.insert(0, IndexRequest::SyncWatches); }
     batch
 }
@@ -151,7 +156,7 @@ pub fn apply_request(
     progress: impl Fn(crate::types::IndexProgress),
 ) -> Result<usize> {
     let root = match &request {
-        IndexRequest::SyncWatches => return Ok(0),
+        IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => return Ok(0),
         IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } => root,
     };
     if !store
@@ -162,7 +167,7 @@ pub fn apply_request(
         return Ok(0);
     }
     match request {
-        IndexRequest::SyncWatches => Ok(0),
+        IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => Ok(0),
         IndexRequest::Scan { root, verify } => {
             if verify {
                 store.verify_root(&root)?;
@@ -190,6 +195,7 @@ impl<W: notify::Watcher> RootWatcher<W> {
         progress();
         let result = self.watcher.watch(std::path::Path::new(root), notify::RecursiveMode::Recursive);
         store.indexing.finish(root);
+        store.set_watch_error(root, result.as_ref().err().map(ToString::to_string).as_deref())?;
         result?;
         self.roots.insert(root.into());
         Ok(())
@@ -198,14 +204,18 @@ impl<W: notify::Watcher> RootWatcher<W> {
         let removed: Vec<_> = self.roots.iter().filter(|path| {
             !roots.iter().any(|root| &root.path == *path) || !std::path::Path::new(path).exists()
         }).cloned().collect();
-        for path in removed {
-            match self.watcher.unwatch(std::path::Path::new(&path)) {
+        for path in removed { self.reset(&path)?; }
+        Ok(())
+    }
+    pub(crate) fn reset(&mut self, root: &str) -> Result<()> {
+        if self.roots.contains(root) {
+            match self.watcher.unwatch(std::path::Path::new(root)) {
                 Ok(()) => {},
-                // Native backends may have already discarded a deleted root.
+                // The native backend may already have discarded a deleted root.
                 Err(error) if matches!(error.kind, notify::ErrorKind::WatchNotFound | notify::ErrorKind::PathNotFound) => {},
                 Err(error) => return Err(error.into()),
             }
-            self.roots.remove(&path);
+            self.roots.remove(root);
         }
         Ok(())
     }
@@ -267,6 +277,58 @@ mod tests {
         watcher.prepare(&store, &root, || {}).unwrap();
         watcher.prepare(&store, &root, || panic!("already watched")).unwrap();
         assert_eq!(watcher.watcher.mounts, 3);
+    }
+
+    #[test]
+    fn explicit_add_queues_listener_reset_before_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let (tx, rx) = mpsc::channel();
+        add_root(&store, &tx, dir.path()).unwrap();
+        let batch = coalesce(rx.try_iter());
+        assert_eq!(batch.len(), 2, "explicit add must reset stale native registration before scanning");
+        assert!(matches!(&batch[0], IndexRequest::ResetWatch { .. }));
+        assert!(matches!(&batch[1], IndexRequest::Scan { .. }));
+    }
+
+    #[test]
+    fn explicit_reset_restores_listener_even_when_path_still_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let root = store.add_root(dir.path()).unwrap();
+        let mut watcher = RootWatcher::new(CountingWatcher::default());
+        watcher.prepare(&store, &root, || {}).unwrap();
+        watcher.reset(&root).unwrap();
+        watcher.prepare(&store, &root, || {}).unwrap();
+        assert_eq!(watcher.watcher.removals, 1);
+        assert_eq!(watcher.watcher.mounts, 2);
+    }
+
+    #[test]
+    fn failed_watch_remains_visible_after_scan_incremental_update_and_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("notes");
+        fs::create_dir(&folder).unwrap();
+        let file = folder.join("one.md");
+        fs::write(&file, "watch failure evidence").unwrap();
+        let db = dir.path().join("index.sqlite");
+        let store = Store::open(&db).unwrap();
+        let root = store.add_root(&folder).unwrap();
+        let mut watcher = RootWatcher::new(CountingWatcher { fail: true, ..Default::default() });
+        assert!(watcher.prepare(&store, &root, || {}).is_err());
+        store.scan(&root, |_| {}).unwrap();
+        store.update_paths(&root, &[file], |_| {}).unwrap();
+        assert_eq!(store.files().unwrap().len(), 1);
+        let reopened = Store::open(&db).unwrap();
+        let status = reopened.roots().unwrap().remove(0);
+        assert_eq!(status.status, "partial");
+        assert!(status.error.unwrap().contains("自动更新受限"));
+        assert_eq!(reopened.index_history().unwrap()[0].status, "partial");
+        drop(reopened);
+        watcher.watcher.fail = false;
+        watcher.prepare(&store, &root, || {}).unwrap();
+        store.scan(&root, |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
     }
 
     #[test]
@@ -697,5 +759,14 @@ mod tests {
             .is_empty());
         assert_eq!(store.files().unwrap().len(), 1);
         assert_eq!(fs::read(unrelated).unwrap(), [0xff, 0xfe]);
+        // Native backends may discard a deleted root without notifying the application.
+        fs::remove_dir_all(&root).unwrap();
+        fs::create_dir(&root).unwrap();
+        watcher.reset(&root_text).unwrap();
+        watcher.prepare(&store, &root_text, || {}).unwrap();
+        fs::write(root.join("restored.md"), "restoredwatchtoken").unwrap();
+        sync();
+        assert_eq!(store.search_files("restoredwatchtoken", &[], 10).unwrap().len(), 1);
+
     }
 }
