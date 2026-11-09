@@ -1,0 +1,120 @@
+# Personal-fork validation only. Do not include this workflow in the upstream PR.
+name: Validate model connection fix
+
+on:
+  push:
+    branches: [validation/model-connection-test]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: model-connection-validation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: Model regression and core ${{ matrix.platform }}
+    if: github.event.repository.fork == true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+            binary: src-tauri/target/debug/sag
+          - platform: windows
+            runner: windows-2025
+            binary: src-tauri/target/debug/sag.exe
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      CARGO_TERM_COLOR: never
+      RUST_TEST_THREADS: '2'
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.13.9'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.98.1'
+      - name: Confirm the regression fails with the original request
+        timeout-minutes: 25
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import subprocess
+
+          source = Path('core/src/models.rs')
+          original = source.read_bytes()
+          fixed = b'json!({"model":config.model,"messages":[{"role":"user","content":"Reply with OK."}]})'
+          broken = b'json!({"model":config.model,"messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":8})'
+          if original.count(fixed) != 1:
+              raise SystemExit('Expected exactly one fixed production request before the red check')
+          test_name = 'models::transport_tests::answer_connection_omits_provider_specific_token_limits'
+          command = [
+              'cargo', 'test', '--locked', '--manifest-path', 'core/Cargo.toml',
+              '--lib', test_name, '--', '--exact', '--nocapture',
+          ]
+          try:
+              source.write_bytes(original.replace(fixed, broken, 1))
+              result = subprocess.run(
+                  command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                  text=True, encoding='utf-8', errors='replace', timeout=1200,
+              )
+              print(result.stdout, end='', flush=True)
+              if result.returncode == 0:
+                  raise SystemExit('Regression unexpectedly passed with the original max_tokens request')
+              if 'Unsupported parameter:' not in result.stdout:
+                  raise SystemExit('Red check failed for a reason other than the reported parameter error')
+              if 'test result: FAILED' not in result.stdout or test_name not in result.stdout:
+                  raise SystemExit('The expected regression test did not report FAILED')
+              print('Verified: the original request fails with the reported unsupported-parameter error.')
+          finally:
+              source.write_bytes(original)
+          if source.read_bytes() != original:
+              raise SystemExit('Failed to restore the fixed source after the red check')
+          PY
+      - name: Confirm the fixed regression passes
+        run: cargo test --locked --manifest-path core/Cargo.toml --lib models::transport_tests::answer_connection_omits_provider_specific_token_limits -- --exact --nocapture
+      - name: Run the complete core test suite
+        run: cargo test --locked --manifest-path core/Cargo.toml
+      - name: Build the CLI with locked dependencies
+        run: cargo build --locked --manifest-path cli/Cargo.toml
+      - name: Exercise the real service and CLI with a local Jev fixture
+        run: python tests/local-jev-e2e.py --binary "${{ matrix.binary }}"
+      - name: Verify validation left tracked files unchanged
+        if: always()
+        run: git diff --exit-code
+
+  frontend-and-docs:
+    name: Frontend tests and documentation build
+    if: github.event.repository.fork == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.13.0'
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Run frontend tests
+        run: npm test
+      - name: Type-check and build the frontend
+        run: npm run build
+      - name: Install locked documentation dependencies
+        run: npm --prefix docs-site ci
+      - name: Build the bilingual documentation
+        run: npm --prefix docs-site run build
