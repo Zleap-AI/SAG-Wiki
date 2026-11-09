@@ -20,19 +20,25 @@ impl Rules {
         Ok(Self { root: root.into(), directories: HashMap::from([(root.into(), options)]) })
     }
     pub fn directory(&mut self, directory: &Path) -> Result<&FolderIndexOptions> {
+        let relative = directory.strip_prefix(&self.root).context("规则查询超出知识库目录")?;
+        if relative.components().any(|part| matches!(part, std::path::Component::ParentDir)) {
+            bail!("规则查询超出知识库目录")
+        }
         if !self.directories.contains_key(directory) {
             let options = match read(directory)? {
                 Some(options) => options,
-                None => self.directory(directory.parent().unwrap())?.clone(),
+                None => self.directory(directory.parent().context("规则目录没有父目录")?)?.clone(),
             };
             self.directories.insert(directory.into(), options);
         }
         Ok(&self.directories[directory])
     }
     pub fn file(&mut self, path: &Path) -> Result<&FolderIndexOptions> {
+        // Native notifications may describe the registered directory itself.
+        if path == self.root { return Ok(&self.directories[&self.root]); }
         let directory = match path.strip_prefix(self.root.join(crate::docling::OUTPUT_DIRECTORY)) {
-            Ok(relative) => self.root.join(relative.parent().unwrap()),
-            Err(_) => path.parent().unwrap().into(),
+            Ok(relative) => self.root.join(relative.parent().context("转换路径没有父目录")?),
+            Err(_) => path.parent().context("索引路径没有父目录")?.into(),
         };
         self.directory(&directory)
     }
