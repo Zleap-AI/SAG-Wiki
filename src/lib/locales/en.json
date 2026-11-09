@@ -883,7 +883,7 @@
   "已选 {value0} 个文件夹": "{value0} folders selected",
   "正在添加…": "Adding…",
   "添加到知识库": "Add to knowledge base",
-  "已添加 {value0} 个文件夹，正在建立本地索引": "Added {value0} folders. Building the local index.",
+  "已添加 {value0} 个文件夹，正在后台建立索引，大文件夹可能耗时数分钟": "Added {value0} folders. Indexing runs in the background; large folders may take a few minutes.",
   "清空所有对话": "Clear all conversations",
   "永久删除全部对话、思考过程和工具调用日志，包括此前删除的对话。文件与索引保留。": "Permanently delete all conversations, reasoning and tool-call logs, including previously deleted conversations. Files and indexes are kept.",
   "所有问答历史、思考过程和工具调用日志将被永久删除，无法恢复。原文件、知识库索引、模型设置和密钥会保留。": "All conversation history, reasoning and tool-call logs will be permanently deleted and cannot be recovered. Original files, indexes, model settings and keys will be kept.",
@@ -1582,5 +1582,9 @@
   "停止折叠": "Stop folding",
   "折叠已停止": "Folding stopped",
   "卡片": "Cards",
-  "导图": "Map"
+  "导图": "Map",
+  "文件监听": "File monitoring",
+  "正在准备文件监听": "Preparing file monitoring",
+  "正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。": "Preparing file monitoring. Large folders may take a few minutes; indexed content remains searchable.",
+  "文件监听失败，自动更新受限；请在索引设置中重建索引以重试。": "File monitoring failed; automatic updates are limited. Rebuild the index in indexing settings to retry."
 }

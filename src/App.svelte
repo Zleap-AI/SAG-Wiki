@@ -4,7 +4,7 @@
  import {externalLinkClick} from './lib/external-links';
  import {applyTheme,watchSystemTheme} from './lib/theme';
  import DesktopWindowControls from './components/DesktopWindowControls.svelte';
- import {indexStages} from './lib/index-stages';
+ import {indexStage as findIndexStage} from './lib/index-stages';
  import LibraryWorkspace from './components/LibraryWorkspace.svelte';
  import IndexDetails from './components/IndexDetails.svelte';
  import DoclingDownload from './components/DoclingDownload.svelte';
@@ -86,7 +86,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  $:indexing=roots.some(r=>r.status!=='ready'&&r.status!=='error'&&r.status!=='partial');
  $:indexFailed=roots.some(r=>r.status==='error'||r.status==='partial');
  $:indexFailureSignature=JSON.stringify(roots.filter(r=>r.status==='error'||r.status==='partial').sort((a,b)=>a.path.localeCompare(b.path)).map(({path,status,error})=>[path,status,error]));
- $:indexStage=indexStages.find(item=>item.stage===indexProgress?.stage);
+ $:indexStage=findIndexStage(indexProgress?.stage);
  $:indexStatusText=indexPaused?$t("SAG 索引已暂停"):indexing?indexStage?$t("SAG {value0}{value1}{value2}",{value0:$t(indexStage.progress),value1:indexPercent===null?'':`（${indexPercent}%）`,value2:''}):(indexPercent===null?$t("SAG 正在索引…"):$t("SAG 正在索引（{value0}%）",{value0:indexPercent})):$t("SAG · 索引已结束");
  $:indexStatusCount=indexProgress?$t("已处理 {value0} / {value1} 个文件",{value0:indexProgress.count,value1:indexProgress.total}):$t("已索引 {value0} 个文件",{value0:roots.reduce((count,root)=>count+root.count,0)});
  $:indexFailureText=roots.length>0&&roots.every(root=>root.status==='error')?$t('读取失败'):$t('部分失败');
@@ -166,7 +166,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
     if(stableRoots!==roots)roots=stableRoots;
     if(stableFiles!==files)files=stableFiles;
     if(indexPaused!==nextStatus.paused)indexPaused=nextStatus.paused;
-    if(indexProgress&&!nextRoots.some(root=>root.path===indexProgress?.path&&root.status==='indexing'))indexProgress=null;
+    if(indexProgress&&!nextRoots.some(root=>root.path===indexProgress?.path&&(root.status==='indexing'||nextStatus.tasks.some(task=>task.path===root.path))))indexProgress=null;
     expanded=new Set([...expanded].filter(path=>included(path)&&nextRoots.some(root=>inside(path,root.path))));scopeExpanded=new Set([...scopeExpanded].filter(included));
     scope=scope.filter(included);references=references.filter(included);
     const nextCache=Object.fromEntries(Object.entries(cache).filter(([path])=>included(path)));
@@ -236,7 +236,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  async function addFolders(paths:string[],options?:FolderIndexOptions){
   const failures:{path:string;error:string}[]=[];
   for(const path of paths){try{await api<string>(options?'add_root_with_options':'add_root',options?{path,options}:{path})}catch(e){failures.push({path,error:$t(String(e))})}}
-  if(failures.length<paths.length){await refresh();notify($t('已添加 {value0} 个文件夹，正在建立本地索引',{value0:paths.length-failures.length}))}
+  if(failures.length<paths.length){await refresh();notify($t('已添加 {value0} 个文件夹，正在后台建立索引，大文件夹可能耗时数分钟',{value0:paths.length-failures.length}))}
   return failures;
  }
  async function edit(path:string,terms:string[]=[],origin='',citation?:Candidate){

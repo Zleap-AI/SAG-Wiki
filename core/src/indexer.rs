@@ -13,6 +13,8 @@ use std::{
 
 #[derive(Debug)]
 pub enum IndexRequest {
+    SyncWatches,
+    ResetWatch { root: String },
     Scan { root: String, verify: bool },
     Paths { root: String, paths: Vec<PathBuf> },
 }
@@ -24,16 +26,10 @@ pub fn queue_scan(store: &Store, scan: &mpsc::Sender<IndexRequest>, root: String
     Ok(())
 }
 
-pub fn add_root(
-    store: &Store,
-    watcher: &std::sync::Mutex<notify::RecommendedWatcher>,
-    scan: &mpsc::Sender<IndexRequest>,
-    path: &std::path::Path,
-) -> Result<String> {
-    use notify::Watcher;
-    let mut watcher = watcher.lock().unwrap();
+/// 递归监视器由索引工作线程在扫描开始前挂载，调用方不必等待目录树规模。
+pub fn add_root(store: &Store, scan: &mpsc::Sender<IndexRequest>, path: &std::path::Path) -> Result<String> {
     let root = store.add_root(path)?;
-    watcher.watch(std::path::Path::new(&root), notify::RecursiveMode::Recursive)?;
+    scan.send(IndexRequest::ResetWatch { root: root.clone() })?;
     queue_scan(store, scan, root.clone())?;
     Ok(root)
 }
@@ -93,8 +89,12 @@ pub fn event_requests(event: &Event, roots: &[Root], settings: &Settings) -> Vec
 
 pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRequest> {
     let mut roots = BTreeMap::<String, (Option<bool>, BTreeSet<PathBuf>)>::new();
+    let mut sync_watches = false;
+    let mut resets = BTreeSet::new();
     for request in requests {
         match request {
+            IndexRequest::SyncWatches => sync_watches = true,
+            IndexRequest::ResetWatch { root } => { resets.insert(root); },
             IndexRequest::Scan { root, verify } => {
                 let state = roots.entry(root).or_default();
                 state.0 = Some(state.0.unwrap_or(false) || verify);
@@ -108,7 +108,7 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
             }
         }
     }
-    roots
+    let mut batch: Vec<_> = roots
         .into_iter()
         .map(|(root, (scan, paths))| match scan {
             Some(verify) => IndexRequest::Scan { root, verify },
@@ -125,7 +125,10 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
                 }
             }
         })
-        .collect()
+        .collect();
+    batch.splice(0..0, resets.into_iter().map(|root| IndexRequest::ResetWatch { root }));
+    if sync_watches { batch.insert(0, IndexRequest::SyncWatches); }
+    batch
 }
 
 pub fn receive_batch(
@@ -153,6 +156,7 @@ pub fn apply_request(
     progress: impl Fn(crate::types::IndexProgress),
 ) -> Result<usize> {
     let root = match &request {
+        IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => return Ok(0),
         IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } => root,
     };
     if !store
@@ -163,6 +167,7 @@ pub fn apply_request(
         return Ok(0);
     }
     match request {
+        IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => Ok(0),
         IndexRequest::Scan { root, verify } => {
             if verify {
                 store.verify_root(&root)?;
@@ -170,6 +175,49 @@ pub fn apply_request(
             store.scan(&root, progress)
         }
         IndexRequest::Paths { root, paths } => store.update_paths(&root, &paths, progress),
+    }
+}
+
+// Owned exclusively by the indexing worker.
+pub(crate) struct RootWatcher<W> {
+    watcher: W,
+    roots: BTreeSet<String>,
+}
+impl<W: notify::Watcher> RootWatcher<W> {
+    pub(crate) fn new(watcher: W) -> Self { Self { watcher, roots: BTreeSet::new() } }
+    pub(crate) fn prepare(&mut self, store: &Store, root: &str, progress: impl FnOnce()) -> Result<()> {
+        if self.roots.contains(root) || !std::path::Path::new(root).exists()
+            || !store.roots()?.iter().any(|registered| registered.path == root) {
+            return Ok(());
+        }
+        store.indexing.begin(root);
+        store.indexing.phase(root, "preparing_watch", 0);
+        progress();
+        let result = self.watcher.watch(std::path::Path::new(root), notify::RecursiveMode::Recursive);
+        store.indexing.finish(root);
+        store.set_watch_error(root, result.as_ref().err().map(ToString::to_string).as_deref())?;
+        result?;
+        self.roots.insert(root.into());
+        Ok(())
+    }
+    pub(crate) fn reconcile(&mut self, roots: &[Root]) -> Result<()> {
+        let removed: Vec<_> = self.roots.iter().filter(|path| {
+            !roots.iter().any(|root| &root.path == *path) || !std::path::Path::new(path).exists()
+        }).cloned().collect();
+        for path in removed { self.reset(&path)?; }
+        Ok(())
+    }
+    pub(crate) fn reset(&mut self, root: &str) -> Result<()> {
+        if self.roots.contains(root) {
+            match self.watcher.unwatch(std::path::Path::new(root)) {
+                Ok(()) => {},
+                // The native backend may already have discarded a deleted root.
+                Err(error) if matches!(error.kind, notify::ErrorKind::WatchNotFound | notify::ErrorKind::PathNotFound) => {},
+                Err(error) => return Err(error.into()),
+            }
+            self.roots.remove(root);
+        }
+        Ok(())
     }
 }
 
@@ -181,6 +229,130 @@ mod tests {
     };
     use notify::{RecursiveMode, Watcher};
     use std::fs;
+
+    #[derive(Default)]
+    struct CountingWatcher {
+        mounts: usize,
+        removals: usize,
+        fail: bool,
+        inspect: Option<Box<dyn Fn()>>,
+    }
+    impl Watcher for CountingWatcher {
+        fn new<F: notify::EventHandler>(_: F, _: notify::Config) -> notify::Result<Self> { Ok(Self::default()) }
+        fn watch(&mut self, _: &std::path::Path, _: RecursiveMode) -> notify::Result<()> {
+            self.mounts += 1;
+            if let Some(inspect) = &self.inspect { inspect(); }
+            if self.fail { Err(notify::Error::generic("mount failed")) } else { Ok(()) }
+        }
+        fn unwatch(&mut self, _: &std::path::Path) -> notify::Result<()> { self.removals += 1; Ok(()) }
+        fn kind() -> notify::WatcherKind { notify::WatcherKind::NullWatcher }
+    }
+
+    #[test]
+    fn watch_cleanup_survives_batch_coalescing_without_creating_scan_work() {
+        let batch = coalesce([IndexRequest::SyncWatches, IndexRequest::SyncWatches]);
+        assert!(matches!(&batch[..], [IndexRequest::SyncWatches]));
+    }
+
+    #[test]
+    fn watcher_is_reused_until_root_removal_and_failed_mounts_can_retry() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let root = store.add_root(dir.path()).unwrap();
+        let mut watcher = RootWatcher::new(CountingWatcher::default());
+        watcher.prepare(&store, &root, || {}).unwrap();
+        watcher.prepare(&store, &root, || panic!("already watched")).unwrap();
+        assert_eq!(watcher.watcher.mounts, 1);
+        store.remove_root(&root).unwrap();
+        watcher.reconcile(&store.roots().unwrap()).unwrap();
+        assert_eq!(watcher.watcher.removals, 1);
+        // A queued scan must not mount a root removed before work started.
+        watcher.prepare(&store, &root, || panic!("removed root")).unwrap();
+        assert_eq!(watcher.watcher.mounts, 1);
+        store.add_root(dir.path()).unwrap();
+        watcher.watcher.fail = true;
+        assert!(watcher.prepare(&store, &root, || {}).is_err());
+        assert!(store.indexing.status().tasks.is_empty());
+        watcher.watcher.fail = false;
+        watcher.prepare(&store, &root, || {}).unwrap();
+        watcher.prepare(&store, &root, || panic!("already watched")).unwrap();
+        assert_eq!(watcher.watcher.mounts, 3);
+    }
+
+    #[test]
+    fn explicit_add_queues_listener_reset_before_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let (tx, rx) = mpsc::channel();
+        add_root(&store, &tx, dir.path()).unwrap();
+        let batch = coalesce(rx.try_iter());
+        assert_eq!(batch.len(), 2, "explicit add must reset stale native registration before scanning");
+        assert!(matches!(&batch[0], IndexRequest::ResetWatch { .. }));
+        assert!(matches!(&batch[1], IndexRequest::Scan { .. }));
+    }
+
+    #[test]
+    fn explicit_reset_restores_listener_even_when_path_still_exists() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let root = store.add_root(dir.path()).unwrap();
+        let mut watcher = RootWatcher::new(CountingWatcher::default());
+        watcher.prepare(&store, &root, || {}).unwrap();
+        watcher.reset(&root).unwrap();
+        watcher.prepare(&store, &root, || {}).unwrap();
+        assert_eq!(watcher.watcher.removals, 1);
+        assert_eq!(watcher.watcher.mounts, 2);
+    }
+
+    #[test]
+    fn failed_watch_remains_visible_after_scan_incremental_update_and_reopen() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("notes");
+        fs::create_dir(&folder).unwrap();
+        let file = folder.join("one.md");
+        fs::write(&file, "watch failure evidence").unwrap();
+        let db = dir.path().join("index.sqlite");
+        let store = Store::open(&db).unwrap();
+        let root = store.add_root(&folder).unwrap();
+        let mut watcher = RootWatcher::new(CountingWatcher { fail: true, ..Default::default() });
+        assert!(watcher.prepare(&store, &root, || {}).is_err());
+        store.scan(&root, |_| {}).unwrap();
+        store.update_paths(&root, &[file], |_| {}).unwrap();
+        assert_eq!(store.files().unwrap().len(), 1);
+        let reopened = Store::open(&db).unwrap();
+        let status = reopened.roots().unwrap().remove(0);
+        assert_eq!(status.status, "partial");
+        assert!(status.error.unwrap().contains("自动更新受限"));
+        assert_eq!(reopened.index_history().unwrap()[0].status, "partial");
+        drop(reopened);
+        watcher.watcher.fail = false;
+        watcher.prepare(&store, &root, || {}).unwrap();
+        store.scan(&root, |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+    }
+
+    #[test]
+    fn watcher_preparation_is_visible_before_mount_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = std::sync::Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let root = store.add_root(dir.path()).unwrap();
+        let observed = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let notified = observed.clone();
+        let inspect_store = store.clone();
+        let inspect_root = root.clone();
+        let mut watcher = RootWatcher::new(CountingWatcher {
+            inspect: Some(Box::new(move || {
+                assert!(observed.load(std::sync::atomic::Ordering::SeqCst), "notify before slow mount");
+                let tasks = inspect_store.indexing.status().tasks;
+                assert_eq!(tasks.len(), 1);
+                assert_eq!(tasks[0].path, inspect_root);
+                assert_eq!(tasks[0].stage, "preparing_watch");
+            })),
+            ..Default::default()
+        });
+        watcher.prepare(&store, &root, || { notified.store(true, std::sync::atomic::Ordering::SeqCst); }).unwrap();
+        assert!(store.indexing.status().tasks.is_empty());
+    }
 
     #[test]
     fn queued_startup_scan_reports_pending_until_the_worker_finishes() {
@@ -506,11 +678,13 @@ mod tests {
         store.scan(&root_text, |_| {}).unwrap();
         fs::write(&unrelated, [0xff, 0xfe]).unwrap();
         let (tx, rx) = mpsc::channel();
-        let mut watcher = notify::recommended_watcher(move |event| {
+        let watcher = notify::recommended_watcher(move |event| {
             tx.send(event).expect("watcher test receiver closed");
         })
         .unwrap();
-        watcher.watch(&root, RecursiveMode::Recursive).unwrap();
+        let mut watcher = RootWatcher::new(watcher);
+        watcher.prepare(&store, &root_text, || {}).unwrap();
+        watcher.prepare(&store, &root_text, || panic!("repeat scan must reuse watcher")).unwrap();
         let sync = || {
             let mut requests = vec![];
             let first: notify::Result<Event> = rx
@@ -585,5 +759,14 @@ mod tests {
             .is_empty());
         assert_eq!(store.files().unwrap().len(), 1);
         assert_eq!(fs::read(unrelated).unwrap(), [0xff, 0xfe]);
+        // Native backends may discard a deleted root without notifying the application.
+        fs::remove_dir_all(&root).unwrap();
+        fs::create_dir(&root).unwrap();
+        watcher.reset(&root_text).unwrap();
+        watcher.prepare(&store, &root_text, || {}).unwrap();
+        fs::write(root.join("restored.md"), "restoredwatchtoken").unwrap();
+        sync();
+        assert_eq!(store.search_files("restoredwatchtoken", &[], 10).unwrap().len(), 1);
+
     }
 }

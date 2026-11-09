@@ -471,3 +471,27 @@ it('Windows 索引路径显示常规格式，打开历史文件仍使用原始�
  document.querySelector<HTMLButtonElement>('.index-history-file')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_index_history_file',{id:42,path:file}));
 });
+
+it('监听准备阶段恢复已隐藏的状态并展示不确定进度',async()=>{
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[{path:'/notes',stage:'preparing_watch',completed:0,total:0,files:[]}]};
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'pending',count:0,error:null}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ listeners.get('index-progress')!({payload:{path:'/notes',count:0,total:0,stage:'preparing_watch'}});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在准备文件监听'));
+ expect(document.querySelector('.index-status-bar')).toBeNull();
+ const reads=invoke.mock.calls.filter(([command])=>command==='list_roots').length;
+ listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(invoke.mock.calls.filter(([command])=>command==='list_roots').length).toBeGreaterThan(reads));
+ await new Promise(resolve=>setTimeout(resolve,50));
+ await tick();
+ expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在准备文件监听');
+ document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('正在准备文件监听'));
+});

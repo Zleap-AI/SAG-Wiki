@@ -25,10 +25,9 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
     store.save_settings(&settings).unwrap();
     store.add_root(&root).unwrap();
     store.scan(root.to_str().unwrap(), |_| {}).unwrap();
-    let watcher = Arc::new(std::sync::Mutex::new(notify::recommended_watcher(|_: notify::Result<notify::Event>| {}).unwrap()));
     let (tx, rx) = std::sync::mpsc::channel();
     let add_store = store.clone();
-    let add_root = Arc::new(move |path: &Path| crate::indexer::add_root(&add_store, &watcher, &tx, path));
+    let add_root = Arc::new(move |path: &Path| crate::indexer::add_root(&add_store, &tx, path));
     let remove_store = store.clone();
     let remove_root = Arc::new(move |path: &Path| remove_store.remove_path(path));
     let service = CliService::start(
@@ -766,14 +765,14 @@ async fn malformed_ignore_rules_preserve_existing_index_and_report_the_error() {
     let rules = root.join(".sagignore");
     fs::write(&rules, "[z-a]\n").unwrap();
     send(&service, &root, Command::Add, None).await;
-    let error = crate::indexer::apply_request(&service.store, queue.recv().unwrap(), |_| {}).unwrap_err();
+    let error = crate::indexer::apply_request(&service.store, queue.try_iter().find(|request| matches!(request, crate::indexer::IndexRequest::Scan { .. })).unwrap(), |_| {}).unwrap_err();
     assert!(error.to_string().contains(".sagignore"), "{error}");
     assert!(!service.index_ready(&root).unwrap());
     let after: Vec<_> = service.store.files().unwrap().into_iter().map(|file| file.path).collect();
     assert_eq!(after, original);
     fs::write(&rules, "").unwrap();
     send(&service, &root, Command::Add, None).await;
-    crate::indexer::apply_request(&service.store, queue.recv().unwrap(), |_| {}).unwrap();
+    crate::indexer::apply_request(&service.store, queue.try_iter().find(|request| matches!(request, crate::indexer::IndexRequest::Scan { .. })).unwrap(), |_| {}).unwrap();
     assert!(service.index_ready(&root).unwrap());
 }
 

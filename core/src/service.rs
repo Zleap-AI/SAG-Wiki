@@ -4,7 +4,6 @@ use crate::{
     agent, cli_service, explore, indexer, mcp, models, retrieval, sag_mcp, store, text, types::*,
 };
 use anyhow::Context as _;
-use notify::{RecursiveMode, Watcher};
 use sag_protocol::{EventEnvelope, Query, QueryOutput, ServiceEvent};
 use std::{
     collections::HashMap,
@@ -60,7 +59,6 @@ pub struct Service {
     conversation_access: tokio::sync::RwLock<()>,
     approvals: Mutex<HashMap<(String, String), tokio::sync::oneshot::Sender<bool>>>,
     scan: mpsc::Sender<IndexRequest>,
-    watcher: Arc<Mutex<notify::RecommendedWatcher>>,
     pub data_dir: PathBuf,
     pub events: broadcast::Sender<(Option<String>, EventEnvelope)>,
     pub stop: CancellationToken,
@@ -188,13 +186,14 @@ async fn explore_evidence(
     .map_err(error)?
 }
 fn add_root(path: String, state: &Arc<Service>) -> CommandResult<String> {
-    indexer::add_root(&state.store, &state.watcher, &state.scan, Path::new(&path)).map_err(error)
+    indexer::add_root(&state.store, &state.scan, Path::new(&path)).map_err(error)
 }
 fn list_removed_directories(state: &Arc<Service>) -> CommandResult<Vec<String>> {
     state.store.excluded_directories().map_err(error)
 }
 fn remove_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
     state.store.remove_path(Path::new(&path)).map_err(error)?;
+    state.scan.send(IndexRequest::SyncWatches).map_err(error)?;
     Ok(())
 }
 fn refresh_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
@@ -206,6 +205,7 @@ fn refresh_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
         .into_iter()
         .find(|r| path.starts_with(&r.path))
         .ok_or("目录未加入")?;
+    state.scan.send(IndexRequest::ResetWatch { root: root.path.clone() }).map_err(error)?;
     state
         .scan
         .send(IndexRequest::Scan {
@@ -216,6 +216,7 @@ fn refresh_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
 }
 fn reindex_all(state: &Arc<Service>) -> CommandResult<Vec<Root>> {
     for root in state.store.prepare_reindex().map_err(error)? {
+        state.scan.send(IndexRequest::ResetWatch { root: root.clone() }).map_err(error)?;
         state
             .scan
             .send(IndexRequest::Scan { root, verify: true })
@@ -257,7 +258,7 @@ fn default_notes_folder(state: &Arc<Service>) -> anyhow::Result<PathBuf> {
     std::fs::create_dir_all(&folder)?;
     let library = library.canonicalize()?;
     if !state.store.roots()?.iter().any(|root| library.starts_with(&root.path)) {
-        indexer::add_root(&state.store, &state.watcher, &state.scan, &library)?;
+        indexer::add_root(&state.store, &state.scan, &library)?;
     }
     Ok(folder.canonicalize()?)
 }
@@ -1051,7 +1052,7 @@ impl Service {
         let watcher_store = store.clone();
         let watcher_tx = tx.clone();
         let watcher_app = event_sink.clone();
-        let mut watcher =
+        let watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
                 Ok(e) => {
                     if matches!(e.kind, notify::EventKind::Access(_)) {
@@ -1081,11 +1082,9 @@ impl Service {
                 Err(err) => emit(&watcher_app, "app-error", format!("文件监听失败：{err}")),
             })?;
         for root in store.roots()? {
-            if Path::new(&root.path).exists() {
-                watcher.watch(Path::new(&root.path), RecursiveMode::Recursive)?;
-            }
             indexer::queue_scan(&store, &tx, root.path)?;
         }
+        let mut worker_watcher = indexer::RootWatcher::new(watcher);
         let worker_store = store.clone();
         let handle = event_sink.clone();
         let worker_stop = stop.clone();
@@ -1099,11 +1098,32 @@ impl Service {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
             for request in indexer::receive_batch(&rx, first) {
+                match worker_store.roots().and_then(|roots| worker_watcher.reconcile(&roots)) {
+                    Ok(()) => {},
+                    Err(err) => emit(&handle, "app-error", format!("文件监听清理失败：{err}")),
+                }
                 let root = match &request {
+                    IndexRequest::SyncWatches => continue,
+                    IndexRequest::ResetWatch { root } => {
+                        if let Err(err) = worker_watcher.reset(root) {
+                            emit(&handle, "app-error", format!("文件监听重置失败：{root}：{err}"));
+                        }
+                        continue;
+                    },
                     IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } => {
                         root.clone()
                     }
                 };
+                if matches!(request, IndexRequest::Scan { .. }) {
+                    // Publish preparation before a potentially slow native registration.
+                    if let Err(err) = worker_watcher.prepare(&worker_store, &root, || {
+                        emit(&handle, "index-progress", serde_json::json!({
+                            "path":root,"count":0,"total":0,"stage":"preparing_watch",
+                        }));
+                    }) {
+                        emit(&handle, "app-error", format!("文件监听失败：{root}：{err}"));
+                    }
+                }
                 let last_update = std::cell::Cell::new(std::time::Instant::now());
                 if let Err(e) = indexer::apply_request(&worker_store, request, |progress| {
                     emit(
@@ -1123,20 +1143,20 @@ impl Service {
         });
         let client = reqwest::Client::builder().build()?;
 
-        let watcher = Arc::new(Mutex::new(watcher));
         let add_store = store.clone();
-        let add_watcher = watcher.clone();
         let add_tx = tx.clone();
         let add_events = event_sink.clone();
         let add_root = Arc::new(move |path: &Path| {
-            let root = indexer::add_root(&add_store, &add_watcher, &add_tx, path)?;
+            let root = indexer::add_root(&add_store, &add_tx, path)?;
             emit(&add_events, "data-changed", ());
             Ok(root)
         });
         let remove_store = store.clone();
         let remove_events = event_sink.clone();
+        let remove_tx = tx.clone();
         let remove_root = Arc::new(move |path: &Path| {
             remove_store.remove_path(path)?;
+            remove_tx.send(IndexRequest::SyncWatches)?;
             emit(&remove_events, "data-changed", ());
             Ok(())
         });
@@ -1156,7 +1176,6 @@ impl Service {
             conversation_access: tokio::sync::RwLock::new(()),
             approvals: Mutex::new(HashMap::new()),
             scan: tx,
-            watcher,
             data_dir: data,
             events,
             stop,
@@ -1314,6 +1333,7 @@ impl Service {
                 let store = self.store.clone();
                 tokio::task::spawn_blocking(move || store.remove_all_roots().map_err(error))
                     .await.map_err(error)??;
+                self.scan.send(IndexRequest::SyncWatches).map_err(error)?;
                 Out::Unit
             }
             Op::PutDraft { draft } => {
@@ -1385,6 +1405,7 @@ impl Service {
                 let store = self.store.clone();
                 tokio::task::spawn_blocking(move || store.clear_all_data().map_err(error))
                     .await.map_err(error)??;
+                self.scan.send(IndexRequest::SyncWatches).map_err(error)?;
                 match std::fs::remove_dir_all(self.data_dir.join("document-folds")) {
                     Ok(()) => {},
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
