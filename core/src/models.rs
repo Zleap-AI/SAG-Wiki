@@ -749,7 +749,7 @@ pub async fn test_connection(
     let payload = if kind == "jev" {
         json!({"model":config.model,"state":"Connection test","questions":{"test":{"type":"noul","instructions":{"question":"Is this a connection test?"},"criteria":{"true":"It is a connection test.","false":"It is not a connection test."}}}})
     } else {
-        json!({"model":config.model,"messages":[{"role":"user","content":"Reply with OK."}],"max_tokens":8})
+        json!({"model":config.model,"messages":[{"role":"user","content":"Reply with OK."}]})
     };
     let data: Value = request(
         client,
@@ -1228,6 +1228,56 @@ mod transport_tests {
     }
     fn http(kind: &str, body: &str) -> String {
         format!("HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len())
+    }
+    #[tokio::test]
+    async fn answer_connection_omits_provider_specific_token_limits() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let config = ModelConfig {
+            url: format!("http://{}/v1", listener.local_addr().unwrap()),
+            model: "gpt-6.1-terra".into(),
+            ..Default::default()
+        };
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut bytes = vec![];
+            let mut part = [0; 4096];
+            let (headers, payload): (String, Value) = loop {
+                let count = socket.read(&mut part).unwrap();
+                assert!(count > 0);
+                bytes.extend_from_slice(&part[..count]);
+                if let Some(end) = bytes.windows(4).position(|p| p == b"\r\n\r\n") {
+                    let headers = String::from_utf8_lossy(&bytes[..end]);
+                    let length = headers.lines().find_map(|line| {
+                        line.to_ascii_lowercase().strip_prefix("content-length: ")
+                            .and_then(|n| n.parse::<usize>().ok())
+                    }).unwrap();
+                    if bytes.len() >= end + 4 + length {
+                        break (
+                            headers.into_owned(),
+                            serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap(),
+                        );
+                    }
+                }
+            };
+            let response = if payload.get("max_tokens").is_some() {
+                http("application/json", r#"{"error":{"message":"Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.","type":"invalid_request_error","param":"max_tokens","code":"unsupported_parameter"}}"#)
+                    .replacen("200 OK", "400 Bad Request", 1)
+            } else {
+                http("application/json", r#"{"choices":[{"message":{"content":"OK"}}]}"#)
+            };
+            socket.write_all(response.as_bytes()).unwrap();
+            (headers, payload)
+        });
+        let client = Client::builder().no_proxy().build().unwrap();
+        let result = test_connection(&client, "answer", &config, "test-only", 5).await;
+        assert_eq!(result.unwrap(), "连接成功");
+        let (headers, sent) = server.join().unwrap();
+        assert!(headers.starts_with("POST /v1/chat/completions HTTP/1.1"));
+        assert_eq!(sent["model"], "gpt-6.1-terra");
+        assert_eq!(sent["messages"], json!([{"role":"user","content":"Reply with OK."}]));
+        assert!(sent.get("max_tokens").is_none());
+        assert!(sent.get("max_completion_tokens").is_none());
     }
     #[tokio::test]
     async fn compressed_provider_errors_keep_the_original_reason() {
