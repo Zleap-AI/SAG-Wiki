@@ -272,6 +272,7 @@ impl Store {
         register_rank(&db)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
+ CREATE TABLE IF NOT EXISTS root_watch_errors(root TEXT PRIMARY KEY REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS root_exclusions(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS index_history(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL,name TEXT NOT NULL,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,completed INTEGER NOT NULL,total INTEGER NOT NULL,status TEXT NOT NULL,error TEXT);
@@ -883,6 +884,14 @@ impl Store {
         )?;
         Ok(())
     }
+    pub(crate) fn set_watch_error(&self, root: &str, error: Option<&str>) -> Result<()> {
+        let db = self.connection();
+        match error {
+            Some(error) => { db.execute("INSERT INTO root_watch_errors(root,error) SELECT path,?2 FROM roots WHERE path=?1 ON CONFLICT(root) DO UPDATE SET error=excluded.error", params![root,error])?; },
+            None => { db.execute("DELETE FROM root_watch_errors WHERE root=?", [root])?; },
+        }
+        Ok(())
+    }
     fn finish_indexing(&self, root: &str) -> Result<()> {
         let issues = {
             let db = self.connection();
@@ -891,11 +900,18 @@ impl Store {
                 .collect::<rusqlite::Result<Vec<_>>>()?;
             rows
         };
-        if issues.is_empty() {
+        let watch_error: Option<String> = self.connection().query_row(
+            "SELECT error FROM root_watch_errors WHERE root=?", [root], |row| row.get(0),
+        ).optional()?;
+        if issues.is_empty() && watch_error.is_none() {
             self.root_status(root, "ready", None)
         } else {
-            let details = format!("未能索引 {} 个文件\n\n{}", issues.len(), issues.into_iter()
-                .map(|(path, error)| format!("{path}\n{error}")).collect::<Vec<_>>().join("\n\n"));
+            let mut details = if issues.is_empty() { String::new() } else { format!("未能索引 {} 个文件\n\n{}", issues.len(), issues.into_iter()
+                .map(|(path, error)| format!("{path}\n{error}")).collect::<Vec<_>>().join("\n\n")) };
+            if let Some(error) = watch_error {
+                if !details.is_empty() { details.push_str("\n\n"); }
+                details.push_str(&format!("文件监听失败，自动更新受限；请在索引设置中重建索引以重试。\n{error}"));
+            }
             self.root_status(root, "partial", Some(&details))
         }
     }

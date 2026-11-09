@@ -7,6 +7,7 @@ export const indexStages=[
 // Maps raw indexing errors to an actionable hint; null means no specific cause was recognized.
 export function indexErrorHint(message:string|null|undefined){
  if(!message)return null;
+ if(message.includes('文件监听失败'))return '文件监听失败，自动更新受限；请在索引设置中重建索引以重试。';
  if(/permission denied|access is denied|拒绝访问|权限不足/i.test(message))return '无法读取文件：请检查文件或文件夹的访问权限。';
  if(/no such file|file not found|找不到文件|文件不存在|路径不存在/i.test(message))return '文件已移动或删除，请确认文件仍位于该文件夹中。';
  if(/unsupported|not support|不支持|无法转换/i.test(message))return '文件格式暂不支持。';
@@ -15,4 +16,10 @@ export function indexErrorHint(message:string|null|undefined){
  if(/utf-?16|gbk|encoding|编码/i.test(message))return '文件编码无法识别，请将文件另存为 UTF-8 后重试。';
  if(/timeout|timed out|超时/i.test(message))return '处理文件超时，请稍后重新索引。';
  return null;
+}
+
+// Watch setup is a preparation step, not an additional file-indexing phase.
+export function indexStage(stage:string|undefined){
+ if(stage==='preparing_watch')return {stage,title:'文件监听',progress:'正在准备文件监听',description:'正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。'};
+ return indexStages.find(item=>item.stage===stage);
 }

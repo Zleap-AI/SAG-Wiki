@@ -9,7 +9,7 @@
  import {sameIndexStatus,stableRows} from '../lib/stable-snapshot';
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
- import {indexErrorHint,indexStages} from '../lib/index-stages';
+ import {indexErrorHint,indexStages,indexStage} from '../lib/index-stages';
  import type {Root,IndexStatus,IndexHistory} from '../lib/types';
  export let roots:Root[]=[];
  export let onClose:()=>void;
@@ -18,7 +18,7 @@
  let history:IndexHistory[]=[],historyKey:string|undefined,clearing=false;
  let disposed=false,timer:ReturnType<typeof setTimeout>;
  let running:Promise<void>|null=null,requested=false,historyDirty=true,generation=0,lastPaused:boolean|undefined;
- const stageLabel=(stage:string)=>$t(indexStages.find(item=>item.stage===stage)?.progress??(stage==='indexing'?'正在索引文件':'正在扫描文件'));
+ const stageLabel=(stage:string)=>$t(indexStage(stage)?.progress??(stage==='indexing'?'正在索引文件':'正在扫描文件'));
  const humanError=(message:string|null|undefined)=>{const hint=indexErrorHint(message);return hint?$t('{value0}其他文件可正常检索。',{value0:$t(hint)}):$t(message?'部分文件未能处理，其他已索引文件仍可搜索。':'索引未能完成，查看文件记录了解详情。')};
  const newestByFolder=(records:IndexHistory[])=>{
   const newest=new Map<string,IndexHistory>();
@@ -116,7 +116,7 @@
      <ol class="index-pipeline" aria-label={$t('索引流程')}>
       {#each indexStages as item,index}<li class:current={step===index} class:done={step>index} aria-current={step===index?'step':undefined}><span>{step>index?'✓':index+1}</span>{$t(item.title)}</li>{/each}
      </ol>
-     <p class="index-stage-description">{step>=0?$t(indexStages[step].description):$t('先索引文本，再转换其他格式，最后索引转换结果。')}</p>
+     <p class="index-stage-description">{$t(indexStage(task.stage)?.description??'先索引文本，再转换其他格式，最后索引转换结果。')}</p>
      {#if task.total>0}<div class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:task.completed,value1:task.total})}</div><progress aria-label={$t('{value0} 的索引进度',{value0:root.name})} value={task.completed} max={task.total}></progress>{/if}
      {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span>{displayPath(file)}</span></li>{/each}</ul>{/if}
     {/if}
