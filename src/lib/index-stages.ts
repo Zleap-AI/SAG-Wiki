@@ -16,3 +16,9 @@ export function indexErrorHint(message:string|null|undefined){
  if(/timeout|timed out|超时/i.test(message))return '处理文件超时，请稍后重新索引。';
  return null;
 }
+
+// Watch setup is a preparation step, not an additional file-indexing phase.
+export function indexStage(stage:string|undefined){
+ if(stage==='preparing_watch')return {stage,title:'文件监听',progress:'正在准备文件监听',description:'正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。'};
+ return indexStages.find(item=>item.stage===stage);
+}

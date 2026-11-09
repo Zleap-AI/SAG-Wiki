@@ -4,7 +4,6 @@ use crate::{
     agent, cli_service, explore, indexer, mcp, models, retrieval, sag_mcp, store, text, types::*,
 };
 use anyhow::Context as _;
-use notify::{RecursiveMode, Watcher};
 use sag_protocol::{EventEnvelope, Query, QueryOutput, ServiceEvent};
 use std::{
     collections::HashMap,
@@ -194,6 +193,7 @@ fn list_removed_directories(state: &Arc<Service>) -> CommandResult<Vec<String>> 
 }
 fn remove_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
     state.store.remove_path(Path::new(&path)).map_err(error)?;
+    state.scan.send(IndexRequest::SyncWatches).map_err(error)?;
     Ok(())
 }
 fn refresh_root(path: String, state: &Arc<Service>) -> CommandResult<()> {
@@ -1050,7 +1050,7 @@ impl Service {
         let watcher_store = store.clone();
         let watcher_tx = tx.clone();
         let watcher_app = event_sink.clone();
-        let mut watcher =
+        let watcher =
             notify::recommended_watcher(move |event: notify::Result<notify::Event>| match event {
                 Ok(e) => {
                     if matches!(e.kind, notify::EventKind::Access(_)) {
@@ -1082,7 +1082,7 @@ impl Service {
         for root in store.roots()? {
             indexer::queue_scan(&store, &tx, root.path)?;
         }
-        let worker_watcher = Arc::new(Mutex::new(watcher));
+        let mut worker_watcher = indexer::RootWatcher::new(watcher);
         let worker_store = store.clone();
         let handle = event_sink.clone();
         let worker_stop = stop.clone();
@@ -1096,14 +1096,23 @@ impl Service {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
             for request in indexer::receive_batch(&rx, first) {
+                match worker_store.roots().and_then(|roots| worker_watcher.reconcile(&roots)) {
+                    Ok(()) => {},
+                    Err(err) => emit(&handle, "app-error", format!("文件监听清理失败：{err}")),
+                }
                 let root = match &request {
+                    IndexRequest::SyncWatches => continue,
                     IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } => {
                         root.clone()
                     }
                 };
-                if matches!(request, IndexRequest::Scan { .. }) && Path::new(&root).exists() {
-                    // 先挂递归监视器再扫描，索引期间的文件变动不会丢失。
-                    if let Err(err) = worker_watcher.lock().unwrap().watch(Path::new(&root), RecursiveMode::Recursive) {
+                if matches!(request, IndexRequest::Scan { .. }) {
+                    // Publish preparation before a potentially slow native registration.
+                    if let Err(err) = worker_watcher.prepare(&worker_store, &root, || {
+                        emit(&handle, "index-progress", serde_json::json!({
+                            "path":root,"count":0,"total":0,"stage":"preparing_watch",
+                        }));
+                    }) {
                         emit(&handle, "app-error", format!("文件监听失败：{root}：{err}"));
                     }
                 }
@@ -1136,8 +1145,10 @@ impl Service {
         });
         let remove_store = store.clone();
         let remove_events = event_sink.clone();
+        let remove_tx = tx.clone();
         let remove_root = Arc::new(move |path: &Path| {
             remove_store.remove_path(path)?;
+            remove_tx.send(IndexRequest::SyncWatches)?;
             emit(&remove_events, "data-changed", ());
             Ok(())
         });
@@ -1314,6 +1325,7 @@ impl Service {
                 let store = self.store.clone();
                 tokio::task::spawn_blocking(move || store.remove_all_roots().map_err(error))
                     .await.map_err(error)??;
+                self.scan.send(IndexRequest::SyncWatches).map_err(error)?;
                 Out::Unit
             }
             Op::PutDraft { draft } => {
@@ -1385,6 +1397,7 @@ impl Service {
                 let store = self.store.clone();
                 tokio::task::spawn_blocking(move || store.clear_all_data().map_err(error))
                     .await.map_err(error)??;
+                self.scan.send(IndexRequest::SyncWatches).map_err(error)?;
                 match std::fs::remove_dir_all(self.data_dir.join("document-folds")) {
                     Ok(()) => {},
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},

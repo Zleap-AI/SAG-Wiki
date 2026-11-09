@@ -1582,5 +1582,8 @@
   "停止折叠": "Stop folding",
   "折叠已停止": "Folding stopped",
   "卡片": "Cards",
-  "导图": "Map"
+  "导图": "Map",
+  "文件监听": "File monitoring",
+  "正在准备文件监听": "Preparing file monitoring",
+  "正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。": "Preparing file monitoring. Large folders may take a few minutes; indexed content remains searchable."
 }
