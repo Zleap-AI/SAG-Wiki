@@ -19,6 +19,7 @@ const VERSION: &str = "2.140.0";
 const UV_VERSION: &str = "0.12.1";
 const UV_EXECUTABLE: &str = if cfg!(windows) { "uv.exe" } else { "uv" };
 const PYTHON_VERSION: &str = "3.12.13";
+const BOOTSTRAP_DIR_ENV: &str = "SAG_DOCLING_BOOTSTRAP_DIR";
 const DIAGNOSTIC_LIMIT: u64 = 8 * 1024 * 1024;
 const MEDIA_EXTENSIONS: &[&str] = &[
     "wav", "mp3", "m4a", "aac", "ogg", "flac", "mp4", "avi", "mov", "mkv", "webm",
@@ -158,9 +159,52 @@ fn uv_download_url() -> Result<String> {
     ))
 }
 
+#[derive(Clone, Copy)]
+struct BootstrapArtifact {
+    file: &'static str,
+    sha256: &'static str,
+}
+
+/// Desktop releases carry these two small archives inside the signed app.
+/// They are extracted only when Docling is requested, keeping the installed
+/// application lightweight while removing GitHub/Astral from first install.
+fn bundled_bootstrap() -> Option<(BootstrapArtifact, BootstrapArtifact)> {
+    match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => Some((
+            BootstrapArtifact {
+                file: "uv-aarch64-apple-darwin.tar.gz",
+                sha256: "77d2906988e8074fd43f2f329ec452ebbf9b0c257ba1c66451c71de70a6baf42",
+            },
+            BootstrapArtifact {
+                file: "cpython-3.12.13+20260728-aarch64-apple-darwin-install_only_stripped.tar.gz",
+                sha256: "2f18cdef4125ca1440dd1ba00ebcb267526efb532138c0860438f755ea4eebac",
+            },
+        )),
+        ("windows", "x86_64") => Some((
+            BootstrapArtifact {
+                file: "uv-x86_64-pc-windows-msvc.zip",
+                sha256: "8fcb0cb46e1229065e344758980924e569bef5882ef45f46fada8fb24e06b74a",
+            },
+            BootstrapArtifact {
+                file:
+                    "cpython-3.12.13+20260728-x86_64-pc-windows-msvc-install_only_stripped.tar.gz",
+                sha256: "242b94b37682ac55f9bf9eb624348dc8d17c64f74f56028104545ea3ffe35e26",
+            },
+        )),
+        _ => None,
+    }
+}
+
+fn bootstrap_archive(artifact: BootstrapArtifact) -> Option<PathBuf> {
+    let root = std::env::var_os(BOOTSTRAP_DIR_ENV)?;
+    let path = PathBuf::from(root).join(artifact.file);
+    path.is_file().then_some(path)
+}
+
 enum OfflineImport {
     Component(PathBuf),
     Uv(PathBuf),
+    UvArchive(PathBuf),
 }
 
 pub struct Docling {
@@ -338,6 +382,21 @@ impl Docling {
             let source = OfflineImport::Component(path.canonicalize()?);
             return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
         }
+        if path.is_file() {
+            if path.file_name().is_some_and(|name| name == "manifest.json") {
+                let parent = path.parent().context("组件清单缺少父目录")?;
+                let source = OfflineImport::Component(parent.canonicalize()?);
+                return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
+            }
+            if path.file_name().is_some_and(|name| name == UV_EXECUTABLE) {
+                let source = OfflineImport::Uv(path.canonicalize()?);
+                return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
+            }
+            return self.start_profiles_from(
+                vec![DoclingProfile::Documents],
+                Some(OfflineImport::UvArchive(path.canonicalize()?)),
+            );
+        }
         // Extracting the archive may add one folder level, e.g. uv-<platform>/uv.
         let uv = walkdir::WalkDir::new(&path)
             .max_depth(2)
@@ -394,6 +453,7 @@ impl Docling {
                         *view.source.lock().unwrap() = Some(source.clone());
                     }
                     Some(OfflineImport::Uv(uv)) => view.import_uv(uv)?,
+                    Some(OfflineImport::UvArchive(archive)) => view.import_uv_archive(archive)?,
                     None => {}
                 }
                 view.install()
@@ -502,35 +562,7 @@ impl Docling {
         let python_home = staging.path().join("python");
         let packages = staging.path().join("site-packages");
         let models = staging.path().join("models");
-        let mut command = self.command(uv);
-        command.env("UV_PYTHON_INSTALL_DIR", &python_home).args([
-            "python",
-            "install",
-            PYTHON_VERSION,
-            "--no-bin",
-            "--no-registry",
-            "--no-config",
-        ]);
-        self.progress("runtime", "正在下载 Python 运行环境…");
-        self.run_install(&mut command, Duration::from_secs(600))
-            .map_err(|error| self.with_hint(error, |error| anyhow!(
-                "无法下载 Python 运行环境：{error:#}。如无法访问 GitHub，可设置 UV_PYTHON_INSTALL_MIRROR 环境变量指向 python-build-standalone 镜像，重启 SAG 服务后重试。"
-            )))?;
-        let python = walkdir::WalkDir::new(&python_home)
-            .max_depth(4)
-            .into_iter()
-            .filter_map(|entry| entry.ok())
-            .find(|entry| {
-                entry.file_name()
-                    == if cfg!(windows) {
-                        "python.exe"
-                    } else {
-                        "python3.12"
-                    }
-                    && entry.path().is_file()
-            })
-            .context("下载的 Python 运行环境缺少解释器")?
-            .into_path();
+        let python = self.install_python(uv, &python_home)?;
         let mut command = self.command(uv);
         command
             .env("UV_PYTHON_INSTALL_DIR", &python_home)
@@ -578,7 +610,12 @@ impl Docling {
                 "正在下载并安装 Docling 文档组件…"
             },
         );
-        self.run_install(&mut command, Duration::from_secs(1800))
+        self.run_install_retry(
+            &mut command,
+            Duration::from_secs(1800),
+            "dependencies",
+            "依赖下载中断，正在复用缓存重试…",
+        )
             .map_err(|error| self.with_hint(error, |error| anyhow!(
                 "无法下载组件依赖：{error:#}。如无法访问 PyPI，可设置 UV_DEFAULT_INDEX 环境变量（例如 https://pypi.tuna.tsinghua.edu.cn/simple），重启 SAG 服务后重试。"
             )))?;
@@ -645,7 +682,10 @@ impl Docling {
             .ok()
             .filter(|value| !value.trim().is_empty())
             .unwrap_or_else(|| "https://huggingface.co".into());
-        let url = format!("{}/api/models/docling-project/docling-layout-heron", endpoint.trim_end_matches('/'));
+        let url = format!(
+            "{}/api/models/docling-project/docling-layout-heron",
+            endpoint.trim_end_matches('/')
+        );
         self.status.lock().unwrap().message = format!("正在连接模型服务 {endpoint}…");
         let probe: Result<std::result::Result<(), reqwest::Error>> = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
             let client = reqwest::Client::builder()
@@ -670,10 +710,41 @@ impl Docling {
             ),
         }
     }
-    fn run_install(&self, command: &mut Command, timeout: Duration) -> Result<()> {
+    fn run_install_retry(
+        &self,
+        command: &mut Command,
+        timeout: Duration,
+        stage: &str,
+        retry_message: &str,
+    ) -> Result<()> {
         let cancel = || self.cancel.load(Ordering::Relaxed);
         let permit = crate::docling_budget::acquire(&cancel)?;
-        self.run_install_with_budget(command, timeout, permit.bytes)
+        let start = std::time::Instant::now();
+        for attempt in 1..=3 {
+            let remaining = timeout.saturating_sub(start.elapsed());
+            let result = self.run_install_with_budget(command, remaining, permit.bytes);
+            match result {
+                Err(error)
+                    if attempt < 3
+                        && error
+                            .downcast_ref::<crate::process_supervisor::Failure>()
+                            .is_some_and(|failure| {
+                                failure.kind == crate::process_supervisor::FailureKind::Exit
+                            }) =>
+                {
+                    self.progress(
+                        stage,
+                        format!("{retry_message}（第 {} 次重试）", attempt + 1),
+                    );
+                    std::thread::sleep(Duration::from_millis(500));
+                    if cancel() {
+                        bail!("已取消下载，可稍后重试")
+                    }
+                }
+                result => return result,
+            }
+        }
+        unreachable!("the third installation attempt always returns")
     }
     fn run_model_download(&self, command: &mut Command, timeout: Duration) -> Result<()> {
         let cancel = || self.cancel.load(Ordering::Relaxed);
@@ -742,6 +813,72 @@ impl Docling {
             hint(error)
         }
     }
+    fn verified_bootstrap_archive(&self, artifact: BootstrapArtifact) -> Result<Option<PathBuf>> {
+        let Some(path) = bootstrap_archive(artifact) else {
+            return Ok(None);
+        };
+        let actual = fingerprint(&path)?;
+        if actual != artifact.sha256 {
+            bail!(
+                "内置运行环境文件 {} 校验失败，请重新安装 SAG",
+                artifact.file
+            )
+        }
+        Ok(Some(path))
+    }
+    fn python_interpreter(&self, python_home: &Path) -> Result<PathBuf> {
+        Ok(walkdir::WalkDir::new(python_home)
+            .max_depth(4)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .find(|entry| {
+                entry.file_name()
+                    == if cfg!(windows) {
+                        "python.exe"
+                    } else {
+                        "python3.12"
+                    }
+                    && entry.path().is_file()
+            })
+            .context("Python 运行环境缺少解释器")?
+            .into_path())
+    }
+    fn extract_python_archive(&self, archive: &Path, python_home: &Path) -> Result<PathBuf> {
+        fs::create_dir_all(python_home)?;
+        let file = fs::File::open(archive)?;
+        tar::Archive::new(flate2::read::GzDecoder::new(file))
+            .unpack(python_home)
+            .context("无法解压应用内置的 Python 运行环境")?;
+        self.python_interpreter(python_home)
+    }
+    fn install_python(&self, uv: &Path, python_home: &Path) -> Result<PathBuf> {
+        if let Some((_, artifact)) = bundled_bootstrap() {
+            if let Some(archive) = self.verified_bootstrap_archive(artifact)? {
+                self.progress("runtime", "正在准备应用内置的 Python 运行环境…");
+                return self.extract_python_archive(&archive, python_home);
+            }
+        }
+        let mut command = self.command(uv);
+        command.env("UV_PYTHON_INSTALL_DIR", python_home).args([
+            "python",
+            "install",
+            PYTHON_VERSION,
+            "--no-bin",
+            "--no-registry",
+            "--no-config",
+        ]);
+        self.progress("runtime", "正在下载 Python 运行环境…");
+        self.run_install_retry(
+            &mut command,
+            Duration::from_secs(600),
+            "runtime",
+            "Python 下载中断，正在重试…",
+        )
+        .map_err(|error| self.with_hint(error, |error| anyhow!(
+            "无法下载 Python 运行环境：{error:#}。如无法访问 GitHub，可设置 UV_PYTHON_INSTALL_MIRROR 环境变量指向 python-build-standalone 镜像，重启 SAG 服务后重试。"
+        )))?;
+        self.python_interpreter(python_home)
+    }
     fn uv_version(&self, executable: &Path) -> Option<String> {
         let mut version = String::new();
         crate::process_supervisor::run(
@@ -794,18 +931,53 @@ impl Docling {
             .map_err(|error| error.error)?;
         Ok(())
     }
+    /// Accepts the release archive directly, without requiring the user to
+    /// extract `uv` first. This is the browser-download fallback for builds
+    /// that do not carry the signed bootstrap archive.
+    fn import_uv_archive(&self, source: &Path) -> Result<()> {
+        self.progress("runtime", "正在校验导入的运行环境管理器压缩包…");
+        let mut archive = fs::File::open(source)?;
+        self.install_uv_archive(&mut archive)?;
+        let executable = self.home.join(UV_EXECUTABLE);
+        if self.uv_version(&executable).as_deref() == Some(UV_VERSION) {
+            return Ok(());
+        }
+        let _ = fs::remove_file(executable);
+        bail!("导入的压缩包中的 uv 版本不是 {UV_VERSION}")
+    }
     fn bootstrap_uv(&self) -> Result<PathBuf> {
         let executable = self.home.join(UV_EXECUTABLE);
         if executable.is_file() && self.uv_version(&executable).as_deref() == Some(UV_VERSION) {
             return Ok(executable);
         }
+        if let Some((artifact, _)) = bundled_bootstrap() {
+            if let Some(archive) = self.verified_bootstrap_archive(artifact)? {
+                self.progress("runtime", "正在准备应用内置的运行环境管理器…");
+                let mut file = fs::File::open(archive)?;
+                self.install_uv_archive(&mut file)?;
+                if self.uv_version(&executable).as_deref() != Some(UV_VERSION) {
+                    let _ = fs::remove_file(&executable);
+                    bail!("应用内置的运行环境管理器版本不正确，请重新安装 SAG")
+                }
+                return Ok(executable);
+            }
+        }
         let url = uv_download_url()?;
         self.progress("runtime", "正在下载运行环境管理器…");
-        let mut archive = self.download_archive(&url).map_err(|error| self.with_hint(error, |error| anyhow!(
+        let mut archive = self.download_bootstrap_archive(&url).map_err(|error| self.with_hint(error, |error| anyhow!(
             "无法下载运行环境管理器：{error:#}。可用浏览器下载 {url}，解压后点击“导入离线组件”并选择解压后的目录。"
         )))?;
+        self.install_uv_archive(&mut archive)?;
+        if self.uv_version(&executable).as_deref() != Some(UV_VERSION) {
+            let _ = fs::remove_file(&executable);
+            bail!("下载的运行环境管理器版本不正确")
+        }
+        Ok(executable)
+    }
+    fn install_uv_archive(&self, archive: &mut fs::File) -> Result<()> {
         use std::io::Seek;
         archive.rewind()?;
+        fs::create_dir_all(&self.home)?;
         let mut candidate = tempfile::NamedTempFile::new_in(&self.home)?;
         let mut copy = |input: &mut dyn Read, size: u64| -> Result<()> {
             if size > 128 * 1024 * 1024 {
@@ -869,9 +1041,9 @@ impl Docling {
         }
         candidate.as_file().sync_all()?;
         candidate
-            .persist(&executable)
+            .persist(self.home.join(UV_EXECUTABLE))
             .map_err(|error| error.error)?;
-        Ok(executable)
+        Ok(())
     }
     fn probe_component(
         &self,
@@ -1006,6 +1178,22 @@ impl Docling {
             }
             Ok(archive)
         })
+    }
+    fn download_bootstrap_archive(&self, url: &str) -> Result<fs::File> {
+        for attempt in 1..=3 {
+            match self.download_archive(url) {
+                Ok(archive) => return Ok(archive),
+                Err(_) if attempt < 3 && !self.cancel.load(Ordering::Relaxed) => {
+                    self.progress(
+                        "runtime",
+                        format!("运行环境下载中断，正在重试（第 {} 次）…", attempt + 1),
+                    );
+                    std::thread::sleep(Duration::from_millis(500));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        unreachable!("the third bootstrap download attempt always returns")
     }
     fn update_download_line(&self, raw: &[u8]) -> String {
         static ANSI: LazyLock<regex::Regex> = LazyLock::new(|| {

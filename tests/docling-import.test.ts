@@ -21,7 +21,7 @@ it('下载失败后选择解压目录，启动离线安装而不调用在线安�
  invoke.mockImplementation(async command=>command==='get_docling_status'?{...initial,running:true,error:null}:undefined);
  button('导入离线组件')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('import_docling_component',{path:'/offline/component'}));
- expect(open).toHaveBeenCalledWith(expect.objectContaining({directory:true,multiple:false}));
+ expect(open).toHaveBeenCalledWith(expect.objectContaining({directory:false,multiple:false}));
  expect(invoke.mock.calls.some(([name])=>name==='install_docling'||name==='install_docling_profiles')).toBe(false);
  await vi.waitFor(()=>expect(document.querySelector('.download-indeterminate')).not.toBeNull());
  expect(document.querySelector('.docling-dialog')).not.toBeNull();

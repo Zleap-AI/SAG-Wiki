@@ -206,6 +206,10 @@ case "$1" in
  --version) echo 'uv 0.12.1';;
  python)
   [ "$2" = install ]
+  mode=$(cat "$base/mode" 2>/dev/null || true)
+  attempt=$(cat "$base/python-attempts" 2>/dev/null || echo 0)
+  attempt=$((attempt+1)); echo "$attempt" > "$base/python-attempts"
+  [ "$mode" != runtime-transient ] || [ "$attempt" -ge 3 ] || { echo runtime-download-failed >&2; exit 2; }
   python="$UV_PYTHON_INSTALL_DIR/cpython-3.12.13-fixture/bin/python3.12"
   mkdir -p "$(dirname "$python")"
   cat > "$python" <<'PY'
@@ -242,6 +246,9 @@ PY
   ;;
  pip)
   mode=$(cat "$base/mode" 2>/dev/null || true)
+  attempt=$(cat "$base/dependency-attempts" 2>/dev/null || echo 0)
+  attempt=$((attempt+1)); echo "$attempt" > "$base/dependency-attempts"
+  [ "$mode" != dependencies-transient ] || [ "$attempt" -ge 3 ] || { echo wheel-download-failed >&2; exit 2; }
   [ "$mode" != dependencies-fail ] || { echo wheel-unavailable >&2; exit 2; }
   while [ "$#" -gt 0 ]; do
    if [ "$1" = --target ]; then shift; mkdir -p "$1"; echo package > "$1/package.py"; fi
@@ -390,6 +397,27 @@ fn online_model_download_retries_only_ordinary_exits_at_most_three_times() {
                 0
             );
         }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn bootstrap_and_dependency_downloads_retry_transient_exits() {
+    for (mode, attempts) in [
+        ("runtime-transient", "python-attempts"),
+        ("dependencies-transient", "dependency-attempts"),
+    ] {
+        let temp = tempfile::tempdir().unwrap();
+        let converter = Docling::new(temp.path());
+        fake_online_uv(&converter);
+        fs::write(converter.home.join("mode"), mode).unwrap();
+        converter.install().unwrap_or_else(|error| panic!("{mode}: {error:#}"));
+        assert_eq!(
+            fs::read_to_string(converter.home.join(attempts)).unwrap().trim(),
+            "3",
+            "{mode}"
+        );
+        assert!(converter.installed(), "{mode}");
     }
 }
 
@@ -2038,6 +2066,53 @@ fn offline_uv(dir: &Path, version: &str) -> PathBuf {
 }
 
 #[cfg(unix)]
+fn offline_uv_archive(dir: &Path, version: &str) -> PathBuf {
+    fs::create_dir_all(dir).unwrap();
+    let archive_path = dir.join("uv-aarch64-apple-darwin.tar.gz");
+    let script = format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'uv {version} (fixture)'; exit 0; fi\necho 'python download blocked' >&2\nexit 1\n");
+    let encoder = flate2::write::GzEncoder::new(
+        fs::File::create(&archive_path).unwrap(),
+        flate2::Compression::fast(),
+    );
+    let mut archive = tar::Builder::new(encoder);
+    let mut header = tar::Header::new_gnu();
+    header.set_mode(0o755);
+    header.set_size(script.len() as u64);
+    header.set_cksum();
+    archive
+        .append_data(&mut header, "uv-aarch64-apple-darwin/uv", script.as_bytes())
+        .unwrap();
+    archive.into_inner().unwrap().finish().unwrap();
+    archive_path
+}
+
+#[cfg(unix)]
+#[test]
+fn bundled_python_archive_extracts_a_relocatable_interpreter() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive_path = temp.path().join("python.tar.gz");
+    let encoder = flate2::write::GzEncoder::new(
+        fs::File::create(&archive_path).unwrap(),
+        flate2::Compression::fast(),
+    );
+    let mut archive = tar::Builder::new(encoder);
+    let mut header = tar::Header::new_gnu();
+    header.set_mode(0o755);
+    header.set_size(17);
+    header.set_cksum();
+    archive
+        .append_data(&mut header, "python/bin/python3.12", &b"#!/bin/sh\nexit 0\n"[..])
+        .unwrap();
+    archive.into_inner().unwrap().finish().unwrap();
+    let converter = Docling::new(&temp.path().join("data"));
+    let python = converter
+        .extract_python_archive(&archive_path, &temp.path().join("runtime"))
+        .unwrap();
+    assert_eq!(python, temp.path().join("runtime/python/bin/python3.12"));
+    assert!(python.is_file());
+}
+
+#[cfg(unix)]
 fn finished(converter: &Docling) -> DoclingStatus {
     let deadline = std::time::Instant::now() + Duration::from_secs(10);
     loop {
@@ -2064,6 +2139,44 @@ fn offline_uv_import_skips_the_uv_download_and_continues_online() {
     assert!(source.is_file(), "import must retain the source");
     assert!(converter.source.lock().unwrap().is_none());
     assert!(!status.installed);
+}
+
+#[cfg(unix)]
+#[test]
+fn downloaded_uv_archive_is_imported_without_manual_extraction() {
+    let temp = tempfile::tempdir().unwrap();
+    let archive = offline_uv_archive(&temp.path().join("downloads"), UV_VERSION);
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.import_component(archive.clone()).unwrap();
+    let status = finished(&converter);
+    let error = status.error.unwrap();
+    assert!(error.contains("无法下载 Python 运行环境"), "{error}");
+    assert_eq!(
+        converter.uv_version(&converter.home.join(UV_EXECUTABLE)).as_deref(),
+        Some(UV_VERSION)
+    );
+    assert!(archive.is_file(), "import must retain the downloaded archive");
+    assert!(!status.installed);
+}
+
+#[cfg(unix)]
+#[test]
+fn importing_the_manifest_file_uses_its_component_folder() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("offline");
+    fs::create_dir_all(source.join("python/bin")).unwrap();
+    fs::create_dir(source.join("site-packages")).unwrap();
+    fs::create_dir(source.join("models")).unwrap();
+    let python = source.join("python/bin/python3.12");
+    fs::write(&python, b"#!/bin/sh\nwhile [ $# -gt 0 ]; do\n if [ \"$1\" = --output-file ]; then shift; printf '# Offline probe fixture\\n' > \"$1\"; exit 0; fi\n shift\ndone\nexit 1\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::docling_component::write_manifest(&source, &python, &|| false).unwrap();
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.import_component(source.join("manifest.json")).unwrap();
+    let status = finished(&converter);
+    assert_eq!(status.stage, "done", "{:?}", status.error);
+    assert!(status.installed);
 }
 
 #[cfg(unix)]

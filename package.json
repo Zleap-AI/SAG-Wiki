@@ -19,7 +19,8 @@
     "test:component": "python3 -m unittest discover -s tests -p package_docling_component_test.py",
     "package:macos": "tauri build && npm run test:desktop-package",
     "test:desktop-package": "python3 -m unittest discover -s tests -p desktop_bundle_test.py",
-    "pretest": "npm run build:clipper"
+    "pretest": "npm run build:clipper",
+    "prepare:docling-bootstrap": "node scripts/prepare-docling-bootstrap.mjs"
   },
   "dependencies": {
     "@lucide/icons": "1.56.0",

@@ -20,6 +20,14 @@ class DesktopBundleTests(unittest.TestCase):
         self.assertTrue((BUNDLE / 'Contents/MacOS/sag-desktop').is_file())
         self.assertTrue((resources / 'bin/sag').is_file())
         self.assertFalse((resources / 'docling-component').exists(), 'Document dependencies must be installed on demand')
+        bootstrap = resources / 'bin/docling-bootstrap'
+        manifest = json.loads((bootstrap / 'manifest.json').read_text())
+        self.assertEqual(manifest['target'], 'aarch64-apple-darwin')
+        self.assertEqual(manifest['uv_version'], '0.12.1')
+        self.assertEqual(manifest['python_version'], '3.12.13')
+        self.assertEqual(len(manifest['artifacts']), 2)
+        for artifact in manifest['artifacts']:
+            self.assertTrue((bootstrap / artifact['name']).is_file(), artifact['name'])
         forbidden = {'site-packages', '__pycache__', 'models', 'python', 'docling-component',
                      'ffmpeg', 'ffmpeg.exe', 'ffprobe', 'ffprobe.exe'}
         model_extensions = {'.whl', '.pyc', '.onnx', '.safetensors', '.pt', '.npz'}

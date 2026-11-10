@@ -47,7 +47,7 @@
   if(!request||request.pending||status.running||targets.length!==1||targets[0]!=='documents')return;
   request.pending=true;doclingInstallRequest.set(request);error='';
   try{
-   const path=await open({directory:true,multiple:false,title:$t('选择解压后的文档识别组件或 uv 目录')});
+   const path=await open({directory:false,multiple:false,filters:[{name:$t('文档识别组件或 uv'),extensions:['json','zip','gz','tgz']}],title:$t('选择组件的 manifest.json、uv 可执行文件或 uv 压缩包')});
    if(typeof path!=='string'||get(doclingInstallRequest)!==request||!get(doclingDownloadOpen))return;
    await api('import_docling_component',{path});
    request.started=true;
@@ -97,7 +97,7 @@
   {/if}
   {#if !status.running&&!complete&&targets.length===1&&targets[0]==='documents'}
    <section class="offline-component">
-    <p class="settings-help">{$t('自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可选择解压后的 uv 目录，其余部分仍在线下载。')}</p>
+    <p class="settings-help">{$t('自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择其中的 manifest.json；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可直接选择下载的 uv 压缩包或解压后的 uv，其余部分仍在线下载。')}</p>
     <Button.Root type="button" disabled={loading||context?.pending} onclick={importComponent}>{$t('导入离线组件')}</Button.Root>
    </section>
   {/if}
