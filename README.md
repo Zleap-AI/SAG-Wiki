@@ -110,7 +110,7 @@ SAG-Wiki itself is free and open source. External service charges depend on your
 
 ### 1. Download and add a folder
 
-Download the macOS DMG from the latest release link above, open it, and drag SAG Wiki into Applications. The current macOS build is not Apple-notarized, so macOS may display a security prompt on first launch.
+Download the macOS DMG from the latest release link above, open it, and drag SAG Wiki into Applications. The macOS app, bundled CLI, and DMG are Developer ID signed and notarized by Apple.
 
 Install and open SAG-Wiki, switch the sidebar to **Folders**, then click **+** beside folder management to add the folder you want to search. Your files stay in their original locations.
 
