@@ -168,8 +168,10 @@ jobs:
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Install locked JavaScript dependencies
         run: npm ci
+      - name: Prepare signed parser bootstrap
+        run: npm run prepare:docling-bootstrap
       - name: Regress release assembly, signatures and artifact transfer on this platform
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs scripts/prepare-docling-bootstrap.node-test.mjs
       - name: Test Safari native saving and build development installer
         if: matrix.platform == 'macos'
         run: |

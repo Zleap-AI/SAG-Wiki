@@ -87,6 +87,21 @@ try {
     }
     $clipperPath = Join-Path $installDirectory 'clipper\sag-web-clipper-chrome.zip'
     if (-not (Test-Path -LiteralPath $clipperPath)) { throw 'Installed Chrome/Edge extension package is missing.' }
+    $bootstrapDirectory = Join-Path $installDirectory 'bin\docling-bootstrap'
+    $bootstrapManifestPath = Join-Path $bootstrapDirectory 'manifest.json'
+    if (-not (Test-Path -LiteralPath $bootstrapManifestPath -PathType Leaf)) {
+        throw 'Installed package is missing the parser bootstrap manifest.'
+    }
+    $bootstrapManifest = Get-Content -LiteralPath $bootstrapManifestPath -Raw | ConvertFrom-Json
+    if ($bootstrapManifest.platform -ne 'windows-x86_64' -or $bootstrapManifest.uv_version -ne '0.12.1' -or $bootstrapManifest.python_version -ne '3.12.13') {
+        throw 'Installed parser bootstrap manifest does not match this release.'
+    }
+    foreach ($artifact in $bootstrapManifest.artifacts) {
+        $artifactPath = Join-Path $bootstrapDirectory $artifact.name
+        if (-not (Test-Path -LiteralPath $artifactPath -PathType Leaf)) {
+            throw "Installed parser bootstrap is missing $($artifact.name)."
+        }
+    }
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $clipperArchive = [IO.Compression.ZipFile]::OpenRead($clipperPath)
     try {

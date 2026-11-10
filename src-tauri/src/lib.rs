@@ -24,6 +24,20 @@ type CommandResult<T> = Result<T, String>;
 fn error(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
+fn configure_docling_bootstrap<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> CommandResult<()> {
+    let root = if cfg!(debug_assertions) {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin/docling-bootstrap")
+    } else {
+        app.path().resource_dir().map_err(error)?.join("bin/docling-bootstrap")
+    };
+    if root.join("manifest.json").is_file() {
+        // Child services inherit this value. Release builds carry the pinned
+        // uv and Python archives; debug builds use the same staging directory
+        // when the developer runs `npm run prepare:docling-bootstrap`.
+        std::env::set_var("SAG_DOCLING_BOOTSTRAP_DIR", root);
+    }
+    Ok(())
+}
 struct AppState<R: tauri::Runtime = tauri::Wry> {
     client: Mutex<Client>,
     reconnect: tokio::sync::Mutex<()>,
@@ -502,6 +516,7 @@ pub fn run() {
         .setup(|app| {
             #[cfg(windows)]
             windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
+            configure_docling_bootstrap(app.handle()).map_err(anyhow::Error::msg)?;
             let data = protocol::data_dir()?;
             quick_search::initialize(app.handle(), &data)?;
             let fresh_library = !data.join("sag.sqlite").try_exists()?;
