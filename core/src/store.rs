@@ -421,7 +421,7 @@ impl Store {
             .connection()
             .query_row("SELECT value FROM preferences WHERE id=1", [], |r| r.get(0))
             .optional()?;
-        match value {
+        let mut settings = match value {
             Some(v) => {
                 let mut settings: Settings = serde_json::from_str(&v)?;
                 if settings.retrieval_version < crate::sag2_v10::VERSION {
@@ -432,10 +432,12 @@ impl Store {
                     settings.retrieval.max_hops = settings.retrieval.max_hops.min(2);
                     settings.retrieval_version = crate::sag2_v10::VERSION;
                 }
-                Ok(settings)
+                settings
             },
-            None => Ok(Settings::default()),
-        }
+            None => Settings::default(),
+        };
+        settings.mineru.enabled = crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
+        Ok(settings)
     }
     pub fn validate_settings(s: &Settings) -> Result<()> {
         s.runtime.validate().map_err(anyhow::Error::msg)?;
@@ -547,7 +549,7 @@ impl Store {
         if options.convert_other_formats
             && (!previous.convert_other_formats || previous.conversion_formats != options.conversion_formats)
         {
-            self.docling.require_formats(&crate::conversion::local_formats(&options.conversion_formats,self.settings()?.mineru.enabled))?;
+            self.docling.require_formats(&crate::conversion::local_formats(&options.conversion_formats,&self.settings()?.mineru))?;
         }
         let root = self.roots()?.into_iter().find(|root| path.starts_with(&root.path)).unwrap().path;
         let mut db = self.connection();

@@ -1692,5 +1692,17 @@
   "parsing": "Parsing document",
   "downloading": "Downloading result",
   "PDF 页数超过配置上限（{value0} > {value1}）": "PDF page count exceeds the configured limit ({value0} > {value1})",
-  "无法检查 PDF 页数：{value0}": "Could not check the PDF page count: {value0}"
+  "无法检查 PDF 页数：{value0}": "Could not check the PDF page count: {value0}",
+  "保存密钥后自动优先使用 MinerU，失败后尝试本地解析。支持的文档会发送到所选服务商；测试连接不上传文件。": "Saving a key makes MinerU the preferred parser, with local fallback. Supported documents are sent to this provider; connection tests upload no files.",
+  "MinerU 鉴权未通过（HTTP 401）。请确认密钥属于当前服务商，且未过期或被撤销": "MinerU authentication failed (HTTP 401). Check that the key belongs to this provider and has not expired or been revoked.",
+  "MinerU 拒绝访问（HTTP 403）。请检查当前密钥的接口权限、IP 白名单或服务商访问限制；这不一定是密钥错误": "MinerU denied access (HTTP 403). Check API permissions, IP allowlists or provider access restrictions; the key is not necessarily invalid.",
+  "MinerU 版本": "MinerU version",
+  "解析方式": "Parsing method",
+  "自动识别": "Automatic",
+  "文本提取": "Text extraction",
+  "开源部署版仅发送 PDF；请求超时和任务时限由客户端控制。": "The open-source service accepts PDFs only. Request timeouts and task deadlines are controlled by the client.",
+  "MinerU 接口可达；未提交解析任务，尚未验证实际解析权限": "The MinerU endpoint is reachable. No task was submitted; parsing permission has not been verified.",
+  "302.AI 拒绝解析请求，请检查密钥权限、额度或文件参数": "302.AI rejected the parsing request. Check key permissions, quota or file parameters.",
+  "MinerU 分段结果缺少页码映射，尝试本地解析": "Split MinerU results lack page mappings. Trying local parsing.",
+  "MinerU 任务已完成，但未返回正文或结果地址": "The MinerU task completed without content or a result URL."
 }
