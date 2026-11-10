@@ -191,3 +191,5 @@ Open an imported folder to see a persistent status above its file list: queued, 
 ![Conversion progress and current file in a folder](/images/product-folder-progress-en.png)
 
 Adding a folder restores the sidebar status. The app also checks backend snapshots to recover missed progress events. Removing a top-level folder cancels its ongoing or paused conversions and remaining indexing so queued folders can proceed, without deleting original files or stopping other folders.
+
+Selecting a sidebar file switches directly to the document once its content is ready, keeping the current content during loading without an intermediate folder list. Rapid selections honor the latest file; a failed read preserves the previous page and displays an error.

@@ -56,6 +56,7 @@
  let librarySessions:Record<string,LibrarySession>={'':createLibrarySession()};let libraryRevision=0;let exploreReturn='';let documentFromSearch=false,documentFromConversation=false,documentSearchScroll=0,documentConversationScroll=0,documentInitialMatch=0;let chatLog:HTMLDivElement;
  $:if(selected&&!librarySessions[selected])librarySessions={...librarySessions,[selected]:createLibrarySession()};
  let roots:Root[]=[],files:FileInfo[]=[],conversations:Conversation[]=[],settings:Settings|null=null,cache:Record<string,Entry[]>={},expanded=new Set<string>(JSON.parse(localStorage.getItem('sag.sidebar.expanded')??'[]'));
+ let documentReadRequest=0;
  let readOnlyDoc:Document|null=null;let searchTerms:string[]=[],documentSearchTerms:string[]=[];
  let previewReader:{doc:Document;Reader:typeof import('./components/MarkdownReader.svelte').default;model:import('./lib/document-model').MarkdownModel;target:number;terms:string[]}|null=null;
 let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=false,previewError='',previewRequest=0;
@@ -139,7 +140,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  async function answerApproval(allow:boolean){if(!toolApproval)return;const id=toolApproval.id;toolApproval=null;try{await api('resolve_tool_approval',{id,allow})}catch(e){notify($t(String(e)))}}
  function clearConversationState(){historyRequest++;closeNotice();conversations=[];historySearchOpen=false;conversation=null;pending=null;renderedAnswers={};ask='';references=[];source=null;editingMessage=null;retryIndex=null;askJob='';cancellingAsk='';askBusy=false;askStage='';activeToolId='';error='';toolApproval=null;localStorage.removeItem('sag.history.scroll');}
  function closeNotice(){clearTimeout(noticeTimer);toast='';undo=null;}
- function clearFoldersState(){refreshGeneration++;refreshPending=false;roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;indexTasks=[];if(view==='files')view='ask';}
+ function clearFoldersState(){documentReadRequest++;refreshGeneration++;refreshPending=false;roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;indexTasks=[];if(view==='files')view='ask';}
  function scheduleNotice(){clearTimeout(noticeTimer);if(!toast||document.hidden||document.querySelector('#notice:hover, #notice:focus-within'))return;noticeTimer=setTimeout(closeNotice,undo?8000:3000);}
  function notify(message:string,action:(()=>Promise<void>)|null=null){toast=message;undo=action;scheduleNotice();}
  let refreshGeneration=0,refreshPending=false,refreshRunning:Promise<void>|null=null,appDisposed=false;
@@ -222,7 +223,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  });
  async function requestQuit(){if(quitPending||leave)return;quitPending=true;try{if(draft&&dirty)await api('reveal_main_window');if(await protect())await api('quit_application')}catch(e){notify($t(String(e)))}finally{quitPending=false}}
  async function leaveChoice(choice:'save'|'discard'|'cancel'){if(choice==='save'&&!await save())return;if(choice==='discard'&&draft){clearTimeout(draftTimer);await api('delete_draft',{path:draft.path});dirty=false;draft=null}const done=leave;leave=null;done?.(choice!=='cancel')}
- async function navigate(next:string){if(!await protect())return;view=next;menu=null;if(next!=='editor')draft=null;await tick();if(next==='ask')askInput?.focus({preventScroll:true});}
+ async function navigate(next:string){if(!await protect())return;documentReadRequest++;view=next;menu=null;if(next!=='editor')draft=null;await tick();if(next==='ask')askInput?.focus({preventScroll:true});}
  type AnswerEvent=ReturnType<typeof answerEvents>[number];
  // Consecutive tool calls with no answer text between them read as one research step.
  const joinsToolRun=(m:Message,events:AnswerEvent[],i:number)=>i>0&&events[i].kind==='tool'&&events[i-1].kind==='tool'&&!m.answer.slice(events[i].from,events[i].offset).trim();
@@ -246,7 +247,12 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    ],{duration:220,easing:'cubic-bezier(.32,.72,0,1)'}));
   });
  }
- async function browse(path:string){if(!await protect())return;exploreReturn='';const entry=files.find(f=>f.path===path)||Object.values(cache).flat().find(e=>e.path===path&&!e.directory);if(entry||isMarkdown(path)){view='files';await edit(path);return}selected=path;view='files';draft=null;menu=null;readingFolder=path;try{cache={...cache,[path]:await api<Entry[]>('list_entries',{path})}}finally{if(readingFolder===path)readingFolder=''}}
+ async function browse(path:string){
+  const entry=files.find(f=>f.path===path)||Object.values(cache).flat().find(e=>e.path===path&&!e.directory);
+  if(entry||isMarkdown(path)){await edit(path,[],'',undefined,'library');return;}
+  if(!await protect())return;documentReadRequest++;exploreReturn='';selected=path;view='files';draft=null;menu=null;readingFolder=path;
+  try{cache={...cache,[path]:await api<Entry[]>('list_entries',{path})}}finally{if(readingFolder===path)readingFolder=''}
+ }
  async function toggle(path:string,isScope=false){let set=new Set(isScope?scopeExpanded:expanded);if(set.has(path))set.delete(path);else{set.add(path);cache={...cache,[path]:await api<Entry[]>('list_entries',{path})}}if(isScope)scopeExpanded=set;else{expanded=set;localStorage.setItem('sag.sidebar.expanded',JSON.stringify([...set]));}}
  function add(){folderPickerOpen=true}
  async function addFolders(paths:string[],options?:FolderIndexOptions){
@@ -256,17 +262,23 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   if(failures.length<paths.length){await refresh();notify($t('已添加 {value0} 个文件夹，正在后台建立索引，大文件夹可能耗时数分钟',{value0:paths.length-failures.length}))}
   return failures;
  }
- async function edit(path:string,terms:string[]=[],origin='',citation?:Candidate){
-  if(!await protect())return;
-  const fromSearch=view==='search',fromConversation=view==='ask',target=citation??(fromSearch&&focus?.path===path?focus:null),scroll=fromSearch?(searchList?.scrollTop??0):0,chatScroll=fromConversation?(chatLog?.scrollTop??0):0;
+ async function edit(path:string,terms:string[]=[],origin='',citation?:Candidate,navigation:'context'|'library'='context'){
+  const request=++documentReadRequest;
+  if(!await protect()||request!==documentReadRequest)return;
+  const previousView=view,previousSelected=selected,previousBody=draft?.body,previousName=draft?.name;
+  const current=()=>!appDisposed&&request===documentReadRequest&&view===previousView&&selected===previousSelected&&draft?.body===previousBody&&draft?.name===previousName;
+  const fromSearch=navigation==='context'&&view==='search',fromConversation=navigation==='context'&&view==='ask',target=citation??(fromSearch&&focus?.path===path?focus:null),scroll=fromSearch?(searchList?.scrollTop??0):0,chatScroll=fromConversation?(chatLog?.scrollTop??0):0;
   try{
    const doc=await api<Document>('read_document',{path});
-   documentInitialMatch=target?await documentMatchIndex(doc.body,doc.path,terms,target):0;
-   documentFromSearch=fromSearch;documentFromConversation=fromConversation;documentSearchScroll=scroll;documentConversationScroll=chatScroll;exploreReturn=origin;documentSearchTerms=terms;
-   if(!isMarkdown(doc.path)){readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(path);view='document';source=null;return;}
-   draft={...doc,is_new:false};dirty=false;selected=dirname(path);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';source=null;
+   if(!current())return;
+   const initialMatch=target?await documentMatchIndex(doc.body,doc.path,terms,target):0;
+   const editor=isMarkdown(doc.path)?(await import('./components/RichEditor.svelte')).default:null;
+   if(!current())return;
+   documentInitialMatch=initialMatch;documentFromSearch=fromSearch;documentFromConversation=fromConversation;documentSearchScroll=scroll;documentConversationScroll=chatScroll;exploreReturn=origin;documentSearchTerms=terms;menu=null;
+   if(!editor){readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(path);view='document';source=null;return;}
+   draft={...doc,is_new:false};dirty=false;selected=dirname(path);EditorComponent=editor;view='editor';source=null;
    noteDetail=null;if(isNote(doc.body))void loadNote(doc.path);else noteRequest++;
-  }catch(e){notify($t(String(e)))}
+  }catch(e){if(current())notify($t(String(e)))}
  }
  async function loadNote(path:string){
   const request=++noteRequest;
@@ -315,10 +327,11 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    await tick();if(searchList)searchList.scrollTop=documentSearchScroll;
   }else if(exploreReturn){if(!await protect())return;selected=exploreReturn;exploreReturn='';view='files';draft=null;readOnlyDoc=null;}else await libraryBrowse(selected)
  }
- async function libraryBrowse(path:string){if(!path){if(await protect()){selected='';view='files';draft=null;readOnlyDoc=null;exploreReturn='';documentFromSearch=false;documentFromConversation=false;}return;}const entry=currentEntries.find(e=>e.path===path);if(entry?.symlink){try{await api('reveal_path',{path})}catch(e){notify($t(String(e)))}}else try{await browse(path)}catch(e){notify($t(String(e)))}}
+ async function libraryBrowse(path:string){if(!path){if(await protect()){documentReadRequest++;selected='';view='files';draft=null;readOnlyDoc=null;exploreReturn='';documentFromSearch=false;documentFromConversation=false;}return;}const entry=currentEntries.find(e=>e.path===path);if(entry?.symlink){try{await api('reveal_path',{path})}catch(e){notify($t(String(e)))}}else try{await browse(path)}catch(e){notify($t(String(e)))}}
  async function create(folder=selected){
   if(!await protect())return;
-  EditorComponent=(await import('./components/RichEditor.svelte')).default;
+  const request=++documentReadRequest;const editor=(await import('./components/RichEditor.svelte')).default;
+  if(request!==documentReadRequest||appDisposed)return;EditorComponent=editor;
   selected=folder;documentFromConversation=false;documentFromSearch=false;documentSearchTerms=[];
   draft={path:(folder?folder+'/':'')+'.draft-'+crypto.randomUUID(),name:$t("未命名.md"),body:'',hash:'',is_new:true};dirty=false;view='editor';
  }
@@ -362,7 +375,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   items.push({label:mac?$t("在 Finder 中打开"):$t("在文件资源管理器中打开"),glyph:'folder',run:()=>api('reveal_path',{path}).catch(e=>notify($t(String(e))))});
   const trigger=(e.target as Element).closest<HTMLElement>('button')||(e.currentTarget as HTMLElement).querySelector<HTMLElement>('button')!;const rect=trigger.getBoundingClientRect();menu={x:Math.min(e.clientX||rect.left,innerWidth-240),y:Math.min((e.clientY||rect.bottom)+8,innerHeight-items.length*38-12),trigger,items};
  }
- async function folderQuery(path:string,next:string,file=false){if(!await protect())return false;await stop(next==='ask'?'ask':'search');if(next==='ask'){editingMessage=null;conversation=null;pending=null;ask='';references=file?[path]:[];draft=null;error='';}scope=[path];searched=false;view=next;menu=null;await tick();if(next==='ask')askInput?.focus();else searchInput?.focus();return true;}
+ async function folderQuery(path:string,next:string,file=false){if(!await protect())return false;documentReadRequest++;await stop(next==='ask'?'ask':'search');if(next==='ask'){editingMessage=null;conversation=null;pending=null;ask='';references=file?[path]:[];draft=null;error='';}scope=[path];searched=false;view=next;menu=null;await tick();if(next==='ask')askInput?.focus();else searchInput?.focus();return true;}
  async function askDocument(question:string){
   let path=(draft??readOnlyDoc)!.path;
   if(draft?.is_new){if(!await save())return;path=draft!.path;}
@@ -372,7 +385,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    ask=question;await run('ask');
   }catch(e){notify($t(String(e)));}
  }
- async function remove(path:string,file=false){if(!await protect())return;await stop();await api('remove_root',{path});scope=scope.filter(p=>!inside(p,path));references=references.filter(p=>!inside(p,path));expanded=new Set([...expanded].filter(p=>!inside(p,path)));cache=Object.fromEntries(Object.entries(cache).filter(([p])=>!inside(p,path)));if(inside(selected,path)){selected='';view='files';draft=null}if(file&&(draft?.path===path||readOnlyDoc?.path===path)){draft=null;readOnlyDoc=null;view='files'}await refresh();notify($t(file?"已从知识库移除文件，原文件保留":"已移除文件夹，原文件保留"),async()=>{await api('add_root',{path});await refresh();notify($t(file?"已恢复文件":"已恢复文件夹"))});}
+ async function remove(path:string,file=false){if(!await protect())return;documentReadRequest++;await stop();await api('remove_root',{path});scope=scope.filter(p=>!inside(p,path));references=references.filter(p=>!inside(p,path));expanded=new Set([...expanded].filter(p=>!inside(p,path)));cache=Object.fromEntries(Object.entries(cache).filter(([p])=>!inside(p,path)));if(inside(selected,path)){selected='';view='files';draft=null}if(file&&(draft?.path===path||readOnlyDoc?.path===path)){draft=null;readOnlyDoc=null;view='files'}await refresh();notify($t(file?"已从知识库移除文件，原文件保留":"已移除文件夹，原文件保留"),async()=>{await api('add_root',{path});await refresh();notify($t(file?"已恢复文件":"已恢复文件夹"))});}
  async function confirmRemoveFolder(){removingFolder=true;removeFolderError='';try{await remove(removeFolderPath);removeFolderPath='';}catch(e){removeFolderError=$t(String(e));}finally{removingFolder=false;}}
  async function deleteConversation(c:Conversation){
   try{
@@ -402,7 +415,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  async function beginEdit(index:number){editingMessage=index;editingText=displayedMessages[index].question;await tick();messageInput.focus();messageInput.setSelectionRange(editingText.length,editingText.length)}
  async function regenerate(index:number,question:string){const before=conversation?structuredClone(conversation):null;const message=displayedMessages[index];editingMessage=null;retryIndex=null;scope=[...message.scope];references=[...message.references];ask=question;await run('ask',before&&index<before.messages.length?index:undefined);if(before)notify(error?$t("重新生成未完成"):$t("已重新生成回答"),async()=>{await replaceMessages(before.id,before.messages);notify($t("已恢复原问答"))})}
  function retryMessage(index:number){if(index<displayedMessages.length-1)retryIndex=index;else void regenerate(index,displayedMessages[index].question)}
- async function newChat(){if(askBusy||cancellingAsk||!await protect())return;editingMessage=null;await stop('ask');conversation=null;pending=null;ask='';references=[];view='ask';draft=null;await tick();askInput?.focus({preventScroll:true})}
+ async function newChat(){if(askBusy||cancellingAsk||!await protect())return;documentReadRequest++;editingMessage=null;await stop('ask');conversation=null;pending=null;ask='';references=[];view='ask';draft=null;await tick();askInput?.focus({preventScroll:true})}
  async function stopSummary(){const id=summaryJob;summaryJob='';summaryBusy=false;if(id)await api('cancel_query',{id});}
  async function summarizeSearch(question:string,candidates:Candidate[]){
   if(settings?.search_summary_enabled===false||!candidates.length||!answerReady)return;
@@ -604,7 +617,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   }catch(e){if(request===previewRequest)previewError=$t(String(e))}
   finally{if(request===previewRequest)previewLoading=false}
  }
- async function chooseHistory(c:Conversation){if(conversation?.id===c.id||askBusy||cancellingAsk||!await protect())return;editingMessage=null;await stop('ask');chatScrollKey++;view='ask';draft=null;conversation=c;pending=null;references=[];error='';}
+ async function chooseHistory(c:Conversation){if(conversation?.id===c.id||askBusy||cancellingAsk||!await protect())return;documentReadRequest++;editingMessage=null;await stop('ask');chatScrollKey++;view='ask';draft=null;conversation=c;pending=null;references=[];error='';}
  function setReasoning(value:ReasoningEffort|null){if(!settings)return;const model=settings.answer.model;const profile=settings.model_profiles?.[model]??{system_prompt:'',sag2_enabled:true,mcp_servers:[],mcp_tools:{}};settings={...settings,model_profiles:{...settings.model_profiles,[model]:{...profile,reasoning_effort:value}}};}
  function openAgentSetup(){settingsPage='cli';settingsOpen=true;}
  async function saveReasoning(){if(!settings)return;try{await api('save_settings',{settings,answerKey:'',jevKey:'',mcpCredentials:{}})}catch(e){notify($t('思考强度保存失败：{value0}',{value0:$t(String(e))}))}}
