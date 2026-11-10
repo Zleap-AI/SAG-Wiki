@@ -1,6 +1,7 @@
 <script lang="ts">
  import {onMount} from 'svelte';
  import {get} from 'svelte/store';
+ import {open} from '@tauri-apps/plugin-dialog';
  import {Button} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
  import {api} from '../lib/api';
@@ -40,6 +41,19 @@
    request.started=true;
    await refresh(true);
   }catch(e){if(get(doclingInstallRequest)===request)error=String(e);}finally{request.pending=false;if(get(doclingInstallRequest)===request)doclingInstallRequest.set(request);}
+ }
+ async function importComponent(){
+  const request=context;
+  if(!request||request.pending||status.running||targets.length!==1||targets[0]!=='documents')return;
+  request.pending=true;doclingInstallRequest.set(request);error='';
+  try{
+   const path=await open({directory:true,multiple:false,title:$t('选择解压后的文档识别组件目录')});
+   if(typeof path!=='string'||get(doclingInstallRequest)!==request||!get(doclingDownloadOpen))return;
+   await api('import_docling_component',{path});
+   request.started=true;
+   await refresh(true);
+  }catch(e){if(get(doclingInstallRequest)===request)error=String(e);}
+  finally{request.pending=false;if(get(doclingInstallRequest)===request)doclingInstallRequest.set(request);}
  }
  async function cancel(){
   if(context){context.valid=false;context.apply=undefined;doclingInstallRequest.set(context);}
@@ -81,6 +95,12 @@
     {#if status.running||status.error}<Button.Root type="button" class="download-log-link" onclick={openLog}>{$t('打开安装日志')}</Button.Root>{/if}
    </div>
   {/if}
+  {#if !status.running&&!complete&&targets.length===1&&targets[0]==='documents'}
+   <section class="offline-component">
+    <p class="settings-help">{$t('自动下载失败或无法联网时，可导入完整文档识别组件。请先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。')}</p>
+    <Button.Root type="button" disabled={loading||context?.pending} onclick={importComponent}>{$t('导入离线组件')}</Button.Root>
+   </section>
+  {/if}
   {#if error||status.error}<p class="form-error" role="alert">{$t(error||status.error||'')}</p>{/if}
  </div>
  <div class="dialog-footer">
@@ -91,6 +111,12 @@
 </Modal>{/if}
 
 <style>
+ .offline-component{margin-top:16px;padding-top:12px;border-top:1px solid var(--color-rule)}
+ .offline-component p{font-size:12px;line-height:1.7;color:var(--color-muted)}
+ .offline-component :global(button){padding:7px 12px;border:1px solid var(--color-rule);border-radius:7px;color:var(--color-ink);background:var(--color-panel)}
+ .offline-component :global(button:hover:not(:disabled)){background:var(--color-hover)}
+ .offline-component :global(button:disabled){opacity:.5}
+
  .selected-formats{font-size:13px;line-height:1.7;overflow-wrap:anywhere}.selected-formats strong{font-weight:600;margin-right:8px}
  :global(.docling-dialog:not(.docling-formats-dialog)){width:560px;max-width:calc(100vw - 40px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
  .dialog-head,.dialog-footer{flex-shrink:0}.dialog-head h2{font-size:18px;line-height:1.4}

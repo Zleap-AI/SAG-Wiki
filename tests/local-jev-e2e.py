@@ -288,6 +288,25 @@ if ($rules[0].IdentityReference.Value -ne $sid -or $rules[0].AccessControlType -
             require(configured["auth_mode"] == "none" and not configured["has_key"],
                     "fresh no-auth configuration unexpectedly requires a stored key")
             verify_endpoint_permissions()
+            offline = temporary / "invalid-offline-component"
+            offline.mkdir()
+            (offline / "manifest.json").write_text(json.dumps({
+                "schema": 0, "component_version": "", "profile": "", "platform": "", "python": "",
+                "site_packages": "", "models": "", "files": []
+            }), encoding="utf-8")
+            with CoreClient(data) as core:
+                core.call("import_docling_component", {"path": str(offline)})
+                deadline = time.monotonic() + 5
+                while True:
+                    state = core.call("docling_status")
+                    if not state["running"]:
+                        break
+                    require(time.monotonic() < deadline, "offline component rejection hung")
+                    time.sleep(0.02)
+            require(not state["installed"] and state["requested_profiles"] == ["documents"], "offline import changed the wrong profile")
+            require("组件版本、文档能力或平台与当前应用不匹配" in (state["error"] or ""), "invalid offline package was not rejected locally")
+            require(not (data / "docling" / "uv.exe").exists() and not (data / "docling" / "uv").exists(), "offline import bootstrapped online dependencies")
+            completed.append("invalid offline component is rejected through real RPC without online bootstrap")
             require(test_connection() == "连接成功", "fresh no-auth connection test tried to load a nonexistent key")
             current = settings()
             current["retrieval"]["max_hops"] = 0

@@ -1321,3 +1321,31 @@ async fn local_skill_http_serves_bundled_files_without_affecting_rpc() {
     assert!(matches!(call(&client, Operation::Info).await, Output::Info(_)));
     stop(&client, server).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn import_invalid_offline_component_fails_locally_without_registering_a_source() {
+    let (dir, client, server) = start().await;
+    let component = dir.path().join("offline-component");
+    std::fs::create_dir_all(&component).unwrap();
+    std::fs::write(component.join("manifest.json"), serde_json::to_vec(&serde_json::json!({
+        "schema": 0, "component_version": "", "profile": "", "platform": "", "python": "",
+        "site_packages": "", "models": "", "files": []
+    })).unwrap()).unwrap();
+    let operation: Operation = serde_json::from_value(serde_json::json!({
+        "operation": "import_docling_component", "args": { "path": component }
+    })).unwrap();
+    call(&client, operation).await;
+    let status = tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let Output::Docling(status) = call(&client, Operation::DoclingStatus).await else { panic!("docling") };
+            if !status.running { break status; }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    }).await.unwrap();
+    assert_eq!(status.requested_profiles, vec![sag_protocol::DoclingProfile::Documents]);
+    assert!(status.error.unwrap().contains("组件版本、文档能力或平台与当前应用不匹配"));
+    assert!(!status.installed);
+    assert!(!dir.path().join("data/docling/uv").exists());
+    assert!(!dir.path().join("data/docling/uv.exe").exists());
+    stop(&client, server).await;
+}

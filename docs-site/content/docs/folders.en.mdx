@@ -86,6 +86,18 @@ material/report.pdf
 
 macOS hides dot-prefixed directories by default. Built-in parsing does not upload files. Docling may require additional recognition models for scans, audio and video; first use includes model preparation. After a parser upgrade, reindexing updates built-in conversion results that have not been edited manually.
 
+### Import an offline document component after a download failure
+
+In the file parsing support installer, choose **Import offline component**, then select the extracted complete document component folder containing `manifest.json`. SAG checks its platform, component version and file integrity, then runs a sample conversion. Once ready, choose **Apply selected formats**. Reindex the folder if previous files failed to convert.
+
+The component must include Python, recognition dependencies and models. A standalone `uv.exe`, Python installer or model download is not a complete component. This entry supports document components only; audio and video still use online installation. A failed import does not fall back to online downloads. Select another folder to retry offline, or choose Retry installation to install online.
+
+Obtain a complete folder matching your system, architecture and component version from your administrator or maintainer. Extract archives before selecting the folder. Current official Releases do not distribute a separate complete offline component; the application installer is not a component package. The import entry is available in application builds containing this feature, not the official 0.2.7 package.
+
+![Offline document component import after a download failure](/images/product-offline-component-en.png)
+
+Component providers can use the repository's `scripts/package-docling-component.py` to assemble a complete manifest-verified component from a relocatable Python runtime, dependency directory and model directory. SAG copies and checks it on the target computer before activation; no application installation folder or service port needs configuring.
+
 ### Watch file changes
 
 Enabled by default. Additions, edits, deletions and renames trigger indexing updates under the configured rules. When disabled, manually reindex as needed rather than assuming the index is current. Enabling it again triggers a file check.

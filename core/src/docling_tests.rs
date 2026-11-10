@@ -1989,3 +1989,38 @@ fn built_in_documents_follow_type_settings_updates_and_migrate_old_conversion_ca
     );
     assert!(source.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn explicit_offline_import_runs_probe_and_preserves_the_registered_source() {
+    use std::{os::unix::fs::PermissionsExt, time::Instant};
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("offline");
+    fs::create_dir_all(source.join("python/bin")).unwrap();
+    fs::create_dir(source.join("site-packages")).unwrap();
+    fs::create_dir(source.join("models")).unwrap();
+    let python = source.join("python/bin/python3.12");
+    // A synthetic executable, not OCR: exercise the real subprocess/probe and
+    // activation path without models, network, or user documents.
+    fs::write(&python, b"#!/bin/sh\nwhile [ $# -gt 0 ]; do\n if [ \"$1\" = --output-file ]; then shift; printf '# Offline probe fixture\\n' > \"$1\"; exit 0; fi\n shift\ndone\nexit 1\n").unwrap();
+    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::docling_component::write_manifest(&source, &python, &|| false).unwrap();
+    let registered = temp.path().join("registered");
+    fs::create_dir(&registered).unwrap();
+    fs::write(registered.join("manifest.json"), "{}").unwrap();
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.set_component_source(registered.clone()).unwrap();
+    converter.import_component(source.clone()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        let status = converter.status();
+        if !status.running { break status; }
+        assert!(Instant::now() < deadline, "offline import did not finish");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(status.stage, "done", "{:?}", status.error);
+    assert!(status.installed);
+    assert!(crate::docling_component::active(&converter.home).is_ok());
+    assert_eq!(*converter.source.lock().unwrap(), Some(registered.canonicalize().unwrap()));
+    assert!(source.join("manifest.json").is_file(), "import must retain the source");
+}

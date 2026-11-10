@@ -306,7 +306,18 @@ impl Docling {
     pub fn start(self: &Arc<Self>) -> Result<()> {
         self.start_profiles(vec![DoclingProfile::Documents])
     }
+    /// An explicit offline source applies to this installation only. Never
+    /// register it as the source of later online retries or media installs.
+    pub fn import_component(self: &Arc<Self>, path: PathBuf) -> Result<()> {
+        if !path.join("manifest.json").is_file() {
+            bail!("预构建组件缺少 manifest.json")
+        }
+        self.start_profiles_from(vec![DoclingProfile::Documents], Some(path.canonicalize()?))
+    }
     pub fn start_profiles(self: &Arc<Self>, profiles: Vec<DoclingProfile>) -> Result<()> {
+        self.start_profiles_from(profiles, None)
+    }
+    fn start_profiles_from(self: &Arc<Self>, profiles: Vec<DoclingProfile>, source: Option<PathBuf>) -> Result<()> {
         let profiles: Vec<_> = [DoclingProfile::Documents, DoclingProfile::Media]
             .into_iter()
             .filter(|profile| profiles.contains(profile))
@@ -337,6 +348,9 @@ impl Docling {
                     return Ok(());
                 }
                 let view = this.profile_view(profile);
+                if let Some(source) = &source {
+                    *view.source.lock().unwrap() = Some(source.clone());
+                }
                 view.install()
             });
             let mut status = this.status.lock().unwrap();

@@ -40,3 +40,7 @@ checks the embedded original TextFold renderer under the desktop CSP: moving
 text, fractional slider positions, chapter cards, preserved tables, local
 paragraph expansion, return to editing, dark mode, percentage progress, and cancellation. Set `DOCS_PORT` when using
 a separate fixture server (default 1437).
+
+`node bench/docs/offline-component.cjs` captures the bilingual offline document
+component import entry after a simulated download failure. It checks the real
+dialog at 1280 and 720 pixels; it does not install a component or run OCR.
