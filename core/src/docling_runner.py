@@ -4,6 +4,7 @@ The Rust parent owns cancellation, whole-process time/memory limits and atomic
 publication. This process never downloads models or publishes partial results.
 """
 import argparse
+import json
 import os
 import platform
 import sys
@@ -23,6 +24,7 @@ def main():
     parser.add_argument("--pdf-backend", choices=["pypdfium2"])
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args()
+    runtime = json.loads(os.environ.get("SAG_CONVERSION_SETTINGS", "{}"))
     if args.probe:
         import logging
         logging.basicConfig(level=logging.INFO)
@@ -39,21 +41,21 @@ def main():
 
     options = PdfPipelineOptions(
         artifacts_path=args.artifacts_path,
-        accelerator_options=AcceleratorOptions(num_threads=2),
-        do_ocr=True,
+        accelerator_options=AcceleratorOptions(num_threads=runtime.get("docling_threads", 2)),
+        do_ocr=runtime.get("do_ocr", True),
         ocr_options=RapidOcrOptions(backend="onnxruntime", mode="full_page" if args.probe else "default"),
-        do_table_structure=True,
-        document_timeout=270,
-        ocr_batch_size=1,
-        layout_batch_size=1,
-        table_batch_size=1,
-        queue_max_size=2,
+        do_table_structure=runtime.get("do_table_structure", True),
+        document_timeout=runtime.get("docling_timeout_secs", 1800),
+        ocr_batch_size=runtime.get("ocr_batch_size", 1),
+        layout_batch_size=runtime.get("layout_batch_size", 1),
+        table_batch_size=runtime.get("table_batch_size", 1),
+        queue_max_size=runtime.get("queue_max_size", 2),
         generate_page_images=False,
         generate_picture_images=False,
         generate_parsed_pages=False,
     )
     backend_options = ThreadedDoclingParseBackendOptions(
-        parser_threads=1, max_concurrent_results=2,
+        parser_threads=runtime.get("pdf_parser_threads", 1), max_concurrent_results=runtime.get("pdf_concurrent_results", 2),
         release_native_memory_every_n_pages=16,
     )
     # Recent docling-parse releases omit Intel Mac wheels; PDFium remains official.
@@ -70,7 +72,7 @@ def main():
     if args.probe:
         print("Offline probe: converting page with full-page OCR", flush=True)
     result = converter.convert(args.source, raises_on_error=False,
-                               max_file_size=512 * 1024 * 1024, max_num_pages=10000)
+                               max_file_size=runtime.get("conversion_input_mib", 512) * 1024 * 1024, max_num_pages=runtime.get("max_document_pages", 10000))
     if result.status != ConversionStatus.SUCCESS:
         errors = "\n".join(str(error) for error in result.errors)
         print(f"Conversion did not complete: {result.status}\n{errors}", file=sys.stderr)

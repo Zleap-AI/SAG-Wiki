@@ -135,14 +135,20 @@ pub fn receive_batch(
     receiver: &mpsc::Receiver<IndexRequest>,
     first: IndexRequest,
 ) -> Vec<IndexRequest> {
-    let deadline = Instant::now() + Duration::from_millis(1500);
+    receive_batch_with_runtime(receiver, first, &Default::default())
+}
+pub fn receive_batch_with_runtime(
+    receiver: &mpsc::Receiver<IndexRequest>, first: IndexRequest,
+    runtime: &sag_protocol::runtime::RuntimeSettings,
+) -> Vec<IndexRequest> {
+    let deadline = Instant::now() + Duration::from_millis(runtime.watch_max_delay_ms);
     let mut requests = vec![first];
     loop {
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             break;
         }
-        match receiver.recv_timeout(remaining.min(Duration::from_millis(300))) {
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(runtime.watch_debounce_ms))) {
             Ok(request) => requests.push(request),
             Err(mpsc::RecvTimeoutError::Timeout | mpsc::RecvTimeoutError::Disconnected) => break,
         }

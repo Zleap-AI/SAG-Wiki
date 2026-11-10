@@ -8,6 +8,7 @@ cc = "1"
 
 [dependencies]
 anydoc = "=0.2.4"
+lopdf = { version = "0.45", default-features = false }
 sag-protocol = { path = "../protocol" }
 sag-client = { path = "../client" }
 anyhow = "1"
@@ -27,7 +28,7 @@ regex = "1"
 regex-syntax = "0.8"
 fancy-regex = "0.16"
 indexmap = "2"
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "rustls", "gzip"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "stream", "rustls", "gzip", "multipart"] }
 tar = "0.4"
 libc = "0.2"
 portable-pty = "0.9"

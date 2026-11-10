@@ -139,7 +139,7 @@ it('模型设置中可添加和测试 MCP，并立即绑定工具后一起保存
  expect(dialog.querySelector<HTMLInputElement>('[aria-label="MCP 服务地址"]')!.value).toBe('https://mcp.deepwiki.com/mcp');
  expect(document.querySelectorAll('.mcp-server')).toHaveLength(0);
  button('添加服务',dialog).click();await tick();
- expect(onSave).not.toHaveBeenCalled();expect(api).not.toHaveBeenCalled();
+ expect(onSave).not.toHaveBeenCalled();expect(api.mock.calls.filter(([command])=>command!=='runtime_schema')).toHaveLength(0);
  expect(document.querySelectorAll('.mcp-server')).toHaveLength(1);
  expect(document.querySelector('.mcp-added')?.textContent).toContain('已添加');
  expect(document.querySelector('.mcp-feedback')?.textContent).toContain('添加成功');
@@ -154,7 +154,7 @@ it('粘贴多服务JSON后按顺序追加，凭据与设置分开保存，导入
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'answer',onClose:()=>{},onSave}});
  await vi.waitFor(()=>expect(button('导入 JSON')).toBeDefined());button('导入 JSON').click();await tick();
  await input('MCP JSON 配置',JSON.stringify({mcpServers:{Docs:{url:'https://example.com/mcp',headers:{Authorization:'Bearer test-import'}},Local:{command:'python3',args:['server.py','argument with spaces'],env:{TEST_TOKEN:'test-env'}}}}));
- button('导入配置').click();await tick();expect(api).not.toHaveBeenCalled();expect(document.body.textContent).toContain('已导入 2 个服务');
+ button('导入配置').click();await tick();expect(api.mock.calls.filter(([command])=>command!=='runtime_schema')).toHaveLength(0);expect(document.body.textContent).toContain('已导入 2 个服务');
  button('测试连接',document.querySelectorAll('.mcp-server')[1]).click();await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_mcp',expect.objectContaining({credentials:{headers:{Authorization:'Bearer test-import'},env:{}}})));
  await submit();const [settings,,,credentials]=onSave.mock.calls[0];
  expect(settings.mcp_servers.map((s:McpServer)=>s.name)).toEqual(['DeepWiki','Docs','Local']);
@@ -210,7 +210,7 @@ it('手动添加服务校验同名与凭据，成功后追加在末尾且不自�
  expect(dialog.textContent).toContain('已存在同名服务');expect(document.querySelectorAll('.mcp-server')).toHaveLength(1);
  await field('MCP 服务名称','Docs');await field('MCP 凭据','{"Token":5}');button('添加服务',dialog).click();await tick();expect(dialog.textContent).toContain('值为字符串');
  await field('MCP 凭据','{"Authorization":"Bearer fixture-secret"}');button('添加服务',dialog).click();await tick();
- expect([...document.querySelectorAll('.mcp-card-name strong')].map(el=>el.textContent)).toEqual(['DeepWiki','Docs']);expect(document.querySelector('.model-mcp-server')?.classList.contains('sag-tools')).toBe(true);expect(api).not.toHaveBeenCalled();expect(onSave).not.toHaveBeenCalled();
+ expect([...document.querySelectorAll('.mcp-card-name strong')].map(el=>el.textContent)).toEqual(['DeepWiki','Docs']);expect(document.querySelector('.model-mcp-server')?.classList.contains('sag-tools')).toBe(true);expect(api.mock.calls.filter(([command])=>command!=='runtime_schema')).toHaveLength(0);expect(onSave).not.toHaveBeenCalled();
  await submit();const [saved,,,credentials]=onSave.mock.calls[0];expect(saved.mcp_servers.map((s:McpServer)=>s.name)).toEqual(['DeepWiki','Docs']);expect(JSON.stringify(saved)).not.toContain('fixture-secret');expect(credentials[saved.mcp_servers[1].id].headers.Authorization).toBe('Bearer fixture-secret');
 });
 it('添加反馈显示四秒后消失，服务和 SAG 优先顺序保持不变',async()=>{

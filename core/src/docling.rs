@@ -1117,9 +1117,16 @@ impl Docling {
         output: &Path,
         cancel: impl Fn() -> bool + Sync,
     ) -> Result<()> {
+        self.convert_with_runtime(source, output, &Default::default(), cancel)
+    }
+    pub fn convert_with_runtime(
+        &self, source: &Path, output: &Path,
+        runtime: &sag_protocol::runtime::RuntimeSettings,
+        cancel: impl Fn() -> bool + Sync,
+    ) -> Result<()> {
         let mut handoff = None;
         if crate::anydoc::handles(source) {
-            match crate::anydoc::convert(source, output, &cancel) {
+            match crate::anydoc::convert_with_runtime(source, output, runtime, &cancel) {
                 Ok(crate::anydoc::Outcome::Converted) => return Ok(()),
                 Ok(crate::anydoc::Outcome::NeedsOcr(detail)) => {
                     if !self.has_profile(DoclingProfile::Documents) {
@@ -1135,6 +1142,17 @@ impl Docling {
                 Err(error) => return Err(error),
             }
         }
+        self.convert_docling_runtime(source, output, runtime, cancel, handoff)
+    }
+    pub(crate) fn data_directory(&self) -> &Path { self.home.parent().expect("Docling directory has a parent") }
+    pub fn convert_docling_with_runtime(
+        &self, source: &Path, output: &Path, runtime: &sag_protocol::runtime::RuntimeSettings,
+        cancel: impl Fn() -> bool + Sync,
+    ) -> Result<()> { self.convert_docling_runtime(source, output, runtime, cancel, None) }
+    fn convert_docling_runtime(
+        &self, source: &Path, output: &Path, runtime: &sag_protocol::runtime::RuntimeSettings,
+        cancel: impl Fn() -> bool + Sync, handoff: Option<String>,
+    ) -> Result<()> {
         let _usage = self.usage.read().unwrap();
         let profile = if source.extension().is_some_and(|ext| {
             MEDIA_EXTENSIONS
@@ -1160,11 +1178,11 @@ impl Docling {
             self.home.clone()
         };
         let cancelled = || cancel();
-        let permit = crate::docling_budget::acquire(&cancelled)?;
-        if fs::metadata(source)?.len() > 512 * 1024 * 1024 {
+        let permit = crate::docling_budget::acquire_with_runtime(runtime, &cancelled)?;
+        if fs::metadata(source)?.len() > runtime.conversion_input_mib as u64 * 1024 * 1024 {
             return Err(crate::process_supervisor::Failure::new(
                 crate::process_supervisor::FailureKind::Memory,
-                "文档超过 512 MiB 转换输入限制",
+                format!("文档超过 {} MiB 转换输入限制", runtime.conversion_input_mib),
             )
             .into());
         }
@@ -1182,7 +1200,7 @@ impl Docling {
                 RUNNER
             },
         )?;
-        let deadline = std::time::Instant::now() + Duration::from_secs(300);
+        let deadline = std::time::Instant::now() + Duration::from_secs(runtime.docling_outer_timeout_secs());
         let convert = |backend: Option<&str>| -> Result<String> {
             let mut command;
             if let Ok(runtime) = crate::docling_component::active_for(&component_home, profile) {
@@ -1224,14 +1242,15 @@ impl Docling {
                             "placeholder",
                             "--abort-on-error",
                             "--document-timeout",
-                            "270",
                         ])
+                        .arg(runtime.docling_timeout_secs.to_string())
                         .arg("--artifacts-path")
                         .arg(self.home.join("models"))
                         .arg("--output-file")
                         .arg(&temporary);
                 }
             }
+            command.env("SAG_CONVERSION_SETTINGS", serde_json::to_string(runtime)?);
             if let Some(backend) = backend {
                 command.args(["--pdf-backend", backend]);
             }
@@ -1254,10 +1273,10 @@ impl Docling {
                     error.into()
                 }
             })?;
-            if metadata.len() > 64 * 1024 * 1024 {
+            if metadata.len() > runtime.conversion_output_mib as u64 * 1024 * 1024 {
                 return Err(crate::process_supervisor::Failure::new(
                     crate::process_supervisor::FailureKind::Memory,
-                    "转换输出超过 64 MiB 限制",
+                    format!("转换输出超过 {} MiB 限制", runtime.conversion_output_mib),
                 )
                 .into());
             }

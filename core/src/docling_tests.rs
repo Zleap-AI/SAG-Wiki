@@ -1433,7 +1433,8 @@ fn text_is_searchable_before_parallel_conversion_and_converted_indexing_preserve
             .map(|line| {
                 serde_json::from_str::<sag_protocol::IndexFileLog>(line)
                     .unwrap()
-                    .stage
+            }).filter(|row| row.engine.is_none()).map(|row| {
+                    row.stage
             })
             .collect::<Vec<_>>();
         assert_eq!(stages[0], "indexing_native");

@@ -75,3 +75,20 @@ Click **?** at the bottom of the sidebar to open the [SAG Wiki documentation](ht
 | MCP and tool bindings | [MCP and tools](/en/docs/mcp) |
 | Data and privacy | [Storage and cleanup](/en/docs/privacy) |
 | About and software updates | [Versions and updates](/en/docs/installation#about-and-software-updates) |
+
+## Runtime settings
+
+File, Model, Search and Q&A settings each expose their runtime parameters. Common controls are visible directly; workers, memory, batches and caches are under **Advanced runtime settings**. Each group can reset to backend-defined defaults, with server-side range and consistency validation.
+
+![Conversion timeouts and advanced runtime settings](/images/product-runtime-en.png)
+
+| Page | Controls |
+| --- | --- |
+| File settings | Built-in/Docling timeout, input/output limits, threads, OCR/table options and batches, page limits, memory, text limits and watcher debounce |
+| Model settings | Retry count, initial/maximum backoff, total deadline; separate MinerU parsing controls |
+| Search settings | JEV concurrency/context, local query workers and query/corpus caches |
+| Q&A settings | Folding concurrency and units per batch |
+
+Built-in conversion defaults to 120 seconds; Docling defaults to 1800 seconds with 60 extra seconds for process cleanup. Converted text defaults to 16 MiB, matching the downstream indexing input limit. Raise the output, index input, decoded/prepared text and total preparation budget together when larger text is needed. Memory per job set to 0 means automatic. Actual concurrency also respects conversion workers and reserved memory.
+
+Changes apply to new tasks. Running tasks retain their startup settings. Timeout, concurrency and cache changes do not rebuild indexes. OCR, table, page and parser changes refresh the relevant conversions on subsequent scans. An anydoc timeout discards the result while its native worker may run until the library returns; Docling terminates its process tree on timeout.

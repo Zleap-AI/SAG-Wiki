@@ -78,6 +78,19 @@ impl IndexControl {
         if state.stopped { bail!("索引已停止") }
         Ok(())
     }
+    pub(crate) fn conversion_attempt(&self,root:&str,path:&Path,attempt:crate::conversion::Attempt) {
+        let mut state=self.state.lock().unwrap();
+        let path=path.to_string_lossy().into_owned();
+        if let Some(log)=state.logs.get_mut(root) {
+            if attempt.phase.is_some() && log.iter().rev().find(|row|row.path==path&&row.engine.as_deref()==Some(&attempt.engine))
+                .is_some_and(|row|row.phase==attempt.phase) {return;}
+            // Preserve final engine outcomes when long cloud queues fill the bounded log.
+            if log.len()>=100 && attempt.phase.is_none() {
+                if let Some(index)=log.iter().position(|row|row.path==path&&row.phase.is_some()){log.remove(index);}
+            }
+            if log.len()<100 {log.push(IndexFileLog {time:crate::store::now(),path,stage:"converting".into(),phase:attempt.phase.clone(),engine:Some(attempt.engine),elapsed_ms:Some(attempt.elapsed_ms),status:if attempt.phase.is_some(){"running"}else if attempt.error.is_some(){"fallback"}else{"completed"}.into(),error:attempt.error});}
+        }
+    }
     pub fn file<T>(&self, root: &str, path: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
         let state = self.state.lock().unwrap();
         let mut state = self.resumed.wait_while(state, |state| state.paused && !state.stopped).unwrap();
@@ -92,7 +105,7 @@ impl IndexControl {
         let log = state.logs.get_mut(root).unwrap();
         if log.len() < 100 {
             log.push(IndexFileLog {
-                time: crate::store::now(), path, stage,
+                time: crate::store::now(), path, stage, phase: None, engine: None, elapsed_ms: None,
                 status: if result.is_ok() { "completed" } else { "failed" }.into(),
                 error: result.as_ref().err().map(ToString::to_string),
             });

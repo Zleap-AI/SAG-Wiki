@@ -16,6 +16,7 @@ const SYSTEM: &str = "你是知识库助手。根据本轮提供的工具列表�
 const SAG_PRIORITY: &str = "已启用 SAG 时，知识性问题默认优先使用 SAG 工具查找本地依据，包括概念解释、趋势分析、方案建议、项目资料和追问。用户未提到本地文件、问题看似通用或你自认为已知答案，都不能作为跳过 SAG 的理由。自然语言问题优先 search，明确文字或代码关键词用 grep，已知文件用 read；查询应保留用户问题的完整含义。调用 SAG 的 search 或 sag2_search 检索自然语言问题时，在同一个 query 中同时提供中英文等义表述：中文提问保留完整中文问题并补充英文，英文提问反之。保留专有名词、版本号、数字、否定和限定条件，不加入未经证实的答案或假设；证据不足时可以分别用中文或英文补充检索。grep 的精确文字、代码和文件路径不要翻译。检索后以实际证据回答，不得将模型常识表述为本地资料结论。按用户指定语言回答；未另行指定时，中文提问必须用中文回答，不随检索词或原文语言切换。用户明确要求外部来源或操作时，使用对应工具；SAG 未启用时不要求使用它。涉及数值运算（包括平方根、乘方、对数、三角函数）且 calculate 已启用时，必须调用 calculate 后使用工具结果，不要自行心算或估算；以当前工具说明为准，不沿用历史消息中对工具能力的判断。涉及当前时间、今天日期或相对时间且 getTime 已启用时，先调用 getTime。纯计算和时间查询无需检索文件。用户明确要求不检索，或仅问候、闲聊、翻译、改写已完整提供的文本时，可直接完成。";
 
 pub struct AgentOptions<'a> {
+    pub runtime: Option<&'a sag_protocol::runtime::RuntimeSettings>,
     pub max_tool_calls: usize,
     pub sag2_enabled: bool,
     pub system_prompt: &'a str,
@@ -24,6 +25,7 @@ pub struct AgentOptions<'a> {
 impl Default for AgentOptions<'_> {
     fn default() -> Self {
         Self {
+            runtime: None,
             max_tool_calls: 0,
             sag2_enabled: true,
             system_prompt: "",
@@ -177,6 +179,8 @@ where
     A: FnMut(ExternalTool, Value) -> AFut,
     AFut: Future<Output = Result<bool>>,
 {
+    let default_runtime = sag_protocol::runtime::RuntimeSettings::default();
+    let runtime = options.runtime.unwrap_or(&default_runtime);
     let started = std::time::Instant::now();
     let mut budget = models::input_budget(limit, output)?;
     let mut definitions = if options.sag2_enabled {
@@ -285,7 +289,7 @@ where
         if tokens(&messages, &definitions) > budget {
             progress("正在压缩上下文", None, message.tool_calls.len(), None);
             let compact_started = std::time::Instant::now();
-            let compacted = match compaction::compact(client, config, key, &messages, &recent_history, &question, history.len(), &definitions, budget, timeout, cancel).await {
+            let compacted = match compaction::compact(client, config, key, &messages, &recent_history, &question, history.len(), &definitions, budget, timeout, runtime, cancel).await {
                 Ok(compacted) => compacted,
                 Err(error) if models::context_limit_error(&error) => { budget = budget * 3 / 4; continue; }
                 Err(error) => return Err(error),
@@ -317,12 +321,13 @@ where
         let mut reasoning_started = false;
         let answer_start = message.answer.len();
         let turn =
-            models::chat_turn(
+            models::chat_turn_with_runtime(
                 client,
                 config,
                 key,
                 &payload,
                 timeout,
+                runtime,
                 cancel,
                 |delta| match delta {
                     models::ChatDelta::Content(text) => {
@@ -1660,6 +1665,7 @@ mod tests {
                 5,
                 &CancellationToken::new(),
                 AgentOptions {
+                    runtime: None,
                     max_tool_calls: count,
                     sag2_enabled: true,
                     system_prompt: "只使用简体中文，回答保持简洁。",
@@ -1720,6 +1726,7 @@ mod tests {
                 5,
                 &token,
                 AgentOptions {
+                    runtime: None,
                     max_tool_calls: 2,
                     sag2_enabled: true,
                     system_prompt: "",

@@ -1,6 +1,6 @@
 ---
 title: "Models"
-description: "Configure and test the answer model and Jev separately."
+description: "Configure and test answer models, Jev and MinerU document parsing."
 ---
 
 ## Model responsibilities
@@ -73,3 +73,21 @@ Use **Test connection** on each card to verify the endpoint, model and key. Then
 - No tool calls: verify that the model and API support tools, then check that model's bindings.
 
 Keys are stored in the current user's application data directory. macOS uses owner-only file permissions; other processes running as that user may still read them. Do not publicly share the data directory. See [Data and privacy](/en/docs/privacy).
+
+## MinerU document parsing
+
+Open **Settings → Model settings → Document parsing · MinerU**. It is disabled by default. Choose 302.AI (the default) or MinerU official and enter that provider's API key/token. The endpoint is selected automatically.
+
+When enabled, supported PDFs, images and Office documents use MinerU first, then the applicable built-in anydoc parser and installed local Docling on failure. Markdown, text and code remain directly indexed. The app does not switch cloud providers or install components automatically.
+
+![MinerU provider, key and connection test](/images/product-mineru-en.png)
+
+**Test connection** uses the current unsaved settings without uploading files or creating a parsing task. Reachability does not prove that a key is valid; the result distinguishes them. Keys are stored separately for each provider. Save settings, then reindex failed files.
+
+Advanced settings control request timeout, task deadline, polling interval, concurrency, parsing model, OCR, table and formula recognition. PDFs are split to meet provider page and upload limits; only complete results are published, retaining original page numbers. Stored task identifiers allow polling to resume after a timeout. A submission without a returned identifier remains uncertain and falls back locally to avoid blindly submitting it again.
+
+Remote parsing uploads the original document; see [Data and privacy](/en/docs/privacy). Index history shows each engine, phase, duration and failure.
+
+## Advanced runtime settings
+
+Model settings also provides retry count, backoff intervals and a total request deadline. HTTP 499 counts as a retry; the deadline covers requests, delays and reading responses. See [Runtime settings](/en/docs/preferences#runtime-settings) for the other groups.

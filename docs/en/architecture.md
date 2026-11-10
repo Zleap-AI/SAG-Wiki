@@ -70,7 +70,7 @@ When retrieval results are read, the service accesses the original files at the 
 5. Decode, chunk and tokenize text, generate derived information, then write batches to SQLite.
 6. File watching merges subsequent changes into incremental tasks. Index-version changes invalidate relevant caches.
 
-Markdown, plain text, RTF, Office documents, spreadsheets, EPUB and text-based PDFs are enabled by default; code and configuration files follow their type settings. Built-in anydoc parses documents first and stores results in `.sag-converted`. OCR and unsupported content can use separately installed Docling; installation is never automatic. Symbolic links cannot expand access.
+Markdown, plain text, RTF, Office documents, spreadsheets, EPUB and text-based PDFs are enabled by default; code and configuration files follow their type settings. With MinerU disabled, built-in anydoc parses documents first and stores results in `.sag-converted`. When MinerU is enabled, supported documents use MinerU first, then the applicable anydoc parser and installed local Docling on failure. OCR and unsupported content can use separately installed Docling; installation is never automatic. Symbolic links cannot expand access.
 
 Body chunks target approximately 512 characters by default, preserving complete sentences; code preserves complete lines. Very long sentences or lines may exceed the target. Chunks retain heading paths, and adjacent chunks overlap by approximately 80 characters of complete sentences or lines. Custom lengths are stored in retrieval settings. Base64 image data in HTML is excluded from the index and vocabulary.
 

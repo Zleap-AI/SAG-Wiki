@@ -17,7 +17,7 @@ pub(super) struct Compacted {
 pub(super) async fn compact(
     client: &reqwest::Client, config: &ModelConfig, key: &str,
     messages: &[Value], recent: &[Value], question: &Value, history_count: usize,
-    definitions: &[Value], budget: usize, timeout: u64, cancel: &CancellationToken,
+    definitions: &[Value], budget: usize, timeout: u64, runtime: &sag_protocol::runtime::RuntimeSettings, cancel: &CancellationToken,
 ) -> Result<Compacted> {
     // Keep a complete recent tool exchange when it fits, never an unmatched tool reply.
     let mut boundary = messages.iter().rposition(|item| item["role"] == "assistant" && item["tool_calls"].is_array())
@@ -48,7 +48,7 @@ pub(super) async fn compact(
     }
     let allowance = (budget - tokens(&next, definitions) - 32).min(budget / 3);
     let (text, input_tokens, output_tokens) = summarize(
-        client, config, key, &messages[1..boundary], budget, allowance, timeout, cancel,
+        client, config, key, &messages[1..boundary], budget, allowance, timeout, runtime, cancel,
     ).await.map_err(|error| {
         let detail = format!("上下文压缩失败，原始记录已保留：{error:#}");
         error.context(detail)
@@ -70,7 +70,7 @@ pub(super) fn summary_message(text: &str, current_sources: bool) -> Value {
 
 async fn summarize(
     client: &reqwest::Client, config: &ModelConfig, key: &str,
-    messages: &[Value], budget: usize, allowance: usize, timeout: u64, cancel: &CancellationToken,
+    messages: &[Value], budget: usize, allowance: usize, timeout: u64, runtime: &sag_protocol::runtime::RuntimeSettings, cancel: &CancellationToken,
 ) -> Result<(String, Option<usize>, Option<usize>)> {
     let transcript = messages.iter().map(Value::to_string).collect::<Vec<_>>().join("\n");
     ensure!(!transcript.is_empty(), "没有可总结的上下文");
@@ -97,7 +97,7 @@ async fn summarize(
         request[1]["content"] = json!(json!({"previous_summary":summary,"transcript_part":&remaining[..end]}).to_string());
         for attempt in 0..2 {
             let payload = models::payload(config, request.clone(), true)?;
-            let turn = models::chat_turn(client, config, key, &payload, timeout, cancel, |_| {}).await?;
+            let turn = models::chat_turn_with_runtime(client, config, key, &payload, timeout, runtime, cancel, |_| {}).await?;
             if let Some(n) = turn.input_tokens { input_tokens = Some(input_tokens.unwrap_or(0) + n); }
             if let Some(n) = turn.output_tokens { output_tokens = Some(output_tokens.unwrap_or(0) + n); }
             ensure!(turn.tool_calls.is_empty(), "摘要请求不能调用工具");

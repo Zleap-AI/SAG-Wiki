@@ -9,6 +9,10 @@
  import {api} from '../lib/api';
  import type {DoclingStatus,Settings} from '../lib/types';
  export let enabled=false;
+ export let remoteParsing:boolean|undefined=undefined;
+ let savedRemoteParsing=false;
+ $:usingRemote=remoteParsing??savedRemoteParsing;
+ const remoteFormats=new Set(['pdf','png','jpg','jpeg','jp2','webp','gif','bmp','doc','docx','ppt','pptx','xls','xlsx']);
  export let formats:string[]|null|undefined=undefined;
  export let disabled=false;
  export let workers:number|undefined=undefined;
@@ -27,7 +31,8 @@
  function invalidateInstall(){selectionVersion++;revokeInstall();}
  function changeSelection(next:string[]){selectionVersion++;revokeInstall();selectionChanged=true;selected=next;}
  $:preserveLegacyAll=legacyAll&&!selectionChanged;
- $:missingProfiles=[...new Set(selected.map(extension=>profileForExtension(status,extension)).filter(profile=>profile!==undefined))].filter(profile=>!profileInstalled(status,profile));
+ $:requiredProfiles=[...new Set(selected.filter(extension=>!usingRemote||!remoteFormats.has(extension)).map(extension=>profileForExtension(status,extension)).filter(profile=>profile!==undefined))];
+ $:missingProfiles=requiredProfiles.filter(profile=>!profileInstalled(status,profile));
  $:needsInstall=!preserveLegacyAll&&missingProfiles.length>0;
  async function showDetails(){
   selectionVersion++;revokeInstall();legacyAll=enabled&&formats==null;selectionChanged=false;
@@ -35,9 +40,9 @@
   // A legacy "all formats" preference stays in force until the user changes the selection.
   selected=formats==null?[]:[...formats];
   selectionError='';draftWorkers=workers??1;savedWorkers=draftWorkers;workersReady=workers!==undefined;details=true;
-  if(workers===undefined){
+  if(workers===undefined||remoteParsing===undefined){
    workersLoading=true;
-   try{const settings=await api<Settings>('get_settings');draftWorkers=settings.conversion_workers??1;savedWorkers=draftWorkers;workersReady=true;}
+   try{const settings=await api<Settings>('get_settings');if(workers===undefined){draftWorkers=settings.conversion_workers??1;savedWorkers=draftWorkers;}savedRemoteParsing=settings.mineru?.enabled??false;workersReady=true;}
    catch(e){selectionError=String(e);}
    finally{workersLoading=false;}
   }
@@ -56,7 +61,7 @@
  async function applyFormats(){
   if(!Number.isInteger(draftWorkers)||draftWorkers<1||draftWorkers>16){selectionError='转换并行数应为 1–16';return;}
   if(!preserveLegacyAll&&selected.some(extension=>!profileForExtension(status,extension))){selectionError='当前服务不支持这些转换格式，请更新后重试';return;}
-  const required=[...new Set(selected.map(extension=>profileForExtension(status,extension)!))];
+  const required=requiredProfiles;
   const missing=required.filter(profile=>!profileInstalled(status,profile));
   if(!preserveLegacyAll&&missing.includes('media')&&!status.profiles?.some(profile=>profile.id==='media')){selectionError='当前服务不支持按需安装音视频组件，请更新后台服务后重试';return;}
   if(!preserveLegacyAll&&missing.length){

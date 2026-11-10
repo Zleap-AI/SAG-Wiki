@@ -323,7 +323,7 @@ async fn jev_auth_mode_cannot_disable_answer_provider_key_protection() {
     settings.answer = serde_json::from_value(serde_json::json!({
         "url":"http://127.0.0.1:1/v1", "model":"local-model", "auth_mode":"none"
     })).unwrap();
-    let result = client.call(Operation::SaveSettings {
+    let result = client.call(Operation::SaveSettings { mineru_key:String::new(),
         settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
     }, Duration::from_secs(5)).await;
     assert!(result.is_err(), "Jev-only auth mode was accepted for the answer model");
@@ -344,7 +344,7 @@ async fn invalid_local_jev_settings_do_not_remove_the_saved_key() {
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     settings.jev.auth_mode = ModelAuthMode::None;
     settings.retrieval.candidate_k = 0;
-    let result = client.call(Operation::SaveSettings {
+    let result = client.call(Operation::SaveSettings { mineru_key:String::new(),
         settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None,
     }, Duration::from_secs(5)).await;
     assert!(result.is_err());
@@ -628,7 +628,7 @@ async fn configure(client: &Client, url: String, mcp: bool) {
     }
     call(
         client,
-        Operation::SaveSettings {
+        Operation::SaveSettings { mineru_key:String::new(),
             settings,
             answer_key: "test-key".into(),
             jev_key: String::new(),
@@ -863,7 +863,7 @@ async fn search_summary_streams_without_history_and_respects_limit_disable_and_c
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert!(settings.search_summary_enabled);
     settings.search_summary_enabled = false;
-    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     assert!(client.call(request("disabled", 5), Duration::from_secs(5)).await.err().unwrap().to_string().contains("已关闭"));
     assert_eq!(arrived.load(Ordering::SeqCst), 2);
     let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
@@ -982,7 +982,7 @@ async fn nested_folder_settings_reindex_only_the_selected_subdirectory_over_rpc(
     let (dir, client, server) = start().await;
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     settings.watch = false;
-    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     let folder = dir.path().join("project");
     std::fs::create_dir_all(folder.join("papers")).unwrap();
     std::fs::create_dir_all(folder.join("sibling")).unwrap();
@@ -1028,9 +1028,9 @@ async fn conversion_profile_settings_validate_changed_formats_without_blocking_o
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     settings.convert_other_formats = true;
     settings.conversion_formats = Some(vec!["pdf".into()]);
-    call(&client, Operation::SaveSettings { settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     settings.conversion_formats = Some(vec!["mp3".into()]);
-    let rejected = client.call(Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }, Duration::from_secs(5)).await;
+    let rejected = client.call(Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }, Duration::from_secs(5)).await;
     assert!(rejected.is_err(), "a document runtime must not authorize a new media selection");
     let message = rejected.err().unwrap().to_string();
     assert!(message.contains("音视频") || message.contains("媒体") || message.contains("media"), "{message}");
@@ -1039,12 +1039,12 @@ async fn conversion_profile_settings_validate_changed_formats_without_blocking_o
     // An unavailable component must not prevent saving unrelated model choices.
     std::fs::remove_dir_all(&home).unwrap();
     settings.answer.reasoning_effort = Some(ReasoningEffort::High);
-    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert_eq!(settings.answer.reasoning_effort, Some(ReasoningEffort::High));
     settings.convert_other_formats = false;
     settings.conversion_formats = Some(vec!["mp3".into()]);
-    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     assert!(!home.exists(), "saving settings must never download a component");
     stop(&client, server).await;
 }
@@ -1107,7 +1107,7 @@ async fn inherited_legacy_conversion_options_report_missing_media_during_scan_wi
     drop(store);
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     settings.answer.reasoning_effort = Some(ReasoningEffort::High);
-    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     let folder = dir.path().join("legacy-media");
     std::fs::create_dir(&folder).unwrap();
     std::fs::write(folder.join("note.md"), "nativeevidence").unwrap();
@@ -1137,7 +1137,7 @@ async fn changing_only_conversion_formats_rescans_cached_selected_sources() {
     settings.convert_other_formats = true;
     settings.conversion_formats = Some(vec![]);
     settings.watch = false;
-    call(&client, Operation::SaveSettings { settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     let folder = dir.path().join("selected-cache");
     std::fs::create_dir(&folder).unwrap();
     let source = folder.join("cached.pages");
@@ -1156,7 +1156,7 @@ async fn changing_only_conversion_formats_rescans_cached_selected_sources() {
     }).await.unwrap();
     assert!(matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.is_empty()));
     settings.conversion_formats = Some(vec!["pages".into()]);
-    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if matches!(call(&client, Operation::ListFiles).await, Output::Files(files) if files.len() == 1 && files[0].path.ends_with("cached.pages.md")) { break; }
@@ -1176,7 +1176,7 @@ async fn uninstall_docling_over_rpc_updates_status_and_default() {
     std::fs::write(home.join("ready"), "2.140.0").unwrap();
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     settings.convert_other_formats = true;
-    call(&client, Operation::SaveSettings { settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     let Output::Docling(before) = call(&client, Operation::DoclingStatus).await else { panic!("docling") };
     assert!(before.installed);
     let Output::Docling(after) = call(&client, Operation::UninstallDocling).await else { panic!("docling") };
@@ -1348,4 +1348,28 @@ async fn import_invalid_offline_component_fails_locally_without_registering_a_so
     assert!(!dir.path().join("data/docling/uv").exists());
     assert!(!dir.path().join("data/docling/uv.exe").exists());
     stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn mineru_settings_keep_provider_secrets_separate_and_validate_before_saving() {
+    use sag_protocol::mineru::{MineruConfig, MineruProvider};
+    let (dir, client, server) = start().await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert!(!settings.mineru.enabled);
+    settings.mineru.enabled = true;
+    call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:"302-test-secret".into(),mcp_credentials:None }).await;
+    let Output::Settings(saved) = call(&client,Operation::GetSettings).await else {panic!("settings")};
+    assert!(saved.mineru.has_key);
+    assert!(!serde_json::to_string(&saved).unwrap().contains("302-test-secret"));
+    settings.mineru.provider=MineruProvider::Official;
+    let result=client.call(Operation::SaveSettings {settings:settings.clone(),answer_key:String::new(),jev_key:String::new(),mineru_key:String::new(),mcp_credentials:None},Duration::from_secs(5)).await;
+    assert!(result.is_err());
+    call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:"official-test-secret".into(),mcp_credentials:None }).await;
+    let data=dir.path().join("data");
+    assert_eq!(crate::mineru::key(&data,&MineruConfig::default()).unwrap(),"302-test-secret");
+    assert_eq!(crate::mineru::key(&data,&settings.mineru).unwrap(),"official-test-secret");
+    call(&client,Operation::ClearMineruKey {config:settings.mineru.clone()}).await;
+    assert!(!crate::mineru::has_key(&data,&settings.mineru).unwrap());
+    assert!(crate::mineru::has_key(&data,&MineruConfig::default()).unwrap());
+    stop(&client,server).await;
 }
