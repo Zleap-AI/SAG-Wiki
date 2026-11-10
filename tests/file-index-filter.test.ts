@@ -47,3 +47,14 @@ it('转换后的文档原文件显示为已索引并可直接打开',async()=>{
  expect(browse).toHaveBeenCalledWith('/notes/report.docx');
  expect(document.querySelector('[role=dialog]')).toBeNull();
 });
+
+it('shows selected folder conversion stage and waiting state persistently',async()=>{
+ const details=vi.fn();app=mount(LibraryWorkspace,{target:document.body,props:{scope:'/notes',session:createLibrarySession(),entries:[entry('a.pdf')],roots:[{path:'/notes',name:'Notes',status:'pending',count:0,error:null}],indexTasks:[{path:'/other',stage:'converting',completed:18,total:20,files:['/other/old.pdf']}],reading:false,revision:0,onbrowse:vi.fn(),onopen:vi.fn(),onmenu:vi.fn(),onIndexDetails:details}});
+ expect(document.querySelector('.folder-index-status')?.textContent).toContain('等待后台处理');expect(document.querySelector('.folder-index-status')?.textContent).toContain('其他文件夹');
+ document.querySelector<HTMLButtonElement>('.folder-index-status button')!.click();expect(details).toHaveBeenCalled();
+});
+it('shows active conversion counts and filename without requiring a dialog',async()=>{
+ app=mount(LibraryWorkspace,{target:document.body,props:{scope:'/notes',session:createLibrarySession(),entries:[entry('a.pdf')],roots:[{path:'/notes',name:'Notes',status:'indexing',count:0,error:null}],indexTasks:[{path:'/notes',stage:'converting',completed:2,total:4,files:['/notes/a.pdf']}],reading:false,revision:0,onbrowse:vi.fn(),onopen:vi.fn(),onmenu:vi.fn()}});
+ expect(document.querySelector('.folder-index-status')?.textContent).toContain('正在转换文件');expect(document.querySelector('.folder-index-status')?.textContent).toContain('2 / 4');expect(document.querySelector('.folder-index-status')?.textContent).toContain('a.pdf');
+ document.querySelector<HTMLButtonElement>('.simple-file-entry button')!.click();await tick();expect(document.querySelector('[role=dialog]')?.textContent).toContain('文件正在处理中');expect(document.querySelector('[role=dialog]')?.textContent).not.toContain('去设置');
+});

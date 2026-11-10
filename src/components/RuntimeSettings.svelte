@@ -34,6 +34,16 @@
     {:else}<Input id={'runtime-'+field.key} aria-label={$t(field.label)} type="number" min={field.min} max={field.max} step="1" required value={Number(value[field.key])} oninput={event=>set(field.key,event)}/>{/if}</div>
    {/each}
   </section>
- </details>
  <div class="settings-section-actions"><Button.Root type="button" class="outline" onclick={reset}>{$t('恢复本组默认')}</Button.Root></div>
+ </details>
 {/if}
+
+<style>
+ .runtime-settings{border:1px solid var(--color-rule);border-radius:12px;padding:18px 20px;margin-top:20px}
+ summary{cursor:pointer;font-weight:500}
+ .runtime-settings>.settings-help{line-height:1.6;margin:14px 0}
+ .runtime-settings .settings-group{border:0;padding:0;margin:0}
+ .runtime-settings .setting-row{gap:24px;padding:14px 0}
+ .runtime-settings :global(input[type=number]){width:120px;flex-shrink:0}
+ .runtime-settings .settings-section-actions{margin-top:16px}
+</style>

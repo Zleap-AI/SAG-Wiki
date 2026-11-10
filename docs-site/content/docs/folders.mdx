@@ -98,11 +98,11 @@ macOS 默认隐藏以点开头的目录。内置解析不会上传文件；Docli
 
 如果错误提示无法下载运行环境管理器（例如访问 `github.com/astral-sh/uv` 超时），可以用浏览器打开错误中的地址下载 uv 压缩包（Windows x64 为 `uv-x86_64-pc-windows-msvc.zip`），解压后点击 **导入离线组件**，选择解压后的目录。软件确认 uv 版本与当前应用要求一致后，跳过这一步下载，继续在线下载 Python、依赖和模型。
 
-后续步骤仍需联网。若对应地址也无法访问，可在系统中设置以下环境变量，重启 SAG 服务（例如运行 `sag service restart`）后重试：
+后续步骤仍需联网。若对应地址也无法访问，可在系统中设置以下环境变量，然后在设置后新打开的终端中运行 `sag service restart` 重启 SAG 服务，再点击重试：
 
 | 下载内容 | 环境变量 | 说明 |
 | --- | --- | --- |
-| Python 运行环境 | `UV_PYTHON_INSTALL_MIRROR` | 指向 python-build-standalone 的镜像地址 |
+| Python 运行环境 | `UV_PYTHON_INSTALL_MIRROR` | python-build-standalone 镜像，例如 `https://registry.npmmirror.com/-/binary/python-build-standalone` |
 | 识别依赖 | `UV_DEFAULT_INDEX` | PyPI 镜像，例如 `https://pypi.tuna.tsinghua.edu.cn/simple` |
 | 识别模型 | `HF_ENDPOINT` | Hugging Face 镜像，例如 `https://hf-mirror.com` |
 
@@ -185,3 +185,13 @@ macOS 默认隐藏以点开头的目录。内置解析不会上传文件；Docli
 [网页剪藏](/zh/docs/web-clipper)可以独立保存网页。需要索引时，在网页剪藏设置页点击“添加剪藏文件夹”，选择扩展实际保存目录；加入后按现有规则监听变化。
 
 首次创建知识库时，程序会建立 `Documents/sag-wiki/clippings`，并将 `Documents/sag-wiki` 作为默认文件夹加入。已有知识库和用户移除的目录不会因重启而被重新添加。
+
+## 查看导入进度
+
+打开刚加入的文件夹，文件列表上方会持续显示等待处理、扫描文件、转换文档或索引转换结果，并列出当前文件和本阶段已处理数量。未知总数时不显示虚假百分比；阶段内的数量不是全流程进度。点击“查看索引详情”可查看活动任务及失败原因。后台忙于其他文件夹时，会明确显示排队状态；完成后保留已索引文件数量。
+
+![文件夹中的转换进度与当前文件](/images/product-folder-progress-cn.png)
+
+导入新文件夹后，侧栏状态会重新出现。界面会补查后台状态，避免错过事件后一直看不到进度。移除顶层文件夹会取消它仍在运行或暂停等待的转换与后续索引，释放处理队列；原文件和其他文件夹不受影响。
+
+点击侧栏文件时，会在内容准备好后直接切换到文档，读取期间保留当前内容，不会先跳回文件列表。快速连续选择文件时，以最后一次选择为准；读取失败会保留原页面并显示错误。

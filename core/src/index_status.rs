@@ -1,11 +1,12 @@
 use anyhow::{bail, Result};
 use sag_protocol::{IndexFileLog, IndexStatus, IndexTask};
-use std::{collections::BTreeMap, path::Path, sync::{Condvar, Mutex}};
+use std::{collections::{BTreeMap,BTreeSet}, path::Path, sync::{Condvar, Mutex}};
 
 #[derive(Default)]
 struct State {
     paused: bool,
     stopped: bool,
+    cancelled: BTreeSet<String>,
     tasks: BTreeMap<String, IndexTask>,
     logs: BTreeMap<String, Vec<IndexFileLog>>,
     indexed: BTreeMap<String, (usize, usize)>,
@@ -32,8 +33,15 @@ impl IndexControl {
         self.resumed.notify_all();
     }
     pub fn stopped(&self) -> bool { self.state.lock().unwrap().stopped }
+    pub fn cancel_root(&self,root:&str) {
+        let mut state=self.state.lock().unwrap();
+        if state.tasks.contains_key(root) {state.cancelled.insert(root.into());}
+        self.resumed.notify_all();
+    }
+    pub fn cancelled(&self,root:&str)->bool {let state=self.state.lock().unwrap();state.stopped||state.cancelled.contains(root)}
     pub fn begin(&self, root: &str) {
         let mut state = self.state.lock().unwrap();
+        state.cancelled.remove(root);
         state.logs.insert(root.into(), vec![]);
         state.indexed.insert(root.into(), (0, 0));
         state.tasks.insert(root.into(), IndexTask {
@@ -45,6 +53,7 @@ impl IndexControl {
     pub fn indexed(&self, root: &str) -> (usize, usize) { self.state.lock().unwrap().indexed[root] }
     pub fn finish(&self, root: &str) {
         let mut state = self.state.lock().unwrap();
+        state.cancelled.remove(root);
         state.tasks.remove(root);
         state.logs.remove(root);
         state.indexed.remove(root);
@@ -72,6 +81,11 @@ impl IndexControl {
             *count = (completed, total);
         }
     }
+    pub fn checkpoint_root(&self,root:&str)->Result<()> {
+        let state=self.state.lock().unwrap();
+        let state=self.resumed.wait_while(state,|s|s.paused&&!s.stopped&&!s.cancelled.contains(root)).unwrap();
+        if state.stopped||state.cancelled.contains(root){bail!("文件夹索引已停止");}Ok(())
+    }
     pub fn checkpoint(&self) -> Result<()> {
         let state = self.state.lock().unwrap();
         let state = self.resumed.wait_while(state, |state| state.paused && !state.stopped).unwrap();
@@ -93,14 +107,15 @@ impl IndexControl {
     }
     pub fn file<T>(&self, root: &str, path: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
         let state = self.state.lock().unwrap();
-        let mut state = self.resumed.wait_while(state, |state| state.paused && !state.stopped).unwrap();
-        if state.stopped { bail!("索引已停止") }
+        let mut state = self.resumed.wait_while(state, |state| state.paused && !state.stopped && !state.cancelled.contains(root)).unwrap();
+        if state.stopped || state.cancelled.contains(root) { bail!("索引已停止") }
         let path = path.to_string_lossy().into_owned();
         let stage = state.tasks[root].stage.clone();
         state.tasks.get_mut(root).unwrap().files.push(path.clone());
         drop(state);
-        let result = work();
+        let mut result = work();
         let mut state = self.state.lock().unwrap();
+        if state.cancelled.contains(root) {result=Err(anyhow::anyhow!("文件夹已移除，已停止索引"));}
         state.tasks.get_mut(root).unwrap().files.retain(|file| file != &path);
         let log = state.logs.get_mut(root).unwrap();
         if log.len() < 100 {
@@ -111,5 +126,25 @@ impl IndexControl {
             });
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod cancellation_tests {
+    use super::*;
+    #[test]
+    fn removing_one_root_cancels_its_work_without_stopping_other_roots() {
+        let control=IndexControl::default();control.begin("old");control.begin("new");
+        let result=control.file("old",Path::new("old/a.pdf"),||{control.cancel_root("old");Ok(())});
+        assert!(result.is_err());assert!(control.cancelled("old"));assert!(!control.cancelled("new"));
+        assert!(control.file("new",Path::new("new/a.txt"),||Ok(())).is_ok());
+        control.finish("old");control.begin("old");assert!(!control.cancelled("old"));
+    }
+    #[test]
+    fn removing_a_paused_root_wakes_its_checkpoint() {
+        let control=std::sync::Arc::new(IndexControl::default());control.begin("old");control.set_paused(true);
+        let (tx,rx)=std::sync::mpsc::channel();let worker=control.clone();
+        let thread=std::thread::spawn(move||tx.send(worker.checkpoint_root("old").is_err()).unwrap());
+        control.cancel_root("old");assert!(rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap());thread.join().unwrap();assert!(control.status().paused);
     }
 }

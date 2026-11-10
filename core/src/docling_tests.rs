@@ -2143,3 +2143,43 @@ fn offline_import_rejects_a_folder_without_a_component_or_uv() {
     assert!(error.contains("manifest.json") && error.contains(UV_EXECUTABLE), "{error}");
     assert!(!converter.status().running);
 }
+
+#[cfg(unix)]
+fn offline_uv_script(dir: &Path, version_check: &str) {
+    use std::os::unix::fs::PermissionsExt;
+    let uv = dir.join("uv");
+    fs::create_dir_all(dir).unwrap();
+    fs::write(&uv, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then\n{version_check}\necho 'uv {UV_VERSION} (fixture)'; exit 0; fi\nexit 1\n")).unwrap();
+    fs::set_permissions(&uv, fs::Permissions::from_mode(0o755)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn offline_uv_import_checks_the_copy_not_the_downloaded_file() {
+    // A quarantined download may be refused when run in place; the copy is not.
+    let temp = tempfile::tempdir().unwrap();
+    offline_uv_script(&temp.path().join("offline"), "case \"$0\" in */offline/*) exit 1;; esac");
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.import_component(temp.path().join("offline")).unwrap();
+    let error = finished(&converter).error.unwrap();
+    assert!(error.contains("无法下载 Python 运行环境"), "{error}");
+    assert!(converter.home.join("uv").is_file());
+}
+
+#[cfg(unix)]
+#[test]
+fn cancelling_an_offline_uv_check_reports_cancellation_and_leaves_no_uv() {
+    let temp = tempfile::tempdir().unwrap();
+    offline_uv_script(&temp.path().join("offline"), "sleep 10");
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.import_component(temp.path().join("offline")).unwrap();
+    std::thread::sleep(Duration::from_millis(300));
+    converter.cancel();
+    let status = finished(&converter);
+    assert_eq!(status.stage, "cancelled", "{:?}", status.error);
+    assert!(!status.message.contains("不是 uv"), "{}", status.message);
+    assert!(!converter.home.join("uv").exists());
+    let leftovers: Vec<_> = fs::read_dir(&converter.home).unwrap().filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".tmp")).collect();
+    assert!(leftovers.is_empty(), "temporary uv copy was left behind");
+}

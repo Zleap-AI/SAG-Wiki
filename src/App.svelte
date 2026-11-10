@@ -56,6 +56,7 @@
  let librarySessions:Record<string,LibrarySession>={'':createLibrarySession()};let libraryRevision=0;let exploreReturn='';let documentFromSearch=false,documentFromConversation=false,documentSearchScroll=0,documentConversationScroll=0,documentInitialMatch=0;let chatLog:HTMLDivElement;
  $:if(selected&&!librarySessions[selected])librarySessions={...librarySessions,[selected]:createLibrarySession()};
  let roots:Root[]=[],files:FileInfo[]=[],conversations:Conversation[]=[],settings:Settings|null=null,cache:Record<string,Entry[]>={},expanded=new Set<string>(JSON.parse(localStorage.getItem('sag.sidebar.expanded')??'[]'));
+ let documentReadRequest=0;
  let readOnlyDoc:Document|null=null;let searchTerms:string[]=[],documentSearchTerms:string[]=[];
  let previewReader:{doc:Document;Reader:typeof import('./components/MarkdownReader.svelte').default;model:import('./lib/document-model').MarkdownModel;target:number;terms:string[]}|null=null;
 let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=false,previewError='',previewRequest=0;
@@ -80,14 +81,15 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  let quitPending=false;
  let indexDetailsOpen=false,indexPaused=false;
  let indexStatusHidden=false;
+ let indexTasks:IndexStatus['tasks']=[];
  let dismissedIndexFailures=localStorage.getItem('sag.index.dismissed-failures');
  let indexProgress:{path:string;count:number;total:number;stage?:string}|null=null;
  $:indexPercent=indexProgress&&indexProgress.total>0?Math.floor(indexProgress.count*100/indexProgress.total):null;
- $:indexing=roots.some(r=>r.status!=='ready'&&r.status!=='error'&&r.status!=='partial');
+ $:indexing=indexTasks.length>0||roots.some(r=>r.status!=='ready'&&r.status!=='error'&&r.status!=='partial');
  $:indexFailed=roots.some(r=>r.status==='error'||r.status==='partial');
  $:indexFailureSignature=JSON.stringify(roots.filter(r=>r.status==='error'||r.status==='partial').sort((a,b)=>a.path.localeCompare(b.path)).map(({path,status,error})=>[path,status,error]));
- $:indexStage=findIndexStage(indexProgress?.stage);
- $:indexStatusText=indexPaused?$t("SAG 索引已暂停"):indexing?indexStage?$t("SAG {value0}{value1}{value2}",{value0:$t(indexStage.progress),value1:indexPercent===null?'':`（${indexPercent}%）`,value2:''}):(indexPercent===null?$t("SAG 正在索引…"):$t("SAG 正在索引（{value0}%）",{value0:indexPercent})):$t("SAG · 索引已结束");
+ $:indexStage=findIndexStage(indexProgress?.stage??indexTasks[0]?.stage);
+ $:indexStatusText=indexPaused?$t("SAG 索引已暂停"):indexing?!indexTasks.length&&!indexProgress?$t("SAG 等待后台处理"):indexStage?$t("SAG {value0}{value1}{value2}",{value0:$t(indexStage.progress),value1:indexPercent===null?'':`（${indexPercent}%）`,value2:''}):(indexPercent===null?$t("SAG 正在索引…"):$t("SAG 正在索引（{value0}%）",{value0:indexPercent})):$t("SAG · 索引已结束");
  $:indexStatusCount=indexProgress?$t("已处理 {value0} / {value1} 个文件",{value0:indexProgress.count,value1:indexProgress.total}):$t("已索引 {value0} 个文件",{value0:roots.reduce((count,root)=>count+root.count,0)});
  $:indexFailureText=roots.length>0&&roots.every(root=>root.status==='error')?$t('读取失败'):$t('部分失败');
  let onboardingOpen=false;
@@ -138,7 +140,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  async function answerApproval(allow:boolean){if(!toolApproval)return;const id=toolApproval.id;toolApproval=null;try{await api('resolve_tool_approval',{id,allow})}catch(e){notify($t(String(e)))}}
  function clearConversationState(){historyRequest++;closeNotice();conversations=[];historySearchOpen=false;conversation=null;pending=null;renderedAnswers={};ask='';references=[];source=null;editingMessage=null;retryIndex=null;askJob='';cancellingAsk='';askBusy=false;askStage='';activeToolId='';error='';toolApproval=null;localStorage.removeItem('sag.history.scroll');}
  function closeNotice(){clearTimeout(noticeTimer);toast='';undo=null;}
- function clearFoldersState(){refreshGeneration++;refreshPending=false;roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;if(view==='files')view='ask';}
+ function clearFoldersState(){documentReadRequest++;refreshGeneration++;refreshPending=false;roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;indexTasks=[];if(view==='files')view='ask';}
  function scheduleNotice(){clearTimeout(noticeTimer);if(!toast||document.hidden||document.querySelector('#notice:hover, #notice:focus-within'))return;noticeTimer=setTimeout(closeNotice,undo?8000:3000);}
  function notify(message:string,action:(()=>Promise<void>)|null=null){toast=message;undo=action;scheduleNotice();}
  let refreshGeneration=0,refreshPending=false,refreshRunning:Promise<void>|null=null,appDisposed=false;
@@ -147,6 +149,21 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   refreshGeneration++;refreshPending=true;
   if(!refreshRunning)refreshRunning=refreshSnapshots().finally(()=>{refreshRunning=null;if(refreshPending&&!appDisposed)return refresh();});
   return refreshRunning;
+ }
+ function applyIndexStatus(status:IndexStatus){
+  const wasActive=indexTasks.length>0;indexTasks=stableRows(indexTasks,status.tasks??[],task=>task.path);indexPaused=status.paused;
+  if(!wasActive&&indexTasks.length)indexStatusHidden=false;
+  if(indexTasks.length){const task=indexTasks[0];indexProgress={path:task.path,count:task.completed,total:task.total,stage:task.stage};}
+  else if(wasActive)indexProgress=null;
+ }
+ function pollIndexStatus(){let disposed=false,timer:ReturnType<typeof setTimeout>;
+  const poll=async()=>{try{if(!loading&&!refreshRunning&&(indexing||indexPaused)){
+   const generation=refreshGeneration;
+   const [status,nextRoots]=await Promise.all([api<IndexStatus>('get_index_status'),api<Root[]>('list_roots')]);
+   if(disposed||generation!==refreshGeneration)return;const finished=indexTasks.length>0&&!status.tasks?.length;applyIndexStatus(status);roots=stableRows(roots,nextRoots,root=>root.path);
+   if(finished)void refresh().catch(error=>notify($t(String(error))));
+  }}catch{/* Events and the next snapshot recover a transient polling failure. */}finally{if(!disposed)timer=setTimeout(poll,1000)}};
+  timer=setTimeout(poll,1000);return()=>{disposed=true;clearTimeout(timer)};
  }
  function indexPauseChanged(paused:boolean){if(indexPaused===paused)return;indexPaused=paused;void refresh().catch(e=>notify($t(String(e))));}
  async function refreshSnapshots(){
@@ -165,8 +182,8 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
     const stableRoots=stableRows(roots,nextRoots,root=>root.path),stableFiles=stableRows(files,nextFiles,file=>file.id);
     if(stableRoots!==roots)roots=stableRoots;
     if(stableFiles!==files)files=stableFiles;
-    if(indexPaused!==nextStatus.paused)indexPaused=nextStatus.paused;
-    if(indexProgress&&!nextRoots.some(root=>root.path===indexProgress?.path&&(root.status==='indexing'||nextStatus.tasks.some(task=>task.path===root.path))))indexProgress=null;
+    applyIndexStatus(nextStatus);
+    if(indexProgress&&!nextStatus.tasks.some(task=>task.path===indexProgress?.path)&&!nextRoots.some(root=>root.path===indexProgress?.path&&root.status==='indexing'))indexProgress=null;
     expanded=new Set([...expanded].filter(path=>included(path)&&nextRoots.some(root=>inside(path,root.path))));scopeExpanded=new Set([...scopeExpanded].filter(included));
     scope=scope.filter(included);references=references.filter(included);
     const nextCache=Object.fromEntries(Object.entries(cache).filter(([path])=>included(path)));
@@ -206,7 +223,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  });
  async function requestQuit(){if(quitPending||leave)return;quitPending=true;try{if(draft&&dirty)await api('reveal_main_window');if(await protect())await api('quit_application')}catch(e){notify($t(String(e)))}finally{quitPending=false}}
  async function leaveChoice(choice:'save'|'discard'|'cancel'){if(choice==='save'&&!await save())return;if(choice==='discard'&&draft){clearTimeout(draftTimer);await api('delete_draft',{path:draft.path});dirty=false;draft=null}const done=leave;leave=null;done?.(choice!=='cancel')}
- async function navigate(next:string){if(!await protect())return;view=next;menu=null;if(next!=='editor')draft=null;await tick();if(next==='ask')askInput?.focus({preventScroll:true});}
+ async function navigate(next:string){if(!await protect())return;documentReadRequest++;view=next;menu=null;if(next!=='editor')draft=null;await tick();if(next==='ask')askInput?.focus({preventScroll:true});}
  type AnswerEvent=ReturnType<typeof answerEvents>[number];
  // Consecutive tool calls with no answer text between them read as one research step.
  const joinsToolRun=(m:Message,events:AnswerEvent[],i:number)=>i>0&&events[i].kind==='tool'&&events[i-1].kind==='tool'&&!m.answer.slice(events[i].from,events[i].offset).trim();
@@ -230,26 +247,38 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    ],{duration:220,easing:'cubic-bezier(.32,.72,0,1)'}));
   });
  }
- async function browse(path:string){if(!await protect())return;exploreReturn='';const entry=files.find(f=>f.path===path)||Object.values(cache).flat().find(e=>e.path===path&&!e.directory);if(entry||isMarkdown(path)){view='files';await edit(path);return}selected=path;view='files';draft=null;menu=null;readingFolder=path;try{cache={...cache,[path]:await api<Entry[]>('list_entries',{path})}}finally{if(readingFolder===path)readingFolder=''}}
+ async function browse(path:string){
+  const entry=files.find(f=>f.path===path)||Object.values(cache).flat().find(e=>e.path===path&&!e.directory);
+  if(entry||isMarkdown(path)){await edit(path,[],'',undefined,'library');return;}
+  if(!await protect())return;documentReadRequest++;exploreReturn='';selected=path;view='files';draft=null;menu=null;readingFolder=path;
+  try{cache={...cache,[path]:await api<Entry[]>('list_entries',{path})}}finally{if(readingFolder===path)readingFolder=''}
+ }
  async function toggle(path:string,isScope=false){let set=new Set(isScope?scopeExpanded:expanded);if(set.has(path))set.delete(path);else{set.add(path);cache={...cache,[path]:await api<Entry[]>('list_entries',{path})}}if(isScope)scopeExpanded=set;else{expanded=set;localStorage.setItem('sag.sidebar.expanded',JSON.stringify([...set]));}}
  function add(){folderPickerOpen=true}
  async function addFolders(paths:string[],options?:FolderIndexOptions){
   const failures:{path:string;error:string}[]=[];
+  indexStatusHidden=false;if(!indexTasks.length)indexProgress=null;
   for(const path of paths){try{await api<string>(options?'add_root_with_options':'add_root',options?{path,options}:{path})}catch(e){failures.push({path,error:$t(String(e))})}}
   if(failures.length<paths.length){await refresh();notify($t('已添加 {value0} 个文件夹，正在后台建立索引，大文件夹可能耗时数分钟',{value0:paths.length-failures.length}))}
   return failures;
  }
- async function edit(path:string,terms:string[]=[],origin='',citation?:Candidate){
-  if(!await protect())return;
-  const fromSearch=view==='search',fromConversation=view==='ask',target=citation??(fromSearch&&focus?.path===path?focus:null),scroll=fromSearch?(searchList?.scrollTop??0):0,chatScroll=fromConversation?(chatLog?.scrollTop??0):0;
+ async function edit(path:string,terms:string[]=[],origin='',citation?:Candidate,navigation:'context'|'library'='context'){
+  const request=++documentReadRequest;
+  if(!await protect()||request!==documentReadRequest)return;
+  const previousView=view,previousSelected=selected,previousBody=draft?.body,previousName=draft?.name;
+  const current=()=>!appDisposed&&request===documentReadRequest&&view===previousView&&selected===previousSelected&&draft?.body===previousBody&&draft?.name===previousName;
+  const fromSearch=navigation==='context'&&view==='search',fromConversation=navigation==='context'&&view==='ask',target=citation??(fromSearch&&focus?.path===path?focus:null),scroll=fromSearch?(searchList?.scrollTop??0):0,chatScroll=fromConversation?(chatLog?.scrollTop??0):0;
   try{
    const doc=await api<Document>('read_document',{path});
-   documentInitialMatch=target?await documentMatchIndex(doc.body,doc.path,terms,target):0;
-   documentFromSearch=fromSearch;documentFromConversation=fromConversation;documentSearchScroll=scroll;documentConversationScroll=chatScroll;exploreReturn=origin;documentSearchTerms=terms;
-   if(!isMarkdown(doc.path)){readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(path);view='document';source=null;return;}
-   draft={...doc,is_new:false};dirty=false;selected=dirname(path);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';source=null;
+   if(!current())return;
+   const initialMatch=target?await documentMatchIndex(doc.body,doc.path,terms,target):0;
+   const editor=isMarkdown(doc.path)?(await import('./components/RichEditor.svelte')).default:null;
+   if(!current())return;
+   documentInitialMatch=initialMatch;documentFromSearch=fromSearch;documentFromConversation=fromConversation;documentSearchScroll=scroll;documentConversationScroll=chatScroll;exploreReturn=origin;documentSearchTerms=terms;menu=null;
+   if(!editor){readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(path);view='document';source=null;return;}
+   draft={...doc,is_new:false};dirty=false;selected=dirname(path);EditorComponent=editor;view='editor';source=null;
    noteDetail=null;if(isNote(doc.body))void loadNote(doc.path);else noteRequest++;
-  }catch(e){notify($t(String(e)))}
+  }catch(e){if(current())notify($t(String(e)))}
  }
  async function loadNote(path:string){
   const request=++noteRequest;
@@ -298,10 +327,11 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    await tick();if(searchList)searchList.scrollTop=documentSearchScroll;
   }else if(exploreReturn){if(!await protect())return;selected=exploreReturn;exploreReturn='';view='files';draft=null;readOnlyDoc=null;}else await libraryBrowse(selected)
  }
- async function libraryBrowse(path:string){if(!path){if(await protect()){selected='';view='files';draft=null;readOnlyDoc=null;exploreReturn='';documentFromSearch=false;documentFromConversation=false;}return;}const entry=currentEntries.find(e=>e.path===path);if(entry?.symlink){try{await api('reveal_path',{path})}catch(e){notify($t(String(e)))}}else try{await browse(path)}catch(e){notify($t(String(e)))}}
+ async function libraryBrowse(path:string){if(!path){if(await protect()){documentReadRequest++;selected='';view='files';draft=null;readOnlyDoc=null;exploreReturn='';documentFromSearch=false;documentFromConversation=false;}return;}const entry=currentEntries.find(e=>e.path===path);if(entry?.symlink){try{await api('reveal_path',{path})}catch(e){notify($t(String(e)))}}else try{await browse(path)}catch(e){notify($t(String(e)))}}
  async function create(folder=selected){
   if(!await protect())return;
-  EditorComponent=(await import('./components/RichEditor.svelte')).default;
+  const request=++documentReadRequest;const editor=(await import('./components/RichEditor.svelte')).default;
+  if(request!==documentReadRequest||appDisposed)return;EditorComponent=editor;
   selected=folder;documentFromConversation=false;documentFromSearch=false;documentSearchTerms=[];
   draft={path:(folder?folder+'/':'')+'.draft-'+crypto.randomUUID(),name:$t("未命名.md"),body:'',hash:'',is_new:true};dirty=false;view='editor';
  }
@@ -345,7 +375,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   items.push({label:mac?$t("在 Finder 中打开"):$t("在文件资源管理器中打开"),glyph:'folder',run:()=>api('reveal_path',{path}).catch(e=>notify($t(String(e))))});
   const trigger=(e.target as Element).closest<HTMLElement>('button')||(e.currentTarget as HTMLElement).querySelector<HTMLElement>('button')!;const rect=trigger.getBoundingClientRect();menu={x:Math.min(e.clientX||rect.left,innerWidth-240),y:Math.min((e.clientY||rect.bottom)+8,innerHeight-items.length*38-12),trigger,items};
  }
- async function folderQuery(path:string,next:string,file=false){if(!await protect())return false;await stop(next==='ask'?'ask':'search');if(next==='ask'){editingMessage=null;conversation=null;pending=null;ask='';references=file?[path]:[];draft=null;error='';}scope=[path];searched=false;view=next;menu=null;await tick();if(next==='ask')askInput?.focus();else searchInput?.focus();return true;}
+ async function folderQuery(path:string,next:string,file=false){if(!await protect())return false;documentReadRequest++;await stop(next==='ask'?'ask':'search');if(next==='ask'){editingMessage=null;conversation=null;pending=null;ask='';references=file?[path]:[];draft=null;error='';}scope=[path];searched=false;view=next;menu=null;await tick();if(next==='ask')askInput?.focus();else searchInput?.focus();return true;}
  async function askDocument(question:string){
   let path=(draft??readOnlyDoc)!.path;
   if(draft?.is_new){if(!await save())return;path=draft!.path;}
@@ -355,7 +385,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    ask=question;await run('ask');
   }catch(e){notify($t(String(e)));}
  }
- async function remove(path:string,file=false){if(!await protect())return;await stop();await api('remove_root',{path});scope=scope.filter(p=>!inside(p,path));references=references.filter(p=>!inside(p,path));expanded=new Set([...expanded].filter(p=>!inside(p,path)));cache=Object.fromEntries(Object.entries(cache).filter(([p])=>!inside(p,path)));if(inside(selected,path)){selected='';view='files';draft=null}if(file&&(draft?.path===path||readOnlyDoc?.path===path)){draft=null;readOnlyDoc=null;view='files'}await refresh();notify($t(file?"已从知识库移除文件，原文件保留":"已移除文件夹，原文件保留"),async()=>{await api('add_root',{path});await refresh();notify($t(file?"已恢复文件":"已恢复文件夹"))});}
+ async function remove(path:string,file=false){if(!await protect())return;documentReadRequest++;await stop();await api('remove_root',{path});scope=scope.filter(p=>!inside(p,path));references=references.filter(p=>!inside(p,path));expanded=new Set([...expanded].filter(p=>!inside(p,path)));cache=Object.fromEntries(Object.entries(cache).filter(([p])=>!inside(p,path)));if(inside(selected,path)){selected='';view='files';draft=null}if(file&&(draft?.path===path||readOnlyDoc?.path===path)){draft=null;readOnlyDoc=null;view='files'}await refresh();notify($t(file?"已从知识库移除文件，原文件保留":"已移除文件夹，原文件保留"),async()=>{await api('add_root',{path});await refresh();notify($t(file?"已恢复文件":"已恢复文件夹"))});}
  async function confirmRemoveFolder(){removingFolder=true;removeFolderError='';try{await remove(removeFolderPath);removeFolderPath='';}catch(e){removeFolderError=$t(String(e));}finally{removingFolder=false;}}
  async function deleteConversation(c:Conversation){
   try{
@@ -385,7 +415,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  async function beginEdit(index:number){editingMessage=index;editingText=displayedMessages[index].question;await tick();messageInput.focus();messageInput.setSelectionRange(editingText.length,editingText.length)}
  async function regenerate(index:number,question:string){const before=conversation?structuredClone(conversation):null;const message=displayedMessages[index];editingMessage=null;retryIndex=null;scope=[...message.scope];references=[...message.references];ask=question;await run('ask',before&&index<before.messages.length?index:undefined);if(before)notify(error?$t("重新生成未完成"):$t("已重新生成回答"),async()=>{await replaceMessages(before.id,before.messages);notify($t("已恢复原问答"))})}
  function retryMessage(index:number){if(index<displayedMessages.length-1)retryIndex=index;else void regenerate(index,displayedMessages[index].question)}
- async function newChat(){if(askBusy||cancellingAsk||!await protect())return;editingMessage=null;await stop('ask');conversation=null;pending=null;ask='';references=[];view='ask';draft=null;await tick();askInput?.focus({preventScroll:true})}
+ async function newChat(){if(askBusy||cancellingAsk||!await protect())return;documentReadRequest++;editingMessage=null;await stop('ask');conversation=null;pending=null;ask='';references=[];view='ask';draft=null;await tick();askInput?.focus({preventScroll:true})}
  async function stopSummary(){const id=summaryJob;summaryJob='';summaryBusy=false;if(id)await api('cancel_query',{id});}
  async function summarizeSearch(question:string,candidates:Candidate[]){
   if(settings?.search_summary_enabled===false||!candidates.length||!answerReady)return;
@@ -587,7 +617,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   }catch(e){if(request===previewRequest)previewError=$t(String(e))}
   finally{if(request===previewRequest)previewLoading=false}
  }
- async function chooseHistory(c:Conversation){if(conversation?.id===c.id||askBusy||cancellingAsk||!await protect())return;editingMessage=null;await stop('ask');chatScrollKey++;view='ask';draft=null;conversation=c;pending=null;references=[];error='';}
+ async function chooseHistory(c:Conversation){if(conversation?.id===c.id||askBusy||cancellingAsk||!await protect())return;documentReadRequest++;editingMessage=null;await stop('ask');chatScrollKey++;view='ask';draft=null;conversation=c;pending=null;references=[];error='';}
  function setReasoning(value:ReasoningEffort|null){if(!settings)return;const model=settings.answer.model;const profile=settings.model_profiles?.[model]??{system_prompt:'',sag2_enabled:true,mcp_servers:[],mcp_tools:{}};settings={...settings,model_profiles:{...settings.model_profiles,[model]:{...profile,reasoning_effort:value}}};}
  function openAgentSetup(){settingsPage='cli';settingsOpen=true;}
  async function saveReasoning(){if(!settings)return;try{await api('save_settings',{settings,answerKey:'',jevKey:'',mcpCredentials:{}})}catch(e){notify($t('思考强度保存失败：{value0}',{value0:$t(String(e))}))}}
@@ -598,7 +628,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   window.addEventListener('open-external-link',openLink);
   return()=>window.removeEventListener('open-external-link',openLink);
  });
- onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<string>('app-error',e=>{if(loading)startupError=e.payload;else notify(e.payload)}));addCleanup(await listen<{path:string;count:number;total:number;stage?:string}>('index-progress',e=>{if(e.payload.count===0)indexStatusHidden=false;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob&&e.payload.query_id!==cancellingAsk)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob||e.payload.id===cancellingAsk)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));await loadWorkspace();await api('quick_search_main_ready');const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=draftFolder(draft);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}onboardingOpen=localStorage.getItem('sag.onboarding.seen')!=='1';}catch(e){startupError=String(e)}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
+ onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};addCleanup(pollIndexStatus());void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<string>('app-error',e=>{if(loading)startupError=e.payload;else notify(e.payload)}));addCleanup(await listen<{path:string;count:number;total:number;stage?:string}>('index-progress',e=>{if(e.payload.count===0)indexStatusHidden=false;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob&&e.payload.query_id!==cancellingAsk)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob||e.payload.id===cancellingAsk)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));await loadWorkspace();await api('quick_search_main_ready');const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=draftFolder(draft);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}onboardingOpen=localStorage.getItem('sag.onboarding.seen')!=='1';}catch(e){startupError=String(e)}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
 </script>
 <svelte:window on:keydown={keys} on:click={searchOutside} on:contextmenu|preventDefault/>
 <div class="desktop-window real-client" class:windows-client={!mac} class:compact-sidebar={collapsed} class:search-workbench={view==='search'} data-sidebar-motion={sidebarMotion}>
@@ -693,7 +723,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  </div>
 {/if}
 {:else if !busy}<div class="search-empty">{@html icon('search')}<h2>{searchStopped?$t("已停止搜索"):searchError?$t("搜索未完成"):$t("没有找到相关文件")}</h2><p>{searchStopped?$t("可以重新搜索，或调整范围。"):searchError?$t("可以重试搜索，或切换搜索模式。"):$t("换一个关键词，或调整查询范围。")}</p><Button.Root class="outline" onclick={scopeShow}>{$t("选择范围")}</Button.Root></div>{/if}{/if}</section>
- {:else if view==='files'&&librarySessions[selected]}{#key selected}<LibraryWorkspace scope={displayPath(selected)} parent={libraryParent} session={librarySessions[selected]} onModeChange={()=>librarySessions={...librarySessions}} entries={directoryEntries} totalFiles={files.length} indexedFiles={files} notes={noteSummaries} {roots} onIndexDetails={()=>indexDetailsOpen=true} onPauseChange={paused=>indexPaused=paused} oncreate={()=>create()} onadd={add} reading={!!selected&&readingFolder===selected} revision={libraryRevision} onbrowse={libraryBrowse} onopen={(path,terms)=>edit(path,terms,selected)} onmenu={showMenu} onSettings={()=>{settingsPage='files';settingsOpen=true}}/>{/key}
+ {:else if view==='files'&&librarySessions[selected]}{#key selected}<LibraryWorkspace {indexTasks} {indexPaused} scope={displayPath(selected)} parent={libraryParent} session={librarySessions[selected]} onModeChange={()=>librarySessions={...librarySessions}} entries={directoryEntries} totalFiles={files.length} indexedFiles={files} notes={noteSummaries} {roots} onIndexDetails={()=>indexDetailsOpen=true} onPauseChange={indexPauseChanged} oncreate={()=>create()} onadd={add} reading={!!selected&&readingFolder===selected} revision={libraryRevision} onbrowse={libraryBrowse} onopen={(path,terms)=>edit(path,terms,selected)} onmenu={showMenu} onSettings={()=>{settingsPage='files';settingsOpen=true}}/>{/key}
  {:else if view==='document'&&readOnlyDoc}<section class="readonly-document"><div class="editor-head"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root><span>{readOnlyDoc.name}</span><span class="document-status">{#if isRtf(readOnlyDoc.path)}{$t("RTF 正文")} · {/if}{$t("只读")}</span><Button.Root class="outline" onclick={()=>api('reveal_path',{path:readOnlyDoc!.path}).catch(e=>notify($t(String(e))))}>{mac?$t("在 Finder 中打开"):$t("在文件资源管理器中打开")}</Button.Root></div><div class="source-path">{displayPath(readOnlyDoc.path)}</div>{#if isHtml(readOnlyDoc.path)}<HtmlDocument body={readOnlyDoc.body} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{:else}<HighlightedDocument html={readonlyHtml(readOnlyDoc.path,readOnlyDoc.body)} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{/if}{#key readOnlyDoc.path}<DocumentQuestion name={readOnlyDoc.name} onAsk={askDocument}/>{/key}</section>
  {:else if view==='editor'&&draft}<section class="editor wysiwyg-editor"><div class="editor-head"><div class="editor-location"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root>{#if selected}<Popover.Root><Popover.Trigger type="button" class="scope-info" title={displayPath(selected)} aria-label={$t("文件夹路径")}>{@html icon('folder')}<span>{basename(selected)}</span></Popover.Trigger><Popover.Portal><Popover.Content class="document-folder-path" aria-label={$t("文件夹路径")} side="bottom" align="start" sideOffset={8} collisionPadding={12}>{displayPath(selected)}</Popover.Content></Popover.Portal></Popover.Root>{/if}</div><div class="document-name-wrap"><Input class="document-name" aria-label={$t("文件名")} title={draft.name} bind:value={draft.name} readonly={!draft.is_new} oninput={()=>dirty=true}/></div><div class="editor-save-actions"><span class="document-status">{dirty?$t("未保存"):draft.is_new?'':$t("已保存")}</span><Button.Root class="primary small" disabled={saving} onclick={save}>{$t("保存")}</Button.Root></div></div>{#if noteDetail&&noteDetail.summary.path===draft.path}<NoteStatus note={noteDetail} checking={noteChecking} onRecheck={recheckNote} onOpenSource={openNoteSource} onReask={reaskNote}/>{/if}{#if EditorComponent}{#key draft.path}<svelte:component this={EditorComponent} body={draft.body} path={draft.path} searchTerms={documentSearchTerms} initialMatch={documentInitialMatch} onChange={changed}/>{/key}{/if}{#key draft.path}<DocumentQuestion name={draft.name} onAsk={askDocument}/>{/key}<div class="editor-footer">{draft.is_new?$t("保存后才创建文件并加入知识库。"):$t("修改后点击保存。")}</div></section>{/if}
  {#if error&&view!=='search'&&!answerHasError}<p class="form-error">{$t(error)}</p>{/if}

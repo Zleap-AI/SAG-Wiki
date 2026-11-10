@@ -522,7 +522,7 @@ impl Docling {
         self.progress("runtime", "正在下载 Python 运行环境…");
         self.run_install(&mut command, Duration::from_secs(600))
             .map_err(|error| self.with_hint(error, |error| anyhow!(
-                "无法下载 Python 运行环境：{error:#}。如无法访问 GitHub，可设置 UV_PYTHON_INSTALL_MIRROR 环境变量指向 python-build-standalone 镜像，重启 SAG 服务后重试。"
+                "无法下载 Python 运行环境：{error:#}。如无法访问 GitHub，可设置 UV_PYTHON_INSTALL_MIRROR 环境变量（例如 https://registry.npmmirror.com/-/binary/python-build-standalone），重启 SAG 服务后重试。"
             )))?;
         let python = walkdir::WalkDir::new(&python_home)
             .max_depth(4)
@@ -778,20 +778,16 @@ impl Docling {
     fn import_uv(&self, source: &Path) -> Result<()> {
         self.progress("runtime", "正在校验导入的运行环境管理器…");
         let url = uv_download_url()?;
-        match self.uv_version(source) {
-            Some(version) if version == UV_VERSION => {}
-            Some(version) => bail!(
-                "导入的 uv 版本为 {version}，当前需要 {UV_VERSION}。请用浏览器下载 {url}，解压后重新导入。"
-            ),
-            None => bail!(
-                "所选的 {UV_EXECUTABLE} 无法运行或不是 uv。请用浏览器下载 {url}，解压后重新导入。"
-            ),
-        }
         if fs::metadata(source)?.len() > 128 * 1024 * 1024 {
             bail!("运行环境管理器文件过大")
         }
         fs::create_dir_all(&self.home)?;
-        let mut candidate = tempfile::NamedTempFile::new_in(&self.home)?;
+        // Check the copy, not the selected file: a byte copy drops the
+        // browser's quarantine/Mark-of-the-Web attributes that can block
+        // running a manually downloaded binary. Keep `.exe` so Windows runs it.
+        let mut candidate = tempfile::Builder::new()
+            .suffix(if cfg!(windows) { ".exe" } else { "" })
+            .tempfile_in(&self.home)?;
         std::io::copy(&mut fs::File::open(source)?, candidate.as_file_mut())?;
         #[cfg(unix)]
         {
@@ -801,6 +797,21 @@ impl Docling {
                 .set_permissions(fs::Permissions::from_mode(0o755))?;
         }
         candidate.as_file().sync_all()?;
+        // Windows cannot run a file while this process holds it open for writing.
+        let candidate = candidate.into_temp_path();
+        let version = self.uv_version(&candidate);
+        if self.cancel.load(Ordering::Relaxed) {
+            bail!("已取消下载，可稍后重试")
+        }
+        match version {
+            Some(version) if version == UV_VERSION => {}
+            Some(version) => bail!(
+                "导入的 uv 版本为 {version}，当前需要 {UV_VERSION}。请用浏览器下载 {url}，解压后重新导入。"
+            ),
+            None => bail!(
+                "所选的 {UV_EXECUTABLE} 无法运行或不是 uv。请用浏览器下载 {url}，解压后重新导入。"
+            ),
+        }
         candidate
             .persist(self.home.join(UV_EXECUTABLE))
             .map_err(|error| error.error)?;
@@ -813,9 +824,15 @@ impl Docling {
         }
         let url = uv_download_url()?;
         self.progress("runtime", "正在下载运行环境管理器…");
-        let mut archive = self.download_archive(&url).map_err(|error| self.with_hint(error, |error| anyhow!(
-            "无法下载运行环境管理器：{error:#}。可用浏览器下载 {url}，解压后点击“导入离线组件”并选择解压后的目录。"
-        )))?;
+        // Only the document installer offers the import entry.
+        let mut archive = self.download_archive(&url).map_err(|error| {
+            if self.profile != DoclingProfile::Documents {
+                return error;
+            }
+            self.with_hint(error, |error| anyhow!(
+                "无法下载运行环境管理器：{error:#}。可用浏览器下载 {url}，解压后点击“导入离线组件”并选择解压后的目录。"
+            ))
+        })?;
         use std::io::Seek;
         archive.rewind()?;
         let mut candidate = tempfile::NamedTempFile::new_in(&self.home)?;
