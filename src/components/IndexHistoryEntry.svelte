@@ -74,7 +74,9 @@
    {#if files.length}
     <ul aria-label={$t('本次处理的原文件')}>
      {#each files.slice(0,10) as file (file.path)}
-      <li><Button.Root class="index-history-file" title={displayPath(file.path)} onclick={()=>openFile(file.path)}>{@html icon('file')}<span><strong>{basename(file.path)}</strong><span class="index-file-path">{displayPath(file.path)}</span></span>{#if file.status==='failed'}<small>{$t('读取失败')}</small>{/if}</Button.Root></li>
+      <li><Button.Root class="index-history-file" title={displayPath(file.path)} onclick={()=>openFile(file.path)}>{@html icon('file')}<span><strong>{basename(file.path)}</strong><span class="index-file-path">{displayPath(file.path)}</span></span>{#if file.status==='failed'}<small>{$t('读取失败')}</small>{/if}</Button.Root>
+       {#if rows.some(row=>row.file.path===file.path&&row.file.engine)}<details class="index-engine-history"><summary>{$t('查看解析过程')}</summary>{#each rows.filter(row=>row.file.path===file.path&&row.file.engine) as attempt}<p>{attempt.file.engine} · {attempt.file.elapsed_ms??0} ms · {$t(attempt.file.phase??(attempt.file.status==='fallback'?'失败后降级':'成功'))}{attempt.file.error?'：'+$t(attempt.file.error):''}</p>{/each}</details>{/if}
+      </li>
      {/each}
     </ul>
    {:else}<p class="index-note">{$t('本次没有文件处理记录')}</p>{/if}

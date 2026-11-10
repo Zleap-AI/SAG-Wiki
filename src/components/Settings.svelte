@@ -13,6 +13,8 @@
  import type{Settings,ModelConfig,Retrieval,FileTypes,CliAccess}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
  import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo}from '../lib/types';
  import IndexSettings from './IndexSettings.svelte';
+ import MineruSettings from './MineruSettings.svelte';
+ import RuntimeSettings from './RuntimeSettings.svelte';
  import OtherFormats from './OtherFormats.svelte';
  import RemovedDirectories from './RemovedDirectories.svelte';
  import CliSettings from './CliSettings.svelte';
@@ -34,8 +36,8 @@
  let confirmRemoveRoots=false,removingRoots=false,removeRootsError='';
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
- export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>)=>Promise<void>;
- let settings={...structuredClone(value),notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>,mineruKey?:string)=>Promise<void>;
+ let settings={...structuredClone(value),runtime:structuredClone(value.runtime??{}),notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false;
  let cliConnection='',cliConnectionOpen=false,cliConnectionSuccessUntil=0;
  async function openAboutLink(event:MouseEvent,target:'project'|'company'|'302-api-keys'){event.preventDefault();error='';try{await api('open_about_link',{target})}catch(e){error=String(e)}}
@@ -90,7 +92,7 @@
    settings={...settings};
   };
  }
- async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
+ async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials,mineruKey);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
 </script>
@@ -126,7 +128,7 @@
       {#each fileTypeOptions as [kind,label,description]}
        <div class="setting-row"><label for={`file-type-${kind}`}><strong>{label}</strong><p>{description}</p></label><Checkbox.Root id={`file-type-${kind}`} class="ui-checkbox" aria-label={$t("导入 {value0}",{value0:label})} checked={settings.file_types[kind]} onCheckedChange={checked=>settings.file_types={...settings.file_types,[kind]:checked}}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root></div>
       {/each}
-      <OtherFormats bind:workers={settings.conversion_workers} bind:enabled={settings.convert_other_formats} bind:formats={settings.conversion_formats} disabled={busy}/>
+      <OtherFormats remoteParsing={settings.mineru?.enabled??false} bind:workers={settings.conversion_workers} bind:enabled={settings.convert_other_formats} bind:formats={settings.conversion_formats} disabled={busy}/>
      </section>
      <section class="settings-group">
       <div class="setting-row"><div><strong>{$t("自动监听文件变化")}</strong><p>{$t("新增、修改、删除和重命名后自动更新索引；退出应用后停止监听")}</p></div><Switch bind:checked={settings.watch} label={$t("自动监听文件变化")}/></div>
@@ -135,6 +137,7 @@
      </section>
      <section class="settings-group settings-fields"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p><p class="settings-help">{$t("项目忽略规则自动读取 .gitignore 和 .sagignore。可用 *.log、目录名/ 和 !文件名 编写规则；.sagignore 优先。修改后自动更新索引，原文件仍可浏览。")}</p></section>
      <RemovedDirectories/>
+     <RuntimeSettings group="files" bind:value={settings.runtime}/>
      {#if onIndexHistory}<section class="settings-group index-history-settings"><div class="setting-row"><div><strong>{$t('索引历史')}</strong><p>{$t('查看索引进度和历史记录')}</p></div><Button.Root type="button" class="outline settings-index-history" onclick={onIndexHistory}>{$t('查看')}</Button.Root></div></section>{/if}
 
     {:else if page==='models'}
@@ -159,6 +162,8 @@
       </section>
      {/each}
      <p class="settings-help settings-privacy-note">{$t("密钥保存在当前用户的应用数据目录。macOS 文件权限为仅当前用户读写；同一账户运行的其他程序仍可能读取。留空保持已保存的密钥。")}</p>
+     <MineruSettings bind:value={settings.mineru} bind:apiKey={mineruKey}/>
+     <RuntimeSettings group="models" bind:value={settings.runtime}/>
     {:else if page==='answer'}
      <section class="settings-group settings-fields model-profile-settings">
       <div class="settings-group-heading"><h3>{$t("提示词")}</h3></div>
@@ -190,11 +195,13 @@
       <div class="setting-row"><div><strong>{$t("每次询问保存位置")}</strong><p>{$t("关闭后，记住位置的保存会直接写入默认文件夹。")}</p></div><Switch bind:checked={settings.notes.ask_location} label={$t("每次询问保存位置")}/></div>
      </section>
 
+     <RuntimeSettings group="answer" bind:value={settings.runtime}/>
     {:else if page==='retrieval'}
      <section class="settings-group"><div class="setting-row"><div><strong>{$t("搜索结果自动总结")}</strong><p>{$t("搜索后使用问答模型，根据问题和参考结果生成简短总结。")}</p></div><Switch bind:checked={settings.search_summary_enabled} label={$t("搜索结果自动总结")}/></div><div class="setting-row"><div><strong>{$t("自动总结参考数量")}</strong><p>{$t("默认 10 条，不设最大值；超过模型上下文预算时自动裁剪。")}</p></div><Input type="number" min="1" step="1" required bind:value={settings.search_summary_sources} aria-label={$t("自动总结参考数量")}/></div></section>
      <section class="settings-group">{#each parameters as [key,title,desc,min,max]}<div class="setting-row"><div><strong>{title}</strong><p>{desc}</p></div><Input type="number" {min} {max} required bind:value={settings.retrieval[key]} aria-label={title}/></div>{/each}</section>
      <div class="settings-section-actions"><Button.Root type="button" class="outline" onclick={()=>settings.retrieval={candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512}}>{$t("恢复默认参数")}</Button.Root></div>
      <details class="settings-limits"><summary>{$t("算法固定规则")}</summary><p>{$t("每次检索最多 3 轮 Jev 评分，本地排序不增加模型请求。单轮预算为 64,000 tokens，单候选与共享证据合计不超过 32,000 tokens；超限时提示调整候选数量，原文不截断。")}</p></details>
+     <RuntimeSettings group="retrieval" bind:value={settings.runtime}/>
     {:else if page==='clipper'}
      <WebClipper/>
     {:else if page==='cli'}

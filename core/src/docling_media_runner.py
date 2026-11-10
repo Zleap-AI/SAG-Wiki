@@ -1,5 +1,6 @@
 """Offline audio/video conversion with local ASR and a private FFmpeg."""
 import argparse
+import json
 import math
 import os
 import platform
@@ -35,6 +36,7 @@ def main():
     parser.add_argument("--artifacts-path", type=Path, required=True)
     parser.add_argument("--probe", action="store_true")
     args = parser.parse_args()
+    runtime = json.loads(os.environ.get("SAG_CONVERSION_SETTINGS", "{}"))
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.base_models import ConversionStatus, InputFormat
     from docling.datamodel.pipeline_options import AsrPipelineOptions, VideoPipelineOptions
@@ -53,8 +55,8 @@ def main():
             raise FileNotFoundError("Local Whisper checkpoint is missing; reinstall the media component")
         asr = InlineAsrNativeWhisperOptions(repo_id=str(local), language=None, word_timestamps=True)
     common = dict(artifacts_path=args.artifacts_path,
-                  accelerator_options=AcceleratorOptions(num_threads=2),
-                  asr_options=asr, document_timeout=270)
+                  accelerator_options=AcceleratorOptions(num_threads=runtime.get("docling_threads", 2)),
+                  asr_options=asr, document_timeout=runtime.get("docling_timeout_secs", 1800))
     converter = DocumentConverter(allowed_formats=[InputFormat.AUDIO, InputFormat.VIDEO], format_options={
         InputFormat.AUDIO: AudioFormatOption(pipeline_options=AsrPipelineOptions(**common)),
         InputFormat.VIDEO: VideoFormatOption(pipeline_options=VideoPipelineOptions(
@@ -63,7 +65,7 @@ def main():
     })
 
     def convert(source, output, video_probe=False):
-        result = converter.convert(source, raises_on_error=False, max_file_size=512 * 1024 * 1024)
+        result = converter.convert(source, raises_on_error=False, max_file_size=runtime.get("conversion_input_mib", 512) * 1024 * 1024)
         if result.status != ConversionStatus.SUCCESS:
             raise RuntimeError(f"Media conversion failed: {result.status}: {result.errors}")
         result.document.save_as_markdown(output, image_mode=ImageRefMode.PLACEHOLDER)

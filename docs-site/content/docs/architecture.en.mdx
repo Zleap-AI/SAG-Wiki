@@ -69,7 +69,7 @@ When retrieval results are read, the service accesses the original files at the 
 5. Decode, chunk and tokenize text, generate derived information, then write batches to SQLite.
 6. File watching merges subsequent changes into incremental tasks. Index-version changes invalidate relevant caches.
 
-Markdown, plain text, RTF, Office documents, spreadsheets, EPUB and text-based PDFs are enabled by default; code and configuration files follow their type settings. Built-in anydoc parses documents first and stores results in `.sag-converted`. OCR and unsupported content can use separately installed Docling; installation is never automatic. Symbolic links cannot expand access.
+Markdown, plain text, RTF, Office documents, spreadsheets, EPUB and text-based PDFs are enabled by default; code and configuration files follow their type settings. With MinerU disabled, built-in anydoc parses documents first and stores results in `.sag-converted`. OCR and unsupported content can use separately installed Docling; installation is never automatic. Symbolic links cannot expand access.
 
 Body chunks target approximately 512 characters by default, preserving complete sentences; code preserves complete lines. Very long sentences or lines may exceed the target. Chunks retain heading paths, and adjacent chunks overlap by approximately 80 characters of complete sentences or lines. Custom lengths are stored in retrieval settings. Base64 image data in HTML is excluded from the index and vocabulary.
 
@@ -112,3 +112,5 @@ Closing the window hides the desktop, and quitting it also leaves the background
 ## Dependencies and distribution
 
 The core is linked only into the `sag` executable. Desktop depends only on the protocol and client. Desktop packages bundle native CLIs from the same build, while npm packages distribute only the CLI launcher and prebuilt native programs. See the [development guide](/en/docs/development) for builds and [npm publishing](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/en/npm-publishing.md) for distribution. Dependency licenses are stored in `src-tauri/licenses/`.
+
+When MinerU is enabled, supported documents use MinerU, then the applicable built-in anydoc parser and local Docling on failure. Runtime defaults and validation live in `protocol/src/runtime.rs`; see [Runtime settings](/en/docs/preferences#runtime-settings).

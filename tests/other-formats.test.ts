@@ -156,3 +156,21 @@ it('旧设置缺少转换并行数时使用单个转换，并说明实际并行�
  expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('1');
  expect(document.querySelector('.conversion-workers')?.textContent).toContain('资源预算');
 });
+
+it('MinerU 图片选择直接应用，不安装 Docling',async()=>{
+ invoke.mockResolvedValue({...initial,formats:[['图片',['png']]]});
+ app=mount(OtherFormats,{target:document.body,props:{remoteParsing:true}});
+ await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .png').click();await tick();
+ [...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(button=>button.textContent==='应用')!.click();await tick();
+ expect(document.querySelector('[aria-label="已应用转换设置"]')?.textContent).toContain('"png"');
+ expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
+ expect(invoke.mock.calls.some(([command])=>command==='install_docling_profiles'||command==='install_docling')).toBe(false);
+});
+it('文件夹格式选择读取全局 MinerU 配置并跳过图片组件安装',async()=>{
+ invoke.mockImplementation(async command=>command==='get_settings'?{conversion_workers:1,mineru:{enabled:true}}:{...initial,formats:[['图片',['png']]]});
+ app=mount(OtherFormats,{target:document.body,props:{folderContext:true,globalWorkers:true}});
+ await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));find('选择其他格式').click();
+ await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.disabled).toBe(false));find('转换 .png').click();await tick();
+ const apply=[...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(button=>button.textContent==='应用');expect(apply).toBeDefined();apply!.click();await tick();
+ expect(document.querySelector('[aria-label="已应用转换设置"]')?.textContent).toContain('"png"');
+});

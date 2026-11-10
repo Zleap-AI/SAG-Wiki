@@ -29,13 +29,16 @@ impl Budget {
         }
     }
     fn acquire(&self, requested: u64, cancel: &dyn Fn() -> bool) -> Result<Permit<'_>, Failure> {
-        let bytes = requested.min(self.maximum);
+        self.acquire_with_limit(requested, self.maximum, cancel)
+    }
+    fn acquire_with_limit(&self, requested: u64, maximum: u64, cancel: &dyn Fn() -> bool) -> Result<Permit<'_>, Failure> {
+        let bytes = requested.min(maximum);
         let mut used = self.used.lock().unwrap();
         loop {
             if cancel() {
                 return Err(Failure::new(FailureKind::Cancelled, "已停止等待转换资源"));
             }
-            if *used + bytes <= self.maximum {
+            if *used + bytes <= maximum {
                 *used += bytes;
                 return Ok(Permit {
                     budget: self,
@@ -70,6 +73,21 @@ pub fn acquire(cancel: &dyn Fn() -> bool) -> Result<Permit<'static>, Failure> {
         .as_ref()
         .map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
     budget.acquire(budget.job_bytes, cancel)
+}
+fn configured_limits(physical: u64, runtime: &sag_protocol::runtime::RuntimeSettings) -> (u64, u64, usize) {
+    let maximum = (physical / 100 * runtime.conversion_memory_percent + physical % 100 * runtime.conversion_memory_percent / 100).max(1);
+    let requested = if runtime.conversion_job_mib == 0 {
+        (maximum / 2).max(4 * GIB).min(maximum)
+    } else { runtime.conversion_job_mib.saturating_mul(1024 * 1024).min(maximum) };
+    (maximum, requested, (maximum / requested.max(1)) as usize)
+}
+pub fn resource_summary(runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<(u64, u64, usize), String> {
+    physical_memory().map(|physical| configured_limits(physical, runtime))
+}
+pub fn acquire_with_runtime(runtime: &sag_protocol::runtime::RuntimeSettings, cancel: &dyn Fn() -> bool) -> Result<Permit<'static>, Failure> {
+    let budget = GLOBAL.as_ref().map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
+    let (maximum, requested, _) = configured_limits(budget.maximum * 2, runtime);
+    budget.acquire_with_limit(requested, maximum, cancel)
 }
 fn physical_memory() -> Result<u64, String> {
     #[cfg(target_os = "macos")]
@@ -138,6 +156,16 @@ fn physical_memory() -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn configured_memory_limit_clamps_jobs_and_reports_effective_parallelism() {
+        let mut runtime = sag_protocol::runtime::RuntimeSettings::default();
+        runtime.conversion_memory_percent = 25;
+        runtime.conversion_job_mib = 1024;
+        assert_eq!(configured_limits(8 * GIB, &runtime), (2 * GIB, GIB, 2));
+        runtime.conversion_job_mib = 100000;
+        assert_eq!(configured_limits(8 * GIB, &runtime), (2 * GIB, 2 * GIB, 1));
+    }
+
     #[test]
     fn conversion_limits_scale_with_physical_memory_and_preserve_ocr_minimum() {
         for (physical, job, total) in [

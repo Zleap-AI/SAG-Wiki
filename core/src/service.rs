@@ -375,6 +375,10 @@ fn get_settings(state: &Arc<Service>) -> CommandResult<Settings> {
             }
         }
     }
+    match crate::mineru::has_key(&state.data_dir, &s.mineru) {
+        Ok(present) => s.mineru.has_key = present,
+        Err(e) => { s.mineru.has_key = false; errors.push(format!("mineru: {e}")); }
+    }
     s.credential_error = if errors.is_empty() {
         None
     } else {
@@ -390,16 +394,23 @@ fn save_settings(
     settings: Settings,
     answer_key: String,
     jev_key: String,
+    mineru_key: String,
     mcp_credentials: Option<std::collections::BTreeMap<String, McpCredentials>>,
     state: &Arc<Service>,
     _app: &EventSink,
 ) -> CommandResult<()> {
     let old = state.store.settings().map_err(error)?;
     Store::validate_settings(&settings).map_err(error)?;
+    settings.mineru.validate().map_err(error)?;
+    if settings.mineru.enabled && mineru_key.trim().is_empty()
+        && !crate::mineru::has_key(&state.data_dir, &settings.mineru).map_err(error)? {
+        return Err("请填写当前 MinerU 服务商的 API Key".into());
+    }
     if settings.convert_other_formats
         && (!old.convert_other_formats || old.conversion_formats != settings.conversion_formats)
     {
-        state.store.docling.require_formats(&settings.conversion_formats).map_err(error)?;
+        let local_formats = crate::conversion::local_formats(&settings.conversion_formats,settings.mineru.enabled);
+        state.store.docling.require_formats(&local_formats).map_err(error)?;
     }
     let mcp_credentials = mcp_credentials.unwrap_or_default();
     for (kind, previous, next, key) in [
@@ -429,6 +440,7 @@ fn save_settings(
         models::clear_secret(&state.data_dir, "jev").map_err(error)?;
     }
     state.store.save_settings(&settings).map_err(error)?;
+    crate::mineru::save_key(&state.data_dir, &settings.mineru, &mineru_key).map_err(error)?;
     models::save_secret(&state.data_dir, "answer", &answer_key).map_err(error)?;
     if settings.jev.auth_mode == ModelAuthMode::Bearer {
         models::save_secret(&state.data_dir, "jev", &jev_key).map_err(error)?;
@@ -458,7 +470,10 @@ fn save_settings(
                 })
                 .map_err(error)?
         }
-    } else if old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
+    } else if old.mineru.enabled != settings.mineru.enabled
+        || old.mineru.content_identity() != settings.mineru.content_identity()
+        || old.runtime.content_identity() != settings.runtime.content_identity()
+        || old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
         for root in state.store.roots().map_err(error)? {
             state
                 .scan
@@ -648,8 +663,8 @@ async fn summarize_search(
             &config, &question, results, settings.answer_context_tokens,
             settings.answer_output_tokens.min(settings.answer_context_tokens / 4),
         )?;
-        let answer = models::answer(&state.client, &config, &key, &plan,
-            settings.timeout_secs, &cancel, |delta| {
+        let answer = models::answer_with_runtime(&state.client, &config, &key, &plan,
+            settings.timeout_secs, &settings.runtime, &cancel, |delta| {
                 emit(app, "query-progress", Progress {
                     id: id.clone(), stage: "正在总结搜索结果".into(),
                     delta: Some(delta.into()), reasoning_delta: None, reasoning_block: None,
@@ -892,6 +907,7 @@ async fn execute_query(
                 settings.timeout_secs,
                 cancel,
                 agent::AgentOptions {
+                    runtime: Some(&settings.runtime),
                     max_tool_calls: settings.max_tool_calls,
                     sag2_enabled: false,
                     system_prompt: &profile.system_prompt,
@@ -961,7 +977,7 @@ async fn execute_query(
                     let key = &jev_key;
                     let settings = &settings;
                     async move {
-                        models::score(
+                        models::score_with_runtime(
                             &state.client,
                             &settings.jev,
                             key,
@@ -969,6 +985,7 @@ async fn execute_query(
                             candidates,
                             &evidence,
                             settings.timeout_secs,
+                            &settings.runtime,
                             cancel,
                         )
                         .await
@@ -1097,7 +1114,11 @@ impl Service {
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            for request in indexer::receive_batch(&rx, first) {
+            let runtime=match worker_store.settings() {
+                Ok(settings)=>settings.runtime,
+                Err(error)=>{emit(&handle,"app-error",error.to_string());continue;}
+            };
+            for request in indexer::receive_batch_with_runtime(&rx, first, &runtime) {
                 match worker_store.roots().and_then(|roots| worker_watcher.reconcile(&roots)) {
                     Ok(()) => {},
                     Err(err) => emit(&handle, "app-error", format!("文件监听清理失败：{err}")),
@@ -1245,6 +1266,7 @@ impl Service {
                 | Op::UninstallDocling
                 | Op::ClearAllData
                 | Op::ClearModelKey { .. }
+                | Op::ClearMineruKey { .. }
                 | Op::Cli {
                     command: sag_protocol::Command::Configure { .. },
                     ..
@@ -1345,6 +1367,21 @@ impl Service {
                 delete_draft(path, self)?;
                 Out::Unit
             }
+            Op::MineruSchema => {
+                let mut keys=serde_json::Map::new();
+                for provider in [sag_protocol::mineru::MineruProvider::Ai302,sag_protocol::mineru::MineruProvider::Official] {
+                    let config=sag_protocol::mineru::MineruConfig {provider,..Default::default()};
+                    keys.insert(serde_json::to_value(provider).map_err(error)?.as_str().unwrap().into(), serde_json::json!(crate::mineru::has_key(&self.data_dir,&config).unwrap_or(false)));
+                }
+                Out::Text(serde_json::json!({"defaults":sag_protocol::mineru::MineruConfig::default(),"keys":keys}).to_string())
+            }
+            Op::TestMineru {config,key} => {
+                config.validate().map_err(error)?;
+                let key=if key.trim().is_empty(){crate::mineru::key(&self.data_dir,&config).map_err(error)?}else{key};
+                Out::Text(crate::mineru::test_connection(&config,&key).await.map_err(error)?)
+            }
+            Op::ClearMineruKey {config} => { crate::mineru::clear_key(&self.data_dir,&config).map_err(error)?; Out::Unit }
+            Op::RuntimeSchema => Out::Text(serde_json::to_string(&serde_json::json!({"defaults": sag_protocol::runtime::RuntimeSettings::default(), "fields": sag_protocol::runtime::fields(), "resources": crate::docling_budget::resource_summary(&self.store.settings().map_err(error)?.runtime).ok()})).map_err(error)?),
             Op::GetSettings => Out::Settings(get_settings(self)?),
             Op::RegisterDoclingComponent { path } => {
                 self.store.docling.set_component_source(std::path::PathBuf::from(path)).map_err(error)?;
@@ -1382,9 +1419,10 @@ impl Service {
                 settings,
                 answer_key,
                 jev_key,
+                mineru_key,
                 mcp_credentials,
             } => {
-                save_settings(settings, answer_key, jev_key, mcp_credentials, self, app)?;
+                save_settings(settings, answer_key, jev_key, mineru_key, mcp_credentials, self, app)?;
                 Out::Unit
             }
             Op::ClearModelKey { kind } => {
