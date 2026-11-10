@@ -439,6 +439,62 @@ impl Tree {
     }
 }
 
+pub(crate) fn process_bytes(pid: u32) -> Result<u64, Failure> {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        unsafe extern "C" {
+            fn proc_pid_rusage(pid: i32, flavor: i32, buffer: *mut std::ffi::c_void) -> i32;
+        }
+        let mut usage = [0u64; 32];
+        if proc_pid_rusage(pid as i32, 2, usage.as_mut_ptr().cast()) != 0 {
+            return Err(Failure::new(
+                FailureKind::Monitoring,
+                format!(
+                    "无法读取转换进程资源信息：{}",
+                    std::io::Error::last_os_error()
+                ),
+            ));
+        }
+        return Ok(usage[8].max(usage[9]));
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let statm = std::fs::read_to_string(format!("/proc/{pid}/statm")).map_err(|error| {
+            Failure::new(
+                FailureKind::Monitoring,
+                format!("无法读取转换进程资源信息：{error}"),
+            )
+        })?;
+        let resident = statm
+            .split_whitespace()
+            .nth(1)
+            .and_then(|value| value.parse::<u64>().ok())
+            .ok_or_else(|| {
+                Failure::new(
+                    FailureKind::Monitoring,
+                    "无法读取转换进程资源信息：缺少有效的驻留内存计数",
+                )
+            })?;
+        let page = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if page <= 0 {
+            return Err(Failure::new(
+                FailureKind::Monitoring,
+                "无法读取转换进程资源信息：系统页大小无效",
+            ));
+        }
+        return Ok(resident.saturating_mul(page as u64));
+    }
+    #[cfg(windows)]
+    {
+        return windows_job::process_bytes(pid);
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+    Err(Failure::new(
+        FailureKind::Monitoring,
+        "当前系统不支持读取转换进程资源信息",
+    ))
+}
+
 struct Guard {
     child: Child,
     tree: Tree,
@@ -754,6 +810,34 @@ mod windows_job {
     #[link(name = "psapi")]
     unsafe extern "system" {
         fn GetProcessMemoryInfo(process: Handle, info: *mut Memory, size: u32) -> i32;
+    }
+    pub fn process_bytes(pid: u32) -> Result<u64, Failure> {
+        unsafe {
+            let process = OpenProcess(0x410, 0, pid);
+            if process.is_null() {
+                return Err(Failure::new(
+                    FailureKind::Monitoring,
+                    format!(
+                        "无法读取转换进程资源信息：{}",
+                        std::io::Error::last_os_error()
+                    ),
+                ));
+            }
+            let mut memory: Memory = std::mem::zeroed();
+            memory.size = std::mem::size_of::<Memory>() as u32;
+            let read =
+                GetProcessMemoryInfo(process, &mut memory, std::mem::size_of::<Memory>() as u32);
+            let error = (read == 0).then(std::io::Error::last_os_error);
+            CloseHandle(process);
+            if let Some(error) = error {
+                Err(Failure::new(
+                    FailureKind::Monitoring,
+                    format!("无法读取转换进程资源信息：{error}"),
+                ))
+            } else {
+                Ok(memory.working.max(memory.private) as u64)
+            }
+        }
     }
     pub fn snapshot() -> Result<BTreeMap<u32, Process>, Failure> {
         unsafe {

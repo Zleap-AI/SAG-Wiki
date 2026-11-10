@@ -165,6 +165,7 @@ enum OfflineImport {
 
 pub struct Docling {
     home: PathBuf,
+    ocr_workers: Arc<crate::docling_worker::WorkerPool>,
     source: Mutex<Option<PathBuf>>,
     status: Arc<Mutex<DoclingStatus>>,
     /// Per-package byte accounting for uv's non-TTY output, which only
@@ -205,8 +206,14 @@ fn byte_scale(unit: &str) -> f64 {
 
 impl Docling {
     pub fn new(data: &Path) -> Self {
+        let worker_capacity = std::thread::available_parallelism()
+            .map(|value| value.get() / 2)
+            .unwrap_or(1)
+            .max(1)
+            .min(4);
         Self {
             home: data.join("docling"),
+            ocr_workers: Arc::new(crate::docling_worker::WorkerPool::new(worker_capacity)),
             source: Mutex::new(None),
             status: Arc::new(Mutex::new(DoclingStatus::default())),
             packages: Arc::new(Mutex::new(Packages::default())),
@@ -306,6 +313,7 @@ impl Docling {
             .usage
             .try_write()
             .map_err(|error| anyhow::anyhow!("Docling 正在使用，暂时无法卸载：{error}"))?;
+        self.ocr_workers.clear();
         fs::remove_dir_all(&self.home).context("无法删除 Docling 组件目录")?;
         *status = DoclingStatus {
             stage: "uninstalled".into(),
@@ -425,6 +433,7 @@ impl Docling {
             } else {
                 self.home.clone()
             },
+            ocr_workers: self.ocr_workers.clone(),
             source: Mutex::new(self.source.lock().unwrap().clone()),
             status: self.status.clone(),
             packages: self.packages.clone(),
@@ -606,6 +615,9 @@ impl Docling {
                 .arg(staging.path());
         } else {
             self.progress("models", "正在下载文档识别模型…");
+            // Unit tests use a local uv fixture and must not depend on the
+            // public model host being reachable from the test environment.
+            #[cfg(not(test))]
             self.check_model_host()?;
             command
                 .args([
@@ -640,6 +652,7 @@ impl Docling {
     /// Fails fast when the model host is unreachable. Without this the
     /// Hugging Face client retries silently and the user watches a frozen
     /// 0% for up to half an hour before any error appears.
+    #[cfg_attr(test, allow(dead_code))]
     fn check_model_host(&self) -> Result<()> {
         let endpoint = std::env::var("HF_ENDPOINT")
             .ok()
@@ -960,6 +973,38 @@ impl Docling {
         if !output.is_file() || fs::read_to_string(output)?.trim().is_empty() {
             bail!("组件未完成真实文档转换")
         }
+        if self.profile == DoclingProfile::Documents {
+            let source = probe.path().join("probe.png");
+            fs::write(&source, include_bytes!("../assets/image-probe.png"))?;
+            let output = probe.path().join("image-probe.md");
+            let mut command = self.runtime_command(runtime, &runner);
+            command
+                .arg(&source)
+                .arg("--output-file")
+                .arg(&output)
+                .arg("--artifacts-path")
+                .arg(&runtime.models)
+                .arg("--probe");
+            crate::process_supervisor::run(
+                &mut command,
+                crate::process_supervisor::Limits {
+                    timeout: Duration::from_secs(240),
+                    memory_bytes: Some(permit.bytes),
+                },
+                cancel,
+                |line| {
+                    if remaining >= line.len() as u64 + 1 {
+                        let _ = diagnostics.write_all(line);
+                        let _ = diagnostics.write_all(b"\n");
+                        remaining -= line.len() as u64 + 1;
+                    }
+                    self.update_download_line(line);
+                },
+            )?;
+            if !output.is_file() || fs::read_to_string(output)?.trim().is_empty() {
+                bail!("组件未完成真实图片 OCR 转换")
+            }
+        }
         Ok(())
     }
     fn runtime_command(
@@ -1128,6 +1173,89 @@ impl Docling {
     pub fn convert(&self, source: &Path, output: &Path) -> Result<()> {
         self.convert_cancellable(source, output, || false)
     }
+    fn convert_image_with_worker(
+        &self,
+        source: &Path,
+        output: &Path,
+        runtime: &sag_protocol::runtime::RuntimeSettings,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<crate::docling_worker::ImageOutcome> {
+        let component =
+            crate::docling_component::active_for(&self.home, DoclingProfile::Documents).ok();
+        let legacy_python = self.home.join(if cfg!(windows) {
+            "tools/docling-slim/Scripts/python.exe"
+        } else {
+            "tools/docling-slim/bin/python"
+        });
+        let Some((runtime_root, models)) = component
+            .as_ref()
+            .map(|component| (component.root.clone(), component.models.clone()))
+            .or_else(|| {
+                legacy_python
+                    .is_file()
+                    .then(|| (legacy_python.clone(), self.home.join("models")))
+            })
+        else {
+            return Ok(crate::docling_worker::ImageOutcome::Fallback);
+        };
+        let deadline = std::time::Instant::now() + Duration::from_secs(runtime.docling_timeout_secs);
+        let result = self.ocr_workers.convert(
+            &runtime_root,
+            source,
+            output,
+            deadline,
+            runtime,
+            cancel,
+            || {
+                let mut runner = tempfile::NamedTempFile::new()?;
+                runner.write_all(RUNNER.as_bytes())?;
+                runner.flush()?;
+                let runner = runner.into_temp_path();
+                let runner_path = runner.as_ref() as &Path;
+                let mut command = if let Some(component) = &component {
+                    self.runtime_command(component, runner_path)
+                } else {
+                    let mut command = self.command(&legacy_python);
+                    command
+                        .arg(runner_path)
+                        .env("PYTHONDONTWRITEBYTECODE", "1")
+                        .env("HF_HUB_OFFLINE", "1")
+                        .env("TRANSFORMERS_OFFLINE", "1")
+                        .env("HF_DATASETS_OFFLINE", "1");
+                    command
+                };
+                command
+                    .arg("--worker")
+                    .arg("--artifacts-path")
+                    .arg(&models);
+                let waiting_cancel = || {
+                    self.ocr_workers.release_outdated(runtime);
+                    cancel()
+                };
+                let permit = crate::docling_budget::acquire_bytes_with_runtime(
+                    crate::docling_budget::IMAGE_WORKER_BYTES,
+                    runtime,
+                    &waiting_cancel,
+                    deadline,
+                )?;
+                Ok(crate::docling_worker::SpawnSpec {
+                    command,
+                    runner,
+                    runtime_root: runtime_root.clone(),
+                    permit,
+                    runtime: runtime.clone(),
+                })
+            },
+        );
+        match result {
+            Ok(outcome) => Ok(outcome),
+            Err(error) if image_worker_must_stop(&error) => Err(error),
+            Err(error) => {
+                eprintln!("图片 OCR Worker 不可用，回退到 Docling：{error:#}");
+                Ok(crate::docling_worker::ImageOutcome::Fallback)
+            }
+        }
+    }
     pub fn convert_cancellable(
         &self,
         source: &Path,
@@ -1195,7 +1323,6 @@ impl Docling {
             self.home.clone()
         };
         let cancelled = || cancel();
-        let permit = crate::docling_budget::acquire_with_runtime(runtime, &cancelled)?;
         if fs::metadata(source)?.len() > runtime.conversion_input_mib as u64 * 1024 * 1024 {
             return Err(crate::process_supervisor::Failure::new(
                 crate::process_supervisor::FailureKind::Memory,
@@ -1217,8 +1344,40 @@ impl Docling {
                 RUNNER
             },
         )?;
-        let deadline = std::time::Instant::now() + Duration::from_secs(runtime.docling_outer_timeout_secs());
+        let deadline =
+            std::time::Instant::now() + Duration::from_secs(runtime.docling_outer_timeout_secs());
+        let read_temporary = || -> Result<String> {
+            let metadata = fs::metadata(&temporary).map_err(|error| {
+                if error.kind() == std::io::ErrorKind::NotFound {
+                    anyhow::Error::new(crate::process_supervisor::Failure::new(
+                        crate::process_supervisor::FailureKind::Compatibility,
+                        "Docling 未生成 Markdown",
+                    ))
+                } else {
+                    error.into()
+                }
+            })?;
+            if metadata.len() > runtime.conversion_output_mib as u64 * 1024 * 1024 {
+                return Err(crate::process_supervisor::Failure::new(
+                    crate::process_supervisor::FailureKind::Memory,
+                    format!("转换输出超过 {} MiB 限制", runtime.conversion_output_mib),
+                )
+                .into());
+            }
+            let content = fs::read_to_string(&temporary).context("Docling 未生成 Markdown")?;
+            if content.trim().is_empty() {
+                bail!("Docling 未提取到正文")
+            }
+            Ok(content)
+        };
         let convert = |backend: Option<&str>| -> Result<String> {
+            if backend.is_none() && profile == DoclingProfile::Documents && is_image(source) {
+                match self.convert_image_with_worker(source, &temporary, runtime, &cancelled)? {
+                    crate::docling_worker::ImageOutcome::Converted => return read_temporary(),
+                    crate::docling_worker::ImageOutcome::Fallback => {}
+                }
+            }
+            let permit = crate::docling_budget::acquire_with_runtime(runtime, &cancelled)?;
             let mut command;
             if let Ok(runtime) = crate::docling_component::active_for(&component_home, profile) {
                 command = self.runtime_command(&runtime, &runner);
@@ -1280,28 +1439,7 @@ impl Docling {
                 &cancelled,
                 |_| {},
             )?;
-            let metadata = fs::metadata(&temporary).map_err(|error| {
-                if error.kind() == std::io::ErrorKind::NotFound {
-                    anyhow::Error::new(crate::process_supervisor::Failure::new(
-                        crate::process_supervisor::FailureKind::Compatibility,
-                        "Docling 未生成 Markdown",
-                    ))
-                } else {
-                    error.into()
-                }
-            })?;
-            if metadata.len() > runtime.conversion_output_mib as u64 * 1024 * 1024 {
-                return Err(crate::process_supervisor::Failure::new(
-                    crate::process_supervisor::FailureKind::Memory,
-                    format!("转换输出超过 {} MiB 限制", runtime.conversion_output_mib),
-                )
-                .into());
-            }
-            let content = fs::read_to_string(&temporary).context("Docling 未生成 Markdown")?;
-            if content.trim().is_empty() {
-                bail!("Docling 未提取到正文")
-            }
-            Ok(content)
+            read_temporary()
         };
         if let Some(reason) = &handoff {
             eprintln!("{}：交给 Docling 组件转换（{reason}）", source.display());
@@ -1415,6 +1553,19 @@ fn media_requirements() -> Result<&'static str> {
         _ => bail!("当前系统暂无无需本机编译器的音视频组件安装配方"),
     }
 }
+fn image_worker_must_stop(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<crate::process_supervisor::Failure>()
+        .is_some_and(|failure| {
+            matches!(
+                failure.kind,
+                crate::process_supervisor::FailureKind::Cancelled
+                    | crate::process_supervisor::FailureKind::Timeout
+                    | crate::process_supervisor::FailureKind::Memory
+            )
+        })
+}
+
 fn retryable_conversion_error(error: &anyhow::Error) -> bool {
     error
         .downcast_ref::<crate::process_supervisor::Failure>()

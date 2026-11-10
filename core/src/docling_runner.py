@@ -15,20 +15,122 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_DATASETS_OFFLINE"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+IMAGE_EXTENSIONS = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+
+
+def image_ocr(artifacts_path):
+    """Load the bundled OCR models once for direct image recognition."""
+    from rapidocr import RapidOCR
+
+    models = artifacts_path / "RapidOcr"
+    paths = {
+        "Det.model_path": models / "PP-OCRv6_det_small.onnx",
+        "Cls.model_path": models / "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "Rec.model_path": models / "PP-OCRv6_rec_small.onnx",
+    }
+    if not all(path.is_file() for path in paths.values()):
+        raise FileNotFoundError("RapidOCR models are incomplete")
+    return RapidOCR(params={
+        **{key: str(path) for key, path in paths.items()},
+        "Global.text_score": 0.5,
+        "Global.log_level": "warning",
+        "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+        "EngineConfig.onnxruntime.inter_op_num_threads": 1,
+    })
+
+
+def convert_image(source, artifacts_path, ocr=None):
+    """Run the bundled OCR engine directly for standalone images.
+
+    The full Docling pipeline adds layout and table inference intended for
+    documents. Images only need text recognition, and avoiding that pipeline
+    also avoids importing torch and initializing its models.
+    """
+    from PIL import Image
+
+    with Image.open(source) as image:
+        if getattr(image, "n_frames", 1) != 1:
+            return None
+    if ocr is None:
+        ocr = image_ocr(artifacts_path)
+    result = ocr(str(source))
+    if result is None or result.boxes is None or not result.txts:
+        return ""
+    return result.to_markdown().strip()
+
+
+def write_output(output_file, text):
+    """Publish one worker result only after its complete Markdown is written."""
+    temporary = output_file.with_name(f".{output_file.name}.{os.getpid()}.tmp")
+    temporary.write_text(f"{text}\n" if text else "", encoding="utf-8")
+    os.replace(temporary, output_file)
+
+
+def run_image_worker(artifacts_path):
+    ocr = image_ocr(artifacts_path)
+    print(json.dumps({"status": "ready"}), flush=True)
+    for line in sys.stdin:
+        request = None
+        try:
+            request = json.loads(line)
+            request_id = request["id"]
+            source = Path(request["source"])
+            output_file = Path(request["output"])
+            text = convert_image(source, artifacts_path, ocr)
+            if text is None:
+                print(json.dumps({"id": request_id, "status": "fallback"}), flush=True)
+                continue
+            write_output(output_file, text)
+            print(json.dumps({"id": request_id, "status": "ok"}), flush=True)
+        except Exception as error:
+            print(json.dumps({
+                "id": request.get("id") if isinstance(request, dict) else None,
+                "status": "error",
+                "message": str(error),
+            }), flush=True)
+    return 0
+
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("source", type=Path)
-    parser.add_argument("--output-file", required=True, type=Path)
+    parser.add_argument("source", nargs="?", type=Path)
+    parser.add_argument("--output-file", type=Path)
     parser.add_argument("--artifacts-path", required=True, type=Path)
     parser.add_argument("--pdf-backend", choices=["pypdfium2"])
     parser.add_argument("--probe", action="store_true")
+    parser.add_argument("--worker", action="store_true")
     args = parser.parse_args()
+    if args.worker:
+        if args.artifacts_path is None:
+            parser.error("--artifacts-path is required with --worker")
+        try:
+            return run_image_worker(args.artifacts_path)
+        except Exception as error:
+            print(json.dumps({"status": "error", "message": str(error)}), flush=True)
+            return 1
+    if args.source is None:
+        parser.error("source is required unless --worker is used")
+    if args.output_file is None:
+        parser.error("--output-file is required unless --worker is used")
     runtime = json.loads(os.environ.get("SAG_CONVERSION_SETTINGS", "{}"))
     if args.probe:
         import logging
         logging.basicConfig(level=logging.INFO)
         print("Offline probe: loading document conversion libraries", flush=True)
+
+    if args.source.suffix.lower() in IMAGE_EXTENSIONS:
+        try:
+            text = convert_image(args.source, args.artifacts_path)
+            if text is not None:
+                write_output(args.output_file, text)
+                if args.probe:
+                    lowered = text.lower()
+                    if "sag" not in lowered or "image" not in lowered:
+                        print("Offline image OCR probe did not recognize the probe text", file=sys.stderr)
+                        return 1
+                return 0
+        except Exception as error:
+            print(f"Direct image OCR failed; falling back to Docling: {error}", file=sys.stderr)
 
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.backend_options import ThreadedDoclingParseBackendOptions
