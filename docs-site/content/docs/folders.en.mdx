@@ -69,6 +69,8 @@ Other formats lists scanned PDFs, images, audio, video, email, Apple iWork and s
 
 With MinerU disabled, an installed Docling handles PDFs requiring OCR or content unsupported by the built-in parser. With MinerU enabled, use the [MinerU-first flow](/en/docs/models#mineru-document-parsing). If Docling is absent, indexing details explain the required action; install it and reindex. Damaged and encrypted documents report parsing errors.
 
+Standalone images use a lightweight OCR path and do not load the layout and table models intended for scanned PDFs. Scanned PDFs and files requiring full layout structure still use the Docling document pipeline. Both paths run entirely offline.
+
 - **Select all / Clear selection** selects or clears all conversion formats. An empty selection disables additional formats without affecting enabled built-in documents.
 - **Apply** applies the format selection; global settings still need to be saved.
 - **Conversion workers** defaults to 1, allows 1–16, is shared across folders and takes effect on the next indexing task. Actual concurrency is also limited by the shared resource budget. Previously saved values are preserved.

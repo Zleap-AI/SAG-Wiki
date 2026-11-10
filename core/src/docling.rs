@@ -943,6 +943,38 @@ impl Docling {
         if !output.is_file() || fs::read_to_string(output)?.trim().is_empty() {
             bail!("组件未完成真实文档转换")
         }
+        if self.profile == DoclingProfile::Documents {
+            let source = probe.path().join("probe.png");
+            fs::write(&source, include_bytes!("../assets/image-probe.png"))?;
+            let output = probe.path().join("image-probe.md");
+            let mut command = self.runtime_command(runtime, &runner);
+            command
+                .arg(&source)
+                .arg("--output-file")
+                .arg(&output)
+                .arg("--artifacts-path")
+                .arg(&runtime.models)
+                .arg("--probe");
+            crate::process_supervisor::run(
+                &mut command,
+                crate::process_supervisor::Limits {
+                    timeout: Duration::from_secs(240),
+                    memory_bytes: Some(permit.bytes),
+                },
+                cancel,
+                |line| {
+                    if remaining >= line.len() as u64 + 1 {
+                        let _ = diagnostics.write_all(line);
+                        let _ = diagnostics.write_all(b"\n");
+                        remaining -= line.len() as u64 + 1;
+                    }
+                    self.update_download_line(line);
+                },
+            )?;
+            if !output.is_file() || fs::read_to_string(output)?.trim().is_empty() {
+                bail!("组件未完成真实图片 OCR 转换")
+            }
+        }
         Ok(())
     }
     fn runtime_command(

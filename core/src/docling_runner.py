@@ -15,6 +15,42 @@ os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_DATASETS_OFFLINE"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+IMAGE_EXTENSIONS = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
+
+
+def convert_image(source, artifacts_path):
+    """Run the bundled OCR engine directly for standalone images.
+
+    The full Docling pipeline adds layout and table inference intended for
+    documents. Images only need text recognition, and avoiding that pipeline
+    also avoids importing torch and initializing its models.
+    """
+    from PIL import Image
+    from rapidocr import RapidOCR
+
+    with Image.open(source) as image:
+        if getattr(image, "n_frames", 1) != 1:
+            return None
+
+    models = artifacts_path / "RapidOcr"
+    paths = {
+        "Det.model_path": models / "PP-OCRv6_det_small.onnx",
+        "Cls.model_path": models / "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+        "Rec.model_path": models / "PP-OCRv6_rec_small.onnx",
+    }
+    if not all(path.is_file() for path in paths.values()):
+        raise FileNotFoundError("RapidOCR models are incomplete")
+    ocr = RapidOCR(params={
+        **{key: str(path) for key, path in paths.items()},
+        "Global.text_score": 0.5,
+        "Global.log_level": "warning",
+        "EngineConfig.onnxruntime.intra_op_num_threads": 2,
+    })
+    result = ocr(str(source))
+    if result is None or result.boxes is None or not result.txts:
+        return ""
+    return result.to_markdown().strip()
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -29,6 +65,20 @@ def main():
         import logging
         logging.basicConfig(level=logging.INFO)
         print("Offline probe: loading document conversion libraries", flush=True)
+
+    if args.source.suffix.lower() in IMAGE_EXTENSIONS:
+        try:
+            text = convert_image(args.source, args.artifacts_path)
+            if text is not None:
+                args.output_file.write_text(f"{text}\n" if text else "", encoding="utf-8")
+                if args.probe:
+                    lowered = text.lower()
+                    if "sag" not in lowered or "image" not in lowered:
+                        print("Offline image OCR probe did not recognize the probe text", file=sys.stderr)
+                        return 1
+                return 0
+        except Exception as error:
+            print(f"Direct image OCR failed; falling back to Docling: {error}", file=sys.stderr)
 
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.backend_options import ThreadedDoclingParseBackendOptions
