@@ -46,3 +46,7 @@ The app checks for updates at startup and every 8 hours while it stays running. 
 ![Formatted headings, lists and bold text in release notes](/images/product-release-notes-en.png)
 
 About shows the installed program version. This page reads the latest stable version, installer URLs and actual sizes from GitHub when opened.
+
+## Windows local service startup failure
+
+If the app cannot connect to its local SAG service and the log reports access denied while saving the connection record, keep the full error and application version. Builds containing the account-permission fix protect the record using the process user's SID, independent of computer and account names. Update, restart and check again. Do not grant everyone access to the entire data directory. This fix is not included in the official 0.2.7 package.

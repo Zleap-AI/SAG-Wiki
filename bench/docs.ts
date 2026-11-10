@@ -57,3 +57,9 @@ const handlers:Record<string,(a:any)=>any>={
 (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__={unregisterListener:(_event:string,id:number)=>{const listener=listeners.get(id);if(listener)callbacks.delete(listener.handler);listeners.delete(id);}};
 localStorage.clear();localStorage.setItem('sag.onboarding.seen','1');localStorage.setItem('sag.search.mode','search');setLanguage(en?'en':'zh-CN');
 const {default:App}=await import('../src/App.svelte');mount(App,{target:document.getElementById('app')!});
+
+if(params.has('offline-component')){
+ Object.assign(docling,{stage:'error',error:text('下载连接超时，请重试或导入离线组件。','Download connection timed out. Retry or import an offline component.'),formats:[['PDF',['pdf']]],profiles:[{id:'documents',installed:false,extensions:['pdf']}]});
+ const {openDoclingDownload}=await import('../src/lib/docling');
+ openDoclingDownload(['documents'],['pdf'],async()=>{});
+}

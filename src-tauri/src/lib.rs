@@ -312,6 +312,7 @@ remote!(delete_draft(path:String) => DeleteDraft);
 remote!(get_settings() => GetSettings);
 remote!(get_docling_status() => DoclingStatus);
 remote!(install_docling() => InstallDocling);
+remote!(import_docling_component(path:String) => ImportDoclingComponent);
 remote!(install_docling_profiles(profiles:Vec<DoclingProfile>) => InstallDoclingProfiles);
 remote!(cancel_docling_install() => CancelDoclingInstall);
 remote!(uninstall_docling() => UninstallDocling);
@@ -647,6 +648,7 @@ pub fn run() {
             get_settings,
             get_docling_status,
             install_docling,
+            import_docling_component,
             install_docling_profiles,
             cancel_docling_install,
             uninstall_docling,

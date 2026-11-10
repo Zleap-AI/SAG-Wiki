@@ -189,6 +189,9 @@ pub struct EventEnvelope {
 pub enum Operation {
     DoclingStatus,
     InstallDocling,
+    ImportDoclingComponent {
+        path: String,
+    },
     InstallDoclingProfiles {
         profiles: Vec<DoclingProfile>,
     },

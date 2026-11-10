@@ -1351,6 +1351,10 @@ impl Service {
                 Out::Unit
             }
             Op::DoclingStatus => Out::Docling(self.store.docling.status()),
+            Op::ImportDoclingComponent { path } => {
+                self.store.docling.import_component(std::path::PathBuf::from(path)).map_err(error)?;
+                Out::Docling(self.store.docling.status())
+            }
             Op::InstallDocling => {
                 self.store.docling.start().map_err(error)?;
                 Out::Docling(self.store.docling.status())

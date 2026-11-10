@@ -200,6 +200,31 @@ def run(binary):
             (documents / filename).write_text(text, encoding="utf-8")
         environment = {**os.environ, "SAG_DATA_DIR": str(data), "SAG_DESKTOP_DATA_DIR": str(data)}
 
+        if sys.platform == "win32":
+            # Reproduce #60 without renaming the CI machine/account: make the
+            # old name-based lookup resolve the computer, not the token user.
+            environment["USERNAME"] = os.environ["COMPUTERNAME"]
+            environment["USERDOMAIN"] = "SAG-invalid-domain"
+
+        def verify_endpoint_permissions():
+            if sys.platform != "win32":
+                return
+            script = r"""
+$ErrorActionPreference = 'Stop'
+$sid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$acl = Get-Acl -LiteralPath $env:SAG_ENDPOINT_TEST_FILE
+$rules = @($acl.GetAccessRules($true, $true, [System.Security.Principal.SecurityIdentifier]))
+if (!$acl.AreAccessRulesProtected -or $rules.Count -ne 1) { throw 'Endpoint DACL must contain only an explicit user rule' }
+if ($rules[0].IdentityReference.Value -ne $sid -or $rules[0].AccessControlType -ne 'Allow' -or
+    ($rules[0].FileSystemRights -band [System.Security.AccessControl.FileSystemRights]::FullControl) -ne
+        [System.Security.AccessControl.FileSystemRights]::FullControl) { throw 'Endpoint access does not belong to the process token user' }
+"""
+            result = subprocess.run(["pwsh", "-NoProfile", "-NonInteractive", "-Command", script],
+                env={**environment, "SAG_ENDPOINT_TEST_FILE": str(data / "sag-service.json")},
+                capture_output=True, text=True, timeout=30)
+            require(result.returncode == 0, f"endpoint permission verification failed: {result.stderr}")
+            require(not list(data.glob(".tmp*")), "endpoint publication left temporary files")
+
         def cli(*args, input=None, success=True):
             process = subprocess.run([str(binary), *args], cwd=documents, env=environment,
                                      input=input, encoding="utf-8", capture_output=True, timeout=90)
@@ -262,6 +287,26 @@ def run(binary):
                                         "--auth", "none").stdout)
             require(configured["auth_mode"] == "none" and not configured["has_key"],
                     "fresh no-auth configuration unexpectedly requires a stored key")
+            verify_endpoint_permissions()
+            offline = temporary / "invalid-offline-component"
+            offline.mkdir()
+            (offline / "manifest.json").write_text(json.dumps({
+                "schema": 0, "component_version": "", "profile": "", "platform": "", "python": "",
+                "site_packages": "", "models": "", "files": []
+            }), encoding="utf-8")
+            with CoreClient(data) as core:
+                core.call("import_docling_component", {"path": str(offline)})
+                deadline = time.monotonic() + 5
+                while True:
+                    state = core.call("docling_status")
+                    if not state["running"]:
+                        break
+                    require(time.monotonic() < deadline, "offline component rejection hung")
+                    time.sleep(0.02)
+            require(not state["installed"] and state["requested_profiles"] == ["documents"], "offline import changed the wrong profile")
+            require("组件版本、文档能力或平台与当前应用不匹配" in (state["error"] or ""), "invalid offline package was not rejected locally")
+            require(not (data / "docling" / "uv.exe").exists() and not (data / "docling" / "uv").exists(), "offline import bootstrapped online dependencies")
+            completed.append("invalid offline component is rejected through real RPC without online bootstrap")
             require(test_connection() == "连接成功", "fresh no-auth connection test tried to load a nonexistent key")
             current = settings()
             current["retrieval"]["max_hops"] = 0
@@ -303,6 +348,7 @@ def run(binary):
             completed.append("six base/full/trailing-slash endpoints: TestModel, deep search, CLI search")
 
             cli("service", "restart")
+            verify_endpoint_permissions()
             # Restart opens the service before its asynchronous startup rescan
             # finishes. Wait for indexing itself, not a connection/model call.
             deadline = time.monotonic() + 60

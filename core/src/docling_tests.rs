@@ -1989,3 +1989,100 @@ fn built_in_documents_follow_type_settings_updates_and_migrate_old_conversion_ca
     );
     assert!(source.exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn explicit_offline_import_runs_probe_and_preserves_the_registered_source() {
+    use std::{os::unix::fs::PermissionsExt, time::Instant};
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("offline");
+    fs::create_dir_all(source.join("python/bin")).unwrap();
+    fs::create_dir(source.join("site-packages")).unwrap();
+    fs::create_dir(source.join("models")).unwrap();
+    let python = source.join("python/bin/python3.12");
+    // A synthetic executable, not OCR: exercise the real subprocess/probe and
+    // activation path without models, network, or user documents.
+    fs::write(&python, b"#!/bin/sh\nwhile [ $# -gt 0 ]; do\n if [ \"$1\" = --output-file ]; then shift; printf '# Offline probe fixture\\n' > \"$1\"; exit 0; fi\n shift\ndone\nexit 1\n").unwrap();
+    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::docling_component::write_manifest(&source, &python, &|| false).unwrap();
+    let registered = temp.path().join("registered");
+    fs::create_dir(&registered).unwrap();
+    fs::write(registered.join("manifest.json"), "{}").unwrap();
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.set_component_source(registered.clone()).unwrap();
+    converter.import_component(source.clone()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let status = loop {
+        let status = converter.status();
+        if !status.running { break status; }
+        assert!(Instant::now() < deadline, "offline import did not finish");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert_eq!(status.stage, "done", "{:?}", status.error);
+    assert!(status.installed);
+    assert!(crate::docling_component::active(&converter.home).is_ok());
+    assert_eq!(*converter.source.lock().unwrap(), Some(registered.canonicalize().unwrap()));
+    assert!(source.join("manifest.json").is_file(), "import must retain the source");
+}
+
+#[cfg(unix)]
+fn offline_uv(dir: &Path, version: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    // Mirrors `tar -xzf`, which keeps the archive's uv-<platform>/ folder.
+    let uv = dir.join("uv-test-platform/uv");
+    fs::create_dir_all(uv.parent().unwrap()).unwrap();
+    fs::write(&uv, format!("#!/bin/sh\nif [ \"$1\" = --version ]; then echo 'uv {version} (fixture)'; exit 0; fi\necho 'python download blocked' >&2\nexit 1\n")).unwrap();
+    fs::set_permissions(&uv, fs::Permissions::from_mode(0o755)).unwrap();
+    uv
+}
+
+#[cfg(unix)]
+fn finished(converter: &Docling) -> DoclingStatus {
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let status = converter.status();
+        if !status.running { return status; }
+        assert!(std::time::Instant::now() < deadline, "offline import did not finish");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn offline_uv_import_skips_the_uv_download_and_continues_online() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = offline_uv(&temp.path().join("offline"), UV_VERSION);
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.import_component(temp.path().join("offline")).unwrap();
+    let status = finished(&converter);
+    let error = status.error.unwrap();
+    // The fixture blocks the next online step, so reaching it proves uv was
+    // accepted without contacting GitHub for the uv archive.
+    assert!(error.contains("无法下载 Python 运行环境") && error.contains("UV_PYTHON_INSTALL_MIRROR"), "{error}");
+    assert_eq!(fs::read(converter.home.join("uv")).unwrap(), fs::read(&source).unwrap());
+    assert!(source.is_file(), "import must retain the source");
+    assert!(converter.source.lock().unwrap().is_none());
+    assert!(!status.installed);
+}
+
+#[cfg(unix)]
+#[test]
+fn offline_uv_import_rejects_another_uv_version_with_the_download_url() {
+    let temp = tempfile::tempdir().unwrap();
+    offline_uv(&temp.path().join("offline"), "0.1.0");
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.import_component(temp.path().join("offline")).unwrap();
+    let error = finished(&converter).error.unwrap();
+    assert!(error.contains("导入的 uv 版本为 0.1.0") && error.contains(&uv_download_url().unwrap()), "{error}");
+    assert!(!converter.home.join("uv").exists());
+}
+
+#[test]
+fn offline_import_rejects_a_folder_without_a_component_or_uv() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::write(temp.path().join("uv-installer.txt"), "not uv").unwrap();
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    let error = converter.import_component(temp.path().to_path_buf()).unwrap_err().to_string();
+    assert!(error.contains("manifest.json") && error.contains(UV_EXECUTABLE), "{error}");
+    assert!(!converter.status().running);
+}
