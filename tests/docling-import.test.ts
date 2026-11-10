@@ -3,7 +3,7 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import Download from '../src/components/DoclingDownload.svelte';
 import {doclingStatus,doclingDownloadOpen,doclingInstallRequest,openDoclingDownload} from '../src/lib/docling';
-import {setLanguage} from '../src/lib/i18n';
+import {setLanguage,translate} from '../src/lib/i18n';
 const {invoke,open}=vi.hoisted(()=>({invoke:vi.fn(),open:vi.fn()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open}));
@@ -54,4 +54,10 @@ it('导入就绪后仍需用户点击应用，安装期间不允许重复导入'
 });
 it('英文导入说明与按钮没有遗漏中文',async()=>{
  await start();setLanguage('en');await tick();expect(button('Import offline component')).toBeDefined();expect(document.querySelector('.docling-dialog')!.textContent).not.toMatch(/[\u3400-\u9fff]/);
+});
+it('uv 下载失败与版本不符的后端提示在英文界面中完整翻译',()=>{
+ const url='https://github.com/astral-sh/uv/releases/download/0.12.1/uv-x86_64-pc-windows-msvc.zip';
+ expect(translate(`Error: 无法下载运行环境管理器：error sending request for url (${url}): tcp connect error。可用浏览器下载 ${url}，解压后点击“导入离线组件”并选择解压后的目录。`,'en'))
+  .toBe(`Error: Could not download the runtime manager: error sending request for url (${url}): tcp connect error. Download ${url} in a browser, extract it, then choose Import offline component and select the extracted folder.`);
+ expect(translate(`导入的 uv 版本为 0.13.0，当前需要 0.12.1。请用浏览器下载 ${url}，解压后重新导入。`,'en')).not.toMatch(/[\u3400-\u9fff]/);
 });

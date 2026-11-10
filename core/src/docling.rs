@@ -1,5 +1,5 @@
 //! Optional external document conversion. The index only reads its Markdown output.
-use anyhow::{bail, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use sag_protocol::{DoclingProfile, DoclingProfileStatus, DoclingStatus};
 use sha2::{Digest, Sha256};
 use std::{
@@ -17,6 +17,7 @@ use std::{
 pub const OUTPUT_DIRECTORY: &str = ".sag-converted";
 const VERSION: &str = "2.140.0";
 const UV_VERSION: &str = "0.12.1";
+const UV_EXECUTABLE: &str = if cfg!(windows) { "uv.exe" } else { "uv" };
 const PYTHON_VERSION: &str = "3.12.13";
 const DIAGNOSTIC_LIMIT: u64 = 8 * 1024 * 1024;
 const MEDIA_EXTENSIONS: &[&str] = &[
@@ -139,6 +140,27 @@ pub fn is_selected(path: &Path, formats: &Option<Vec<String>>) -> bool {
 pub fn in_output(path: &Path) -> bool {
     path.components()
         .any(|part| part.as_os_str() == OUTPUT_DIRECTORY)
+}
+
+fn uv_download_url() -> Result<String> {
+    let platform = match (std::env::consts::OS, std::env::consts::ARCH) {
+        ("macos", "aarch64") => "aarch64-apple-darwin",
+        ("macos", "x86_64") => "x86_64-apple-darwin",
+        ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
+        ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
+        ("windows", "aarch64") => "aarch64-pc-windows-msvc",
+        ("windows", "x86_64") => "x86_64-pc-windows-msvc",
+        _ => bail!("当前系统暂不支持自动安装 Docling"),
+    };
+    let suffix = if cfg!(windows) { "zip" } else { "tar.gz" };
+    Ok(format!(
+        "https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/uv-{platform}.{suffix}"
+    ))
+}
+
+enum OfflineImport {
+    Component(PathBuf),
+    Uv(PathBuf),
 }
 
 pub struct Docling {
@@ -308,16 +330,35 @@ impl Docling {
     }
     /// An explicit offline source applies to this installation only. Never
     /// register it as the source of later online retries or media installs.
+    /// A folder with a manifest is a complete component; a folder holding only
+    /// the extracted uv archive replaces the first download, and the remaining
+    /// steps still install online.
     pub fn import_component(self: &Arc<Self>, path: PathBuf) -> Result<()> {
-        if !path.join("manifest.json").is_file() {
-            bail!("预构建组件缺少 manifest.json")
+        if path.join("manifest.json").is_file() {
+            let source = OfflineImport::Component(path.canonicalize()?);
+            return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
         }
-        self.start_profiles_from(vec![DoclingProfile::Documents], Some(path.canonicalize()?))
+        // Extracting the archive may add one folder level, e.g. uv-<platform>/uv.
+        let uv = walkdir::WalkDir::new(&path)
+            .max_depth(2)
+            .into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name() == UV_EXECUTABLE && entry.path().is_file())
+            .min_by_key(|entry| entry.depth());
+        let Some(uv) = uv else {
+            bail!("所选目录既不是完整组件（缺少 manifest.json），也不包含 {UV_EXECUTABLE}，请选择解压后的目录")
+        };
+        let source = OfflineImport::Uv(uv.path().canonicalize()?);
+        self.start_profiles_from(vec![DoclingProfile::Documents], Some(source))
     }
     pub fn start_profiles(self: &Arc<Self>, profiles: Vec<DoclingProfile>) -> Result<()> {
         self.start_profiles_from(profiles, None)
     }
-    fn start_profiles_from(self: &Arc<Self>, profiles: Vec<DoclingProfile>, source: Option<PathBuf>) -> Result<()> {
+    fn start_profiles_from(
+        self: &Arc<Self>,
+        profiles: Vec<DoclingProfile>,
+        offline: Option<OfflineImport>,
+    ) -> Result<()> {
         let profiles: Vec<_> = [DoclingProfile::Documents, DoclingProfile::Media]
             .into_iter()
             .filter(|profile| profiles.contains(profile))
@@ -348,8 +389,12 @@ impl Docling {
                     return Ok(());
                 }
                 let view = this.profile_view(profile);
-                if let Some(source) = &source {
-                    *view.source.lock().unwrap() = Some(source.clone());
+                match &offline {
+                    Some(OfflineImport::Component(source)) => {
+                        *view.source.lock().unwrap() = Some(source.clone());
+                    }
+                    Some(OfflineImport::Uv(uv)) => view.import_uv(uv)?,
+                    None => {}
                 }
                 view.install()
             });
@@ -467,7 +512,10 @@ impl Docling {
             "--no-config",
         ]);
         self.progress("runtime", "正在下载 Python 运行环境…");
-        self.run_install(&mut command, Duration::from_secs(600))?;
+        self.run_install(&mut command, Duration::from_secs(600))
+            .map_err(|error| self.with_hint(error, |error| anyhow!(
+                "无法下载 Python 运行环境：{error:#}。如无法访问 GitHub，可设置 UV_PYTHON_INSTALL_MIRROR 环境变量指向 python-build-standalone 镜像，重启 SAG 服务后重试。"
+            )))?;
         let python = walkdir::WalkDir::new(&python_home)
             .max_depth(4)
             .into_iter()
@@ -530,7 +578,10 @@ impl Docling {
                 "正在下载并安装 Docling 文档组件…"
             },
         );
-        self.run_install(&mut command, Duration::from_secs(1800))?;
+        self.run_install(&mut command, Duration::from_secs(1800))
+            .map_err(|error| self.with_hint(error, |error| anyhow!(
+                "无法下载组件依赖：{error:#}。如无法访问 PyPI，可设置 UV_DEFAULT_INDEX 环境变量（例如 https://pypi.tuna.tsinghua.edu.cn/simple），重启 SAG 服务后重试。"
+            )))?;
         let mut command = self.command(&python);
 
         command
@@ -679,42 +730,80 @@ impl Docling {
         )
         .map_err(Into::into)
     }
-    fn bootstrap_uv(&self) -> Result<PathBuf> {
-        let executable = self.home.join(if cfg!(windows) { "uv.exe" } else { "uv" });
-        if executable.is_file() {
-            let mut version = String::new();
-            let result = crate::process_supervisor::run(
-                self.command(&executable).arg("--version"),
-                crate::process_supervisor::Limits {
-                    timeout: Duration::from_secs(15),
-                    memory_bytes: Some(256 * 1024 * 1024),
-                },
-                &|| self.cancel.load(Ordering::Relaxed),
-                |line| {
-                    if version.len() < 2048 {
-                        version.push_str(&String::from_utf8_lossy(line));
-                    }
-                },
-            );
-            if result.is_ok() && version.split_whitespace().nth(1) == Some(UV_VERSION) {
-                return Ok(executable);
-            }
+    /// Keeps cancellation messages intact; other failures gain a recovery hint.
+    fn with_hint(
+        &self,
+        error: anyhow::Error,
+        hint: impl FnOnce(anyhow::Error) -> anyhow::Error,
+    ) -> anyhow::Error {
+        if self.cancel.load(Ordering::Relaxed) {
+            error
+        } else {
+            hint(error)
         }
-        let platform = match (std::env::consts::OS, std::env::consts::ARCH) {
-            ("macos", "aarch64") => "aarch64-apple-darwin",
-            ("macos", "x86_64") => "x86_64-apple-darwin",
-            ("linux", "aarch64") => "aarch64-unknown-linux-gnu",
-            ("linux", "x86_64") => "x86_64-unknown-linux-gnu",
-            ("windows", "aarch64") => "aarch64-pc-windows-msvc",
-            ("windows", "x86_64") => "x86_64-pc-windows-msvc",
-            _ => bail!("当前系统暂不支持自动安装 Docling"),
-        };
+    }
+    fn uv_version(&self, executable: &Path) -> Option<String> {
+        let mut version = String::new();
+        crate::process_supervisor::run(
+            self.command(executable).arg("--version"),
+            crate::process_supervisor::Limits {
+                timeout: Duration::from_secs(15),
+                memory_bytes: Some(256 * 1024 * 1024),
+            },
+            &|| self.cancel.load(Ordering::Relaxed),
+            |line| {
+                if version.len() < 2048 {
+                    version.push_str(&String::from_utf8_lossy(line));
+                }
+            },
+        )
+        .ok()?;
+        let mut words = version.split_whitespace();
+        (words.next() == Some("uv")).then(|| words.next().map(str::to_owned))?
+    }
+    /// Installs a uv the user downloaded manually, so the GitHub download in
+    /// `bootstrap_uv` is skipped. The source folder is left untouched.
+    fn import_uv(&self, source: &Path) -> Result<()> {
+        self.progress("runtime", "正在校验导入的运行环境管理器…");
+        let url = uv_download_url()?;
+        match self.uv_version(source) {
+            Some(version) if version == UV_VERSION => {}
+            Some(version) => bail!(
+                "导入的 uv 版本为 {version}，当前需要 {UV_VERSION}。请用浏览器下载 {url}，解压后重新导入。"
+            ),
+            None => bail!(
+                "所选的 {UV_EXECUTABLE} 无法运行或不是 uv。请用浏览器下载 {url}，解压后重新导入。"
+            ),
+        }
+        if fs::metadata(source)?.len() > 128 * 1024 * 1024 {
+            bail!("运行环境管理器文件过大")
+        }
+        fs::create_dir_all(&self.home)?;
+        let mut candidate = tempfile::NamedTempFile::new_in(&self.home)?;
+        std::io::copy(&mut fs::File::open(source)?, candidate.as_file_mut())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            candidate
+                .as_file()
+                .set_permissions(fs::Permissions::from_mode(0o755))?;
+        }
+        candidate.as_file().sync_all()?;
+        candidate
+            .persist(self.home.join(UV_EXECUTABLE))
+            .map_err(|error| error.error)?;
+        Ok(())
+    }
+    fn bootstrap_uv(&self) -> Result<PathBuf> {
+        let executable = self.home.join(UV_EXECUTABLE);
+        if executable.is_file() && self.uv_version(&executable).as_deref() == Some(UV_VERSION) {
+            return Ok(executable);
+        }
+        let url = uv_download_url()?;
         self.progress("runtime", "正在下载运行环境管理器…");
-        let suffix = if cfg!(windows) { "zip" } else { "tar.gz" };
-        let url = format!(
-            "https://github.com/astral-sh/uv/releases/download/{UV_VERSION}/uv-{platform}.{suffix}"
-        );
-        let mut archive = self.download_archive(&url)?;
+        let mut archive = self.download_archive(&url).map_err(|error| self.with_hint(error, |error| anyhow!(
+            "无法下载运行环境管理器：{error:#}。可用浏览器下载 {url}，解压后点击“导入离线组件”并选择解压后的目录。"
+        )))?;
         use std::io::Seek;
         archive.rewind()?;
         let mut candidate = tempfile::NamedTempFile::new_in(&self.home)?;

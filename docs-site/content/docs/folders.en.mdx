@@ -90,7 +90,21 @@ macOS hides dot-prefixed directories by default. Built-in parsing does not uploa
 
 In the file parsing support installer, choose **Import offline component**, then select the extracted complete document component folder containing `manifest.json`. SAG checks its platform, component version and file integrity, then runs a sample conversion. Once ready, choose **Apply selected formats**. Reindex the folder if previous files failed to convert.
 
-The component must include Python, recognition dependencies and models. A standalone `uv.exe`, Python installer or model download is not a complete component. This entry supports document components only; audio and video still use online installation. A failed import does not fall back to online downloads. Select another folder to retry offline, or choose Retry installation to install online.
+The component must include Python, recognition dependencies and models. A standalone Python installer or model download is not a complete component. This entry supports document components only; audio and video still use online installation. A failed import does not fall back to online downloads. Select another folder to retry offline, or choose Retry installation to install online.
+
+#### When only the uv download fails
+
+If the error says the runtime manager could not be downloaded (for example, `github.com/astral-sh/uv` timed out), open the address from the error in a browser to download the uv archive (`uv-x86_64-pc-windows-msvc.zip` on Windows x64). Extract it, choose **Import offline component** and select the extracted folder. Once SAG confirms the uv version matches the application, it skips that download and continues downloading Python, dependencies and models online.
+
+The remaining steps still need network access. If those addresses are also unreachable, set the following environment variables, restart the SAG service (for example with `sag service restart`) and retry:
+
+| Download | Environment variable | Notes |
+| --- | --- | --- |
+| Python runtime | `UV_PYTHON_INSTALL_MIRROR` | A python-build-standalone mirror |
+| Recognition dependencies | `UV_DEFAULT_INDEX` | A PyPI mirror, for example `https://pypi.tuna.tsinghua.edu.cn/simple` |
+| Recognition models | `HF_ENDPOINT` | A Hugging Face mirror, for example `https://hf-mirror.com` |
+
+Dependencies are checked against pinned hashes, so a mirror serving different files fails the installation instead of installing altered files. If the computer is fully offline, use a complete offline component instead.
 
 Obtain a complete folder matching your system, architecture and component version from your administrator or maintainer. Extract archives before selecting the folder. Current official Releases do not distribute a separate complete offline component; the application installer is not a component package. The import entry is available in application builds containing this feature, not the official 0.2.7 package.
 
