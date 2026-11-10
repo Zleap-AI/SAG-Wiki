@@ -1,3 +1,4 @@
+pub mod runtime;
 mod build;
 mod cli;
 pub mod explore;
@@ -268,6 +269,7 @@ pub enum Operation {
         path: String,
     },
     GetSettings,
+    RuntimeSchema,
     RegisterDoclingComponent {
         path: String,
     },

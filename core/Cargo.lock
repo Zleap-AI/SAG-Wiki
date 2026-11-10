@@ -2700,6 +2700,7 @@ dependencies = [
  "indexmap",
  "jieba-rs",
  "libc",
+ "lopdf",
  "notify",
  "objc2",
  "objc2-app-kit",

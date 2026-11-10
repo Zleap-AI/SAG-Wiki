@@ -8,6 +8,7 @@ cc = "1"
 
 [dependencies]
 anydoc = "=0.2.4"
+lopdf = { version = "0.45", default-features = false }
 sag-protocol = { path = "../protocol" }
 sag-client = { path = "../client" }
 anyhow = "1"

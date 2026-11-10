@@ -414,7 +414,7 @@ impl SagTools {
                     let key = &key;
                     let query = &args.query;
                     async move {
-                        models::score(
+                        models::score_with_runtime(
                             &self.client,
                             &self.settings.jev,
                             key,
@@ -422,6 +422,7 @@ impl SagTools {
                             candidates,
                             &evidence,
                             self.settings.timeout_secs,
+                            &self.settings.runtime,
                             &self.cancel,
                         )
                         .await

@@ -1,3 +1,4 @@
+use sag_protocol::runtime::RuntimeSettings;
 use crate::types::{Candidate, ModelAuthMode, ModelConfig};
 use anyhow::{anyhow, bail, Context, Result};
 use futures_util::{stream, StreamExt, TryStreamExt};
@@ -143,10 +144,19 @@ async fn request(
     timeout: u64,
     cancel: &CancellationToken,
 ) -> Result<reqwest::Response> {
+    request_with_runtime(client, url, key, payload, timeout, &Default::default(), cancel).await
+}
+async fn request_with_runtime(
+    client: &Client, url: &str, key: &str, payload: &Value, timeout: u64,
+    runtime: &RuntimeSettings, cancel: &CancellationToken,
+) -> Result<reqwest::Response> {
     let mut attempt = 0;
     let mut failures = 0;
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(runtime.retry_total_secs);
     loop {
-        let request = client.post(url).timeout(std::time::Duration::from_secs(timeout)).json(payload);
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() { bail!("模型请求超过总时间限制") }
+        let request = client.post(url).timeout(std::time::Duration::from_secs(timeout).min(remaining)).json(payload);
         let request = if key.is_empty() { request } else { request.bearer_auth(key) };
         let response = tokio::select! {_ = cancel.cancelled()=>return Err(cancelled()),result=request.send()=>result};
         match response {
@@ -156,7 +166,7 @@ async fn request(
                 }
                 let status = response.status();
                 let retry = matches!(status.as_u16(), 408 | 429 | 499 | 500 | 502 | 503 | 504 | 529);
-                let body = response.bytes().await?;
+                let body = tokio::select! { _ = cancel.cancelled() => return Err(cancelled()), result = response.bytes() => result? };
                 // Some gateways return gzip error bodies without Content-Encoding.
                 let text = if body.starts_with(&[0x1f, 0x8b]) {
                     use std::io::Read;
@@ -169,18 +179,18 @@ async fn request(
                     String::from_utf8(body.to_vec()).context("模型错误响应不是有效的 UTF-8")?
                 };
                 let detail = redact(&text.chars().take(500).collect::<String>(), key);
-                if !retry || status.as_u16() != 499 && failures == 3 {
+                if !retry || failures >= runtime.retry_count {
                     return Err(RequestError {
                         status: status.as_u16(),
                         detail,
                     }
                     .into());
                 }
-                if status.as_u16() != 499 { failures += 1; }
+                failures += 1;
                 eprintln!("模型 HTTP {status}，当前请求重试，不计成功次数");
             }
             Err(e) => {
-                if failures == 3 || !(e.is_timeout() || e.is_connect() || e.is_request()) {
+                if failures >= runtime.retry_count || !(e.is_timeout() || e.is_connect() || e.is_request()) {
                     return Err(anyhow!(
                         "模型连接失败：{}",
                         redact(&e.to_string(), key)
@@ -189,9 +199,13 @@ async fn request(
                 failures += 1;
             }
         }
-        let delay = (1u64 << attempt.min(5)).min(30);
+        let delay = runtime.retry_base_secs.saturating_mul(1u64 << attempt.min(10)).min(runtime.retry_max_secs);
         attempt += 1;
-        tokio::select! {_ = cancel.cancelled()=>return Err(cancelled()),_ = tokio::time::sleep(std::time::Duration::from_secs(delay))=>{}}
+        tokio::select! {
+            _ = cancel.cancelled()=>return Err(cancelled()),
+            _ = tokio::time::sleep_until(deadline)=>bail!("模型请求超过总时间限制"),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(delay))=>{}
+        }
     }
 }
 // Estimate all request budgets without serializing or fully tokenizing them.
@@ -209,6 +223,12 @@ pub fn jev_batches(
     candidates: Vec<Candidate>,
     evidence: &[Candidate],
     model: &str,
+) -> Result<Vec<(Value, Vec<Candidate>)>> {
+    jev_batches_with_runtime(query, candidates, evidence, model, &Default::default())
+}
+pub fn jev_batches_with_runtime(
+    query: &str, candidates: Vec<Candidate>, evidence: &[Candidate], model: &str,
+    runtime: &RuntimeSettings,
 ) -> Result<Vec<(Value, Vec<Candidate>)>> {
     let encode_state = |items: &[Candidate]| {
         let passages: Vec<_> = items.iter().map(|c| {
@@ -228,7 +248,7 @@ pub fn jev_batches(
     }).collect::<Vec<_>>();
     let state = encode_state(evidence);
     let base = estimate(&Value::String(state.clone())) + 1024;
-    if base + 64 > 32000 {
+    if base + 64 > runtime.jev_context_tokens {
         bail!("已有证据超过上下文预算。请减少扩展起点或调整切分；原文未截断。")
     }
     let mut size = base;
@@ -236,13 +256,13 @@ pub fn jev_batches(
     let mut items = vec![];
     let mut batches = vec![];
     for (c, question, n) in prepared {
-        if base + n > 32000 {
+        if base + n > runtime.jev_context_tokens {
             // One oversized passage (a table or a file without sentence
             // breaks) cannot be scored; leaving it out keeps the query alive.
             eprintln!("跳过超过单候选上下文预算的片段 {}：{}", c.id, c.path);
             continue;
         }
-        if size + n > 32000 {
+        if size + n > runtime.jev_context_tokens {
             batches.push((
                 json!({"model":model,"state":state,"questions":std::mem::take(&mut questions)}),
                 std::mem::take(&mut items),
@@ -271,14 +291,21 @@ pub async fn score(
     timeout: u64,
     cancel: &CancellationToken,
 ) -> Result<Vec<Candidate>> {
+    score_with_runtime(client, config, key, query, candidates, evidence, timeout, &Default::default(), cancel).await
+}
+pub async fn score_with_runtime(
+    client: &Client, config: &ModelConfig, key: &str, query: &str,
+    candidates: Vec<Candidate>, evidence: &[Candidate], timeout: u64,
+    runtime: &RuntimeSettings, cancel: &CancellationToken,
+) -> Result<Vec<Candidate>> {
     let key = if config.auth_mode == ModelAuthMode::None { "" } else { key };
-    let batches = jev_batches(query, candidates, evidence, &config.model)?;
+    let batches = jev_batches_with_runtime(query, candidates, evidence, &config.model, runtime)?;
     let url = endpoint(config, true);
     let result: Vec<Vec<Candidate>> = stream::iter(batches.into_iter().map(|(payload, items)| {
         let url = &url;
-        async move { score_batch(client, url, key, payload, items, timeout, cancel).await }
+        async move { score_batch(client, url, key, payload, items, timeout, runtime, cancel).await }
     }))
-    .buffered(20)
+    .buffered(runtime.jev_concurrency)
     .try_collect()
     .await?;
     Ok(result.into_iter().flatten().collect())
@@ -291,12 +318,13 @@ async fn score_batch(
     payload: Value,
     items: Vec<Candidate>,
     timeout: u64,
+    runtime: &RuntimeSettings,
     cancel: &CancellationToken,
 ) -> Result<Vec<Candidate>> {
     let mut pending = std::collections::VecDeque::from([(payload, items)]);
     let mut scored = vec![];
     while let Some((payload, mut items)) = pending.pop_front() {
-        let response = match request(client, url, key, &payload, timeout, cancel).await {
+        let response = match request_with_runtime(client, url, key, &payload, timeout, runtime, cancel).await {
             Ok(response) => response,
             Err(error) => {
                 if items.len() == 1 || !error.downcast_ref::<RequestError>().is_some_and(|error| {
@@ -553,14 +581,21 @@ pub async fn answer(
     plan: &AnswerPlan,
     timeout: u64,
     cancel: &CancellationToken,
-    mut emit: impl FnMut(&str),
+    emit: impl FnMut(&str),
 ) -> Result<AnswerResult> {
-    let turn = chat_turn(
+    answer_with_runtime(client, config, key, plan, timeout, &Default::default(), cancel, emit).await
+}
+pub async fn answer_with_runtime(
+    client: &Client, config: &ModelConfig, key: &str, plan: &AnswerPlan, timeout: u64,
+    runtime: &RuntimeSettings, cancel: &CancellationToken, mut emit: impl FnMut(&str),
+) -> Result<AnswerResult> {
+    let turn = chat_turn_with_runtime(
         client,
         config,
         key,
         &plan.payload,
         timeout,
+        runtime,
         cancel,
         |delta| {
             if let ChatDelta::Content(text) = delta {
@@ -595,14 +630,21 @@ pub async fn chat_turn(
     payload: &Value,
     timeout: u64,
     cancel: &CancellationToken,
-    mut emit: impl FnMut(ChatDelta<'_>),
+    emit: impl FnMut(ChatDelta<'_>),
 ) -> Result<ChatTurn> {
-    let response = request(
+    chat_turn_with_runtime(client, config, key, payload, timeout, &Default::default(), cancel, emit).await
+}
+pub async fn chat_turn_with_runtime(
+    client: &Client, config: &ModelConfig, key: &str, payload: &Value, timeout: u64,
+    runtime: &RuntimeSettings, cancel: &CancellationToken, mut emit: impl FnMut(ChatDelta<'_>),
+) -> Result<ChatTurn> {
+    let response = request_with_runtime(
         client,
         &endpoint(config, false),
         key,
         payload,
         timeout,
+        runtime,
         cancel,
     )
     .await?;
@@ -1396,6 +1438,25 @@ mod transport_tests {
         assert!(requests.iter().all(|r| r["state"] == requests[0]["state"]));
     }
 
+    #[tokio::test]
+    async fn configured_zero_retries_applies_to_http_499() {
+        let url = server("HTTP/1.1 499 Client Closed Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned());
+        let mut runtime = RuntimeSettings::default();
+        runtime.retry_count = 0;
+        let result = request_with_runtime(&Client::new(), &url, "test-only", &json!({}), 5, &runtime, &CancellationToken::new()).await;
+        assert!(result.unwrap_err().to_string().contains("499"));
+    }
+    #[tokio::test]
+    async fn total_deadline_bounds_retry_backoff() {
+        let url = server("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned());
+        let mut runtime = RuntimeSettings::default();
+        runtime.retry_base_secs = 30;
+        runtime.retry_total_secs = 1;
+        let started = std::time::Instant::now();
+        let result = request_with_runtime(&Client::new(), &url, "test-only", &json!({}), 5, &runtime, &CancellationToken::new()).await;
+        assert!(result.unwrap_err().to_string().contains("总时间限制"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
     #[tokio::test]
     async fn v10_499_retries_the_current_request() {
         let rejected = "HTTP/1.1 499 Client Closed Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned();

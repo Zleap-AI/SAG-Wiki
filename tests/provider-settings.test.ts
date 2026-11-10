@@ -34,7 +34,7 @@ afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerH
 
 it('已有 302 配置默认显示 302，打开设置不覆盖地址',async()=>{
  await setup();expect(trigger('answer').textContent).toContain('302.AI');expect(trigger('jev').textContent).toContain('302.AI');
- expect(address('answer').value).toBe(value.answer.url);expect(address('jev').value).toBe(value.jev.url);expect(api).not.toHaveBeenCalled();
+ expect(address('answer').value).toBe(value.answer.url);expect(address('jev').value).toBe(value.jev.url);expect(api.mock.calls.filter(([command])=>!['runtime_schema'].includes(command))).toHaveLength(0);
 });
 it('302 密钥入口打开指定网页，切换供应商后隐藏',async()=>{
  await setup();
@@ -81,7 +81,7 @@ it('供应商切换不会将已保存或已输入的另一家密钥用于测试�
  const settings=structuredClone(value);settings.answer.has_key=true;const onSave=await setup(settings);
  await choose('answer','openai');expect(key('answer').placeholder).toBe('填写 API 密钥');
  card('answer').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
- await vi.waitFor(()=>expect(document.body.textContent).toContain('切换供应商后，请填写对应的 API 密钥。'));expect(api).not.toHaveBeenCalled();
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('切换供应商后，请填写对应的 API 密钥。'));expect(api.mock.calls.filter(([command])=>!['runtime_schema'].includes(command))).toHaveLength(0);
  await save();expect(onSave).not.toHaveBeenCalled();
  await input(key('answer'),'test-openai-key');await choose('answer','302');expect(key('answer').value).toBe('');
  await choose('answer','openai');await input(key('answer'),'test-new-key');api.mockResolvedValue('连接成功');
@@ -160,5 +160,5 @@ it('切回 API Key 后仍禁止复用原供应商的保存密钥',async()=>{
  expect(key('jev').placeholder).toBe('填写 API 密钥');
  card('jev').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
  await vi.waitFor(()=>expect(document.body.textContent).toContain('切换供应商后，请填写对应的 API 密钥。'));
- expect(api).not.toHaveBeenCalled();await save();expect(onSave).not.toHaveBeenCalled();
+ expect(api.mock.calls.filter(([command])=>!['runtime_schema'].includes(command))).toHaveLength(0);await save();expect(onSave).not.toHaveBeenCalled();
 });

@@ -458,7 +458,8 @@ fn save_settings(
                 })
                 .map_err(error)?
         }
-    } else if old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
+    } else if old.runtime.content_identity() != settings.runtime.content_identity()
+        || old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
         for root in state.store.roots().map_err(error)? {
             state
                 .scan
@@ -648,8 +649,8 @@ async fn summarize_search(
             &config, &question, results, settings.answer_context_tokens,
             settings.answer_output_tokens.min(settings.answer_context_tokens / 4),
         )?;
-        let answer = models::answer(&state.client, &config, &key, &plan,
-            settings.timeout_secs, &cancel, |delta| {
+        let answer = models::answer_with_runtime(&state.client, &config, &key, &plan,
+            settings.timeout_secs, &settings.runtime, &cancel, |delta| {
                 emit(app, "query-progress", Progress {
                     id: id.clone(), stage: "正在总结搜索结果".into(),
                     delta: Some(delta.into()), reasoning_delta: None, reasoning_block: None,
@@ -892,6 +893,7 @@ async fn execute_query(
                 settings.timeout_secs,
                 cancel,
                 agent::AgentOptions {
+                    runtime: Some(&settings.runtime),
                     max_tool_calls: settings.max_tool_calls,
                     sag2_enabled: false,
                     system_prompt: &profile.system_prompt,
@@ -961,7 +963,7 @@ async fn execute_query(
                     let key = &jev_key;
                     let settings = &settings;
                     async move {
-                        models::score(
+                        models::score_with_runtime(
                             &state.client,
                             &settings.jev,
                             key,
@@ -969,6 +971,7 @@ async fn execute_query(
                             candidates,
                             &evidence,
                             settings.timeout_secs,
+                            &settings.runtime,
                             cancel,
                         )
                         .await
@@ -1097,7 +1100,11 @@ impl Service {
                 Err(mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            for request in indexer::receive_batch(&rx, first) {
+            let runtime=match worker_store.settings() {
+                Ok(settings)=>settings.runtime,
+                Err(error)=>{emit(&handle,"app-error",error.to_string());continue;}
+            };
+            for request in indexer::receive_batch_with_runtime(&rx, first, &runtime) {
                 match worker_store.roots().and_then(|roots| worker_watcher.reconcile(&roots)) {
                     Ok(()) => {},
                     Err(err) => emit(&handle, "app-error", format!("文件监听清理失败：{err}")),
@@ -1345,6 +1352,7 @@ impl Service {
                 delete_draft(path, self)?;
                 Out::Unit
             }
+            Op::RuntimeSchema => Out::Text(serde_json::to_string(&serde_json::json!({"defaults": sag_protocol::runtime::RuntimeSettings::default(), "fields": sag_protocol::runtime::fields(), "resources": crate::docling_budget::resource_summary(&self.store.settings().map_err(error)?.runtime).ok()})).map_err(error)?),
             Op::GetSettings => Out::Settings(get_settings(self)?),
             Op::RegisterDoclingComponent { path } => {
                 self.store.docling.set_component_source(std::path::PathBuf::from(path)).map_err(error)?;

@@ -266,6 +266,7 @@ impl Default for UpdateSettings {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
+    pub runtime: crate::runtime::RuntimeSettings,
     pub updates: UpdateSettings,
     pub convert_other_formats: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -301,6 +302,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
+            runtime: crate::runtime::RuntimeSettings::default(),
             updates: UpdateSettings::default(),
             convert_other_formats: false,
             conversion_formats: None,

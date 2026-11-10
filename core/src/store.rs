@@ -10,7 +10,7 @@ use std::{
     fs,
     io::{Read, Write},
     path::{Path, PathBuf},
-    sync::{Arc, Condvar, Mutex, MutexGuard},
+    sync::{Arc, Condvar, Mutex, MutexGuard, RwLock},
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -19,9 +19,8 @@ use std::{
 // Leave room for source/decoded strings, chunk metadata, tokenization and vocabulary.
 const TEXT_PREPARATION_BUDGET: usize = 512 * 1024 * 1024;
 const MIN_TEXT_PREPARATION_BYTES: usize = 64 * 1024 * 1024;
+#[cfg(test)]
 const MAX_TEXT_INPUT_BYTES: usize = 16 * 1024 * 1024;
-const MAX_DECODED_TEXT_BYTES: usize = 32 * 1024 * 1024;
-const MAX_PREPARED_TEXT_BYTES: usize = 64 * 1024 * 1024;
 
 struct PreparationBudget {
     limit: usize,
@@ -37,11 +36,14 @@ impl PreparationBudget {
         Arc::new(Self { limit, used: Mutex::new(0), released: Condvar::new() })
     }
     fn reserve(self: &Arc<Self>, bytes: usize, cancelled: impl Fn() -> bool) -> Result<PreparationPermit> {
-        anyhow::ensure!(bytes <= self.limit, "文本准备预算不足");
+        self.reserve_with_limit(bytes, self.limit, cancelled)
+    }
+    fn reserve_with_limit(self: &Arc<Self>, bytes: usize, limit: usize, cancelled: impl Fn() -> bool) -> Result<PreparationPermit> {
+        anyhow::ensure!(bytes <= limit, "文本准备预算不足");
         let mut used = self.used.lock().expect("text preparation budget poisoned");
         loop {
             if cancelled() { bail!("索引已停止") }
-            if *used <= self.limit - bytes {
+            if *used <= limit - bytes {
                 *used += bytes;
                 return Ok(PreparationPermit { budget: self.clone(), bytes });
             }
@@ -55,9 +57,11 @@ impl Drop for PreparationPermit {
         self.budget.released.notify_all();
     }
 }
-fn preparation_reservation(path: &Path) -> usize {
-    let bytes = fs::metadata(path).map_or(0, |metadata| metadata.len().min(MAX_TEXT_INPUT_BYTES as u64) as usize);
-    (bytes.saturating_mul(16) + 16 * 1024 * 1024).clamp(MIN_TEXT_PREPARATION_BYTES, TEXT_PREPARATION_BUDGET)
+#[cfg(test)]
+fn preparation_reservation(path: &Path) -> usize { preparation_reservation_with_runtime(path, &Default::default()) }
+fn preparation_reservation_with_runtime(path: &Path, runtime: &sag_protocol::runtime::RuntimeSettings) -> usize {
+    let bytes = fs::metadata(path).map_or(0, |metadata| metadata.len().min((runtime.max_text_input_mib * 1024 * 1024) as u64) as usize);
+    (bytes.saturating_mul(16) + 16 * 1024 * 1024).clamp(MIN_TEXT_PREPARATION_BYTES, runtime.text_preparation_mib * 1024 * 1024)
 }
 struct PreparedChunk {
     chunk: text::Chunk,
@@ -83,13 +87,14 @@ pub struct Store {
     pub indexing: crate::index_status::IndexControl,
     pub(crate) docling: Arc<crate::docling::Docling>,
     db: Mutex<Connection>,
-    query_readers: Vec<Mutex<Connection>>,
+    query_readers: Vec<Mutex<Option<Connection>>>,
+    query_path: PathBuf,
+    runtime: RwLock<sag_protocol::runtime::RuntimeSettings>,
     query_cache: Mutex<QueryCache>,
     text_preparation: Arc<PreparationBudget>,
 }
-const QUERY_WORKERS: usize = 8;
+#[cfg(test)]
 const QUERY_CACHE_ENTRIES: usize = 256;
-const CORPUS_CACHE_ENTRIES: usize = 8;
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct CorpusScope {
@@ -147,11 +152,13 @@ impl QueryCache {
         }
     }
 
-    fn insert(&mut self, version: i64, key: CandidateQuery, rows: Vec<Candidate>) {
+    #[cfg(test)]
+    fn insert(&mut self, version: i64, key: CandidateQuery, rows: Vec<Candidate>) { self.insert_with_limit(version, key, rows, QUERY_CACHE_ENTRIES) }
+    fn insert_with_limit(&mut self, version: i64, key: CandidateQuery, rows: Vec<Candidate>, limit: usize) {
         // A reader of an older snapshot must not replace a newer cache generation.
         if self.version == Some(version) {
             self.entries.insert(key, rows);
-            if self.entries.len() > QUERY_CACHE_ENTRIES {
+            while self.entries.len() > limit {
                 self.entries.shift_remove_index(0);
             }
         }
@@ -364,20 +371,16 @@ impl Store {
         } else {
             db.pragma_update(None, "user_version", 9)?;
         }
-        let query_readers = (0..QUERY_WORKERS)
-            .map(|_| {
-                let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
-                register_rank(&reader)?;
-                reader.busy_timeout(std::time::Duration::from_secs(5))?;
-                Ok(Mutex::new(reader))
-            })
-            .collect::<Result<Vec<_>>>()?;
+        // Slots are cheap; open read connections only when a configured worker is used.
+        let query_readers = (0..64).map(|_| Mutex::new(None)).collect();
         let saved: Option<String> = db.query_row("SELECT value FROM preferences WHERE id=1", [], |r| r.get(0)).optional()?;
         let store = Self {
             indexing: crate::index_status::IndexControl::default(),
             docling: Arc::new(crate::docling::Docling::new(path.parent().context("数据库缺少父目录")?)),
             db: Mutex::new(db),
             query_readers,
+            query_path: path.to_path_buf(),
+            runtime: RwLock::new(Default::default()),
             query_cache: Mutex::new(QueryCache::default()),
             text_preparation: PreparationBudget::new(TEXT_PREPARATION_BUDGET),
         };
@@ -391,8 +394,20 @@ impl Store {
                 store.save_settings(&updated)?;
             }
         }
+        *store.runtime.write().expect("runtime settings poisoned") = store.settings()?.runtime;
         Ok(store)
     }
+    fn query_reader(&self, index: usize) -> Result<MutexGuard<'_, Option<Connection>>> {
+        let mut slot = self.query_readers[index].lock().expect("query reader mutex poisoned");
+        if slot.is_none() {
+            let reader = Connection::open_with_flags(&self.query_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+            register_rank(&reader)?;
+            reader.busy_timeout(Duration::from_secs(5))?;
+            *slot = Some(reader);
+        }
+        Ok(slot)
+    }
+    fn runtime_settings(&self) -> sag_protocol::runtime::RuntimeSettings { self.runtime.read().expect("runtime settings poisoned").clone() }
     pub fn connection(&self) -> MutexGuard<'_, Connection> {
         self.db.lock().expect("database mutex poisoned")
     }
@@ -423,6 +438,7 @@ impl Store {
         }
     }
     pub fn validate_settings(s: &Settings) -> Result<()> {
+        s.runtime.validate().map_err(anyhow::Error::msg)?;
         if s.answer.auth_mode != ModelAuthMode::Bearer {
             bail!("问答模型需要 API Key 鉴权；无需鉴权选项仅适用于 Jev")
         }
@@ -490,6 +506,7 @@ impl Store {
             transaction.execute("UPDATE metadata SET version=version+1", [])?;
         }
         transaction.commit()?;
+        *self.runtime.write().expect("runtime settings poisoned") = s.runtime.clone();
         Ok(())
     }
     pub fn roots(&self) -> Result<Vec<Root>> {
@@ -607,6 +624,7 @@ impl Store {
             DELETE FROM roots;
             UPDATE metadata SET version=version+1;")?;
         tx.commit()?;
+        *self.runtime.write().expect("runtime settings poisoned") = Default::default();
         self.reclaim_storage(&db)
     }
     pub fn excluded_directories(&self) -> Result<Vec<String>> {
@@ -1080,7 +1098,7 @@ impl Store {
                     completed += files.len().max(1);
                 }
                 Work::File(path) => {
-                    let result = self.indexing.file(root, &path, || self.prepare_file(&path, settings.retrieval.chunk_chars, true));
+                    let result = self.indexing.file(root, &path, || self.prepare_file_with_runtime(&path, settings.retrieval.chunk_chars, true, &settings.runtime));
                     if let Some(file) = self.prepared_or_issue(root, &path, result)? {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
@@ -1187,6 +1205,7 @@ impl Store {
         let convert = rules.converts_files() || !files.is_empty();
         Ok((files, convert))
     }
+    fn local_conversion_resource_failure(error:&anyhow::Error)->bool {error.downcast_ref::<crate::process_supervisor::Failure>().is_some_and(|error|error.kind==crate::process_supervisor::FailureKind::Memory)}
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
         let workers = settings.conversion_workers;
         let mut issues = vec![];
@@ -1252,13 +1271,13 @@ impl Store {
                         let source = &sources[index];
                         let source_text = path_text(source)?;
                         let mut converted = false;
+                        let mut previous_usable = false;
                         let mut unchanged_previous = None;
                         let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
                             let source_content_hash = crate::docling::fingerprint(source)?;
-                            let source_hash = if crate::anydoc::handles(source) {
-                                format!("{}:{source_content_hash}", crate::anydoc::CACHE_VERSION)
-                            } else { source_content_hash.clone() };
+                            let identity=if settings.runtime.content_identity()==sag_protocol::runtime::RuntimeSettings::default().content_identity() {String::new()}else{settings.runtime.content_identity()};
+                            let source_hash = if crate::anydoc::handles(source) {if identity.is_empty(){format!("{}:{source_content_hash}",crate::anydoc::CACHE_VERSION)}else{format!("{}:{identity}:{source_content_hash}",crate::anydoc::CACHE_VERSION)}}else if identity.is_empty(){source_content_hash.clone()}else{format!("{identity}:{source_content_hash}")};
                             let previous: Option<(String,String,bool)> = self.connection().query_row(
                                 "SELECT source_hash,output_hash,valid FROM conversions WHERE source=?", [&source_text],
                                 |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
@@ -1268,6 +1287,7 @@ impl Store {
                                     if *valid && previous_content == source_content_hash {
                                         unchanged_previous = Some(source_content_hash.clone());
                                     }
+                                    previous_usable = *valid && crate::docling::fingerprint(&output)? == *previous_output;
                                     if previous_source == &source_hash {
                                         self.connection().execute("UPDATE conversions SET valid=1 WHERE source=?", [&source_text])?;
                                         return Ok(true);
@@ -1282,13 +1302,13 @@ impl Store {
                             // relative source links from directory depth, not the file name.
                             let staged = tempfile::Builder::new().prefix(".sag-pending-").suffix(".md")
                                 .tempfile_in(output.parent().unwrap())?.into_temp_path();
-                            self.indexing.file(root, source, || self.docling.convert_cancellable(source, &staged, || self.indexing.stopped()))?;
+                            self.indexing.file(root, source, || self.docling.convert_with_runtime(source, &staged, &settings.runtime, || self.indexing.stopped()))?;
                             converted = true;
                             // Pause between conversion and acceptance without retaining an
                             // "active file" entry or a database lock.
                             self.indexing.checkpoint()?;
                             if let Err(error) = self.publish_converted_file(root, source, &source_hash, &source_content_hash, &output, staged,
-                                previous.as_ref().map(|(_, hash, _)| hash.as_str()), settings.retrieval.chunk_chars) {
+                                previous.as_ref().map(|(_, hash, _)| hash.as_str()), settings.retrieval.chunk_chars, &settings.runtime) {
                                 // Keep successful history stages stable; add a failed entry
                                 // only when acceptance rejects an otherwise converted file.
                                 self.indexing.file(root, source, || Err::<(), _>(error))?;
@@ -1297,7 +1317,7 @@ impl Store {
                         })();
                         let source_unchanged = unchanged_previous.as_ref().is_some_and(|hash|
                             crate::docling::fingerprint(source).is_ok_and(|current| &current == hash));
-                        let preserve_previous = source_unchanged || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
+                        let preserve_previous = source_unchanged || previous_usable && result.as_ref().err().is_some_and(Self::local_conversion_resource_failure) || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
                         tx.send((source_text, result, preserve_previous))?;
                     }
                     Ok(())
@@ -1314,7 +1334,7 @@ impl Store {
                     issues.push((source, error.to_string()));
                 } else if result.unwrap() {
                     let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
-                    if let Some(file) = self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false)? {
+                    if let Some(file) = self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false, &settings.runtime)? {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
                         Self::write_prepared(&tx, root, file)?;
@@ -1340,10 +1360,10 @@ impl Store {
         Ok(issues)
     }
     fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, source_content_hash: &str, output: &Path,
-        staged: tempfile::TempPath, previous_hash: Option<&str>, max_chars: usize) -> Result<()> {
-        let reserved = preparation_reservation(&staged);
-        let permit = self.text_preparation.reserve(reserved, || self.indexing.stopped())?;
-        let mut prepared = self.prepare_file_at(output, &staged, max_chars, true, reserved)?
+        staged: tempfile::TempPath, previous_hash: Option<&str>, max_chars: usize, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<()> {
+        let reserved = preparation_reservation_with_runtime(&staged, &runtime);
+        let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.stopped())?;
+        let mut prepared = self.prepare_file_at_with_runtime(output, &staged, max_chars, true, reserved, &runtime)?
             .context("转换文件准备未生成完整索引")?;
         prepared._permit = Some(permit);
         self.indexing.checkpoint()?;
@@ -1468,20 +1488,20 @@ impl Store {
             let mut window = Vec::new();
             let mut reserved = 0;
             while next < files.len() && window.len() < settings.index_workers {
-                let bytes = preparation_reservation(&files[next]);
-                if reserved + bytes > TEXT_PREPARATION_BUDGET { break; }
+                let bytes = preparation_reservation_with_runtime(&files[next], &settings.runtime);
+                if reserved + bytes > settings.runtime.text_preparation_mib * 1024 * 1024 { break; }
                 window.push((&files[next], bytes));
                 reserved += bytes;
                 next += 1;
             }
-            let _permit = self.text_preparation.reserve(reserved, || self.indexing.stopped())?;
+            let _permit = self.text_preparation.reserve_with_limit(reserved, settings.runtime.text_preparation_mib * 1024 * 1024, || self.indexing.stopped())?;
             let max_chars = settings.retrieval.chunk_chars;
             thread::scope(|scope| -> Result<()> {
                 let mut handles = Vec::new();
                 for (path, bytes) in window {
                     seen.insert(path_text(path)?);
                     handles.push(scope.spawn(move || {
-                        let result = self.indexing.file(root, path, || self.prepare_file_reserved(path, max_chars, verify, bytes));
+                        let result = self.indexing.file(root, path, || self.prepare_file_at_with_runtime(path, path, max_chars, verify, bytes, &settings.runtime));
                         self.prepared_or_issue(root, path, result)
                     }));
                 }
@@ -1543,16 +1563,16 @@ impl Store {
         Ok(changed)
     }
     fn prepare_file(&self, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
-        let reserved = preparation_reservation(path);
-        let permit = self.text_preparation.reserve(reserved, || self.indexing.stopped())?;
-        let mut prepared = self.prepare_file_reserved(path, max_chars, verify, reserved)?;
+        self.prepare_file_with_runtime(path, max_chars, verify, &self.runtime_settings())
+    }
+    fn prepare_file_with_runtime(&self, path: &Path, max_chars: usize, verify: bool, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
+        let reserved = preparation_reservation_with_runtime(path, runtime);
+        let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.stopped())?;
+        let mut prepared = self.prepare_file_at_with_runtime(path, path, max_chars, verify, reserved, runtime)?;
         if let Some(file) = &mut prepared { file._permit = Some(permit); }
         Ok(prepared)
     }
-    fn prepare_file_reserved(&self, path: &Path, max_chars: usize, verify: bool, reserved: usize) -> Result<Option<PreparedFile>> {
-        self.prepare_file_at(path, path, max_chars, verify, reserved)
-    }
-    fn prepare_file_at(&self, path: &Path, read_path: &Path, max_chars: usize, verify: bool, reserved: usize) -> Result<Option<PreparedFile>> {
+    fn prepare_file_at_with_runtime(&self, path: &Path, read_path: &Path, max_chars: usize, verify: bool, reserved: usize, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
         let path_string = path_text(path)?;
         let metadata = fs::metadata(read_path)?;
         let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
@@ -1565,13 +1585,13 @@ impl Store {
         if path == read_path && unchanged && !verify {
             return Ok(None);
         }
-        if metadata.len() > MAX_TEXT_INPUT_BYTES as u64 {
-            return Err(text::ResourceLimit("原生文本文件不得超过 16 MiB".into()).into());
+        if metadata.len() > (runtime.max_text_input_mib * 1024 * 1024) as u64 {
+            return Err(text::ResourceLimit(format!("索引正文输入不得超过 {} MiB", runtime.max_text_input_mib)).into());
         }
-        let admitted_input = (reserved.saturating_sub(16 * 1024 * 1024) / 16).min(MAX_TEXT_INPUT_BYTES);
+        let admitted_input = (reserved.saturating_sub(16 * 1024 * 1024) / 16).min(runtime.max_text_input_mib * 1024 * 1024);
         // A growing file must not turn a small reservation into a large allocation.
         // The largest reservation is capped at the full budget, so keep its explicit input cap.
-        let admitted_input = if reserved == TEXT_PREPARATION_BUDGET { MAX_TEXT_INPUT_BYTES } else { admitted_input };
+        let admitted_input = if reserved == (runtime.text_preparation_mib * 1024 * 1024) { runtime.max_text_input_mib * 1024 * 1024 } else { admitted_input };
         if metadata.len() > admitted_input as u64 {
             return Err(text::ResourceLimit("文件在准备期间增大，请重新索引以重新分配预算".into()).into());
         }
@@ -1593,13 +1613,13 @@ impl Store {
             return Ok(None);
         }
         let body = body(path, &bytes)?;
-        if body.len() > MAX_DECODED_TEXT_BYTES {
-            return Err(text::ResourceLimit("解码后正文不得超过 32 MiB".into()).into());
+        if body.len() > (runtime.max_decoded_text_mib * 1024 * 1024) {
+            return Err(text::ResourceLimit(format!("解码后正文不得超过 {} MiB", runtime.max_decoded_text_mib)).into());
         }
         self.indexing.checkpoint()?;
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let title = text::index_text(&name);
-        let prepared_limit = MAX_PREPARED_TEXT_BYTES.min(reserved / 2);
+        let prepared_limit = (runtime.max_prepared_text_mib * 1024 * 1024).min(reserved / 2);
         let source_chunks = text::chunks_for_index(&body, max_chars, path, prepared_limit / 2)?;
         let mut used = 0usize;
         let mut chunks = Vec::with_capacity(source_chunks.len());
@@ -1643,8 +1663,8 @@ impl Store {
             note_body,
         }))
     }
-    fn prepare_indexed_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
-        self.prepared_or_issue(root, path, self.prepare_file(path, max_chars, verify))
+    fn prepare_indexed_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
+        self.prepared_or_issue(root, path, self.prepare_file_with_runtime(path, max_chars, verify, runtime))
     }
     fn prepared_or_issue(&self, root: &str, path: &Path, result: Result<Option<PreparedFile>>) -> Result<Option<PreparedFile>> {
         match result {
@@ -1863,7 +1883,7 @@ impl Store {
     ) -> Result<Vec<Vec<Candidate>>> {
         let mut excluded = excluded.to_vec();
         excluded.sort_unstable();
-        let workers = required.len().min(QUERY_WORKERS);
+        let workers = required.len().min(self.runtime_settings().query_workers);
         let batches = thread::scope(|threads| {
             let handles: Vec<_> = (0..workers).map(|worker| {
                 let excluded = &excluded;
@@ -1895,7 +1915,8 @@ impl Store {
     }
 
     fn candidate_query_on(&self, reader: usize, key: CandidateQuery) -> Result<Vec<Candidate>> {
-        let mut connection = self.query_readers[reader].lock().expect("query reader mutex poisoned");
+        let mut slot = self.query_reader(reader)?;
+        let connection = slot.as_mut().expect("query reader initialized");
         let transaction = connection.transaction()?;
         // The version and candidates come from the same SQLite read snapshot.
         let version = transaction.query_row("SELECT version FROM metadata WHERE id=1", [], |row| row.get(0))?;
@@ -1908,11 +1929,11 @@ impl Store {
                 let documents = self.scope_document_ids(&transaction, version, &key.scope, &key.references)?;
                 Self::query_candidate_metadata(&transaction, &key, &stats, documents.as_deref())?
             };
-            self.query_cache.lock().expect("query cache mutex poisoned").insert(version, key, rows.clone());
+            self.query_cache.lock().expect("query cache mutex poisoned").insert_with_limit(version, key, rows.clone(), self.runtime_settings().query_cache_entries);
             rows
         };
         transaction.commit()?;
-        drop(connection);
+        drop(slot);
         let mut documents = HashMap::new();
         let mut hydrated = Vec::with_capacity(metadata.len());
         for candidate in metadata {
@@ -1934,7 +1955,7 @@ impl Store {
         ).optional()?.unwrap_or_default();
         if cache.version == Some(version) {
             cache.rank_stats.insert(expression.to_owned(), stats.clone());
-            if cache.rank_stats.len() > QUERY_CACHE_ENTRIES { cache.rank_stats.shift_remove_index(0); }
+            while cache.rank_stats.len() > self.runtime_settings().query_cache_entries { cache.rank_stats.shift_remove_index(0); }
         }
         Ok(stats)
     }
@@ -1964,7 +1985,7 @@ impl Store {
         let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
         if cache.version == Some(version) {
             cache.scope_documents.insert(key, documents.clone());
-            if cache.scope_documents.len() > CORPUS_CACHE_ENTRIES { cache.scope_documents.shift_remove_index(0); }
+            while cache.scope_documents.len() > self.runtime_settings().corpus_cache_entries { cache.scope_documents.shift_remove_index(0); }
         }
         Ok(documents)
     }
@@ -2112,7 +2133,7 @@ impl Store {
         let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
         if cache.refresh(version) {
             cache.corpora.insert(key, corpus.clone());
-            if cache.corpora.len() > CORPUS_CACHE_ENTRIES { cache.corpora.shift_remove_index(0); }
+            while cache.corpora.len() > self.runtime_settings().corpus_cache_entries { cache.corpora.shift_remove_index(0); }
         }
         Ok(corpus)
     }
@@ -2141,10 +2162,11 @@ impl Store {
     }
 
     pub fn frequencies(&self, terms: &[String]) -> Result<HashMap<String, usize>> {
-        let workers = terms.len().min(QUERY_WORKERS);
+        let workers = terms.len().min(self.runtime_settings().query_workers);
         let batches = thread::scope(|threads| {
             let handles: Vec<_> = (0..workers).map(|worker| threads.spawn(move || -> Result<Vec<(String, usize)>> {
-                let mut connection = self.query_readers[worker].lock().expect("query reader mutex poisoned");
+                let mut slot = self.query_reader(worker)?;
+                let connection = slot.as_mut().expect("query reader initialized");
                 let transaction = connection.transaction()?;
                 let version: i64 = transaction.query_row("SELECT version FROM metadata WHERE id=1", [], |row| row.get(0))?;
                 let mut results = vec![];
@@ -2279,6 +2301,80 @@ impl Store {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn runtime_snapshot_survives_settings_change_between_watcher_files() {
+        let (_dir, store, root) = setup();
+        let first = root.join("first.txt");
+        let second = root.join("second.txt");
+        let contents = format!("snapshotmarker\n{}", "valid text contents.\n".repeat(55000));
+        assert!(contents.len() > 1024 * 1024);
+        fs::write(&first, &contents).unwrap();
+        fs::write(&second, &contents).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.runtime.max_text_input_mib = 2;
+        settings.runtime.conversion_output_mib = 2;
+        store.save_settings(&settings).unwrap();
+        store.update_paths(root.to_str().unwrap(), &[first, second.clone()], |progress| {
+            if progress.count == 1 {
+                let mut lower = store.settings().unwrap();
+                lower.runtime.max_text_input_mib = 1;
+                lower.runtime.conversion_output_mib = 1;
+                store.save_settings(&lower).unwrap();
+            }
+        }).unwrap();
+        let issues: usize = store.connection().query_row("SELECT count(*) FROM index_issues", [], |row| row.get(0)).unwrap();
+        assert_eq!(issues, 0, "remaining files must retain the task's startup limits");
+        assert_eq!(store.files().unwrap().len(), 2);
+        store.update_paths(root.to_str().unwrap(), &[second], |_| {}).unwrap();
+        let issues: usize = store.connection().query_row("SELECT count(*) FROM index_issues", [], |row| row.get(0)).unwrap();
+        assert_eq!(issues, 1, "the next task must use the newly saved lower limit");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn runtime_snapshot_survives_settings_change_before_cached_conversion_acceptance() {
+        let (_dir, store, root) = converted_text_fixture();
+        let source = root.join("cached.eml");
+        fs::write(&source, format!("snapshotmarker\n{}", "valid text contents.\n".repeat(55000))).unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.runtime.max_text_input_mib = 2;
+        settings.runtime.conversion_output_mib = 2;
+        store.save_settings(&settings).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        store.remove_indexed(&path_text(&output).unwrap()).unwrap();
+        let changed = std::cell::Cell::new(false);
+        let accepted_during_conversion = std::cell::Cell::new(false);
+        store.scan(root.to_str().unwrap(), |progress| {
+            if progress.count == 1 && store.indexing.task(root.to_str().unwrap()).stage == "converting" {
+                accepted_during_conversion.set(store.files().unwrap().len() == 1);
+            }
+            if progress.count == 0 && store.indexing.task(root.to_str().unwrap()).stage == "converting" && !changed.replace(true) {
+                let mut lower = store.settings().unwrap();
+                lower.runtime.max_text_input_mib = 1;
+                lower.runtime.conversion_output_mib = 1;
+                store.save_settings(&lower).unwrap();
+            }
+        }).unwrap();
+        assert!(changed.get());
+        assert!(accepted_during_conversion.get(), "cached output must be searchable before the conversion phase finishes");
+        let issues: usize = store.connection().query_row("SELECT count(*) FROM index_issues", [], |row| row.get(0)).unwrap();
+        assert_eq!(issues, 0, "cache acceptance must retain the task's startup limits");
+        assert_eq!(store.files().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn configured_query_workers_open_readers_lazily() {
+        let (_dir, store, _notes) = setup();
+        assert!(store.query_readers.iter().all(|reader| reader.lock().unwrap().is_none()));
+        let mut settings = store.settings().unwrap();
+        settings.runtime.query_workers = 1;
+        store.save_settings(&settings).unwrap();
+        store.frequencies(&["alpha".into(), "beta".into()]).unwrap();
+        assert_eq!(store.query_readers.iter().filter(|reader| reader.lock().unwrap().is_some()).count(), 1);
+        assert_eq!(store.runtime_settings().query_workers, 1);
+    }
+
     fn setup() -> (tempfile::TempDir, Store, PathBuf) {
         let dir = tempfile::tempdir().unwrap();
         let notes = dir.path().join("notes");
