@@ -2161,6 +2161,26 @@ fn downloaded_uv_archive_is_imported_without_manual_extraction() {
 
 #[cfg(unix)]
 #[test]
+fn importing_the_manifest_file_uses_its_component_folder() {
+    let temp = tempfile::tempdir().unwrap();
+    let source = temp.path().join("offline");
+    fs::create_dir_all(source.join("python/bin")).unwrap();
+    fs::create_dir(source.join("site-packages")).unwrap();
+    fs::create_dir(source.join("models")).unwrap();
+    let python = source.join("python/bin/python3.12");
+    fs::write(&python, b"#!/bin/sh\nwhile [ $# -gt 0 ]; do\n if [ \"$1\" = --output-file ]; then shift; printf '# Offline probe fixture\\n' > \"$1\"; exit 0; fi\n shift\ndone\nexit 1\n").unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(&python, fs::Permissions::from_mode(0o755)).unwrap();
+    crate::docling_component::write_manifest(&source, &python, &|| false).unwrap();
+    let converter = Arc::new(Docling::new(&temp.path().join("data")));
+    converter.import_component(source.join("manifest.json")).unwrap();
+    let status = finished(&converter);
+    assert_eq!(status.stage, "done", "{:?}", status.error);
+    assert!(status.installed);
+}
+
+#[cfg(unix)]
+#[test]
 fn offline_uv_import_rejects_another_uv_version_with_the_download_url() {
     let temp = tempfile::tempdir().unwrap();
     offline_uv(&temp.path().join("offline"), "0.1.0");

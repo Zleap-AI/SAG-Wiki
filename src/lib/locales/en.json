@@ -249,7 +249,6 @@
   "数据与隐私": "Data and privacy",
   "文件名": "File name",
   "SAG Wiki": "SAG Wiki",
-  "文件夹": "Folders",
   "文件夹已加入，正在建立本地索引": "Folder added. Building the local index.",
   "文件夹是空的": "This folder is empty",
   "文件夹选项": "Folder options",
@@ -1587,7 +1586,6 @@
   "正在准备文件监听": "Preparing file monitoring",
   "正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。": "Preparing file monitoring. Large folders may take a few minutes; indexed content remains searchable.",
   "文件监听失败，自动更新受限；请在索引设置中重建索引以重试。": "File monitoring failed; automatic updates are limited. Rebuild the index in indexing settings to retry.",
-  "选择解压后的文档识别组件或 uv 目录": "Choose the extracted document component or uv folder",
   "自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可选择解压后的 uv 目录，其余部分仍在线下载。": "If automatic download fails or this computer is offline, import a complete document component. Extract the package and select the folder containing manifest.json. It must match your system and component version and include the runtime, dependencies and models. If only the uv runtime manager failed to download, you can select the extracted uv folder instead; the remaining parts still download online.",
   "导入离线组件": "Import offline component",
   "所选目录既不是完整组件（缺少 manifest.json），也不包含 {value0}，请选择解压后的目录": "The selected folder is neither a complete component (manifest.json is missing) nor contains {value0}. Select the extracted folder",
@@ -1692,5 +1690,9 @@
   "parsing": "Parsing document",
   "downloading": "Downloading result",
   "PDF 页数超过配置上限（{value0} > {value1}）": "PDF page count exceeds the configured limit ({value0} > {value1})",
-  "无法检查 PDF 页数：{value0}": "Could not check the PDF page count: {value0}"
+  "无法检查 PDF 页数：{value0}": "Could not check the PDF page count: {value0}",
+  "自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可直接选择下载的 uv 压缩包或解压后的目录，其余部分仍在线下载。": "If automatic download fails or this computer is offline, import a complete document component. Extract the package and select the folder containing manifest.json. It must match your system and component version and include the runtime, dependencies and models. If only the uv runtime manager failed to download, select the downloaded uv archive or its extracted folder instead; the remaining parts still download online.",
+  "选择组件的 manifest.json、uv 可执行文件或 uv 压缩包": "Choose the component manifest.json, uv executable, or uv archive",
+  "文档识别组件或 uv": "Document component or uv",
+  "自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择其中的 manifest.json；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可直接选择下载的 uv 压缩包或解压后的 uv，其余部分仍在线下载。": "If automatic download fails or this computer is offline, import a complete document component. Extract the package and select its manifest.json. It must match your system and component version and include the runtime, dependencies and models. If only the uv runtime manager failed to download, select the downloaded uv archive or the extracted uv executable instead; the remaining parts still download online."
 }

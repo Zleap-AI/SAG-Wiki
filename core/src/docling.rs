@@ -383,6 +383,15 @@ impl Docling {
             return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
         }
         if path.is_file() {
+            if path.file_name().is_some_and(|name| name == "manifest.json") {
+                let parent = path.parent().context("组件清单缺少父目录")?;
+                let source = OfflineImport::Component(parent.canonicalize()?);
+                return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
+            }
+            if path.file_name().is_some_and(|name| name == UV_EXECUTABLE) {
+                let source = OfflineImport::Uv(path.canonicalize()?);
+                return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
+            }
             return self.start_profiles_from(
                 vec![DoclingProfile::Documents],
                 Some(OfflineImport::UvArchive(path.canonicalize()?)),

@@ -92,13 +92,13 @@ Desktop release packages include pinned uv and Python 3.12 runtimes. The first D
 
 SAG does not automatically reuse the system Python. Docling binary dependencies are sensitive to the Python ABI, architecture, dynamic libraries and exact version. Reusing a user Python, virtual environment or package directory can cause conflicts and makes the result non-reproducible. Use a complete component with `manifest.json` for a fully offline or custom runtime.
 
-In the file parsing support installer, choose **Import offline component**, then select the extracted complete document component folder containing `manifest.json`. SAG checks its platform, component version and file integrity, then runs a sample conversion. Once ready, choose **Apply selected formats**. Reindex the folder if previous files failed to convert.
+In the file parsing support installer, choose **Import offline component**, then select the `manifest.json` inside the extracted complete document component. SAG checks its platform, component version and file integrity, then runs a sample conversion. Once ready, choose **Apply selected formats**. Reindex the folder if previous files failed to convert.
 
 The component must include Python, recognition dependencies and models. A standalone Python installer or model download is not a complete component. This entry supports document components only; audio and video still use online installation. A failed import does not fall back to online downloads. Select another folder to retry offline, or choose Retry installation to install online.
 
 #### When only the uv download fails
 
-This can only affect older builds without the bundled runtime, development builds or standalone services. If the error still says the runtime manager could not be downloaded (for example, `github.com/astral-sh/uv` timed out), open the address from the error in a browser to download the uv archive (`uv-x86_64-pc-windows-msvc.zip` on Windows x64). Extract it, choose **Import offline component** and select the extracted folder. Once SAG confirms the uv version matches the application, it skips that download and continues downloading dependencies and models online.
+This can only affect older builds without the bundled runtime, development builds or standalone services. If the error still says the runtime manager could not be downloaded (for example, `github.com/astral-sh/uv` timed out), open the address from the error in a browser to download the uv archive (`uv-x86_64-pc-windows-msvc.zip` on Windows x64). Choose **Import offline component** and select the downloaded archive directly, or extract it and select its `uv` or `uv.exe`. Once SAG confirms the uv version matches the application, it skips that download and continues downloading dependencies and models online.
 
 Dependencies and models still need network access. If those addresses are also unreachable, set the following environment variables, restart the SAG service (for example with `sag service restart`) and retry:
 
@@ -110,7 +110,7 @@ Dependencies and models still need network access. If those addresses are also u
 
 Dependencies are checked against pinned hashes, so a mirror serving different files fails the installation instead of installing altered files. If the computer is fully offline, use a complete offline component instead.
 
-Obtain a complete folder matching your system, architecture and component version from your administrator or maintainer. Extract archives before selecting the folder. Current official Releases do not distribute a separate complete offline component; the application installer is not a component package. The import entry is available in application builds containing this feature, not the official 0.2.7 package.
+Obtain a complete folder matching your system, architecture and component version from your administrator or maintainer. If you receive an archive, extract it and select its `manifest.json`. Current official Releases do not distribute a separate complete offline component; the application installer is not a component package. The import entry is available in application builds containing this feature, not the official 0.2.7 package.
 
 ![Offline document component import after a download failure](/images/product-offline-component-en.png)
 
