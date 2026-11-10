@@ -76,17 +76,19 @@ Keys are stored in the current user's application data directory. macOS uses own
 
 ## MinerU document parsing
 
-Open **Settings → Model settings → Document parsing · MinerU**. It is disabled by default. Choose 302.AI (the default) or MinerU official and enter that provider's API key/token. The endpoint is selected automatically.
+Open **Settings → Model settings → Document parsing · MinerU**. Choose **302.AI** or **MinerU official**. Saving the matching key/token makes MinerU the preferred parser; clearing it restores local parsing.
 
-When enabled, supported PDFs, images and Office documents use MinerU first, then the applicable built-in anydoc parser and installed local Docling on failure. Markdown, text and code remain directly indexed. The app does not switch cloud providers or install components automatically.
+302.AI uses the enterprise knowledge base's MinerU 2.x contract: Base URL `https://api.302ai.cn`, upload at `/302/upload-file`, create with `POST /302/v2/mineru/task`, and poll with `GET /302/v2/mineru/task?task_id=…`. Authentication is `Authorization: Bearer <API Key>`; enter only the key, without the Bearer prefix.
+
+302 parses PDFs only. Defaults are version **2.5**, **Automatic** parsing, a 60-second request timeout, a 2-second polling interval and a 30-minute task deadline. Advanced settings offer versions **2.0 / 2.5** and **Automatic / Text / OCR**. Time limits are client-side controls. Other formats use the applicable built-in parser or installed Docling; components are not installed automatically.
 
 ![MinerU provider, key and connection test](/images/product-mineru-en.png)
 
-**Test connection** uses the current unsaved settings without uploading files or creating a parsing task. Reachability does not prove that a key is valid; the result distinguishes them. Keys are stored separately for each provider. Save settings, then reindex failed files.
+**Test connection** checks only the selected parser endpoint. It accesses no account API logs, uploads no files and creates no task. A 400 / 422 response for missing task parameters establishes reachability only, not parsing permission; 401 / 403 means the request was rejected. Results appear beside the button. Validate actual parsing with a small PDF.
 
-Advanced settings control request timeout, task deadline, polling interval, concurrency, parsing model, OCR, table and formula recognition. PDFs are split to meet provider page and upload limits; only complete results are published, retaining original page numbers. Stored task identifiers allow polling to resume after a timeout. A submission without a returned identifier remains uncertain and falls back locally to avoid blindly submitting it again.
+302 responses support task identifiers, result URLs, direct Markdown and JSON-encoded strings. Split PDF results must preserve page mappings before publication; otherwise parsing falls back locally without truncating content. Both previous 302 choices migrate to this single configuration and retain the saved key.
 
-Remote parsing uploads the original document; see [Data and privacy](/en/docs/privacy). Index history shows each engine, phase, duration and failure.
+MinerU official continues to use `https://mineru.net/api/v4` and its official token, with separate VLM / Pipeline options. Keys are never reused across providers and providers are not switched automatically. Remote parsing sends the original document; see [Data and privacy](/en/docs/privacy).
 
 ## Advanced runtime settings
 

@@ -96,11 +96,11 @@ The component must include Python, recognition dependencies and models. A standa
 
 If the error says the runtime manager could not be downloaded (for example, `github.com/astral-sh/uv` timed out), open the address from the error in a browser to download the uv archive (`uv-x86_64-pc-windows-msvc.zip` on Windows x64). Extract it, choose **Import offline component** and select the extracted folder. Once SAG confirms the uv version matches the application, it skips that download and continues downloading Python, dependencies and models online.
 
-The remaining steps still need network access. If those addresses are also unreachable, set the following environment variables, restart the SAG service (for example with `sag service restart`) and retry:
+The remaining steps still need network access. If those addresses are also unreachable, set the following environment variables, run `sag service restart` in a terminal opened after setting them, then retry:
 
 | Download | Environment variable | Notes |
 | --- | --- | --- |
-| Python runtime | `UV_PYTHON_INSTALL_MIRROR` | A python-build-standalone mirror |
+| Python runtime | `UV_PYTHON_INSTALL_MIRROR` | A python-build-standalone mirror, for example `https://registry.npmmirror.com/-/binary/python-build-standalone` |
 | Recognition dependencies | `UV_DEFAULT_INDEX` | A PyPI mirror, for example `https://pypi.tuna.tsinghua.edu.cn/simple` |
 | Recognition models | `HF_ENDPOINT` | A Hugging Face mirror, for example `https://hf-mirror.com` |
 
@@ -183,3 +183,13 @@ Per-folder Reindex rebuilds that directory; global Reindex checks and updates ch
 [Web Clipper](/en/docs/web-clipper) saves independently. To index its output, choose Add clipping folder in Web Clipper settings and select the actual save folder. Existing watch and indexing rules then apply.
 
 First-time initialization creates `Documents/sag-wiki/clippings` and adds `Documents/sag-wiki` as the default managed folder. Existing libraries and removed folders are not added again on restart.
+
+## Follow import progress
+
+Open an imported folder to see a persistent status above its file list: queued, scanning, converting documents or indexing converted results. It includes current filenames and counts for the current stage, rather than a misleading overall percentage. Unknown totals have no percentage. Use **View indexing details** to inspect active tasks and errors. If another folder is being processed, the waiting state is explicit; completed folders retain their indexed-file count.
+
+![Conversion progress and current file in a folder](/images/product-folder-progress-en.png)
+
+Adding a folder restores the sidebar status. The app also checks backend snapshots to recover missed progress events. Removing a top-level folder cancels its ongoing or paused conversions and remaining indexing so queued folders can proceed, without deleting original files or stopping other folders.
+
+Selecting a sidebar file switches directly to the document once its content is ready, keeping the current content during loading without an intermediate folder list. Rapid selections honor the latest file; a failed read preserves the previous page and displays an error.

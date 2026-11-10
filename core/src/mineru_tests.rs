@@ -1,10 +1,11 @@
 use super::*;
 use sag_protocol::mineru::{MineruConfig, MineruProvider};
+fn default_config()->MineruConfig {MineruConfig{provider:MineruProvider::Ai302,..Default::default()}}
 
 #[test]
 fn settings_default_disabled_and_provider_keys_are_separate() {
     let dir = tempfile::tempdir().unwrap();
-    let mut config = MineruConfig::default();
+    let mut config = default_config();
     assert!(!config.enabled);
     assert_eq!(config.provider, MineruProvider::Ai302);
     save_key(dir.path(), &config, "302-secret").unwrap();
@@ -23,7 +24,7 @@ fn unsupported_formats_stay_local_and_invalid_settings_fail() {
     assert!(supports(Path::new("slides.PPTX")));
     assert!(!supports(Path::new("code.rs")));
     assert!(!supports(Path::new("notes.md")));
-    let mut config = MineruConfig::default();
+    let mut config = default_config();
     config.task_timeout_secs = 0;
     assert!(config.validate().is_err());
 }
@@ -50,7 +51,7 @@ fn cancellation_does_not_overwrite_existing_output() {
     let output = dir.path().join("out.md");
     std::fs::write(&source, b"pdf").unwrap();
     std::fs::write(&output, "previous").unwrap();
-    assert!(convert(&source, &output, &MineruConfig::default(), "key", &|| true).is_err());
+    assert!(convert(&source, &output, &default_config(), "key", &|| true).is_err());
     assert_eq!(std::fs::read_to_string(output).unwrap(), "previous");
 }
 
@@ -237,7 +238,7 @@ impl Fixture {
                 );
                 write!(socket,"HTTP/1.1 {} OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n",step.status,step.body.len()).unwrap();
                 socket.write_all(&step.body).unwrap();
-                seen.lock().unwrap().push(header.clone());
+                seen.lock().unwrap().push(format!("{header}{}",String::from_utf8_lossy(&content)));
                 count += 1;
             }
             count
@@ -264,33 +265,41 @@ impl Drop for Fixture {
 }
 
 #[tokio::test]
-async fn connection_probe_never_uploads_or_claims_unknown_task_validates_key() {
-    let server = Fixture::new(|_| {
-        vec![Step::json(
-            "GET",
-            "/mineru/api/v4/extract/task/sag-connection-check-no-task",
-            json!({"code":-60012}),
-        )]
-    });
-    let message = test_connection_at(&MineruConfig::default(), "secret", &server.base)
-        .await
-        .unwrap();
-    assert!(message.contains("尚未确认"));
-    assert!(message.contains("未上传"));
-    server.finish(1);
-    let server = Fixture::new(|_| {
-        vec![Step {
-            method: "GET",
-            path: "/mineru/api/v4/extract/task/sag-connection-check-no-task",
-            status: 401,
-            body: b"secret".to_vec(),
-        }]
-    });
-    let error = test_connection_at(&MineruConfig::default(), "secret", &server.base)
-        .await
-        .unwrap_err();
-    assert!(!error.to_string().contains("secret"));
-    server.finish(1);
+async fn connection_probe_uses_only_the_parser_endpoint_without_upload_or_dashboard() {
+    let server=Fixture::new(|_|vec![Step{method:"GET",path:"/302/v2/mineru/task",status:422,body:vec![]}]);
+    let message=test_connection_at(&MineruConfig::default(),"secret",&server.base).await.unwrap();assert!(message.contains("尚未验证"));server.finish(1);
+}
+#[tokio::test]
+async fn connection_probe_auth_failure_is_redacted() {
+    let server=Fixture::new(|_|vec![Step{method:"GET",path:"/302/v2/mineru/task",status:401,body:b"secret".to_vec()}]);
+    let error=test_connection_at(&MineruConfig::default(),"secret",&server.base).await.unwrap_err().to_string();assert!(error.contains("HTTP 401"));assert!(!error.contains("secret"));server.finish(1);
+}
+#[tokio::test]
+async fn connection_probe_forbidden_is_not_reported_as_invalid_key() {
+    let server=Fixture::new(|_|vec![Step{method:"GET",path:"/302/v2/mineru/task",status:403,body:b"sensitive".to_vec()}]);
+    let error=test_connection_at(&MineruConfig::default(),"secret",&server.base).await.unwrap_err().to_string();assert!(error.contains("HTTP 403"));assert!(!error.contains("sensitive"));server.finish(1);
+}
+#[tokio::test]
+async fn enterprise_direct_markdown_is_checkpointed_without_resubmitting() {
+    let server=Fixture::new(|base|vec![Step::json("POST","/302/upload-file",json!({"code":200,"data":format!("{base}/pdf")})),Step::json("POST","/302/v2/mineru/task",json!(serde_json::to_string(&json!({"data":{"markdown":"# direct result"}})).unwrap()))]);
+    let dir=tempfile::tempdir().unwrap();let path=dir.path().join("task.json");let part=Part{bytes:pdf(1),start:1,end:1,name:"test.pdf".into()};let config=MineruConfig::default();
+    for _ in 0..2 {let result=parse_part(&client(5).unwrap(),&server.base,&part,&path,&config,"key",false,&|_|{}).await.unwrap();assert_eq!(result,"# direct result");}
+    server.finish(2);
+}
+#[tokio::test]
+async fn enterprise_poll_accepts_encoded_payload_and_downloaded_markdown() {
+    let server=Fixture::new(|base|vec![Step::json("POST","/302/upload-file",json!({"code":200,"data":format!("{base}/pdf")})),Step::json("POST","/302/v2/mineru/task",json!({"data":{"taskId":"enterprise-task"}})),Step::json("GET","/302/v2/mineru/task?task_id=enterprise-task",json!(serde_json::to_string(&json!({"data":{"status":"finished","markdown_url":format!("{base}/result.md")}})).unwrap())),Step{method:"GET",path:"/result.md",status:200,body:b"# downloaded result".to_vec()}]);
+    let dir=tempfile::tempdir().unwrap();let part=Part{bytes:pdf(1),start:1,end:1,name:"test.pdf".into()};let result=parse_part(&client(5).unwrap(),&server.base,&part,&dir.path().join("task.json"),&MineruConfig::default(),"key",false,&|_|{}).await.unwrap();assert_eq!(result,"# downloaded result");server.finish(4);
+}
+
+#[tokio::test]
+async fn opensource_upload_create_poll_download_uses_version_and_method() {
+    let zip=archive("# open source result",None);
+    let server=Fixture::new(|base|vec![Step::json("POST","/302/upload-file",json!({"code":200,"data":format!("{base}/document.pdf")})),Step::json("POST","/302/v2/mineru/task",json!({"code":200,"data":{"task_id":"open-task"}})),Step::json("GET","/302/v2/mineru/task?task_id=open-task",json!({"code":200,"data":{"status":"completed","zip_url":format!("{base}/result.zip")}})),Step{method:"GET",path:"/result.zip",status:200,body:zip}]);
+    let dir=tempfile::tempdir().unwrap();let part=Part{name:"test.pdf".into(),bytes:pdf(1),start:1,end:1};
+    let config=MineruConfig{version:"2.0".into(),parse_method:"txt".into(),..Default::default()};
+    let result=parse_part(&client(5).unwrap(),&server.base,&part,&dir.path().join("task.json"),&config,"key",false,&|_|{}).await.unwrap();assert!(result.contains("open source result"));
+    let requests=server.requests.lock().unwrap();assert!(requests[1].contains("\"version\":\"2.0\""));assert!(requests[1].contains("\"parse_method\":\"txt\""));assert!(!requests[1].contains("model_version"));drop(requests);server.finish(4);
 }
 
 #[test]
@@ -524,12 +533,12 @@ fn ai302_upload_and_task_protocol_roundtrip() {
             ),
             Step::json(
                 "POST",
-                "/mineru/api/v4/extract/task",
+                "/302/v2/mineru/task",
                 json!({"code":0,"data":{"task_id":"task302"}}),
             ),
             Step::json(
                 "GET",
-                "/mineru/api/v4/extract/task/task302",
+                "/302/v2/mineru/task?task_id=task302",
                 json!({"code":0,"data":{"state":"done","full_zip_url":format!("{base}/result")}}),
             ),
             Step {
@@ -547,7 +556,7 @@ fn ai302_upload_and_task_protocol_roundtrip() {
     convert_at(
         &source,
         &output,
-        &MineruConfig::default(),
+        &default_config(),
         "key",
         &|| false,
         &server.base,
@@ -846,4 +855,13 @@ fn review_split_documents_serialize_shared_later_segment_before_submission() {
         assert!(first.join().unwrap().is_err());assert!(second.join().unwrap().is_err());
         assert!(!overlapped,"a shared later journal must be locked before either document can submit");
     });
+}
+
+#[test]
+fn enterprise_response_variants_and_error_codes_are_classified() {
+    assert_eq!(find_302_task_id(&json!({"data":"task-123"})).as_deref(),Some("task-123"));
+    assert_eq!(find_302_task_id(&json!({"status":"success","data":{"id":123}})).as_deref(),Some("123"));
+    assert_eq!(find_302_task_id(&json!("A0005")),None);
+    assert_eq!(normalize_opensource(json!("A0005")).unwrap()["state"],"failed");
+    assert_eq!(normalize_opensource(json!({"data":{"markdown":"# result"}})).unwrap()["markdown"],"# result");
 }
