@@ -12,7 +12,7 @@ Every pull request must pass the desktop checks. Force pushes and deletion of `m
 
 ## Desktop PR checks
 
-Pull requests to `main` require `E2E macos` and `E2E windows`. These run the real CLI/service indexing and retrieval flow against a local Jev protocol fixture. They compile only the CLI test executable, not the desktop application or installers; they do not exercise the desktop GUI or real model inference.
+Pull requests to `main` require `E2E macos` and `E2E windows`. These run the real CLI/service indexing and retrieval flow against a local Jev protocol fixture, plus focused image OCR worker/resource-budget regressions. They compile the CLI and core test executables, not the desktop application or installers; they do not exercise the desktop GUI or real model inference.
 
 Desktop builds, unit/component tests, documentation builds, installer smoke tests and release validation remain in `Desktop build and release`, triggered after pushes to `main` or by manual dispatch. Keep the required status check names in branch protection aligned with `pr-e2e.yml`.
 

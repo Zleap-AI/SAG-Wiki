@@ -1,7 +1,7 @@
 use crate::process_supervisor::{Failure, FailureKind};
 use std::{
     sync::{Condvar, LazyLock, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 const GIB: u64 = 1024 * 1024 * 1024;
@@ -32,13 +32,32 @@ impl Budget {
     fn acquire(&self, requested: u64, cancel: &dyn Fn() -> bool) -> Result<Permit<'_>, Failure> {
         self.acquire_with_limit(requested, self.maximum, cancel)
     }
-    fn acquire_with_limit(&self, requested: u64, maximum: u64, cancel: &dyn Fn() -> bool) -> Result<Permit<'_>, Failure> {
+    fn acquire_with_limit(
+        &self,
+        requested: u64,
+        maximum: u64,
+        cancel: &dyn Fn() -> bool,
+    ) -> Result<Permit<'_>, Failure> {
+        self.acquire_until(requested, maximum, cancel, None)
+    }
+    fn acquire_until(
+        &self,
+        requested: u64,
+        maximum: u64,
+        cancel: &dyn Fn() -> bool,
+        deadline: Option<Instant>,
+    ) -> Result<Permit<'_>, Failure> {
         let bytes = requested.min(maximum);
-        let mut used = self.used.lock().unwrap();
         loop {
             if cancel() {
                 return Err(Failure::new(FailureKind::Cancelled, "已停止等待转换资源"));
             }
+            if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                return Err(Failure::new(FailureKind::Timeout, "等待转换资源超时"));
+            }
+            // Admission callbacks may retire an idle worker and drop its
+            // reservation; never invoke them while holding this same lock.
+            let mut used = self.used.lock().unwrap();
             if *used + bytes <= maximum {
                 *used += bytes;
                 return Ok(Permit {
@@ -46,7 +65,7 @@ impl Budget {
                     bytes,
                 });
             }
-            used = self
+            let _used = self
                 .changed
                 .wait_timeout(used, Duration::from_millis(50))
                 .unwrap()
@@ -112,12 +131,18 @@ pub(crate) fn acquire_bytes_with_runtime(
     bytes: u64,
     runtime: &sag_protocol::runtime::RuntimeSettings,
     cancel: &dyn Fn() -> bool,
+    deadline: Instant,
 ) -> Result<Permit<'static>, Failure> {
     let budget = GLOBAL
         .as_ref()
         .map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
-    let (maximum, _, _) = configured_limits(budget.maximum * 2, runtime);
-    budget.acquire_with_limit(bytes, maximum, cancel)
+    let (maximum, configured, _) = configured_limits(budget.maximum * 2, runtime);
+    let requested = if runtime.conversion_job_mib == 0 {
+        bytes
+    } else {
+        configured
+    };
+    budget.acquire_until(requested, maximum, cancel, Some(deadline))
 }
 fn physical_memory() -> Result<u64, String> {
     #[cfg(target_os = "macos")]
@@ -186,6 +211,59 @@ fn physical_memory() -> Result<u64, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn image_reservations_honor_the_configured_job_budget() {
+        let mut runtime = sag_protocol::runtime::RuntimeSettings::default();
+        runtime.conversion_job_mib = 512;
+        let permit = acquire_bytes_with_runtime(
+            IMAGE_WORKER_BYTES,
+            &runtime,
+            &|| false,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(permit.bytes, 512 * 1024 * 1024);
+    }
+    #[test]
+    fn resource_admission_obeys_deadlines_without_leaking_reservations() {
+        let budget = Budget::new(10);
+        let first = budget.acquire(10, &|| false).unwrap();
+        let error = budget
+            .acquire_until(
+                1,
+                10,
+                &|| false,
+                Some(Instant::now() + Duration::from_millis(50)),
+            )
+            .err()
+            .unwrap();
+        assert_eq!(error.kind, FailureKind::Timeout);
+        assert_eq!(*budget.used.lock().unwrap(), 10);
+        drop(first);
+        assert_eq!(*budget.used.lock().unwrap(), 0);
+    }
+    #[test]
+    fn admission_callbacks_can_release_idle_worker_reservations() {
+        let budget = Budget::new(10);
+        let idle = Mutex::new(Some(budget.acquire(10, &|| false).unwrap()));
+        let admitted = budget.acquire_until(
+            5,
+            10,
+            &|| {
+                // Pool maintenance must be able to drop a worker's permit here.
+                if budget.used.try_lock().is_err() {
+                    return true;
+                }
+                drop(idle.lock().unwrap().take());
+                false
+            },
+            Some(Instant::now() + Duration::from_secs(1)),
+        );
+        assert!(
+            admitted.is_ok(),
+            "admission callbacks must run outside the budget lock"
+        );
+    }
     #[test]
     fn configured_memory_limit_clamps_jobs_and_reports_effective_parallelism() {
         let mut runtime = sag_protocol::runtime::RuntimeSettings::default();

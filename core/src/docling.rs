@@ -313,6 +313,7 @@ impl Docling {
             .usage
             .try_write()
             .map_err(|error| anyhow::anyhow!("Docling 正在使用，暂时无法卸载：{error}"))?;
+        self.ocr_workers.clear();
         fs::remove_dir_all(&self.home).context("无法删除 Docling 组件目录")?;
         *status = DoclingStatus {
             stage: "uninstalled".into(),
@@ -1197,10 +1198,13 @@ impl Docling {
         else {
             return Ok(crate::docling_worker::ImageOutcome::Fallback);
         };
+        let deadline = std::time::Instant::now() + Duration::from_secs(runtime.docling_timeout_secs);
         let result = self.ocr_workers.convert(
             &runtime_root,
             source,
             output,
+            deadline,
+            runtime,
             cancel,
             || {
                 let mut runner = tempfile::NamedTempFile::new()?;
@@ -1224,16 +1228,22 @@ impl Docling {
                     .arg("--worker")
                     .arg("--artifacts-path")
                     .arg(&models);
+                let waiting_cancel = || {
+                    self.ocr_workers.release_outdated(runtime);
+                    cancel()
+                };
                 let permit = crate::docling_budget::acquire_bytes_with_runtime(
                     crate::docling_budget::IMAGE_WORKER_BYTES,
                     runtime,
-                    cancel,
+                    &waiting_cancel,
+                    deadline,
                 )?;
                 Ok(crate::docling_worker::SpawnSpec {
                     command,
                     runner,
                     runtime_root: runtime_root.clone(),
                     permit,
+                    runtime: runtime.clone(),
                 })
             },
         );

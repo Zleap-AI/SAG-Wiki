@@ -18,8 +18,6 @@ use std::{
 };
 use tempfile::TempPath;
 
-const START_TIMEOUT: Duration = Duration::from_secs(120);
-const REQUEST_TIMEOUT: Duration = Duration::from_secs(300);
 const IDLE_TIMEOUT: Duration = Duration::from_secs(120);
 const MEMORY_POLL: Duration = Duration::from_secs(1);
 const POLL: Duration = Duration::from_millis(50);
@@ -37,6 +35,7 @@ pub(crate) struct SpawnSpec {
     pub runner: TempPath,
     pub runtime_root: PathBuf,
     pub permit: Permit<'static>,
+    pub runtime: sag_protocol::runtime::RuntimeSettings,
 }
 
 #[derive(Serialize)]
@@ -67,17 +66,19 @@ struct Worker {
     _runner: TempPath,
     permit: Permit<'static>,
     runtime_root: PathBuf,
+    runtime: sag_protocol::runtime::RuntimeSettings,
     next_id: u64,
     alive: bool,
 }
 
 impl Worker {
-    fn spawn(spec: SpawnSpec, cancel: &dyn Fn() -> bool) -> Result<Self> {
+    fn spawn(spec: SpawnSpec, deadline: Instant, cancel: &dyn Fn() -> bool) -> Result<Self> {
         let SpawnSpec {
             mut command,
             runner,
             runtime_root,
             permit,
+            runtime,
         } = spec;
         #[cfg(unix)]
         {
@@ -166,14 +167,15 @@ impl Worker {
             _runner: runner,
             permit,
             runtime_root,
+            runtime,
             next_id: 1,
             alive: true,
         };
-        worker.wait_ready(cancel)?;
+        worker.wait_ready(deadline, cancel)?;
         Ok(worker)
     }
 
-    fn wait_ready(&mut self, cancel: &dyn Fn() -> bool) -> Result<()> {
+    fn wait_ready(&mut self, deadline: Instant, cancel: &dyn Fn() -> bool) -> Result<()> {
         let started = Instant::now();
         let mut last_memory_check = started;
         loop {
@@ -184,7 +186,7 @@ impl Worker {
                     "已停止启动图片 OCR Worker"
                 ));
             }
-            if started.elapsed() >= START_TIMEOUT {
+            if Instant::now() >= deadline {
                 self.terminate();
                 bail!(Failure::new(
                     FailureKind::Timeout,
@@ -198,6 +200,7 @@ impl Worker {
                         continue;
                     };
                     if value.get("status").and_then(|value| value.as_str()) == Some("ready") {
+                        self.check_memory()?;
                         return Ok(());
                     }
                     if value.get("status").and_then(|value| value.as_str()) == Some("error") {
@@ -235,6 +238,7 @@ impl Worker {
         &mut self,
         source: &Path,
         output: &Path,
+        deadline: Instant,
         cancel: &dyn Fn() -> bool,
     ) -> Result<ImageOutcome> {
         let id = self.next_id;
@@ -257,7 +261,7 @@ impl Worker {
                     "已停止图片 OCR Worker"
                 ));
             }
-            if started.elapsed() >= REQUEST_TIMEOUT {
+            if Instant::now() >= deadline {
                 self.terminate();
                 bail!(Failure::new(
                     FailureKind::Timeout,
@@ -273,6 +277,7 @@ impl Worker {
                     if response.id != id {
                         continue;
                     }
+                    self.check_memory()?;
                     return match response.status.as_str() {
                         "ok" => Ok(ImageOutcome::Converted),
                         "fallback" => Ok(ImageOutcome::Fallback),
@@ -373,6 +378,26 @@ pub(crate) struct WorkerPool {
 }
 
 impl WorkerPool {
+    pub fn clear(&self) {
+        for slot in self.slots.iter() {
+            slot.lock().unwrap().worker = None;
+        }
+    }
+
+    pub fn release_outdated(&self, runtime: &sag_protocol::runtime::RuntimeSettings) {
+        for slot in self.slots.iter() {
+            if let Ok(mut slot) = slot.try_lock() {
+                if slot
+                    .worker
+                    .as_ref()
+                    .is_some_and(|worker| worker.runtime != *runtime)
+                {
+                    slot.worker = None;
+                }
+            }
+        }
+    }
+
     pub fn new(capacity: usize) -> Self {
         let capacity = capacity.max(1);
         Self {
@@ -396,6 +421,8 @@ impl WorkerPool {
         runtime_root: &Path,
         source: &Path,
         output: &Path,
+        deadline: Instant,
+        runtime: &sag_protocol::runtime::RuntimeSettings,
         cancel: &dyn Fn() -> bool,
         mut spawn: impl FnMut() -> Result<SpawnSpec>,
     ) -> Result<ImageOutcome> {
@@ -406,6 +433,15 @@ impl WorkerPool {
                     "已停止等待图片 OCR Worker"
                 ));
             }
+            if Instant::now() >= deadline {
+                bail!(Failure::new(
+                    FailureKind::Timeout,
+                    "等待图片 OCR Worker 超时"
+                ));
+            }
+            // Saved settings apply to the next task. Release idle workers with
+            // old reservations before admission under the new memory budget.
+            self.release_outdated(runtime);
             let start = self.next.fetch_add(1, Ordering::Relaxed) % self.slots.len();
             // Prefer an already initialized worker before paying another model load.
             for offset in 0..self.slots.len() {
@@ -421,6 +457,8 @@ impl WorkerPool {
                     runtime_root,
                     source,
                     output,
+                    deadline,
+                    runtime,
                     cancel,
                     &mut spawn,
                 );
@@ -439,6 +477,8 @@ impl WorkerPool {
                     runtime_root,
                     source,
                     output,
+                    deadline,
+                    runtime,
                     cancel,
                     &mut spawn,
                 );
@@ -453,24 +493,26 @@ impl WorkerPool {
         runtime_root: &Path,
         source: &Path,
         output: &Path,
+        deadline: Instant,
+        runtime: &sag_protocol::runtime::RuntimeSettings,
         cancel: &dyn Fn() -> bool,
         spawn: &mut impl FnMut() -> Result<SpawnSpec>,
     ) -> Result<ImageOutcome> {
         if slot
             .worker
             .as_ref()
-            .is_some_and(|worker| worker.runtime_root != runtime_root)
+            .is_some_and(|worker| worker.runtime_root != runtime_root || worker.runtime != *runtime)
         {
             slot.worker = None;
         }
         if slot.worker.is_none() {
-            slot.worker = Some(Worker::spawn(spawn()?, cancel)?);
+            slot.worker = Some(Worker::spawn(spawn()?, deadline, cancel)?);
         }
         let result = slot
             .worker
             .as_mut()
             .unwrap()
-            .convert(source, output, cancel);
+            .convert(source, output, deadline, cancel);
         match result {
             Ok(outcome) => {
                 // The full document pipeline may need this reservation as well.
@@ -507,5 +549,213 @@ impl WorkerPool {
                 }
             }
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture(mode: &str, memory_mib: u64) -> SpawnSpec {
+        let runner = tempfile::NamedTempFile::new().unwrap().into_temp_path();
+        let mut command = Command::new(if cfg!(windows) { "python" } else { "python3" });
+        command.args([
+            "-u",
+            "-c",
+            r#"
+import json, pathlib, sys, time
+mode = sys.argv[1]
+if mode == 'startup': time.sleep(10)
+print(json.dumps({'status': 'ready'}), flush=True)
+for line in sys.stdin:
+    request = json.loads(line)
+    if mode == 'request': time.sleep(10)
+    pathlib.Path(request['output']).write_text('fixture OCR', encoding='utf-8')
+    print(json.dumps({'id': request['id'], 'status': 'ok'}), flush=True)
+"#,
+            mode,
+        ]);
+        let mut runtime = sag_protocol::runtime::RuntimeSettings::default();
+        runtime.conversion_job_mib = memory_mib;
+        SpawnSpec {
+            command,
+            runtime_root: PathBuf::from("fixture"),
+            runner,
+            permit: crate::docling_budget::acquire_bytes_with_runtime(
+                crate::docling_budget::IMAGE_WORKER_BYTES,
+                &runtime,
+                &|| false,
+                Instant::now() + Duration::from_secs(5),
+            )
+            .unwrap(),
+            runtime,
+        }
+    }
+
+    #[test]
+    fn image_worker_startup_obeys_the_task_timeout() {
+        let started = Instant::now();
+        let error = Worker::spawn(
+            fixture("startup", 128),
+            started + Duration::from_millis(250),
+            &|| started.elapsed() > Duration::from_secs(2),
+        )
+        .err()
+        .expect("startup must stop");
+        assert_eq!(
+            error.downcast_ref::<Failure>().unwrap().kind,
+            FailureKind::Timeout
+        );
+    }
+
+    #[test]
+    fn image_worker_conversion_obeys_the_task_timeout() {
+        let mut worker = Worker::spawn(
+            fixture("request", 128),
+            Instant::now() + Duration::from_secs(5),
+            &|| false,
+        )
+        .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let started = Instant::now();
+        let error = worker
+            .convert(
+                Path::new("image.png"),
+                &temp.path().join("image.md"),
+                started + Duration::from_millis(250),
+                &|| started.elapsed() > Duration::from_secs(2),
+            )
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<Failure>().unwrap().kind,
+            FailureKind::Timeout
+        );
+        assert!(!temp.path().join("image.md").exists());
+    }
+
+    #[test]
+    fn image_worker_enforces_memory_and_releases_failed_workers() {
+        let error = Worker::spawn(
+            fixture("request", 1),
+            Instant::now() + Duration::from_secs(5),
+            &|| false,
+        )
+        .err()
+        .expect("Python exceeds a 1 MiB budget");
+        assert_eq!(
+            error.downcast_ref::<Failure>().unwrap().kind,
+            FailureKind::Memory
+        );
+    }
+
+    #[test]
+    fn image_worker_queue_obeys_the_task_timeout() {
+        let pool = WorkerPool::new(1);
+        let _busy = pool.slots[0].lock().unwrap();
+        let error = pool
+            .convert(
+                Path::new("fixture"),
+                Path::new("image.png"),
+                Path::new("image.md"),
+                Instant::now() + Duration::from_millis(100),
+                &Default::default(),
+                &|| false,
+                || panic!("a busy slot must not spawn a worker"),
+            )
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<Failure>().unwrap().kind,
+            FailureKind::Timeout
+        );
+    }
+
+    #[test]
+    fn image_worker_reuses_models_until_saved_settings_change() {
+        let pool = WorkerPool::new(1);
+        let temp = tempfile::tempdir().unwrap();
+        let mut runtime = sag_protocol::runtime::RuntimeSettings::default();
+        runtime.conversion_job_mib = 128;
+        let spawns = AtomicUsize::new(0);
+        for memory in [128, 128, 64] {
+            runtime.conversion_job_mib = memory;
+            let output = temp.path().join("image.md");
+            assert_eq!(
+                pool.convert(
+                    Path::new("fixture"),
+                    Path::new("image.png"),
+                    &output,
+                    Instant::now() + Duration::from_secs(5),
+                    &runtime,
+                    &|| false,
+                    || {
+                        spawns.fetch_add(1, Ordering::Relaxed);
+                        Ok(fixture("ok", memory))
+                    }
+                )
+                .unwrap(),
+                ImageOutcome::Converted
+            );
+            assert_eq!(std::fs::read_to_string(output).unwrap(), "fixture OCR");
+            assert_eq!(
+                pool.slots[0]
+                    .lock()
+                    .unwrap()
+                    .worker
+                    .as_ref()
+                    .unwrap()
+                    .permit
+                    .bytes,
+                memory * 1024 * 1024
+            );
+        }
+        assert_eq!(spawns.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn image_worker_old_reservations_are_released_as_soon_as_the_slot_becomes_idle() {
+        let pool = WorkerPool::new(1);
+        let old = fixture("ok", 128);
+        let runtime = old.runtime.clone();
+        let worker =
+            Worker::spawn(old, Instant::now() + Duration::from_secs(5), &|| false).unwrap();
+        let pid = worker.child.id();
+        let mut busy = pool.slots[0].lock().unwrap();
+        busy.worker = Some(worker);
+        let mut updated = runtime;
+        updated.conversion_job_mib = 64;
+        pool.release_outdated(&updated);
+        assert!(
+            busy.worker.is_some(),
+            "a running task retains its parameters"
+        );
+        drop(busy);
+        pool.release_outdated(&updated);
+        assert!(pool.slots[0].lock().unwrap().worker.is_none());
+        assert!(process_supervisor::process_bytes(pid).is_err());
+    }
+
+    #[test]
+    fn image_worker_cancellation_terminates_without_publishing() {
+        let mut worker = Worker::spawn(
+            fixture("request", 128),
+            Instant::now() + Duration::from_secs(5),
+            &|| false,
+        )
+        .unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let error = worker
+            .convert(
+                Path::new("image.png"),
+                &temp.path().join("image.md"),
+                Instant::now() + Duration::from_secs(5),
+                &|| true,
+            )
+            .unwrap_err();
+        assert_eq!(
+            error.downcast_ref::<Failure>().unwrap().kind,
+            FailureKind::Cancelled
+        );
+        assert!(!worker.alive);
+        assert!(!temp.path().join("image.md").exists());
     }
 }

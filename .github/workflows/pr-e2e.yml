@@ -73,5 +73,9 @@ jobs:
       # Only compile the CLI needed by E2E, without Tauri or installers.
       - name: Prepare E2E executable
         run: cargo build --locked --manifest-path cli/Cargo.toml
+      - name: Regress image OCR deadlines and memory budgets
+        run: |
+          cargo test --locked --manifest-path core/Cargo.toml --lib docling_worker::tests -- --test-threads=2
+          cargo test --locked --manifest-path core/Cargo.toml --lib docling_budget::tests -- --test-threads=2
       - name: Exercise real service and CLI with local Jev fixture
         run: python tests/local-jev-e2e.py --binary "${{ matrix.binary }}"
