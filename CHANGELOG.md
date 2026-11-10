@@ -1,5 +1,33 @@
 # 更新日志 / Changelog
 
+## 0.2.8
+
+- **新增 MinerU 文档解析**：支持 302.AI 和 MinerU 官方服务。配置密钥后优先使用云端解析，失败时尝试适用的本地解析器；302.AI 当前仅支持 PDF。启用云端解析会上传原文档。
+- **改善长 PDF 处理**：支持按服务限制自动分段，成功后合并正文并保留原始页号；中断后可续查已有任务，减少重复提交。
+- **开放运行参数设置**：可在设置页调整转换超时、内存预算、文件大小与页数限制，以及模型重试、搜索并发、缓存和文档折叠参数。保存后对新任务生效。
+- **大文件夹后台索引与进度展示**：添加大文件夹后即可继续操作，文件监听准备与索引在后台完成；显示排队、扫描、转换和索引阶段，方便查看进度与失败原因。
+- **提高索引监听稳定性**：修复根目录变化可能引发的监听异常，改善目录恢复、重新添加后的自动更新；移除文件夹时及时停止相关任务。
+- **提高图片文字识别效率**：连续处理图片时复用已加载的 OCR 模型，减少重复加载；空闲后自动释放资源，并遵守设置中的超时和内存预算。
+- **支持手动导入文档识别组件**：下载失败时，可导入完整离线文档组件或解压后的 uv 目录；完善手动下载地址及镜像配置提示。
+- **修复 Windows 本地服务启动问题**：修复部分电脑因账户权限识别错误，导致无法保存连接记录、无法连接本地后台服务的问题。
+- **改善文件阅读与切换体验**：点击侧栏文件直接切换内容，减少列表闪现；修复快速切换时旧内容覆盖新选择的问题，读取失败时保留当前阅读内容并提示错误。
+
+桌面端与随包 CLI 版本统一为 0.2.8。
+
+### English
+
+- **MinerU document parsing**: support 302.AI and the official MinerU service. With a key configured, supported files use cloud parsing first and fall back to an applicable local parser on failure. 302.AI currently supports PDF only. Enabling cloud parsing uploads the original document.
+- **Long PDF handling**: split PDFs according to service limits, merge successful results and retain original page numbers. After an interruption, check existing tasks to reduce duplicate submissions.
+- **Runtime settings**: adjust conversion timeouts, memory budgets, file-size and page limits, model retries, search concurrency, caches and document-folding parameters in Settings. Saved changes apply to new tasks.
+- **Background indexing and progress**: keep using the app after adding a large folder while file monitoring and indexing are prepared in the background. Show queueing, scanning, conversion and indexing stages, with progress and failure details.
+- **File monitoring reliability**: fix monitoring errors triggered by root-directory changes and improve automatic updates after directories are restored or added again. Removing a folder promptly stops its related tasks.
+- **Faster image text recognition**: reuse loaded OCR models across consecutive images, release idle resources automatically and respect the configured timeout and memory budgets.
+- **Manual document-component import**: when downloads fail, import a complete offline document component or an extracted uv directory. Improve manual-download links and mirror-configuration guidance.
+- **Windows local-service startup**: fix account-permission resolution on affected computers that prevented saving connection records and connecting to the local background service.
+- **File reading and switching**: open sidebar files directly with less list flicker. Prevent older reads from replacing the latest selection; keep the current document visible and show an error when reading fails.
+
+The desktop app and bundled CLI both use 0.2.8.
+
 ## 0.2.7
 
 - **文档折叠**：Markdown 支持全文、简述、关键句、要点、卡片和导图六个阅读标签，保留原文供编辑。

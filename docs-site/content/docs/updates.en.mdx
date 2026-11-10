@@ -5,6 +5,20 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.2.8
+
+- **MinerU document parsing**: support 302.AI and the official MinerU service. With a key configured, supported files use cloud parsing first and fall back to an applicable local parser on failure. 302.AI currently supports PDF only. Enabling cloud parsing uploads the original document.
+- **Long PDF handling**: split PDFs according to service limits, merge successful results and retain original page numbers. After an interruption, check existing tasks to reduce duplicate submissions.
+- **Runtime settings**: adjust conversion timeouts, memory budgets, file-size and page limits, model retries, search concurrency, caches and document-folding parameters in Settings. Saved changes apply to new tasks.
+- **Background indexing and progress**: keep using the app after adding a large folder while file monitoring and indexing are prepared in the background. Show queueing, scanning, conversion and indexing stages, with progress and failure details.
+- **File monitoring reliability**: fix monitoring errors triggered by root-directory changes and improve automatic updates after directories are restored or added again. Removing a folder promptly stops its related tasks.
+- **Faster image text recognition**: reuse loaded OCR models across consecutive images, release idle resources automatically and respect the configured timeout and memory budgets.
+- **Manual document-component import**: when downloads fail, import a complete offline document component or an extracted uv directory. Improve manual-download links and mirror-configuration guidance.
+- **Windows local-service startup**: fix account-permission resolution on affected computers that prevented saving connection records and connecting to the local background service.
+- **File reading and switching**: open sidebar files directly with less list flicker. Prevent older reads from replacing the latest selection; keep the current document visible and show an error when reading fails.
+
+The desktop app and bundled CLI both use 0.2.8.
+
 ## 0.2.7
 
 - **Document folding**: Markdown supports multiple reading levels and direct switching between cards and a map while keeping the source editable.
