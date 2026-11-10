@@ -391,7 +391,7 @@ fn get_settings(state: &Arc<Service>) -> CommandResult<Settings> {
     Ok(s)
 }
 fn save_settings(
-    settings: Settings,
+    mut settings: Settings,
     answer_key: String,
     jev_key: String,
     mineru_key: String,
@@ -402,14 +402,12 @@ fn save_settings(
     let old = state.store.settings().map_err(error)?;
     Store::validate_settings(&settings).map_err(error)?;
     settings.mineru.validate().map_err(error)?;
-    if settings.mineru.enabled && mineru_key.trim().is_empty()
-        && !crate::mineru::has_key(&state.data_dir, &settings.mineru).map_err(error)? {
-        return Err("请填写当前 MinerU 服务商的 API Key".into());
-    }
+    settings.mineru.enabled = !mineru_key.trim().is_empty()
+        || crate::mineru::has_key(&state.data_dir, &settings.mineru).map_err(error)?;
     if settings.convert_other_formats
         && (!old.convert_other_formats || old.conversion_formats != settings.conversion_formats)
     {
-        let local_formats = crate::conversion::local_formats(&settings.conversion_formats,settings.mineru.enabled);
+        let local_formats = crate::conversion::local_formats(&settings.conversion_formats,&settings.mineru);
         state.store.docling.require_formats(&local_formats).map_err(error)?;
     }
     let mcp_credentials = mcp_credentials.unwrap_or_default();
@@ -1369,11 +1367,13 @@ impl Service {
             }
             Op::MineruSchema => {
                 let mut keys=serde_json::Map::new();
+                let mut endpoints=serde_json::Map::new();
                 for provider in [sag_protocol::mineru::MineruProvider::Ai302,sag_protocol::mineru::MineruProvider::Official] {
                     let config=sag_protocol::mineru::MineruConfig {provider,..Default::default()};
+                    endpoints.insert(serde_json::to_value(provider).map_err(error)?.as_str().unwrap().into(),serde_json::json!(provider.base_url()));
                     keys.insert(serde_json::to_value(provider).map_err(error)?.as_str().unwrap().into(), serde_json::json!(crate::mineru::has_key(&self.data_dir,&config).unwrap_or(false)));
                 }
-                Out::Text(serde_json::json!({"defaults":sag_protocol::mineru::MineruConfig::default(),"keys":keys}).to_string())
+                Out::Text(serde_json::json!({"defaults":sag_protocol::mineru::MineruConfig::default(),"keys":keys,"endpoints":endpoints}).to_string())
             }
             Op::TestMineru {config,key} => {
                 config.validate().map_err(error)?;

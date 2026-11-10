@@ -68,7 +68,7 @@ fn endpoint(base: &str, path: &str) -> String {
 }
 fn task_path(provider: MineruProvider, id: &str) -> String {
     match provider {
-        MineruProvider::Ai302 => format!("mineru/api/v4/extract/task/{id}"),
+        MineruProvider::Ai302 => format!("302/v2/mineru/task?task_id={id}"),
         MineruProvider::Official => format!("extract-results/batch/{id}"),
     }
 }
@@ -142,6 +142,50 @@ fn task_id(value: &Value, name: &str) -> Result<String> {
     Ok(id.into())
 }
 
+fn unwrap_payload(mut value:Value)->Value {
+    for _ in 0..4 {if let Some(text)=value.as_str(){if let Ok(decoded)=serde_json::from_str::<Value>(text){if decoded!=value {value=decoded;continue;}}}break;}value
+}
+async fn opensource_json(response:Response,limit:u64)->Result<Value> {
+    let raw=bytes(response,limit.max(MIB)).await?;
+    let value=unwrap_payload(serde_json::from_slice(&raw).unwrap_or_else(|_|json!(String::from_utf8_lossy(&raw))));
+    if let Some(code)=value.get("code") {ensure!(["0","200","ok","success"].contains(&code.as_str().map(str::to_owned).unwrap_or_else(||code.to_string()).to_lowercase().as_str()),"MinerU 服务返回错误码，请检查权限、额度和解析参数");}
+    Ok(value)
+}
+fn nested_text(value:&Value,keys:&[&str])->Option<String> {
+    let value=unwrap_payload(value.clone());
+    if let Some(map)=value.as_object(){for key in keys {if let Some(v)=map.get(*key){if let Some(text)=v.as_str(){if !text.trim().is_empty(){return Some(text.trim().into());}}if let Some(n)=v.as_u64(){return Some(n.to_string());}}}for key in ["data","result","task"] {if let Some(v)=map.get(key){if let Some(found)=nested_text(v,keys){return Some(found);}}}}
+    None
+}
+fn is_markdown(text:&str)->bool {text.contains('\n')||text.starts_with("# ")||text.starts_with("## ")}
+fn find_302_task_id(value:&Value)->Option<String> {
+    let value=unwrap_payload(value.clone());
+    if let Some(text)=value.as_str(){let text=text.trim();let state=text.to_lowercase();if !text.is_empty()&&text.bytes().all(|b|b.is_ascii_alphanumeric()||b"-_".contains(&b))&&!((state.len()==5&&state.starts_with('a')||state.len()==6&&state.starts_with('-'))&&state[1..].bytes().all(|b|b.is_ascii_digit()))&&!["pending","queued","running","processing","done","success","failed","error"].contains(&state.as_str()){return Some(text.into());}return None;}
+    if let Some(id)=nested_text(&value,&["task_id","taskId","request_id","id"]){return Some(id);}
+    for key in ["data","result","task"] {if let Some(child)=value.get(key){if let Some(id)=find_302_task_id(child){return Some(id);}}}None
+}
+fn normalize_opensource(value:Value)->Result<Value> {
+    let value=unwrap_payload(value);
+    if let Some(text)=value.as_str(){let text=text.trim();if text.starts_with("https://")||text.starts_with("http://"){return Ok(json!({"state":"done","full_zip_url":text}));}if is_markdown(text){return Ok(json!({"state":"done","markdown":text}));}let state=text.to_lowercase();if (state.len()==5&&state.starts_with('a')&&state[1..].bytes().all(|c|c.is_ascii_digit()))||(state.len()==6&&state.starts_with('-')&&state[1..].bytes().all(|c|c.is_ascii_digit())){return Ok(json!({"state":"failed"}));}return Ok(json!({"state":match state.as_str(){"failed"|"failure"|"error"|"cancelled"|"canceled"=>"failed",_=>"pending"}}));}
+    let state=nested_text(&value,&["status","state","task_status","taskState"]).unwrap_or_default().to_lowercase().replace(['-',' '],"_");
+    if ["failed","failure","error","cancelled","canceled"].contains(&state.as_str()){return Ok(json!({"state":"failed"}));}
+    if ["created","pending","queued","queueing","running","processing","converting","in_progress"].contains(&state.as_str()){return Ok(json!({"state":"pending"}));}
+    if let Some(url)=nested_text(&value,&["full_zip_url","zip_url","download_url","result_url","markdown_url","md_url","file_url"]){safe_url(&url)?;return Ok(json!({"state":"done","full_zip_url":url}));}
+    if let Some(md)=nested_text(&value,&["markdown","md_content","markdown_content","content"]){if is_markdown(&md){return Ok(json!({"state":"done","markdown":md}));}}
+    if ["done","success","succeeded","completed","finished"].contains(&state.as_str()) {if let Some(url)=nested_text(&value,&["url"]){safe_url(&url)?;return Ok(json!({"state":"done","full_zip_url":url}));}bail!("MinerU 任务已完成，但未返回正文或结果地址");}
+    for key in ["data","result","task"] {if let Some(v)=value.get(key){return normalize_opensource(v.clone());}}
+    Ok(json!({"state":"pending"}))
+}
+async fn finish_302(client:&Client,result:&Value,part:&Part,require_pages:bool,limit:u64)->Result<String> {
+    if let Some(md)=result.get("markdown").and_then(Value::as_str){ensure!(!require_pages,"MinerU 分段结果缺少页码映射，尝试本地解析");ensure!(md.len() as u64<=limit,"MinerU 正文超过配置上限");return Ok(md.into());}
+    let response=client.get(safe_url(field(result,"full_zip_url")?)?).send().await?;
+    let content=bytes(response,ZIP_LIMIT).await?;
+    if content.starts_with(b"PK\x03\x04"){return archive_content_with_limit(content,part.start,part.end,require_pages,limit);}
+    let payload=unwrap_payload(serde_json::from_slice(&content).unwrap_or_else(|_|json!(String::from_utf8_lossy(&content))));
+    let result=normalize_opensource(payload)?;
+    if let Some(md)=result.get("markdown").and_then(Value::as_str){ensure!(!require_pages,"MinerU 分段结果缺少页码映射，尝试本地解析");ensure!(md.len() as u64<=limit,"MinerU 正文超过配置上限");return Ok(md.into());}
+    bail!("MinerU 下载结果不是有效的 Markdown 或 ZIP")
+}
+
 /// This is a reachability/authentication probe, not a document conversion.
 pub async fn test_connection(config: &MineruConfig, key: &str) -> Result<String> {
     test_connection_at(config, key, config.provider.base_url()).await
@@ -153,21 +197,25 @@ async fn test_connection_at(config: &MineruConfig, key: &str, base: &str) -> Res
         let response = client(config.request_timeout_secs.min(15))?
             .get(endpoint(
                 base,
-                &task_path(config.provider, "sag-connection-check-no-task"),
+                &if config.provider==MineruProvider::Ai302 {"302/v2/mineru/task".into()} else {task_path(config.provider,"sag-connection-check-no-task")},
             ))
-            .bearer_auth(key)
+            .bearer_auth(key.trim())
             .send()
             .await?;
-        ensure!(
-            !matches!(response.status().as_u16(), 401 | 403),
-            "MinerU 密钥错误或无访问权限"
-        );
+        match response.status().as_u16() {
+
+            401 => bail!("MinerU 鉴权未通过（HTTP 401）。请确认密钥属于当前服务商，且未过期或被撤销"),
+            403 => bail!("MinerU 拒绝访问（HTTP 403）。请检查当前密钥的接口权限、IP 白名单或服务商访问限制；这不一定是密钥错误"),
+            _ => {}
+        }
+        if config.provider==MineruProvider::Ai302 && matches!(response.status().as_u16(),400|422) {return Ok("MinerU 接口可达；未提交解析任务，尚未验证实际解析权限".into());}
         if response.status().as_u16() == 404 {
             return Ok("服务可达；测试任务不存在，尚未确认密钥有效，未上传文件".into());
         }
         let data: Value = serde_json::from_slice(&bytes(response, MIB).await?)
             .map_err(|_| anyhow::anyhow!("MinerU 测试响应无效"))?;
         match data["code"].as_i64() {
+            Some(200) if config.provider == MineruProvider::Ai302 => Ok("服务可达；尚未确认实际解析权限，未上传文件".into()),
             Some(-60012) | Some(0) => Ok("服务可达；尚未确认实际解析权限，未上传文件".into()),
             _ => bail!("MinerU 测试被拒绝，请检查密钥、额度和服务状态"),
         }
@@ -339,6 +387,8 @@ struct Task {
     upload: Option<String>,
     uploaded: bool,
     submitted_at: u64,
+    #[serde(default,skip_serializing_if="Option::is_none")]
+    result: Option<Value>,
 }
 fn now() -> u64 {
     std::time::SystemTime::now()
@@ -610,7 +660,7 @@ async fn parse_part_with_limit(
     let mut task = match read_task(path)? {
         Some(task) => {
             ensure!(
-                task.id.is_some(),
+                task.id.is_some() || task.result.is_some(),
                 "MinerU 上次提交未返回任务编号，无法续查；已保留记录以避免重复提交，请使用本地解析或联系服务商确认任务"
             );
             task
@@ -618,6 +668,7 @@ async fn parse_part_with_limit(
         None => {
             progress("uploading");
             let mut task = Task {
+                result: None,
                 id: None,
                 upload: None,
                 uploaded: false,
@@ -626,11 +677,11 @@ async fn parse_part_with_limit(
             // Persist before a non-idempotent request: a lost response must not trigger another paid task.
             write_task(path, &task)?;
             let options = json!({"model_version":config.model_version,"is_ocr":config.ocr,"enable_table":config.table,"enable_formula":config.formula});
-            if config.provider == MineruProvider::Ai302 {
+            if config.provider != MineruProvider::Official {
                 let form = reqwest::multipart::Form::new().part(
                     "file",
                     reqwest::multipart::Part::bytes(part.bytes.clone())
-                        .file_name(part.name.clone()),
+                        .file_name(part.name.clone()).mime_str("application/pdf")?,
                 );
                 let uploaded = submission_json(
                     client
@@ -645,20 +696,15 @@ async fn parse_part_with_limit(
                 .await?;
                 let file_url = uploaded.as_str().context("MinerU 上传结果缺少文件地址")?;
                 safe_url(file_url)?;
-                let mut body = options;
-                body["url"] = json!(file_url);
-                let created = submission_json(
-                    client
-                        .post(endpoint(base, "mineru/api/v4/extract/task"))
-                        .bearer_auth(key)
-                        .json(&body)
-                        .send()
-                        .await?,
-                    0,
-                    path,
-                )
-                .await?;
-                task.id = Some(task_id(&created, "task_id")?);
+                let body=json!({"pdf_url":file_url,"version":config.version,"parse_method":config.parse_method});
+                let response=client.post(endpoint(base,"302/v2/mineru/task")).bearer_auth(key.trim()).json(&body).send().await?;
+                if response.status().is_client_error(){let _=std::fs::remove_file(path);}
+                let created=opensource_json(response,output_limit).await?;
+                if let Some(id)=find_302_task_id(&created) {task.id=Some(task_id(&json!({"task_id":id}),"task_id")?);} else {
+                    let direct=normalize_opensource(created)?;
+                    if direct["state"]=="failed" {let _=std::fs::remove_file(path);bail!("302.AI 拒绝解析请求，请检查密钥权限、额度或文件参数");}
+                    ensure!(direct["state"]=="done","MinerU 创建任务未返回任务编号或解析结果");task.result=Some(direct);
+                }
                 task.uploaded = true;
             } else {
                 let mut body = options;
@@ -705,13 +751,16 @@ async fn parse_part_with_limit(
         task.upload = None;
         write_task(path, &task)?;
     }
+    if let Some(result)=&task.result {progress("downloading");return finish_302(client,result,part,require_pages,output_limit).await;}
     progress("queued");
     let poll = endpoint(
         base,
         &task_path(config.provider, task.id.as_deref().unwrap()),
     );
     loop {
-        let result = response_json(client.get(&poll).bearer_auth(key).send().await?, 0).await?;
+        let response=client.get(&poll).bearer_auth(key.trim()).send().await?;
+        let result = if config.provider == MineruProvider::Ai302 {opensource_json(response,output_limit).await?} else {response_json(response,0).await?};
+        let result = if config.provider == MineruProvider::Ai302 { normalize_opensource(result)? } else {result};
         let result = if config.provider == MineruProvider::Official {
             &result["extract_result"][0]
         } else {
@@ -720,6 +769,9 @@ async fn parse_part_with_limit(
         match field(result, "state")? {
             "done" => {
                 progress("downloading");
+                if config.provider==MineruProvider::Ai302 {
+                    return finish_302(client,result,part,require_pages,output_limit).await;
+                }
                 return archive_content_with_limit(
                     bytes(
                         client
@@ -832,6 +884,9 @@ fn convert_at_with_progress(
     runtime: &RuntimeSettings,
     progress: &impl Fn(&str),
 ) -> Result<()> {
+    if config.provider == MineruProvider::Ai302 {
+        ensure!(source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")),"302.AI 开源部署版仅支持 PDF，尝试本地解析");
+    }
     config.validate().map_err(anyhow::Error::msg)?;
     ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
     ensure!(!key.trim().is_empty(), "请填写 MinerU API Key");

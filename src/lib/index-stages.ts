@@ -20,6 +20,7 @@ export function indexErrorHint(message:string|null|undefined){
 
 // Watch setup is a preparation step, not an additional file-indexing phase.
 export function indexStage(stage:string|undefined){
+ if(stage==='scanning')return {stage,title:'文件扫描',progress:'正在扫描文件',description:'正在检查文件夹中的文件及索引范围。'};
  if(stage==='preparing_watch')return {stage,title:'文件监听',progress:'正在准备文件监听',description:'正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。'};
  return indexStages.find(item=>item.stage===stage);
 }

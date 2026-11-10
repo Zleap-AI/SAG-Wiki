@@ -1356,14 +1356,15 @@ async fn mineru_settings_keep_provider_secrets_separate_and_validate_before_savi
     let (dir, client, server) = start().await;
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert!(!settings.mineru.enabled);
-    settings.mineru.enabled = true;
+    settings.mineru.enabled = false;
     call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:"302-test-secret".into(),mcp_credentials:None }).await;
     let Output::Settings(saved) = call(&client,Operation::GetSettings).await else {panic!("settings")};
     assert!(saved.mineru.has_key);
+    assert!(saved.mineru.enabled);
     assert!(!serde_json::to_string(&saved).unwrap().contains("302-test-secret"));
     settings.mineru.provider=MineruProvider::Official;
     let result=client.call(Operation::SaveSettings {settings:settings.clone(),answer_key:String::new(),jev_key:String::new(),mineru_key:String::new(),mcp_credentials:None},Duration::from_secs(5)).await;
-    assert!(result.is_err());
+    assert!(result.is_ok());
     call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:"official-test-secret".into(),mcp_credentials:None }).await;
     let data=dir.path().join("data");
     assert_eq!(crate::mineru::key(&data,&MineruConfig::default()).unwrap(),"302-test-secret");
