@@ -1,4 +1,4 @@
-export type MineruConfig={enabled:boolean;provider:'302'|'official';has_key:boolean;request_timeout_secs:number;task_timeout_secs:number;poll_interval_secs:number;concurrency:number;model_version:'vlm'|'pipeline';ocr:boolean;table:boolean;formula:boolean};
+export type MineruConfig={enabled:boolean;provider:'302'|'official';has_key:boolean;request_timeout_secs:number;task_timeout_secs:number;poll_interval_secs:number;concurrency:number;model_version:'vlm'|'pipeline';version?:'2.0'|'2.5';parse_method?:'auto'|'txt'|'ocr';ocr:boolean;table:boolean;formula:boolean};
 import type {ReasoningEffort} from './reasoning';
 import type {Language} from './i18n';
 export type Root={path:string;name:string;status:string;count:number;error:string|null};

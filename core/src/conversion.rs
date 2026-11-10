@@ -73,8 +73,11 @@ fn run_engines(
     .into())
 }
 
-pub(crate) fn local_formats(formats:&Option<Vec<String>>,remote:bool)->Option<Vec<String>> {
-    formats.as_ref().map(|formats|formats.iter().filter(|extension|!remote||!crate::mineru::supports(Path::new(&format!("file.{extension}")))).cloned().collect())
+fn cloud_supports(source:&Path, config:&sag_protocol::mineru::MineruConfig)->bool {
+    config.enabled && crate::mineru::supports(source) && (config.provider != sag_protocol::mineru::MineruProvider::Ai302 || source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")))
+}
+pub(crate) fn local_formats(formats:&Option<Vec<String>>,config:&sag_protocol::mineru::MineruConfig)->Option<Vec<String>> {
+    formats.as_ref().map(|formats|formats.iter().filter(|extension|!cloud_supports(Path::new(&format!("file.{extension}")),config)).cloned().collect())
 }
 
 pub fn identity(source: &Path, settings: &Settings) -> String {
@@ -83,7 +86,7 @@ pub fn identity(source: &Path, settings: &Settings) -> String {
     } else {
         "docling-v1"
     };
-    let cloud = if settings.mineru.enabled && crate::mineru::supports(source) {
+    let cloud = if cloud_supports(source, &settings.mineru) {
         settings.mineru.content_identity()
     } else {
         "local".into()
@@ -116,7 +119,7 @@ pub fn convert(
         return Err(Failure::new(FailureKind::Memory, "文档超过配置的转换输入大小限制").into());
     }
     let mut engines = vec![];
-    if settings.mineru.enabled && crate::mineru::supports(source) {
+    if cloud_supports(source, &settings.mineru) {
         engines.push("MinerU")
     }
     if anydoc::handles(source) {
@@ -195,11 +198,18 @@ mod tests {
     fn folder_cloud_formats_save_without_docling_but_media_still_requires_component() {
         let dir=tempfile::tempdir().unwrap();let root=dir.path().join("library");fs::create_dir(&root).unwrap();
         let store=crate::store::Store::open(&dir.path().join("data/index.sqlite")).unwrap();let registered=store.add_root(&root).unwrap();store.scan(&registered,|_|{}).unwrap();
-        let mut settings=store.settings().unwrap();settings.mineru.enabled=true;store.save_settings(&settings).unwrap();
-        let mut options=store.folder_index_options(&root).unwrap();options.convert_other_formats=true;options.conversion_formats=Some(vec!["png".into()]);
+        let mut settings=store.settings().unwrap();settings.mineru.provider=sag_protocol::mineru::MineruProvider::Ai302;
+        crate::mineru::save_key(&dir.path().join("data"),&settings.mineru,"fixture-key").unwrap();
+        assert!(store.settings().unwrap().mineru.enabled);
+        store.save_settings(&settings).unwrap();
+        let mut options=store.folder_index_options(&root).unwrap();options.convert_other_formats=true;options.conversion_formats=Some(vec!["pdf".into()]);
         store.save_folder_index_options(&root,&options,false).unwrap();
-        assert_eq!(store.folder_index_options(&root).unwrap().conversion_formats,Some(vec!["png".into()]));
+        assert_eq!(store.folder_index_options(&root).unwrap().conversion_formats,Some(vec!["pdf".into()]));
+        let open=sag_protocol::mineru::MineruConfig{enabled:true,..Default::default()};
+        assert_eq!(local_formats(&Some(vec!["pdf".into(),"png".into()]),&open),Some(vec!["png".into()]));
         options.conversion_formats=Some(vec!["wav".into()]);assert!(store.save_folder_index_options(&root,&options,false).is_err());
+        crate::mineru::clear_key(&dir.path().join("data"), &settings.mineru).unwrap();
+        assert!(!store.settings().unwrap().mineru.enabled);
     }
     #[test]
     fn mineru_first_then_anydoc_then_docling_and_stops_at_success() {
@@ -253,6 +263,8 @@ mod tests {
         let output = dir.path().join(".sag-converted/report.md");
         let mut settings = Settings::default();
         settings.mineru.enabled = true;
+        assert!(!cloud_supports(&source,&settings.mineru));
+        settings.mineru.provider=sag_protocol::mineru::MineruProvider::Ai302;
         let mut attempts = vec![];
         convert(
             &source,
@@ -271,10 +283,9 @@ mod tests {
                 .iter()
                 .map(|attempt| attempt.engine.as_str())
                 .collect::<Vec<_>>(),
-            ["MinerU", "anydoc"]
+            ["anydoc"]
         );
-        assert!(attempts[0].error.is_some());
-        assert!(attempts[1].error.is_none());
+        assert!(attempts[0].error.is_none());
         assert_eq!(fs::read(&source).unwrap(), original);
     }
     #[test]
