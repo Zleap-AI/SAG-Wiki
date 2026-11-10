@@ -1,5 +1,11 @@
 use super::*;
 
+#[test]
+fn direct_process_memory_reports_resident_bytes() {
+    let bytes = process_bytes(std::process::id()).unwrap();
+    assert!(bytes > 0);
+}
+
 #[cfg(target_os = "macos")]
 #[test]
 fn sandboxed_supervision_does_not_require_the_setuid_ps_executable() {

@@ -6,6 +6,7 @@ pub mod cli_service;
 mod cli_match;
 pub mod document_text;
 pub mod docling;
+mod docling_worker;
 mod process_supervisor;
 mod docling_budget;
 mod docling_component;
