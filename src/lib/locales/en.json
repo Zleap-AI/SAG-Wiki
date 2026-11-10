@@ -1704,5 +1704,17 @@
   "MinerU 接口可达；未提交解析任务，尚未验证实际解析权限": "The MinerU endpoint is reachable. No task was submitted; parsing permission has not been verified.",
   "302.AI 拒绝解析请求，请检查密钥权限、额度或文件参数": "302.AI rejected the parsing request. Check key permissions, quota or file parameters.",
   "MinerU 分段结果缺少页码映射，尝试本地解析": "Split MinerU results lack page mappings. Trying local parsing.",
-  "MinerU 任务已完成，但未返回正文或结果地址": "The MinerU task completed without content or a result URL."
+  "MinerU 任务已完成，但未返回正文或结果地址": "The MinerU task completed without content or a result URL.",
+  "等待后台处理": "Waiting for background processing",
+  "索引失败": "Indexing failed",
+  "正在处理：{value0}": "Processing: {value0}",
+  "后台正在处理其他文件夹，完成后会继续处理此文件夹。": "Another folder is being processed. This folder will follow.",
+  "文件夹已加入处理队列，即将开始扫描。": "The folder is queued for scanning.",
+  "当前阶段进度": "Current stage progress",
+  "文件扫描": "File scanning",
+  "正在检查文件夹中的文件及索引范围。": "Checking the folder contents and indexing scope.",
+  "SAG 等待后台处理": "SAG waiting for background processing",
+  "文件正在处理中": "File processing is in progress",
+  "当前状态：{value0}": "Current status: {value0}",
+  "后台处理完成后即可打开和检索，请在索引详情中查看进度。": "Open and search the file after background processing completes. View indexing details for progress."
 }

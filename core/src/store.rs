@@ -744,6 +744,7 @@ impl Store {
         Self::mark_note_sources_removed_tx(&tx, path, true)?;
         tx.execute("UPDATE metadata SET version=version+1", [])?;
         tx.commit()?;
+        self.indexing.cancel_root(path);
         Ok(())
     }
     pub fn entries(&self, path: &Path, show_hidden: bool) -> Result<Vec<Entry>> {
@@ -939,10 +940,10 @@ impl Store {
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
-        let result = self.indexing.checkpoint().and_then(|_| self.scan_inner(root, Path::new(root), false, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
+        let result = self.indexing.checkpoint_root(root).and_then(|_| self.scan_inner(root, Path::new(root), false, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
-            Err(e) if !self.indexing.stopped() => self.root_status(root, "error", Some(&e.to_string()))?,
+            Err(e) if !self.indexing.cancelled(root) => self.root_status(root, "error", Some(&e.to_string()))?,
             Err(_) => {},
         };
         let saved = self.record_index_history(root, started_at);
@@ -954,10 +955,10 @@ impl Store {
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
-        let result = self.indexing.checkpoint().and_then(|_| self.update_paths_inner(root, paths, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
+        let result = self.indexing.checkpoint_root(root).and_then(|_| self.update_paths_inner(root, paths, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
-            Err(error) if !self.indexing.stopped() => self.root_status(root, "error", Some(&error.to_string()))?,
+            Err(error) if !self.indexing.cancelled(root) => self.root_status(root, "error", Some(&error.to_string()))?,
             Err(_) => {},
         }
         let saved = self.record_index_history(root, started_at);
@@ -972,7 +973,7 @@ impl Store {
             "SELECT name,status,error FROM roots WHERE path=?", [&task.path],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
-        let status = if self.indexing.stopped() { "stopped" } else { &status };
+        let status = if self.indexing.cancelled(root) { "stopped" } else { &status };
         let mut files = self.indexing.log(root);
         let mut source_query = db.prepare("SELECT source FROM conversions WHERE output=?")?;
         for file in &mut files {
@@ -1093,14 +1094,14 @@ impl Store {
         progress(IndexProgress { count: 0, total });
         self.indexing.phase(root, "indexing", total);
         for item in work {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(root)?;
             match item {
                 Work::Directory(path, files) => {
                     count += self.scan_directory(root, &path, &files, &settings, true, None, |p| progress(IndexProgress { count: completed + p.count, total }))?;
                     completed += files.len().max(1);
                 }
                 Work::File(path) => {
-                    let result = self.indexing.file(root, &path, || self.prepare_file_with_runtime(&path, settings.retrieval.chunk_chars, true, &settings.runtime));
+                    let result = self.indexing.file(root, &path, || self.prepare_file_with_runtime(root, &path, settings.retrieval.chunk_chars, true, &settings.runtime));
                     if let Some(file) = self.prepared_or_issue(root, &path, result)? {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
@@ -1194,7 +1195,7 @@ impl Store {
             && !(entry.file_type().is_some_and(|kind| kind.is_dir()) && entry.file_name().as_encoded_bytes().starts_with(b".")));
         let mut files = vec![];
         for entry in builder.build() {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(&root.to_string_lossy())?;
             let Some(entry) = self.walk_entry(root, entry)? else { continue };
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
             if entry.file_type().is_some_and(|kind| kind.is_dir()) { rules.directory(entry.path())?; }
@@ -1242,7 +1243,7 @@ impl Store {
             rows
         };
         for (source, output, output_hash) in previous {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(root)?;
             let options = rules.file(Path::new(&source))?;
             if sources_set.contains(&source) || !crate::docling::should_convert(Path::new(&source), options) { continue; }
             let path = Path::new(&output);
@@ -1266,7 +1267,7 @@ impl Store {
                 let next = &next;
                 handles.push(scope.spawn(move || -> Result<()> {
                     loop {
-                        self.indexing.checkpoint()?;
+                        self.indexing.checkpoint_root(root)?;
                         let index = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         if index >= sources.len() { break; }
                         let source = &sources[index];
@@ -1303,11 +1304,11 @@ impl Store {
                             // relative source links from directory depth, not the file name.
                             let staged = tempfile::Builder::new().prefix(".sag-pending-").suffix(".md")
                                 .tempfile_in(output.parent().unwrap())?.into_temp_path();
-                            self.indexing.file(root, source, || crate::conversion::convert(source, &staged, &self.docling, settings, || self.indexing.stopped(), |attempt| self.indexing.conversion_attempt(root,source,attempt)))?;
+                            self.indexing.file(root, source, || crate::conversion::convert(source, &staged, &self.docling, settings, || self.indexing.cancelled(root), |attempt| self.indexing.conversion_attempt(root,source,attempt)))?;
                             converted = true;
                             // Pause between conversion and acceptance without retaining an
                             // "active file" entry or a database lock.
-                            self.indexing.checkpoint()?;
+                            self.indexing.checkpoint_root(root)?;
                             if let Err(error) = self.publish_converted_file(root, source, &source_hash, &source_content_hash, &output, staged,
                                 previous.as_ref().map(|(_, hash, _)| hash.as_str()), settings.retrieval.chunk_chars, &settings.runtime) {
                                 // Keep successful history stages stable; add a failed entry
@@ -1363,11 +1364,11 @@ impl Store {
     fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, source_content_hash: &str, output: &Path,
         staged: tempfile::TempPath, previous_hash: Option<&str>, max_chars: usize, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<()> {
         let reserved = preparation_reservation_with_runtime(&staged, &runtime);
-        let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.stopped())?;
-        let mut prepared = self.prepare_file_at_with_runtime(output, &staged, max_chars, true, reserved, &runtime)?
+        let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.cancelled(root))?;
+        let mut prepared = self.prepare_file_at_with_runtime(root, output, &staged, max_chars, true, reserved, &runtime)?
             .context("转换文件准备未生成完整索引")?;
         prepared._permit = Some(permit);
-        self.indexing.checkpoint()?;
+        self.indexing.checkpoint_root(root)?;
         if crate::docling::fingerprint(source)? != source_content_hash {
             bail!("转换期间原文件发生变化，请重新索引")
         }
@@ -1460,7 +1461,7 @@ impl Store {
         });
         let mut files = Vec::new();
         for entry in builder.build() {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(&root.to_string_lossy())?;
             let Some(entry) = self.walk_entry(root, entry)? else { continue };
             if let Some(error) = entry.error() { bail!("无法读取项目忽略规则：{error}") }
             if (entry.path().starts_with(directory) || entry.path().starts_with(&converted_target)) && entry.file_type().is_some_and(|ty| ty.is_file())
@@ -1483,7 +1484,7 @@ impl Store {
         }
         let mut next = 0;
         while next < files.len() {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(root)?;
             // Reserve the complete window before starting it. Acquiring per-result permits
             // in workers could deadlock ordered writes behind a later completed result.
             let mut window = Vec::new();
@@ -1495,20 +1496,20 @@ impl Store {
                 reserved += bytes;
                 next += 1;
             }
-            let _permit = self.text_preparation.reserve_with_limit(reserved, settings.runtime.text_preparation_mib * 1024 * 1024, || self.indexing.stopped())?;
+            let _permit = self.text_preparation.reserve_with_limit(reserved, settings.runtime.text_preparation_mib * 1024 * 1024, || self.indexing.cancelled(root))?;
             let max_chars = settings.retrieval.chunk_chars;
             thread::scope(|scope| -> Result<()> {
                 let mut handles = Vec::new();
                 for (path, bytes) in window {
                     seen.insert(path_text(path)?);
                     handles.push(scope.spawn(move || {
-                        let result = self.indexing.file(root, path, || self.prepare_file_at_with_runtime(path, path, max_chars, verify, bytes, &settings.runtime));
+                        let result = self.indexing.file(root, path, || self.prepare_file_at_with_runtime(root, path, path, max_chars, verify, bytes, &settings.runtime));
                         self.prepared_or_issue(root, path, result)
                     }));
                 }
                 for handle in handles {
                     let prepared = handle.join().expect("index worker panicked")?;
-                    self.indexing.checkpoint()?;
+                    self.indexing.checkpoint_root(root)?;
                     if let Some(file) = prepared {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
@@ -1534,7 +1535,7 @@ impl Store {
             rows
         };
         for p in indexed {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(root)?;
             if converted_only.is_some_and(|converted| converted != crate::docling::in_output(Path::new(&p))) { continue; }
             // An issue recorded for a directory the walk could not enter stays until the
             // directory becomes readable again or disappears.
@@ -1554,7 +1555,7 @@ impl Store {
             self.remove_indexed(&path_text(path)?)?;
             return Ok(false);
         }
-        let Some(file) = self.prepare_file(path, max_chars, false)? else {
+        let Some(file) = self.prepare_file(root, path, max_chars, false)? else {
             return Ok(false);
         };
         let mut db = self.connection();
@@ -1563,17 +1564,17 @@ impl Store {
         tx.commit()?;
         Ok(changed)
     }
-    fn prepare_file(&self, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
-        self.prepare_file_with_runtime(path, max_chars, verify, &self.runtime_settings())
+    fn prepare_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool) -> Result<Option<PreparedFile>> {
+        self.prepare_file_with_runtime(root, path, max_chars, verify, &self.runtime_settings())
     }
-    fn prepare_file_with_runtime(&self, path: &Path, max_chars: usize, verify: bool, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
+    fn prepare_file_with_runtime(&self, root: &str, path: &Path, max_chars: usize, verify: bool, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
         let reserved = preparation_reservation_with_runtime(path, runtime);
-        let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.stopped())?;
-        let mut prepared = self.prepare_file_at_with_runtime(path, path, max_chars, verify, reserved, runtime)?;
+        let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.cancelled(root))?;
+        let mut prepared = self.prepare_file_at_with_runtime(root, path, path, max_chars, verify, reserved, runtime)?;
         if let Some(file) = &mut prepared { file._permit = Some(permit); }
         Ok(prepared)
     }
-    fn prepare_file_at_with_runtime(&self, path: &Path, read_path: &Path, max_chars: usize, verify: bool, reserved: usize, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
+    fn prepare_file_at_with_runtime(&self, root: &str, path: &Path, read_path: &Path, max_chars: usize, verify: bool, reserved: usize, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
         let path_string = path_text(path)?;
         let metadata = fs::metadata(read_path)?;
         let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
@@ -1617,7 +1618,7 @@ impl Store {
         if body.len() > (runtime.max_decoded_text_mib * 1024 * 1024) {
             return Err(text::ResourceLimit(format!("解码后正文不得超过 {} MiB", runtime.max_decoded_text_mib)).into());
         }
-        self.indexing.checkpoint()?;
+        self.indexing.checkpoint_root(root)?;
         let name = path.file_name().unwrap().to_string_lossy().to_string();
         let title = text::index_text(&name);
         let prepared_limit = (runtime.max_prepared_text_mib * 1024 * 1024).min(reserved / 2);
@@ -1625,7 +1626,7 @@ impl Store {
         let mut used = 0usize;
         let mut chunks = Vec::with_capacity(source_chunks.len());
         for chunk in source_chunks {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(root)?;
             let prepared = PreparedChunk {
                 heading: text::index_text(&chunk.heading),
                 content: text::index_text(&chunk.content),
@@ -1643,7 +1644,7 @@ impl Store {
         let mut vocabulary = crate::sag2_v10::VocabularyBuilder::new(prepared_limit / 2);
         vocabulary.extend(&text::indexable_text(&body, path))?;
         for chunk in &chunks {
-            self.indexing.checkpoint()?;
+            self.indexing.checkpoint_root(root)?;
             vocabulary.extend(&chunk.chunk.content)?;
         }
         let retrieval_terms = vocabulary.finish();
@@ -1665,7 +1666,7 @@ impl Store {
         }))
     }
     fn prepare_indexed_file(&self, root: &str, path: &Path, max_chars: usize, verify: bool, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<Option<PreparedFile>> {
-        self.prepared_or_issue(root, path, self.prepare_file_with_runtime(path, max_chars, verify, runtime))
+        self.prepared_or_issue(root, path, self.prepare_file_with_runtime(root, path, max_chars, verify, runtime))
     }
     fn prepared_or_issue(&self, root: &str, path: &Path, result: Result<Option<PreparedFile>>) -> Result<Option<PreparedFile>> {
         match result {
@@ -2301,6 +2302,49 @@ impl Store {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn removing_a_root_wakes_paused_scan_and_update_entries() {
+        for update in [false,true] {
+            let dir=tempfile::tempdir().unwrap();let folder=dir.path().join("library");std::fs::create_dir(&folder).unwrap();
+            let store=std::sync::Arc::new(super::Store::open(&dir.path().join("index.sqlite")).unwrap());let root=store.add_root(&folder).unwrap();
+            store.indexing.set_paused(true);
+            let worker=store.clone();let worker_root=root.clone();let (tx,rx)=std::sync::mpsc::channel();
+            let thread=std::thread::spawn(move||{let result=if update {worker.update_paths(&worker_root,&[],|_|{})}else{worker.scan(&worker_root,|_|{})};tx.send(result.is_err()).unwrap();});
+            let deadline=std::time::Instant::now()+std::time::Duration::from_secs(2);
+            while store.indexing.status().tasks.is_empty() && std::time::Instant::now()<deadline {std::thread::sleep(std::time::Duration::from_millis(5));}
+            let started=!store.indexing.status().tasks.is_empty();
+            store.remove_root(&root).unwrap();
+            let cancelled=rx.recv_timeout(std::time::Duration::from_secs(1));
+            // Always release and join the worker, including when this regression fails.
+            store.indexing.set_paused(false);thread.join().unwrap();
+            assert!(started,"indexing did not reach its paused entry");
+            assert_eq!(cancelled,Ok(true),"removed root stayed blocked at the paused entry (update={update})");
+            assert!(store.indexing.status().tasks.is_empty());assert!(folder.is_dir());
+        }
+    }
+
+    #[test]
+    fn removed_root_cancels_file_preparation_while_other_roots_remain_available() {
+        let dir=tempfile::tempdir().unwrap();let folder=dir.path().join("library");std::fs::create_dir(&folder).unwrap();
+        let store=super::Store::open(&dir.path().join("index.sqlite")).unwrap();let root=store.add_root(&folder).unwrap();
+        let path=folder.join("a.md");std::fs::write(&path,"# Text\nContent").unwrap();
+        store.indexing.begin(&root);store.remove_root(&root).unwrap();
+        // Exercise the preparation checkpoints independently of budget admission.
+        let runtime=store.runtime_settings();let reserved=preparation_reservation_with_runtime(&path,&runtime);
+        assert!(store.prepare_file_at_with_runtime(&root,&path,&path,512,true,reserved,&runtime).is_err());
+        assert!(store.prepare_file_with_runtime(&root,&path,512,true,&runtime).is_err());
+        assert!(!store.indexing.cancelled("other"));assert!(store.indexing.checkpoint_root("other").is_ok());
+        store.indexing.finish(&root);
+    }
+
+    #[test]
+    fn removing_root_cancels_only_its_active_indexing_task() {
+        let dir=tempfile::tempdir().unwrap();let folder=dir.path().join("library");std::fs::create_dir(&folder).unwrap();
+        let store=super::Store::open(&dir.path().join("index.sqlite")).unwrap();let root=store.add_root(&folder).unwrap();
+        store.indexing.begin(&root);store.remove_root(&root).unwrap();assert!(store.indexing.cancelled(&root));assert!(store.roots().unwrap().is_empty());assert!(folder.is_dir());
+        store.indexing.finish(&root);
+    }
+
     use super::*;
     #[test]
     fn runtime_snapshot_survives_settings_change_between_watcher_files() {
@@ -3797,7 +3841,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let modified = UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
         fs::File::options().write(true).open(&path).unwrap()
             .set_times(fs::FileTimes::new().set_modified(modified)).unwrap();
-        assert!(store.prepare_file(&path, 512, true).unwrap().is_none());
+        assert!(store.prepare_file(root.to_str().unwrap(), &path, 512, true).unwrap().is_none());
         let saved: i64 = store.connection().query_row(
             "SELECT mtime FROM documents WHERE path=?", [path_text(&path).unwrap()], |row| row.get(0),
         ).unwrap();

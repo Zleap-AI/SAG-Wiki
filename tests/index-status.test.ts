@@ -167,7 +167,7 @@ it('运行中的索引可查看当前文件并暂停、继续，暂停状态显�
  document.querySelector<HTMLButtonElement>('[aria-label="暂停索引"]')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('set_index_paused',{paused:true}));
  await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toContain('索引已暂停'));
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('已索引 12 个文件');
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('已处理 12 / 100 个文件');
  expect(document.querySelector('.index-active .index-root-title span')?.textContent).toBe('索引已暂停');
  expect(document.querySelector('.index-active')?.textContent).not.toContain('正在索引文件');
  document.querySelector<HTMLButtonElement>('[aria-label="继续索引"]')!.click();
@@ -494,4 +494,17 @@ it('监听准备阶段恢复已隐藏的状态并展示不确定进度',async()=
  expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在准备文件监听');
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('正在准备文件监听'));
+});
+
+it('restores active backend work even when its root is no longer listed',async()=>{
+ invoke.mockImplementation(async command=>{if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test'}};if(command==='get_index_status')return {paused:false,tasks:[{path:'/removed',stage:'converting',completed:18,total:20,files:['/removed/a.pdf']}]};if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'ready',count:4,error:null}];return [];});
+ app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在转换文件'));expect(document.querySelector('.index-status-meta')?.textContent).toContain('18 / 20');
+});
+
+it('recovers changed stages and completion when progress events are missed',async()=>{
+ let task:any={path:'/notes',stage:'converting',completed:1,total:4,files:['/notes/a.pdf']};let rootState='indexing';
+ invoke.mockImplementation(async command=>{if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test'}};if(command==='get_index_status')return {paused:false,tasks:task?[{...task}]:[]};if(command==='list_roots')return [{path:'/notes',name:'Notes',status:rootState,count:1,error:null}];return [];});
+ app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在转换文件'));
+ task={...task,stage:'indexing_converted',completed:2};await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在索引转换结果'),{timeout:2500});
+ task=null;rootState='ready';await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')).toBeNull(),{timeout:2500});
 });
