@@ -1595,7 +1595,7 @@
   "导入的 uv 版本为 {value0}，当前需要 {value1}。请用浏览器下载 {value2}，解压后重新导入。": "The imported uv version is {value0}, but {value1} is required. Download {value2} in a browser, extract it and import again.",
   "所选的 {value0} 无法运行或不是 uv。请用浏览器下载 {value1}，解压后重新导入。": "The selected {value0} could not run or is not uv. Download {value1} in a browser, extract it and import again.",
   "无法下载运行环境管理器：{value0}。可用浏览器下载 {value1}，解压后点击“导入离线组件”并选择解压后的目录。": "Could not download the runtime manager: {value0}. Download {value1} in a browser, extract it, then choose Import offline component and select the extracted folder.",
-  "无法下载 Python 运行环境：{value0}。如无法访问 GitHub，可设置 UV_PYTHON_INSTALL_MIRROR 环境变量指向 python-build-standalone 镜像，重启 SAG 服务后重试。": "Could not download the Python runtime: {value0}. If GitHub is unreachable, set the UV_PYTHON_INSTALL_MIRROR environment variable to a python-build-standalone mirror, restart the SAG service and retry.",
+  "无法下载 Python 运行环境：{value0}。如无法访问 GitHub，可设置 UV_PYTHON_INSTALL_MIRROR 环境变量（例如 https://registry.npmmirror.com/-/binary/python-build-standalone），重启 SAG 服务后重试。": "Could not download the Python runtime: {value0}. If GitHub is unreachable, set the UV_PYTHON_INSTALL_MIRROR environment variable (for example https://registry.npmmirror.com/-/binary/python-build-standalone), restart the SAG service and retry.",
   "无法下载组件依赖：{value0}。如无法访问 PyPI，可设置 UV_DEFAULT_INDEX 环境变量（例如 https://pypi.tuna.tsinghua.edu.cn/simple），重启 SAG 服务后重试。": "Could not download component dependencies: {value0}. If PyPI is unreachable, set the UV_DEFAULT_INDEX environment variable (for example https://pypi.tuna.tsinghua.edu.cn/simple), restart the SAG service and retry.",
   "索引正文输入上限": "Index text input limit",
   "恢复本组默认": "Reset this group",

@@ -96,11 +96,11 @@ The component must include Python, recognition dependencies and models. A standa
 
 If the error says the runtime manager could not be downloaded (for example, `github.com/astral-sh/uv` timed out), open the address from the error in a browser to download the uv archive (`uv-x86_64-pc-windows-msvc.zip` on Windows x64). Extract it, choose **Import offline component** and select the extracted folder. Once SAG confirms the uv version matches the application, it skips that download and continues downloading Python, dependencies and models online.
 
-The remaining steps still need network access. If those addresses are also unreachable, set the following environment variables, restart the SAG service (for example with `sag service restart`) and retry:
+The remaining steps still need network access. If those addresses are also unreachable, set the following environment variables, run `sag service restart` in a terminal opened after setting them, then retry:
 
 | Download | Environment variable | Notes |
 | --- | --- | --- |
-| Python runtime | `UV_PYTHON_INSTALL_MIRROR` | A python-build-standalone mirror |
+| Python runtime | `UV_PYTHON_INSTALL_MIRROR` | A python-build-standalone mirror, for example `https://registry.npmmirror.com/-/binary/python-build-standalone` |
 | Recognition dependencies | `UV_DEFAULT_INDEX` | A PyPI mirror, for example `https://pypi.tuna.tsinghua.edu.cn/simple` |
 | Recognition models | `HF_ENDPOINT` | A Hugging Face mirror, for example `https://hf-mirror.com` |
 

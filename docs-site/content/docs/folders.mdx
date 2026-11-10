@@ -96,11 +96,11 @@ macOS 默认隐藏以点开头的目录。内置解析不会上传文件；Docli
 
 如果错误提示无法下载运行环境管理器（例如访问 `github.com/astral-sh/uv` 超时），可以用浏览器打开错误中的地址下载 uv 压缩包（Windows x64 为 `uv-x86_64-pc-windows-msvc.zip`），解压后点击 **导入离线组件**，选择解压后的目录。软件确认 uv 版本与当前应用要求一致后，跳过这一步下载，继续在线下载 Python、依赖和模型。
 
-后续步骤仍需联网。若对应地址也无法访问，可在系统中设置以下环境变量，重启 SAG 服务（例如运行 `sag service restart`）后重试：
+后续步骤仍需联网。若对应地址也无法访问，可在系统中设置以下环境变量，然后在设置后新打开的终端中运行 `sag service restart` 重启 SAG 服务，再点击重试：
 
 | 下载内容 | 环境变量 | 说明 |
 | --- | --- | --- |
-| Python 运行环境 | `UV_PYTHON_INSTALL_MIRROR` | 指向 python-build-standalone 的镜像地址 |
+| Python 运行环境 | `UV_PYTHON_INSTALL_MIRROR` | python-build-standalone 镜像，例如 `https://registry.npmmirror.com/-/binary/python-build-standalone` |
 | 识别依赖 | `UV_DEFAULT_INDEX` | PyPI 镜像，例如 `https://pypi.tuna.tsinghua.edu.cn/simple` |
 | 识别模型 | `HF_ENDPOINT` | Hugging Face 镜像，例如 `https://hf-mirror.com` |
 
