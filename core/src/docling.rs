@@ -1144,6 +1144,11 @@ impl Docling {
         }
         self.convert_docling_runtime(source, output, runtime, cancel, handoff)
     }
+    pub(crate) fn data_directory(&self) -> &Path { self.home.parent().expect("Docling directory has a parent") }
+    pub fn convert_docling_with_runtime(
+        &self, source: &Path, output: &Path, runtime: &sag_protocol::runtime::RuntimeSettings,
+        cancel: impl Fn() -> bool + Sync,
+    ) -> Result<()> { self.convert_docling_runtime(source, output, runtime, cancel, None) }
     fn convert_docling_runtime(
         &self, source: &Path, output: &Path, runtime: &sag_protocol::runtime::RuntimeSettings,
         cancel: impl Fn() -> bool + Sync, handoff: Option<String>,

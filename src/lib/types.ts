@@ -1,3 +1,4 @@
+export type MineruConfig={enabled:boolean;provider:'302'|'official';has_key:boolean;request_timeout_secs:number;task_timeout_secs:number;poll_interval_secs:number;concurrency:number;model_version:'vlm'|'pipeline';ocr:boolean;table:boolean;formula:boolean};
 import type {ReasoningEffort} from './reasoning';
 import type {Language} from './i18n';
 export type Root={path:string;name:string;status:string;count:number;error:string|null};
@@ -19,7 +20,7 @@ export type UpdateSettings={source:'github'|'website';github_url:string;website_
 export type UpdateInfo={current_version:string;latest_version:string;available:boolean;notes:string;download_url:string|null};
 export type UpdateProgress={stage:'downloading'|'verifying';downloaded:number;total:number|null};
 export type NoteSettings={folder?:string|null;ask_location?:boolean};
-export type Settings={runtime?:Record<string,number|boolean>;notes?:NoteSettings;updates?:UpdateSettings;conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
+export type Settings={mineru?:MineruConfig;runtime?:Record<string,number|boolean>;notes?:NoteSettings;updates?:UpdateSettings;conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
 export type ReasoningBlock={answer_offset:number;tool_count:number;content:string};
 export type Message={created_at?:number|null;question:string;answer:string;reasoning?:string;reasoning_blocks?:ReasoningBlock[];evidence:Candidate[];model:string;scope:string[];references:string[];status:string;error:string|null;retrieval_question:string;tool_calls?:ToolCallRecord[];context?:AnswerContext|null;note_path?:string|null};
 export type Conversation={id:string;title:string;messages:Message[];updated:number;deleted:boolean};
@@ -38,7 +39,7 @@ export type IndexTask={path:string;stage:string;completed:number;total:number;fi
 export type IndexStatus={paused:boolean;tasks:IndexTask[]};
 export type FolderIndexOptions={extensions?:string[]|null;file_types:FileTypes;convert_other_formats:boolean;conversion_formats?:string[]|null};
 export type IndexHistory={id:number;path:string;name:string;started_at:number;finished_at:number;completed:number;total:number;status:string;error:string|null};
-export type IndexFileLog={time:number;path:string;stage:string;status:string;error:string|null};
+export type IndexFileLog={phase?:string;engine?:string;elapsed_ms?:number;time:number;path:string;stage:string;status:string;error:string|null};
 export type IndexHistoryLog={raw:string|null};
 
 export type NoteSourceState='intact'|'moved'|'changed'|'missing'|'unverified';

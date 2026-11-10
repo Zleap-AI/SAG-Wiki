@@ -547,7 +547,7 @@ impl Store {
         if options.convert_other_formats
             && (!previous.convert_other_formats || previous.conversion_formats != options.conversion_formats)
         {
-            self.docling.require_formats(&options.conversion_formats)?;
+            self.docling.require_formats(&crate::conversion::local_formats(&options.conversion_formats,self.settings()?.mineru.enabled))?;
         }
         let root = self.roots()?.into_iter().find(|root| path.starts_with(&root.path)).unwrap().path;
         let mut db = self.connection();
@@ -1205,7 +1205,6 @@ impl Store {
         let convert = rules.converts_files() || !files.is_empty();
         Ok((files, convert))
     }
-    fn local_conversion_resource_failure(error:&anyhow::Error)->bool {error.downcast_ref::<crate::process_supervisor::Failure>().is_some_and(|error|error.kind==crate::process_supervisor::FailureKind::Memory)}
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
         let workers = settings.conversion_workers;
         let mut issues = vec![];
@@ -1276,8 +1275,8 @@ impl Store {
                         let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
                             let source_content_hash = crate::docling::fingerprint(source)?;
-                            let identity=if settings.runtime.content_identity()==sag_protocol::runtime::RuntimeSettings::default().content_identity() {String::new()}else{settings.runtime.content_identity()};
-                            let source_hash = if crate::anydoc::handles(source) {if identity.is_empty(){format!("{}:{source_content_hash}",crate::anydoc::CACHE_VERSION)}else{format!("{}:{identity}:{source_content_hash}",crate::anydoc::CACHE_VERSION)}}else if identity.is_empty(){source_content_hash.clone()}else{format!("{identity}:{source_content_hash}")};
+                            let identity=crate::conversion::identity(source,settings);
+                            let source_hash = if identity.is_empty(){source_content_hash.clone()}else{format!("{identity}:{source_content_hash}")};
                             let previous: Option<(String,String,bool)> = self.connection().query_row(
                                 "SELECT source_hash,output_hash,valid FROM conversions WHERE source=?", [&source_text],
                                 |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
@@ -1302,7 +1301,7 @@ impl Store {
                             // relative source links from directory depth, not the file name.
                             let staged = tempfile::Builder::new().prefix(".sag-pending-").suffix(".md")
                                 .tempfile_in(output.parent().unwrap())?.into_temp_path();
-                            self.indexing.file(root, source, || self.docling.convert_with_runtime(source, &staged, &settings.runtime, || self.indexing.stopped()))?;
+                            self.indexing.file(root, source, || crate::conversion::convert(source, &staged, &self.docling, settings, || self.indexing.stopped(), |attempt| self.indexing.conversion_attempt(root,source,attempt)))?;
                             converted = true;
                             // Pause between conversion and acceptance without retaining an
                             // "active file" entry or a database lock.
@@ -1317,7 +1316,7 @@ impl Store {
                         })();
                         let source_unchanged = unchanged_previous.as_ref().is_some_and(|hash|
                             crate::docling::fingerprint(source).is_ok_and(|current| &current == hash));
-                        let preserve_previous = source_unchanged || previous_usable && result.as_ref().err().is_some_and(Self::local_conversion_resource_failure) || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
+                        let preserve_previous = source_unchanged || previous_usable && result.as_ref().err().is_some_and(crate::conversion::resource_failure) || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
                         tx.send((source_text, result, preserve_previous))?;
                     }
                     Ok(())

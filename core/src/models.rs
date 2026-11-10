@@ -74,7 +74,7 @@ pub fn save_secret(dir: &std::path::Path, kind: &str, key: &str) -> Result<()> {
     if key.trim().is_empty() {
         return Ok(());
     }
-    if !matches!(kind, "answer" | "jev") {
+    if !matches!(kind, "answer" | "jev" | "mineru:302" | "mineru:official") {
         bail!("模型类型不正确")
     }
     let mut values = credentials(dir)?;
@@ -82,7 +82,7 @@ pub fn save_secret(dir: &std::path::Path, kind: &str, key: &str) -> Result<()> {
     write_credentials(dir, &values)
 }
 pub fn clear_secret(dir: &std::path::Path, kind: &str) -> Result<()> {
-    if !matches!(kind, "answer" | "jev") {
+    if !matches!(kind, "answer" | "jev" | "mineru:302" | "mineru:official") {
         bail!("模型类型不正确")
     }
     let mut values = credentials(dir)?;

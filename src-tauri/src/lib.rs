@@ -317,6 +317,9 @@ remote!(install_docling_profiles(profiles:Vec<DoclingProfile>) => InstallDocling
 remote!(cancel_docling_install() => CancelDoclingInstall);
 remote!(uninstall_docling() => UninstallDocling);
 remote!(clear_model_key(kind:String) => ClearModelKey);
+remote!(mineru_schema() => MineruSchema);
+remote!(test_mineru(config:sag_protocol::mineru::MineruConfig,key:String) => TestMineru);
+remote!(clear_mineru_key(config:sag_protocol::mineru::MineruConfig) => ClearMineruKey);
 remote!(runtime_schema() => RuntimeSchema);
 remote!(test_model(kind:String,config:ModelConfig,key:String) => TestModel);
 remote!(test_mcp(server:McpServer,credentials:Option<McpCredentials>) => TestMcp);
@@ -338,6 +341,7 @@ async fn save_settings(
     settings: Settings,
     answer_key: String,
     jev_key: String,
+    mineru_key: Option<String>,
     mcp_credentials: Option<std::collections::BTreeMap<String, McpCredentials>>,
     state: State<'_, Arc<AppState>>,
     app: tauri::AppHandle,
@@ -349,6 +353,7 @@ async fn save_settings(
             settings,
             answer_key,
             jev_key,
+            mineru_key: mineru_key.unwrap_or_default(),
             mcp_credentials,
         },
     )
@@ -656,6 +661,9 @@ pub fn run() {
             save_settings,
             test_model,
             runtime_schema,
+            mineru_schema,
+            test_mineru,
+            clear_mineru_key,
             test_mcp,
             resolve_tool_approval,
             clear_model_key,

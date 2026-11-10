@@ -1,4 +1,5 @@
 pub mod runtime;
+pub mod mineru;
 mod build;
 mod cli;
 pub mod explore;
@@ -149,6 +150,12 @@ pub struct IndexHistory {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexFileLog {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<u64>,
     pub time: i64,
     pub path: String,
     pub stage: String,
@@ -270,6 +277,9 @@ pub enum Operation {
     },
     GetSettings,
     RuntimeSchema,
+    MineruSchema,
+    TestMineru { config: crate::mineru::MineruConfig, key: String },
+    ClearMineruKey { config: crate::mineru::MineruConfig },
     RegisterDoclingComponent {
         path: String,
     },
@@ -277,6 +287,8 @@ pub enum Operation {
         settings: Settings,
         answer_key: String,
         jev_key: String,
+        #[serde(default)]
+        mineru_key: String,
         mcp_credentials: Option<BTreeMap<String, McpCredentials>>,
     },
     ClearModelKey {

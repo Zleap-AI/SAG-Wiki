@@ -1,3 +1,5 @@
+mod conversion;
+mod mineru;
 pub mod agent;
 pub mod anydoc;
 pub mod cli_service;
