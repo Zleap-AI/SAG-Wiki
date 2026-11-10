@@ -47,18 +47,19 @@ pub async fn run_until(data: PathBuf, shutdown: CancellationToken) -> Result<()>
             .set_permissions(std::fs::Permissions::from_mode(0o600))?;
     }
     #[cfg(windows)]
-    {
-        let username = std::env::var("USERNAME").context("无法获取当前用户")?;
-        let result = std::process::Command::new("icacls")
-            .arg(file.path())
-            .args(["/inheritance:r", "/grant:r", &format!("{username}:F")])
-            .output()?;
-        if !result.status.success() {
-            bail!("无法保护 SAG 服务连接记录")
-        }
-    }
+    windows_permissions::protect(file.path()).context("无法保护 SAG 服务连接记录")?;
     file.write_all(&serde_json::to_vec(&endpoint)?)?;
-    file.persist(data.join("sag-service.json"))?;
+    let target = data.join("sag-service.json");
+    if let Err(error) = file.persist(&target) {
+        let tempfile::PersistError { error, file } = error;
+        let temporary = file.path().to_path_buf();
+        let cleanup = file.close();
+        return Err(error).with_context(|| format!(
+            "无法保存 SAG 服务连接记录 {}（临时文件 {}，清理{}）",
+            target.display(), temporary.display(),
+            cleanup.map(|_| "成功".to_owned()).unwrap_or_else(|e| format!("失败：{e}"))
+        ));
+    }
     let requests = Arc::new(Semaphore::new(20));
     let connections = Arc::new(Semaphore::new(64));
     let mut clients = JoinSet::new();
@@ -233,3 +234,7 @@ async fn serve(
     event_task.await.context("清理 SAG 事件任务失败")?;
     result
 }
+
+#[cfg(windows)]
+#[path = "server_windows_permissions.rs"]
+mod windows_permissions;
