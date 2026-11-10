@@ -73,6 +73,8 @@ The app checks the context budget before each model request, including during to
 
 Very long histories are summarized in batches and merged. The summary is saved with the conversation for later turns. Summarization makes additional model requests without counting as tool calls. A failed summary reports an error and preserves the original records. Full questions, answers, tool records and source passages remain stored locally and are not overwritten by the summary.
 
+Requests keep the system prompt first, including retries after citation checks, empty-answer checks, and tool-limit reminders. Tool results and citation IDs remain intact.
+
 ## Configure an answer model
 
 Enter your provider endpoint, model and API key in settings. Configure Jev as well for semantic retrieval. Jev finds evidence; the answer model composes the response.
