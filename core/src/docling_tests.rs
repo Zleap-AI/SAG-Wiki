@@ -298,6 +298,62 @@ fn a_missing_bundle_installs_online_only_after_the_user_requests_it() {
 
 #[cfg(unix)]
 #[test]
+fn standalone_images_reuse_one_ocr_worker_across_conversions() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Docling::new(temp.path());
+    fake_online_uv(&converter);
+    // Keep this worker test independent of the public model host; it only
+    // needs the local component fixture installed from the fake uv binary.
+    converter
+        .install_online(&converter.home.join("uv"))
+        .unwrap();
+    let runtime = crate::docling_component::active(&converter.home).unwrap();
+    let script = r#"#!/bin/sh
+set -eu
+base=$(dirname "$0")
+while [ ! -f "$base/active.json" ]; do base=$(dirname "$base"); done
+printf 'spawn\n' >> "$base/worker-spawns"
+printf '{"status":"ready"}\n'
+while IFS= read -r request; do
+  id=$(printf '%s\n' "$request" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+  source=$(printf '%s\n' "$request" | sed -n 's/.*"source":"\([^"]*\)".*/\1/p')
+  output=$(printf '%s\n' "$request" | sed -n 's/.*"output":"\([^"]*\)".*/\1/p')
+  printf 'worker output\n' > "$output"
+  printf '%s\n' "$source" >> "$base/worker-requests"
+  printf '{"id":%s,"status":"ok"}\n' "$id"
+done
+"#;
+    fs::write(&runtime.python, script).unwrap();
+    fs::set_permissions(&runtime.python, fs::Permissions::from_mode(0o755)).unwrap();
+    for index in 0..2 {
+        let source = temp.path().join(format!("image-{index}.png"));
+        fs::write(&source, include_bytes!("../assets/image-probe.png")).unwrap();
+        let output = output_path(temp.path(), &source).unwrap();
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        converter.convert(&source, &output).unwrap();
+        assert!(fs::read_to_string(output)
+            .unwrap()
+            .contains("worker output"));
+    }
+    assert_eq!(
+        fs::read_to_string(converter.home.join("worker-spawns"))
+            .unwrap()
+            .lines()
+            .count(),
+        1
+    );
+    assert_eq!(
+        fs::read_to_string(converter.home.join("worker-requests"))
+            .unwrap()
+            .lines()
+            .count(),
+        2
+    );
+}
+
+#[cfg(unix)]
+#[test]
 fn online_install_failure_and_cancel_preserve_the_previous_runtime() {
     use std::time::Instant;
     let temp = tempfile::tempdir().unwrap();

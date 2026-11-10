@@ -5,6 +5,7 @@ use std::{
 };
 
 const GIB: u64 = 1024 * 1024 * 1024;
+pub(crate) const IMAGE_WORKER_BYTES: u64 = 2 * GIB;
 static GLOBAL: LazyLock<Result<Budget, String>> =
     LazyLock::new(|| physical_memory().map(|physical| Budget::new(budget_for(physical))));
 /// Reserve half of physical memory for the system and other applications.
@@ -74,20 +75,49 @@ pub fn acquire(cancel: &dyn Fn() -> bool) -> Result<Permit<'static>, Failure> {
         .map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
     budget.acquire(budget.job_bytes, cancel)
 }
-fn configured_limits(physical: u64, runtime: &sag_protocol::runtime::RuntimeSettings) -> (u64, u64, usize) {
-    let maximum = (physical / 100 * runtime.conversion_memory_percent + physical % 100 * runtime.conversion_memory_percent / 100).max(1);
+fn configured_limits(
+    physical: u64,
+    runtime: &sag_protocol::runtime::RuntimeSettings,
+) -> (u64, u64, usize) {
+    let maximum = (physical / 100 * runtime.conversion_memory_percent
+        + physical % 100 * runtime.conversion_memory_percent / 100)
+        .max(1);
     let requested = if runtime.conversion_job_mib == 0 {
         (maximum / 2).max(4 * GIB).min(maximum)
-    } else { runtime.conversion_job_mib.saturating_mul(1024 * 1024).min(maximum) };
+    } else {
+        runtime
+            .conversion_job_mib
+            .saturating_mul(1024 * 1024)
+            .min(maximum)
+    };
     (maximum, requested, (maximum / requested.max(1)) as usize)
 }
-pub fn resource_summary(runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<(u64, u64, usize), String> {
+pub fn resource_summary(
+    runtime: &sag_protocol::runtime::RuntimeSettings,
+) -> Result<(u64, u64, usize), String> {
     physical_memory().map(|physical| configured_limits(physical, runtime))
 }
-pub fn acquire_with_runtime(runtime: &sag_protocol::runtime::RuntimeSettings, cancel: &dyn Fn() -> bool) -> Result<Permit<'static>, Failure> {
-    let budget = GLOBAL.as_ref().map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
+pub fn acquire_with_runtime(
+    runtime: &sag_protocol::runtime::RuntimeSettings,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Permit<'static>, Failure> {
+    let budget = GLOBAL
+        .as_ref()
+        .map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
     let (maximum, requested, _) = configured_limits(budget.maximum * 2, runtime);
     budget.acquire_with_limit(requested, maximum, cancel)
+}
+
+pub(crate) fn acquire_bytes_with_runtime(
+    bytes: u64,
+    runtime: &sag_protocol::runtime::RuntimeSettings,
+    cancel: &dyn Fn() -> bool,
+) -> Result<Permit<'static>, Failure> {
+    let budget = GLOBAL
+        .as_ref()
+        .map_err(|error| Failure::new(FailureKind::Monitoring, error.clone()))?;
+    let (maximum, _, _) = configured_limits(budget.maximum * 2, runtime);
+    budget.acquire_with_limit(bytes, maximum, cancel)
 }
 fn physical_memory() -> Result<u64, String> {
     #[cfg(target_os = "macos")]
