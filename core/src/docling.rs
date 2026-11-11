@@ -128,6 +128,25 @@ pub fn is_pem_key(path: &Path) -> Result<bool> {
     Ok(header[..length].starts_with(b"-----BEGIN "))
 }
 
+/// Conversion stopped because the component this source needs is not installed.
+/// Scans remember these failures and skip the file until the component arrives
+/// or the source changes, instead of parsing it again on every start.
+#[derive(Debug)]
+pub struct ComponentMissing(pub String);
+impl std::fmt::Display for ComponentMissing {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { f.write_str(&self.0) }
+}
+impl std::error::Error for ComponentMissing {}
+pub fn component_missing(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<ComponentMissing>().is_some()
+}
+pub fn required_profile(source: &Path) -> DoclingProfile {
+    if source.extension().is_some_and(|ext| MEDIA_EXTENSIONS.iter().any(|media| ext.eq_ignore_ascii_case(media))) {
+        DoclingProfile::Media
+    } else {
+        DoclingProfile::Documents
+    }
+}
 pub fn is_selected(path: &Path, formats: &Option<Vec<String>>) -> bool {
     formats.as_ref().is_none_or(|formats| {
         let name = path.file_name().unwrap().to_string_lossy().to_lowercase();
@@ -1275,7 +1294,7 @@ impl Docling {
                 Ok(crate::anydoc::Outcome::Converted) => return Ok(()),
                 Ok(crate::anydoc::Outcome::NeedsOcr(detail)) => {
                     if !self.has_profile(DoclingProfile::Documents) {
-                        bail!("扫描件需要 OCR（{detail}），请在文件设置中安装图片识别组件后重试")
+                        return Err(ComponentMissing(format!("扫描件需要 OCR（{detail}），请在文件设置中安装图片识别组件后重试")).into());
                     }
                     handoff = Some(format!("内置转换需要 OCR：{detail}"));
                 }
@@ -1299,23 +1318,16 @@ impl Docling {
         cancel: impl Fn() -> bool + Sync, handoff: Option<String>,
     ) -> Result<()> {
         let _usage = self.usage.read().unwrap();
-        let profile = if source.extension().is_some_and(|ext| {
-            MEDIA_EXTENSIONS
-                .iter()
-                .any(|media| ext.eq_ignore_ascii_case(media))
-        }) {
-            DoclingProfile::Media
-        } else {
-            DoclingProfile::Documents
-        };
+        let profile = required_profile(source);
         if !self.has_profile(profile) {
-            if profile == DoclingProfile::Media {
-                bail!("请在文件设置中安装音视频组件后重试")
-            }
-            if handoff.is_some() || is_image(source) {
-                bail!("请在文件设置中安装图片识别组件后重试")
-            }
-            bail!("此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试")
+            let message = if profile == DoclingProfile::Media {
+                "请在文件设置中安装音视频组件后重试"
+            } else if handoff.is_some() || is_image(source) {
+                "请在文件设置中安装图片识别组件后重试"
+            } else {
+                "此格式需要 Docling 文档组件，请在文件设置中安装图片识别组件后重试"
+            };
+            return Err(ComponentMissing(message.into()).into());
         }
         let component_home = if profile == DoclingProfile::Media {
             self.home.join("media")

@@ -21,8 +21,10 @@ use tauri::{
     Emitter, Manager, State,
 };
 type CommandResult<T> = Result<T, String>;
+/// Render an error for the frontend with its full cause chain, so wrapped
+/// failures keep the underlying reason (for example the OS error of a spawn).
 fn error(e: impl std::fmt::Display) -> String {
-    e.to_string()
+    format!("{e:#}")
 }
 struct AppState<R: tauri::Runtime = tauri::Wry> {
     client: Mutex<Client>,
@@ -141,7 +143,7 @@ fn connect_on_startup(state: Arc<AppState>, fresh_library: bool) {
                     }
                 }
             }
-            Err(error) => eprintln!("启动时连接 SAG 服务失败：{error}"),
+            Err(error) => eprintln!("启动时连接 SAG 服务失败：{error:#}"),
         }
     });
 }
@@ -169,11 +171,11 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                                     reported = None;
                                     None
                                 }
-                                Err(error) => Some(error.to_string()),
+                                Err(error) => Some(format!("{error:#}")),
                             }
                         }
                         Ok(None) => continue,
-                        Err(error) => Some(format!("SAG 服务重连失败：{error}")),
+                        Err(error) => Some(format!("SAG 服务重连失败：{error:#}")),
                     };
                     if let Some(message) = failure {
                         if reported.as_deref() != Some(&message) {
@@ -194,7 +196,7 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                 emit(
                     &state.app,
                     "app-error",
-                    format!("无法恢复 SAG 状态：{error}"),
+                    format!("无法恢复 SAG 状态：{error:#}"),
                 );
                 continue;
             }

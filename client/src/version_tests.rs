@@ -220,3 +220,26 @@ async fn incompatible_executable_never_replaces_a_running_service() {
         server.abort();
     }
 }
+
+#[tokio::test]
+async fn build_check_failure_names_the_executable_and_the_os_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let missing = dir.path().join("missing-sag");
+    let error = ensure_build(dir.path(), &missing, &release("0.1.0", "desktop"))
+        .await
+        .err()
+        .unwrap();
+    let message = format!("{error:#}");
+    assert!(message.contains("无法检查 SAG 服务构建"), "{message}");
+    assert!(message.contains("missing-sag"), "{message}");
+    assert!(message.contains("os error"), "{message}");
+}
+
+#[test]
+fn run_captured_collects_output_without_the_null_device() {
+    let dir = tempfile::tempdir().unwrap();
+    let output = run_captured(std::process::Command::new("/bin/sh").arg("-c").arg("cat; echo out; echo err >&2").current_dir(dir.path())).unwrap();
+    assert!(output.status.success());
+    assert_eq!(output.stdout, b"out\n");
+    assert_eq!(output.stderr, b"err\n");
+}

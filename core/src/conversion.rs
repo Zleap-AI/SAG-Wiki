@@ -19,6 +19,9 @@ pub struct Attempt {
 struct EngineFailures {
     messages: Vec<String>,
     resource: bool,
+    /// Every engine stopped because a required component is not installed, so
+    /// the same source fails the same way until the component is added.
+    component_missing: bool,
 }
 impl std::fmt::Display for EngineFailures {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,6 +37,12 @@ pub(crate) fn resource_failure(error: &anyhow::Error) -> bool {
             .downcast_ref::<Failure>()
             .is_some_and(|error| error.kind == FailureKind::Memory)
 }
+/// True when nothing but installing a component can change the outcome.
+pub(crate) fn component_missing(error: &anyhow::Error) -> bool {
+    error
+        .downcast_ref::<EngineFailures>()
+        .is_some_and(|error| error.component_missing)
+}
 fn run_engines(
     engines: &[&str],
     cancel: &impl Fn() -> bool,
@@ -42,6 +51,7 @@ fn run_engines(
 ) -> Result<String> {
     let mut failures = vec![];
     let mut resource = false;
+    let mut component_missing = true;
     for engine in engines {
         if cancel() {
             bail!("已停止转换，未发布输出")
@@ -62,13 +72,16 @@ fn run_engines(
             Ok(()) => return Ok((*engine).into()),
             Err(error) => {
                 resource |= resource_failure(&error);
+                component_missing &= crate::docling::component_missing(&error);
                 failures.push(format!("{engine}：{}", message.unwrap()))
             }
         }
     }
+    let component_missing = component_missing && !failures.is_empty();
     Err(EngineFailures {
         messages: failures,
         resource,
+        component_missing,
     }
     .into())
 }
@@ -163,6 +176,9 @@ pub fn convert(
                     &cancel,
                 )? {
                     anydoc::Outcome::Converted => {}
+                    anydoc::Outcome::NeedsOcr(detail) if !docling.has_profile(sag_protocol::DoclingProfile::Documents) => {
+                        return Err(crate::docling::ComponentMissing(format!("内置解析需要 OCR：{detail}")).into())
+                    }
                     anydoc::Outcome::NeedsOcr(detail) => bail!("内置解析需要 OCR：{detail}"),
                 },
                 _ => docling.convert_docling_with_runtime(
