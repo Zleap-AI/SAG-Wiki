@@ -2627,6 +2627,37 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     }
 
     #[test]
+    fn mineru_completed_output_is_reused_after_reopening() {
+        let (dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.convert_other_formats = true;
+        settings.mineru.enabled = true;
+        store.save_settings(&settings).unwrap();
+        let source = root.join("cached.pdf");
+        // Invalid input and no API key: any attempt to convert again must fail.
+        fs::write(&source, "already processed source fixture").unwrap();
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        let body = "cachedcaption\n![figure](.sag-mineru-assets/hash/images/a.png)";
+        fs::write(&output, body).unwrap();
+        let image = output.parent().unwrap().join(".sag-mineru-assets/hash/images/a.png");
+        fs::create_dir_all(image.parent().unwrap()).unwrap();
+        fs::write(&image, b"image fixture").unwrap();
+        let identity = format!("{}:{}", crate::conversion::identity(&source, &settings), crate::docling::fingerprint(&source).unwrap());
+        store.connection().execute("INSERT INTO conversions(source,root,source_hash,output,output_hash,valid) VALUES(?,?,?,?,?,1)", params![path_text(&source).unwrap(),path_text(&root).unwrap(),identity,path_text(&output).unwrap(),crate::docling::fingerprint(&output).unwrap()]).unwrap();
+        let modified = fs::metadata(&output).unwrap().modified().unwrap();
+        drop(store);
+        for _ in 0..2 {
+            let reopened = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+            reopened.scan(root.to_str().unwrap(), |_| {}).unwrap();
+            assert_eq!(fs::metadata(&output).unwrap().modified().unwrap(), modified);
+            assert_eq!(fs::read_to_string(&output).unwrap(), body);
+            assert_eq!(fs::read(&image).unwrap(), b"image fixture");
+            assert_eq!(reopened.search_files("cachedcaption", &[], 5).unwrap().len(), 1);
+        }
+    }
+
+    #[test]
     fn removed_file_stays_excluded_and_can_be_restored_without_changing_local_data() {
         let (dir, store, root) = setup();
         let removed = root.join("removed.txt");

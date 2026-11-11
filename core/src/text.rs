@@ -171,7 +171,7 @@ pub(crate) fn indexable_ranges(source: &str, path: &std::path::Path) -> Vec<(usi
     // Keep descriptions and their original source offsets, but never index
     // image destinations (including opaque hashes and signed URL parameters).
     static IMAGE: LazyLock<Regex> = LazyLock::new(|| Regex::new(
-        r"!\[((?:\\.|[^\]\\])*)\]\((?:\\.|[^()\n]|\([^()\n]*\))*\)"
+        r"!\[((?:\\.|\[[^\]\n]*\]|[^\]\\])*)\]\((?:\\.|[^()\n]|\([^()\n]*\))*\)"
     ).unwrap());
     for image in IMAGE.captures_iter(source) {
         let whole = image.get(0).unwrap();
@@ -183,7 +183,7 @@ pub(crate) fn indexable_ranges(source: &str, path: &std::path::Path) -> Vec<(usi
         r"!\[([^\]\n]*)\](?:\[([^\]\n]*)\])?"
     ).unwrap());
     static DEFINITION: LazyLock<Regex> = LazyLock::new(|| Regex::new(
-        r"(?m)^ {0,3}\[([^\]\n]+)\]:[^\r\n]*"
+        r"(?m)^ {0,3}\[([^\]\n]+)\]:[ \t]*(?:\r?\n[ \t]+)?[^\r\n]*"
     ).unwrap());
     let normalize_label = |label: &str| label.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
     let references: Vec<_> = REFERENCE_IMAGE.captures_iter(source).filter_map(|image| {
@@ -201,7 +201,7 @@ pub(crate) fn indexable_ranges(source: &str, path: &std::path::Path) -> Vec<(usi
             excluded.push((whole.start(), whole.end()));
         }
     }
-    static HTML_IMAGE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<img\b[^>]*>").unwrap());
+    static HTML_IMAGE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?is)<img\b(?:"[^"]*"|'[^']*'|[^'">])*>"#).unwrap());
     static ALT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?is)\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#).unwrap());
     for image in HTML_IMAGE.find_iter(source) {
         if let Some(alt) = ALT.captures(image.as_str()).and_then(|c| c.get(1).or_else(|| c.get(2)).or_else(|| c.get(3))) {
@@ -729,6 +729,10 @@ mod tests {
         let indexed = indexable_text(reference, path);
         assert!(indexed.contains("曲线") && indexed.contains("正文"));
         assert!(!indexed.contains("referencehash"));
+        let variants = "![curve [red]](images/nestedhash.png)\n<img alt=\"a > b\" src=\"images/htmlhash.png\">\n![figure][f]\n[f]:\n  images/multilinehash.png";
+        let filtered = indexable_text(variants, path);
+        for hash in ["nestedhash", "htmlhash", "multilinehash"] { assert!(!filtered.contains(hash)); }
+        for caption in ["curve", "a > b", "figure"] { assert!(filtered.contains(caption)); }
     }
 
     #[test]

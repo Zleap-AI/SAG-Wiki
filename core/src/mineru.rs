@@ -572,6 +572,11 @@ fn archive_content_with_assets(
                 let end = destination.end() - whole.start();
                 format!("{}{}{}", &whole.as_str()[..start], target, &whole.as_str()[end..])
             }).into_owned();
+            let definition = regex::Regex::new(&format!(
+                r#"(?m)(^\s*\[[^\]\n]+\]:\s*<?){}(?P<tail>[^\r\n]*)"#,
+                regex::escape(&source)
+            )).unwrap();
+            text = definition.replace_all(&text, format!("${{1}}{target}$tail")).into_owned();
         }
         let destination = parent.join(&package);
         std::fs::create_dir_all(destination.parent().context("资源路径无效")?)?;

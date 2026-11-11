@@ -64,7 +64,7 @@ fn archive_assets_survive_markdown_rename_and_isolate_segments() {
     let dir = tempfile::tempdir().unwrap();
     let make = |bytes: &[u8]| {
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
-        for (name, data) in [("full.md", b"# Result\n![caption](images/x.png)\n![title](./images/x.png \"title\")\n![](<images/x.png>)\n<img src='images/x.png'>".as_slice()), ("images/x.png", bytes)] {
+        for (name, data) in [("full.md", b"# Result\n![caption](images/x.png)\n![title](./images/x.png \"title\")\n![](<images/x.png>)\n<img src='images/x.png'>\n![reference][f]\n[f]: images/x.png".as_slice()), ("images/x.png", bytes)] {
             zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
             zip.write_all(data).unwrap();
         }
@@ -80,7 +80,7 @@ fn archive_assets_survive_markdown_rename_and_isolate_segments() {
         assert_eq!(std::fs::read(dir.path().join(link)).unwrap(), expected);
         assert!(dir.path().join(link).parent().unwrap().parent().unwrap().join("full.md").exists());
         assert!(!text.contains("](./images/") && !text.contains("](images/"));
-        assert_eq!(text.matches(".sag-mineru-assets/").count(), 4);
+        assert_eq!(text.matches(".sag-mineru-assets/").count(), 5);
     }
     let staged = dir.path().join("pending.md");
     std::fs::write(&staged, &first).unwrap();
