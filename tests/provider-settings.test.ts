@@ -53,11 +53,11 @@ it('LLM 六个供应商自动填入地址，自定义地址与模型列表可以
  expect(onSave.mock.calls[0][0].answer).toMatchObject({url:'https://proxy.example/v1',model:'first',models:['first','second']});
 });
 it('Jev 预设供应商填入对应评分接口，并提供自定义选项',async()=>{
- expect(providers.jev.map(provider=>provider.label)).toEqual(['302.AI','OpenRouter','Typesafe','自定义']);
+ expect(providers.jev.map(provider=>provider.label)).toEqual(['Zleap','302.AI','OpenRouter','Typesafe','自定义']);
  await setup();
  for(const provider of providers.jev.filter(provider=>provider.value!=='custom')){await choose('jev',provider.value);expect(address('jev').value).toBe(provider.url);}
  trigger('jev').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
- await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(4));
+ await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(5));
  expect(document.querySelector('[role=option][data-value=custom]')).not.toBeNull();
 });
 it('Jev 自定义地址用于测试连接，保存后重新打开仍显示该地址',async()=>{
@@ -161,4 +161,17 @@ it('切回 API Key 后仍禁止复用原供应商的保存密钥',async()=>{
  card('jev').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
  await vi.waitFor(()=>expect(document.body.textContent).toContain('切换供应商后，请填写对应的 API 密钥。'));
  expect(api.mock.calls.filter(([command])=>!['mineru_schema','runtime_schema'].includes(command))).toHaveLength(0);await save();expect(onSave).not.toHaveBeenCalled();
+});
+
+it('Zleap 预设显示控制台密钥入口，并与 302 问答密钥隔离',async()=>{
+ const settings=structuredClone(value);settings.jev={...settings.jev,url:'https://api.zleap.com/v1',model:'Zev-1',auth_mode:'bearer'};
+ const onSave=await setup(settings);
+ expect(trigger('jev').textContent).toContain('Zleap');
+ const link=card('jev').querySelector<HTMLAnchorElement>('.settings-key-link')!;
+ expect(link.href).toBe('https://platform.zleap.com/console');
+ link.click();await tick();expect(api).toHaveBeenCalledWith('open_about_link',{target:'zleap-console'});
+ await input(key('answer'),'test-answer-key');expect(key('jev').value).toBe('');
+ await input(key('jev'),'test-zleap-key');await save();
+ expect(onSave.mock.calls[0].slice(1,3)).toEqual(['test-answer-key','test-zleap-key']);
+ await choose('jev','official');expect(card('jev').querySelector('.settings-key-link')).toBeNull();
 });
