@@ -284,7 +284,7 @@ impl Store {
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS index_history(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL,name TEXT NOT NULL,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,completed INTEGER NOT NULL,total INTEGER NOT NULL,status TEXT NOT NULL,error TEXT);
  CREATE TABLE IF NOT EXISTS conversions(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,output TEXT NOT NULL,output_hash TEXT NOT NULL,valid INTEGER NOT NULL DEFAULT 1);
- CREATE TABLE IF NOT EXISTS conversion_failures(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,error TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS conversion_failures(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,error TEXT NOT NULL,mtime INTEGER,size INTEGER);
  CREATE INDEX IF NOT EXISTS conversion_failures_root ON conversion_failures(root);
  CREATE INDEX IF NOT EXISTS conversions_output ON conversions(output);
  CREATE INDEX IF NOT EXISTS index_issues_root ON index_issues(root);
@@ -314,6 +314,13 @@ impl Store {
         )?;
         if !has_file_log {
             db.execute("ALTER TABLE index_history ADD COLUMN file_log TEXT", [])?;
+        }
+        let has_conversion_mtime: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('conversions') WHERE name='mtime')",
+            [], |r| r.get(0),
+        )?;
+        if !has_conversion_mtime {
+            db.execute_batch("ALTER TABLE conversions ADD COLUMN mtime INTEGER; ALTER TABLE conversions ADD COLUMN size INTEGER;")?;
         }
         if !has_size {
             db.execute(
@@ -1213,6 +1220,12 @@ impl Store {
         Ok((files, convert))
     }
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
+        /// The stored source hash for a content hash (or a previously stored
+        /// hash, whose last segment is the content hash) under this identity.
+        fn hash_for_identity(hash: &str, identity: &str) -> String {
+            let content = hash.rsplit(':').next().unwrap_or(hash);
+            if identity.is_empty() { content.into() } else { format!("{identity}:{content}") }
+        }
         let workers = settings.conversion_workers;
         let mut issues = vec![];
         let mut rules = crate::folder_index::Rules::new(Path::new(root), settings)?;
@@ -1293,27 +1306,56 @@ impl Store {
                         let mut previous_usable = false;
                         let mut unchanged_previous = None;
                         let mut hashed = None;
+                        let mut stat = None;
                         let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
-                            let source_content_hash = crate::docling::fingerprint(source)?;
+                            let metadata = fs::metadata(source)?;
+                            let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
+                            let size = metadata.len() as i64;
+                            stat = Some((mtime, size));
                             let identity=crate::conversion::identity(source,settings);
-                            let source_hash = if identity.is_empty(){source_content_hash.clone()}else{format!("{identity}:{source_content_hash}")};
-                            hashed = Some(source_hash.clone());
+                            let previous: Option<(String,String,bool,Option<i64>,Option<i64>)> = self.connection().query_row(
+                                "SELECT source_hash,output_hash,valid,mtime,size FROM conversions WHERE source=?", [&source_text],
+                                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).optional()?;
+                            // Like text files, an unchanged mtime and size stand in for the
+                            // content hash so a routine scan does not read every source again.
+                            if let Some((previous_source, _, true, Some(previous_mtime), Some(previous_size))) = &previous {
+                                if *previous_mtime == mtime && *previous_size == size && output.exists()
+                                    && hash_for_identity(previous_source, &identity) == *previous_source {
+                                    hashed = Some(previous_source.clone());
+                                    return Ok(true);
+                                }
+                            }
                             // A source that failed only for a missing component fails the same
                             // way until the component is installed or the file changes; do not
                             // parse it again on every scan.
-                            let remembered: Option<String> = self.connection().query_row(
-                                "SELECT error FROM conversion_failures WHERE source=?1 AND source_hash=?2", params![&source_text, &source_hash],
-                                |row| row.get(0)).optional()?;
-                            if let Some(error) = remembered {
-                                if !self.docling.has_profile(crate::docling::required_profile(source)) {
+                            let remembered = |hash: Option<&str>| -> Result<Option<String>> {
+                                Ok(match hash {
+                                    Some(hash) => self.connection().query_row(
+                                        "SELECT error FROM conversion_failures WHERE source=?1 AND source_hash=?2", params![&source_text, hash],
+                                        |row| row.get(0)).optional()?,
+                                    None => self.connection().query_row(
+                                        "SELECT source_hash,error FROM conversion_failures WHERE source=?1 AND mtime=?2 AND size=?3", params![&source_text, mtime, size],
+                                        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))).optional()?
+                                        .filter(|(hash, _)| hash_for_identity(hash, &identity) == *hash)
+                                        .map(|(_, error)| error),
+                                })
+                            };
+                            let component_missing = || !self.docling.has_profile(crate::docling::required_profile(source));
+                            if let Some(error) = remembered(None)? {
+                                if component_missing() {
                                     bail!("{error}")
                                 }
                             }
-                            let previous: Option<(String,String,bool)> = self.connection().query_row(
-                                "SELECT source_hash,output_hash,valid FROM conversions WHERE source=?", [&source_text],
-                                |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
-                            if let Some((previous_source, previous_output, valid)) = &previous {
+                            let source_content_hash = crate::docling::fingerprint(source)?;
+                            let source_hash = hash_for_identity(&source_content_hash, &identity);
+                            hashed = Some(source_hash.clone());
+                            if let Some(error) = remembered(Some(&source_hash))? {
+                                if component_missing() {
+                                    bail!("{error}")
+                                }
+                            }
+                            if let Some((previous_source, previous_output, valid, _, _)) = &previous {
                                 if output.exists() {
                                     let previous_content = previous_source.rsplit(':').next().unwrap_or(previous_source);
                                     if *valid && previous_content == source_content_hash {
@@ -1321,7 +1363,7 @@ impl Store {
                                     }
                                     previous_usable = *valid && crate::docling::fingerprint(&output)? == *previous_output;
                                     if previous_source == &source_hash {
-                                        self.connection().execute("UPDATE conversions SET valid=1 WHERE source=?", [&source_text])?;
+                                        self.connection().execute("UPDATE conversions SET valid=1,mtime=?2,size=?3 WHERE source=?1", params![&source_text, mtime, size])?;
                                         return Ok(true);
                                     }
                                     if crate::docling::fingerprint(&output)? != *previous_output {
@@ -1339,8 +1381,8 @@ impl Store {
                             // Pause between conversion and acceptance without retaining an
                             // "active file" entry or a database lock.
                             self.indexing.checkpoint_root(root)?;
-                            if let Err(error) = self.publish_converted_file(root, source, &source_hash, &source_content_hash, &output, staged,
-                                previous.as_ref().map(|(_, hash, _)| hash.as_str()), settings.retrieval.chunk_chars, &settings.runtime) {
+                            if let Err(error) = self.publish_converted_file(root, source, &source_hash, &source_content_hash, (mtime, size), &output, staged,
+                                previous.as_ref().map(|(_, hash, _, _, _)| hash.as_str()), settings.retrieval.chunk_chars, &settings.runtime) {
                                 // Keep successful history stages stable; add a failed entry
                                 // only when acceptance rejects an otherwise converted file.
                                 self.indexing.file(root, source, || Err::<(), _>(error))?;
@@ -1350,13 +1392,13 @@ impl Store {
                         let source_unchanged = unchanged_previous.as_ref().is_some_and(|hash|
                             crate::docling::fingerprint(source).is_ok_and(|current| &current == hash));
                         let preserve_previous = source_unchanged || previous_usable && result.as_ref().err().is_some_and(crate::conversion::resource_failure) || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
-                        tx.send((source_text, result, preserve_previous, hashed))?;
+                        tx.send((source_text, result, preserve_previous, hashed, stat))?;
                     }
                     Ok(())
                 }));
             }
             drop(tx);
-            for (index, (source, result, preserve_previous, hashed)) in rx.into_iter().enumerate() {
+            for (index, (source, result, preserve_previous, hashed, stat)) in rx.into_iter().enumerate() {
                 if let Err(error) = result {
                     if preserve_previous && error.is::<rusqlite::Error>() { return Err(error); }
                     if !preserve_previous {
@@ -1364,8 +1406,9 @@ impl Store {
                         self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
                     }
                     if let Some(source_hash) = hashed.filter(|_| crate::conversion::component_missing(&error)) {
-                        self.connection().execute("INSERT INTO conversion_failures(source,root,source_hash,error) VALUES(?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,error=excluded.error",
-                            params![&source, root, source_hash, error.to_string()])?;
+                        let (mtime, size) = stat.unwrap();
+                        self.connection().execute("INSERT INTO conversion_failures(source,root,source_hash,error,mtime,size) VALUES(?,?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,error=excluded.error,mtime=excluded.mtime,size=excluded.size",
+                            params![&source, root, source_hash, error.to_string(), mtime, size])?;
                     }
                     issues.push((source, error.to_string()));
                 } else if result.unwrap() {
@@ -1395,7 +1438,7 @@ impl Store {
         }
         Ok(issues)
     }
-    fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, source_content_hash: &str, output: &Path,
+    fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, source_content_hash: &str, source_stat: (i64, i64), output: &Path,
         staged: tempfile::TempPath, previous_hash: Option<&str>, max_chars: usize, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<()> {
         let reserved = preparation_reservation_with_runtime(&staged, &runtime);
         let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.cancelled(root))?;
@@ -1422,8 +1465,8 @@ impl Store {
             let mut db = self.connection();
             let tx = db.transaction()?;
             Self::write_prepared(&tx, root, prepared)?;
-            tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1",
-                params![path_text(source)?,root,source_hash,path_text(output)?,output_hash])?;
+            tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash,mtime,size) VALUES(?,?,?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1,mtime=excluded.mtime,size=excluded.size",
+                params![path_text(source)?,root,source_hash,path_text(output)?,output_hash,source_stat.0,source_stat.1])?;
             tx.execute("DELETE FROM index_issues WHERE path=?", [path_text(source)?])?;
             tx.execute("DELETE FROM conversion_failures WHERE source=?", [path_text(source)?])?;
             if self.indexing.stopped() { bail!("索引已停止") }
@@ -1802,8 +1845,12 @@ impl Store {
         Ok(true)
     }
     pub fn verify_root(&self, root: &str) -> Result<()> {
-        self.connection()
-            .execute("UPDATE documents SET mtime=0 WHERE root=?", [root])?;
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        tx.execute("UPDATE documents SET mtime=0 WHERE root=?", [root])?;
+        tx.execute("UPDATE conversions SET mtime=NULL WHERE root=?", [root])?;
+        tx.execute("UPDATE conversion_failures SET mtime=NULL WHERE root=?", [root])?;
+        tx.commit()?;
         Ok(())
     }
     pub fn invalidate_index(&self) -> Result<()> {
