@@ -1,12 +1,12 @@
 # 更新日志 / Changelog
 
-## 0.1.10
+## 0.2.10
 
-- **版本编号**：桌面端与随包 CLI 统一使用 0.1.10。
+- **版本编号**：桌面端与随包 CLI 统一使用 0.2.10。
 
 ### English
 
-- **Version number**: the desktop app and bundled CLI both use 0.1.10.
+- **Version number**: the desktop app and bundled CLI both use 0.2.10.
 
 ## 0.2.9
 
