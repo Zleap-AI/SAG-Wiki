@@ -92,7 +92,7 @@ macOS hides dot-prefixed directories by default. Built-in parsing does not uploa
 
 In the file parsing support installer, choose **Import offline component**, then select the extracted complete document component folder containing `manifest.json`. SAG checks its platform, component version and file integrity, then runs a sample conversion. Once ready, choose **Apply selected formats**. Reindex the folder if previous files failed to convert.
 
-The component must include Python, recognition dependencies and models. A standalone Python installer or model download is not a complete component. This entry supports document components only; audio and video still use online installation. A failed import does not fall back to online downloads. Select another folder to retry offline, or choose Retry installation to install online.
+The component must include Python, recognition dependencies and models. A standalone Python installer or model download is not a complete component. This entry supports document components only; audio and video still use online installation. When document and media formats are selected together, the entry is still shown; after the import finishes, choose **Retry installation** to install the media component online. A failed import does not fall back to online downloads. Select another folder to retry offline, or choose Retry installation to install online.
 
 #### When only the uv download fails
 

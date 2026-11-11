@@ -15,6 +15,7 @@
  $:context=$doclingInstallRequest;
  $:targets=status.running&&status.requested_profiles?.length?status.requested_profiles:context?.profiles??[];
  $:complete=targets.length>0&&targets.every(profile=>profileInstalled(status,profile));
+ $:documentsPending=targets.includes('documents')&&!profileInstalled(status,'documents');
  $:dialogTitle=$t('安装文件解析支持');
  $:steps=[$t('准备下载'),$t('安装解析工具'),$t('检查可用性')];
  $:step=['runtime','dependencies','models','done'].indexOf(status.stage);
@@ -44,7 +45,7 @@
  }
  async function importComponent(){
   const request=context;
-  if(!request||request.pending||status.running||targets.length!==1||targets[0]!=='documents')return;
+  if(!request||request.pending||status.running||!documentsPending)return;
   request.pending=true;doclingInstallRequest.set(request);error='';
   try{
    const path=await open({directory:true,multiple:false,title:$t('选择解压后的文档识别组件或 uv 目录')});
@@ -95,7 +96,7 @@
     {#if status.running||status.error}<Button.Root type="button" class="download-log-link" onclick={openLog}>{$t('打开安装日志')}</Button.Root>{/if}
    </div>
   {/if}
-  {#if !status.running&&!complete&&targets.length===1&&targets[0]==='documents'}
+  {#if !status.running&&documentsPending}
    <section class="offline-component">
     <p class="settings-help">{$t('自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可选择解压后的 uv 目录，其余部分仍在线下载。')}</p>
     <Button.Root type="button" disabled={loading||context?.pending} onclick={importComponent}>{$t('导入离线组件')}</Button.Root>
