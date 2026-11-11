@@ -284,6 +284,8 @@ impl Store {
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS index_history(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL,name TEXT NOT NULL,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,completed INTEGER NOT NULL,total INTEGER NOT NULL,status TEXT NOT NULL,error TEXT);
  CREATE TABLE IF NOT EXISTS conversions(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,output TEXT NOT NULL,output_hash TEXT NOT NULL,valid INTEGER NOT NULL DEFAULT 1);
+ CREATE TABLE IF NOT EXISTS conversion_failures(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,error TEXT NOT NULL);
+ CREATE INDEX IF NOT EXISTS conversion_failures_root ON conversion_failures(root);
  CREATE INDEX IF NOT EXISTS conversions_output ON conversions(output);
  CREATE INDEX IF NOT EXISTS index_issues_root ON index_issues(root);
  CREATE TABLE IF NOT EXISTS documents(id INTEGER PRIMARY KEY AUTOINCREMENT,root TEXT NOT NULL,path TEXT UNIQUE NOT NULL,name TEXT NOT NULL,hash TEXT NOT NULL,mtime INTEGER NOT NULL,size INTEGER NOT NULL DEFAULT 0);
@@ -698,6 +700,7 @@ impl Store {
                 params![value, r.path],
             )?;
             tx.execute("UPDATE index_issues SET root=? WHERE root=?", params![value, r.path])?;
+            tx.execute("UPDATE conversion_failures SET root=? WHERE root=?", params![value, r.path])?;
             tx.execute("UPDATE root_exclusions SET root=? WHERE root=?", params![value, r.path])?;
             tx.execute("DELETE FROM roots WHERE path=?", [&r.path])?;
         }
@@ -1142,6 +1145,7 @@ impl Store {
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?1 AND (d.path=?2 OR instr(d.path,?3)=1))", params![root,path,prefix])?;
         let removed = tx.execute("DELETE FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
         tx.execute("DELETE FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
+        tx.execute("DELETE FROM conversion_failures WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)", params![root,path,prefix])?;
         Self::mark_note_sources_removed_tx(tx, &path, true)?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
         Ok(removed)
@@ -1254,6 +1258,19 @@ impl Store {
             self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
             self.remove_indexed(&output)?;
         }
+        let stale_failures: Vec<String> = {
+            let db = self.connection();
+            let scope = path_text(directory)?;
+            let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+            let mut query = db.prepare("SELECT source FROM conversion_failures WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+            let rows = query.query_map(params![root,scope,prefix], |row| row.get::<_, String>(0))?
+                .filter(|row| row.as_ref().is_ok_and(|source| !sources_set.contains(source)))
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for source in stale_failures {
+            self.connection().execute("DELETE FROM conversion_failures WHERE source=?", [&source])?;
+        }
         if !sources.is_empty() {
             self.indexing.phase(root, "converting", sources.len());
             progress(IndexProgress { count: 0, total: sources.len() });
@@ -1275,11 +1292,24 @@ impl Store {
                         let mut converted = false;
                         let mut previous_usable = false;
                         let mut unchanged_previous = None;
+                        let mut hashed = None;
                         let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
                             let source_content_hash = crate::docling::fingerprint(source)?;
                             let identity=crate::conversion::identity(source,settings);
                             let source_hash = if identity.is_empty(){source_content_hash.clone()}else{format!("{identity}:{source_content_hash}")};
+                            hashed = Some(source_hash.clone());
+                            // A source that failed only for a missing component fails the same
+                            // way until the component is installed or the file changes; do not
+                            // parse it again on every scan.
+                            let remembered: Option<String> = self.connection().query_row(
+                                "SELECT error FROM conversion_failures WHERE source=?1 AND source_hash=?2", params![&source_text, &source_hash],
+                                |row| row.get(0)).optional()?;
+                            if let Some(error) = remembered {
+                                if !self.docling.has_profile(crate::docling::required_profile(source)) {
+                                    bail!("{error}")
+                                }
+                            }
                             let previous: Option<(String,String,bool)> = self.connection().query_row(
                                 "SELECT source_hash,output_hash,valid FROM conversions WHERE source=?", [&source_text],
                                 |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
@@ -1320,18 +1350,22 @@ impl Store {
                         let source_unchanged = unchanged_previous.as_ref().is_some_and(|hash|
                             crate::docling::fingerprint(source).is_ok_and(|current| &current == hash));
                         let preserve_previous = source_unchanged || previous_usable && result.as_ref().err().is_some_and(crate::conversion::resource_failure) || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
-                        tx.send((source_text, result, preserve_previous))?;
+                        tx.send((source_text, result, preserve_previous, hashed))?;
                     }
                     Ok(())
                 }));
             }
             drop(tx);
-            for (index, (source, result, preserve_previous)) in rx.into_iter().enumerate() {
+            for (index, (source, result, preserve_previous, hashed)) in rx.into_iter().enumerate() {
                 if let Err(error) = result {
                     if preserve_previous && error.is::<rusqlite::Error>() { return Err(error); }
                     if !preserve_previous {
                         // Backend failure still invalidates evidence for the changed source.
                         self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
+                    }
+                    if let Some(source_hash) = hashed.filter(|_| crate::conversion::component_missing(&error)) {
+                        self.connection().execute("INSERT INTO conversion_failures(source,root,source_hash,error) VALUES(?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,error=excluded.error",
+                            params![&source, root, source_hash, error.to_string()])?;
                     }
                     issues.push((source, error.to_string()));
                 } else if result.unwrap() {
@@ -1391,6 +1425,7 @@ impl Store {
             tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1",
                 params![path_text(source)?,root,source_hash,path_text(output)?,output_hash])?;
             tx.execute("DELETE FROM index_issues WHERE path=?", [path_text(source)?])?;
+            tx.execute("DELETE FROM conversion_failures WHERE source=?", [path_text(source)?])?;
             if self.indexing.stopped() { bail!("索引已停止") }
             fs::rename(&staged, output)?;
             published = true;
