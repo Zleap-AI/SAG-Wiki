@@ -160,18 +160,19 @@ switch ($env:SAG_CLI_PATH_ACTION) {
 }
 [Console]::Write($found)
 "#;
-    let output = std::process::Command::new("powershell.exe")
-        .args([
-            "-NoLogo",
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            script,
-        ])
-        .env("SAG_CLI_PATH_DIRECTORY", bin)
-        .env("SAG_CLI_PATH_ACTION", action)
-        .output()
-        .context("无法启动 Windows 用户 PATH 配置")?;
+    let output = sag_client::run_captured(
+        std::process::Command::new("powershell.exe")
+            .args([
+                "-NoLogo",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                script,
+            ])
+            .env("SAG_CLI_PATH_DIRECTORY", bin)
+            .env("SAG_CLI_PATH_ACTION", action),
+    )
+    .context("无法启动 powershell.exe 配置 Windows 用户 PATH")?;
     if !output.status.success() {
         bail!(
             "无法配置 Windows 用户 PATH：{}",
