@@ -653,7 +653,7 @@ pub(crate) mod tests {
         assert!(read.sources[0].content.chars().count() < 200);
         assert_eq!(read.data["has_more"], false);
         assert_eq!(read.sources[0].content, text::source_content(&body, &read.sources[0].source_spans));
-        assert_eq!(read.sources[0].source_spans.len(), 2);
+        assert_eq!(read.sources[0].source_spans.len(), 3);
         for span in &read.sources[0].source_spans {
             assert!(!body[span.start_byte..span.end_byte].contains("data:image"));
         }

@@ -87,7 +87,7 @@ pub fn identity(source: &Path, settings: &Settings) -> String {
         "docling-v1"
     };
     let cloud = if cloud_supports(source, &settings.mineru) {
-        settings.mineru.content_identity()
+        format!("{}:local-images-v1", settings.mineru.content_identity())
     } else {
         "local".into()
     };

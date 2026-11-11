@@ -350,7 +350,7 @@ impl Store {
         if schema_version > 0 && schema_version < 7 {
             db.execute_batch("BEGIN; DELETE FROM chunk_fts; DELETE FROM chunks; UPDATE documents SET hash=''; UPDATE roots SET status='pending',error=NULL; UPDATE metadata SET version=version+1; COMMIT;")?;
         }
-        if schema_version < 9 && db.query_row(
+        if schema_version < 10 && db.query_row(
             "SELECT EXISTS(SELECT 1 FROM documents WHERE lower(path) GLOB '*.html' OR lower(path) GLOB '*.htm' OR lower(path) GLOB '*.md' OR lower(path) GLOB '*.markdown')",
             [], |row| row.get::<_, bool>(0),
         )? {
@@ -366,10 +366,10 @@ impl Store {
                 UPDATE roots SET status='pending',error=NULL WHERE path IN (SELECT root FROM documents WHERE id IN (SELECT id FROM resource_refresh));
                 DROP TABLE resource_refresh;
                 UPDATE metadata SET version=version+1;
-                PRAGMA user_version=9;
+                PRAGMA user_version=10;
                 COMMIT;")?;
         } else {
-            db.pragma_update(None, "user_version", 9)?;
+            db.pragma_update(None, "user_version", 10)?;
         }
         // Slots are cheap; open read connections only when a configured worker is used.
         let query_readers = (0..64).map(|_| Mutex::new(None)).collect();

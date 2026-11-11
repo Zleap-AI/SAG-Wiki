@@ -30,7 +30,7 @@ fn unsupported_formats_stay_local_and_invalid_settings_fail() {
 }
 
 #[test]
-fn archive_markdown_rewrites_relative_images_without_extracting_paths() {
+fn archive_markdown_preserves_relative_images() {
     use std::io::Write;
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     zip.start_file("full.md", zip::write::SimpleFileOptions::default())
@@ -40,8 +40,41 @@ fn archive_markdown_rewrites_relative_images_without_extracting_paths() {
     let archive = zip.finish().unwrap().into_inner();
     let parsed = markdown(archive).unwrap();
     assert!(parsed.contains("# Result"));
-    assert!(!parsed.contains("images/x.png"));
+    assert!(parsed.contains("images/x.png"));
     assert!(parsed.contains("[web](https://example.com)"));
+}
+
+#[test]
+fn archive_assets_survive_markdown_rename_and_isolate_segments() {
+    let dir = tempfile::tempdir().unwrap();
+    let make = |bytes: &[u8]| {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, data) in [("full.md", b"# Result\n![caption](images/x.png)\n![title](./images/x.png \"title\")\n![](<images/x.png>)\n<img src='images/x.png'>".as_slice()), ("images/x.png", bytes)] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(data).unwrap();
+        }
+        zip.start_file("doc_content_list.json", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(br#"[{"type":"image","img_path":"images/x.png","image_caption":["Caption"],"page_idx":0}]"#).unwrap();
+        zip.finish().unwrap().into_inner()
+    };
+    let first = archive_content_with_assets(make(b"first"), 0, 0, false, MIB, Some(dir.path())).unwrap();
+    let second = archive_content_with_assets(make(b"second"), 0, 0, false, MIB, Some(dir.path())).unwrap();
+    assert_ne!(first, second);
+    for (text, expected) in [(&first, b"first".as_slice()), (&second, b"second".as_slice())] {
+        let link = text.split("](").nth(1).unwrap().split(')').next().unwrap();
+        assert_eq!(std::fs::read(dir.path().join(link)).unwrap(), expected);
+        assert!(dir.path().join(link).parent().unwrap().parent().unwrap().join("full.md").exists());
+        assert!(!text.contains("](./images/") && !text.contains("](images/"));
+        assert_eq!(text.matches(".sag-mineru-assets/").count(), 4);
+    }
+    let staged = dir.path().join("pending.md");
+    std::fs::write(&staged, &first).unwrap();
+    std::fs::rename(staged, dir.path().join("report.pdf.md")).unwrap();
+    assert_eq!(archive_content_with_assets(make(b"first"), 0, 0, false, MIB, Some(dir.path())).unwrap(), first);
+    let split = archive_content_with_assets(make(b"first"), 201, 202, true, MIB, Some(dir.path())).unwrap();
+    assert!(split.contains("source-page:201"));
+    assert!(split.contains("Caption"));
+    assert!(split.contains("![](.sag-mineru-assets/"));
 }
 
 #[test]
