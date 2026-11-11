@@ -51,12 +51,12 @@ pub fn handle(app: &tauri::AppHandle, _: &Shortcut, event: tauri_plugin_global_s
     }
 }
 
-fn window(app: &tauri::AppHandle) -> CommandResult<tauri::WebviewWindow> {
+fn quick_search_window(app: &tauri::AppHandle) -> CommandResult<tauri::WebviewWindow> {
     app.get_webview_window("quick-search").ok_or_else(|| "快捷搜索窗口不存在".to_string())
 }
 
 pub fn toggle(app: &tauri::AppHandle) -> CommandResult<()> {
-    let window = window(app)?;
+    let window = quick_search_window(app)?;
     if window.is_visible().map_err(error)? && window.is_focused().map_err(error)? {
         return dismiss(app, true);
     }
@@ -77,7 +77,7 @@ pub fn toggle(app: &tauri::AppHandle) -> CommandResult<()> {
 
 pub fn dismiss(app: &tauri::AppHandle, restore: bool) -> CommandResult<()> {
     let previous = app.state::<QuickSearch>().previous.lock().unwrap().take();
-    window(app)?.hide().map_err(error)?;
+    quick_search_window(app)?.hide().map_err(error)?;
     if let Some(previous) = previous {
         if restore { restore_application(previous); }
     }

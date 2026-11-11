@@ -20,6 +20,9 @@ describe('tauri window configuration',()=>{
  });
  it('keeps every window when the Windows override is applied',()=>{
   expect(labels(windows)).toEqual(labels(base));
+  // main intentionally differs on Windows (custom title bar); quick-search must stay identical.
+  const quick=(config:Config)=>config.app.windows.find(window=>window.label==='quick-search');
+  expect(quick(windows)).toEqual(quick(base));
  });
  it('keeps the quick-search window hidden until the shortcut opens it',()=>{
   for(const config of [base,windows]){
