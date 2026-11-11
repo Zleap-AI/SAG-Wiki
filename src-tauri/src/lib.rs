@@ -42,6 +42,7 @@ fn emit<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &str, payload: impl
 fn output_value(output: Output) -> CommandResult<serde_json::Value> {
     use Output::*;
     let value = match output {
+        Api(value) => value,
         Unit => serde_json::Value::Null,
         Info(value) => serde_json::to_value(value).map_err(error)?,
         Snapshot(value) => serde_json::to_value(value).map_err(error)?,
@@ -337,6 +338,10 @@ remote!(fold_document(id:String,document:sag_protocol::FoldDocument) => FoldDocu
 remote!(summarize_search(id:String,question:String,results:Vec<Candidate>) => SummarizeSearch);
 remote!(load_image(path:String) => LoadImage);
 remote!(get_service_info() => Info);
+#[tauri::command]
+async fn manage_api(action: sag_protocol::ApiAction, state: State<'_, Arc<AppState>>) -> CommandResult<serde_json::Value> {
+    rpc(&state, Operation::Api { action }).await
+}
 
 #[tauri::command]
 async fn save_settings(
@@ -689,6 +694,7 @@ pub fn run() {
             updates::install_app_update,
             load_image,
             get_service_info
+            ,manage_api
         ])
         .build(tauri::generate_context!())
         .expect("无法启动 SAG Wiki");

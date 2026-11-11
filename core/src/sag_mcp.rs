@@ -384,7 +384,7 @@ impl SagTools {
             let scope = self
                 .selected_paths(args.path.as_deref())?
                 .iter()
-                .map(|p| store::path_text(p))
+                .map(|p| self.store.indexed_path(p).and_then(|path| store::path_text(&path)))
                 .collect::<Result<Vec<_>>>()?;
             let refs = self
                 .references
@@ -426,6 +426,7 @@ impl SagTools {
                             &self.cancel,
                         )
                         .await
+                        .map_err(|error| anyhow::Error::new(models::DecisionRequestError(error)))
                     }
                 },
                 |stage, count| (self.progress)(stage, count),

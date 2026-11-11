@@ -5,6 +5,8 @@ mod cli;
 pub mod explore;
 mod retrieval;
 pub mod types;
+mod api;
+pub use api::ApiAction;
 pub use build::*;
 pub use cli::*;
 use explore::*;
@@ -195,6 +197,7 @@ pub struct EventEnvelope {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(tag = "operation", content = "args", rename_all = "snake_case")]
 pub enum Operation {
+    Api { action: ApiAction },
     DoclingStatus,
     InstallDocling,
     ImportDoclingComponent {
@@ -387,6 +390,7 @@ pub enum Operation {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    Api(serde_json::Value),
     Docling(DoclingStatus),
     IndexStatus(IndexStatus),
     IndexHistory(Vec<IndexHistory>),

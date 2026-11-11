@@ -6,6 +6,17 @@ use reqwest::Client;
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
+#[derive(Debug)]
+pub(crate) struct DecisionRequestError(pub(crate) anyhow::Error);
+impl std::fmt::Display for DecisionRequestError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        std::fmt::Display::fmt(&self.0, formatter)
+    }
+}
+impl std::error::Error for DecisionRequestError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> { self.0.source() }
+}
+
 fn credentials(dir: &std::path::Path) -> Result<std::collections::BTreeMap<String, String>> {
     match std::fs::read(dir.join("credentials.json")) {
         Ok(bytes) => Ok(serde_json::from_slice(&bytes).context("本地密钥文件格式无效")?),

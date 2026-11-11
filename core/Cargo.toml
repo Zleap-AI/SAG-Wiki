@@ -48,6 +48,11 @@ encoding_rs = "0.8"
 chardetng = "1"
 unicode-casefold = "0.2"
 ignore = "0.4.33"
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+http-body-util = "0.1"
+if-addrs = "0.15"
+subtle = "2"
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 sha2 = { version = "0.10", features = ["asm"] }
 [target.'cfg(target_os = "macos")'.dependencies]
