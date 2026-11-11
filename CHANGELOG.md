@@ -1,5 +1,29 @@
 # 更新日志 / Changelog
 
+## 0.2.9
+
+- **修复 Windows 快捷搜索崩溃**：Windows 版此前未创建快捷搜索窗口，通过全局快捷键、托盘菜单或快捷键设置打开快捷搜索会导致应用退出；现已修复，缺少窗口时报错而不再崩溃。
+- **改善 Windows 启动失败提示**：本地服务启动失败时显示完整原因（含系统错误码），不再只显示“无法检查 SAG 服务构建”；检查服务、配置 PATH 和目录权限时不再依赖 NUL 设备。
+- **减少重启后的重复索引**：因未安装文档组件而无法转换的文件（如需要 OCR 的扫描 PDF）在组件安装或文件变化前不再逐次重新解析；未变化的 PDF 与 Office 文件按修改时间和大小跳过，不再每次完整读取计算哈希。手动重新索引仍会完整校验。
+- **修复离线组件导入入口**：同时勾选文档与媒体格式时，下载失败后仍显示“导入离线组件”按钮。
+- **Jev 默认使用 Zleap 决策模型**：首次启动默认选择 Zleap 开放平台的 `Zev-1`，设置页可直接打开控制台获取 API Key；已有用户的配置保持不变。
+- **改善模型连接测试**：问答模型测试不再附带部分服务不支持的输出长度限制。
+- **对话续问保持系统提示词在前**：引用检查、空回答检查和工具调用上限提醒后的再次请求均保持系统提示词位于开头。
+
+桌面端与随包 CLI 版本统一为 0.2.9。
+
+### English
+
+- **Windows quick-search crash**: the Windows build did not create the quick-search window, so opening quick search from the global shortcut, the tray menu or the shortcut settings exited the app. Fixed; a missing window now reports an error instead of crashing.
+- **Windows startup diagnostics**: when the local service fails to start, show the full cause including the OS error code instead of only "cannot check the SAG service build". Service checks, PATH configuration and directory permissions no longer depend on the NUL device.
+- **Less re-indexing after restart**: files that could not be converted because the document component is missing (such as scanned PDFs needing OCR) are not parsed again until the component is installed or the file changes. Unchanged PDF and Office files are skipped by modification time and size instead of being read in full to hash on every scan. Manual re-index still verifies everything.
+- **Offline component import entry**: the "Import offline component" button stays visible after a download failure when document and media formats are selected together.
+- **Zleap decision model as the Jev default**: first launch selects `Zev-1` from the Zleap Open Platform, and Settings links to the console for an API key. Existing configurations are unchanged.
+- **Model connection tests**: the chat-model test no longer sends an output-length limit that some services reject.
+- **System prompt stays first in follow-ups**: the system prompt remains at the start of re-requests after citation checks, empty-answer checks and tool-call limit reminders.
+
+The desktop app and bundled CLI both use 0.2.9.
+
 ## 0.2.8
 
 - **新增 MinerU 文档解析**：支持 302.AI 和 MinerU 官方服务。配置密钥后优先使用云端解析，失败时尝试适用的本地解析器；302.AI 当前仅支持 PDF。启用云端解析会上传原文档。
