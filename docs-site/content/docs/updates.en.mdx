@@ -5,6 +5,18 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.2.9
+
+- **Windows quick-search crash**: the Windows build did not create the quick-search window, so opening quick search from the global shortcut, the tray menu or the shortcut settings exited the app. Fixed; a missing window now reports an error instead of crashing.
+- **Windows startup diagnostics**: when the local service fails to start, show the full cause including the OS error code instead of only "cannot check the SAG service build". Service checks, PATH configuration and directory permissions no longer depend on the NUL device.
+- **Less re-indexing after restart**: files that could not be converted because the document component is missing (such as scanned PDFs needing OCR) are not parsed again until the component is installed or the file changes. Unchanged PDF and Office files are skipped by modification time and size instead of being read in full to hash on every scan. Manual re-index still verifies everything.
+- **Offline component import entry**: the "Import offline component" button stays visible after a download failure when document and media formats are selected together.
+- **Zleap decision model as the Jev default**: first launch selects `Zev-1` from the Zleap Open Platform, and Settings links to the console for an API key. Existing configurations are unchanged.
+- **Model connection tests**: the chat-model test no longer sends an output-length limit that some services reject.
+- **System prompt stays first in follow-ups**: the system prompt remains at the start of re-requests after citation checks, empty-answer checks and tool-call limit reminders.
+
+The desktop app and bundled CLI both use 0.2.9.
+
 ## 0.2.8
 
 - **MinerU document parsing**: support 302.AI and the official MinerU service. With a key configured, supported files use cloud parsing first and fall back to an applicable local parser on failure. 302.AI currently supports PDF only. Enabling cloud parsing uploads the original document.
