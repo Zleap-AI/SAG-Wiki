@@ -144,7 +144,11 @@ fn request_context(
 fn sources_fit(
     messages: &[Value], budget: usize, definitions: &[Value], content: &str,
 ) -> bool {
-    let question = messages.iter().rev().find(|item| item["role"] == "user").unwrap();
+    // Follow-up instructions are user messages too. Budget against the current question.
+    let question = messages.iter().rev().find(|item| {
+        item["role"] == "user" && serde_json::from_str::<Value>(item["content"].as_str().unwrap())
+            .is_ok_and(|content| content.get("question").is_some())
+    }).unwrap();
     tokens(&[messages[0].clone(), question.clone()], definitions) + models::estimate(&json!(content)) + 128 <= budget
 }
 
@@ -280,7 +284,7 @@ where
         }
         let at_tool_limit = options.max_tool_calls > 0 && message.tool_calls.len() >= options.max_tool_calls;
         if at_tool_limit && !limit_prompted {
-            messages.push(json!({"role":"system","content":"本轮工具调用已达到上限。停止调用工具，根据已有证据给出最终回答，分别说明已确认的结论和仍缺少的依据；没有证据支持的部分明确标注尚未确认，不再描述检索计划。"}));
+            messages.push(json!({"role":"user","content":"本轮工具调用已达到上限。停止调用工具，根据已有证据给出最终回答，分别说明已确认的结论和仍缺少的依据；没有证据支持的部分明确标注尚未确认，不再描述检索计划。"}));
             limit_prompted = true;
             final_only = true;
             require_tool = false;
@@ -398,7 +402,7 @@ where
                 final_only = false;
                 truncate_answer(message, answer_start);
                 progress("思考中", Some(AnswerDelta::Replace(&message.answer)), 0, None);
-                messages.push(json!({"role":"system","content":"你引用了尚未取得的来源。本轮没有工具证据。先调用合适的已启用工具，取得真实来源后再回答，不能自行编造编号。"}));
+                messages.push(json!({"role":"user","content":"你引用了尚未取得的来源。本轮没有工具证据。先调用合适的已启用工具，取得真实来源后再回答，不能自行编造编号。"}));
                 continue;
             }
             let invalid = invalid_citations(&turn.text, message.evidence.len());
@@ -412,7 +416,7 @@ where
                 final_only = true;
                 truncate_answer(message, answer_start);
                 progress("正在修正引用", Some(AnswerDelta::Replace(&message.answer)), 0, None);
-                messages.push(json!({"role":"system","content":format!(
+                messages.push(json!({"role":"user","content":format!(
                     "候选回答包含无效引用 {}。本轮合法 source_id 仅为 {}。逐项核对工具原文，将引用改为真正支持对应事实的 source_id；找不到支持时明确说明证据不足，禁止猜测或仅替换成任意合法编号。保留用户要求的输出格式，只返回修正后的最终回答。候选回答：\n{}",
                     json!(invalid), json!((1..=message.evidence.len()).collect::<Vec<_>>()), turn.text
                 )}));
@@ -428,7 +432,7 @@ where
                     0,
                     None,
                 );
-                messages.push(json!({"role":"system","content":format!("复核本轮所有工具证据并重新给出最终回答。已有 {} 个本地片段，合法 source_id 为 {}，不允许引用其余编号。将跨片段的实体、地点、时间关系逐步连接；答案不必在单一段落中完整出现。只有缺少必要关系时才能表示证据不足，不要因为未找到与问题完全同句的文字就空答。遵守原来的输出格式，证据不足且还有可用工具次数时，只检索缺失的关系；否则给最终回答，不描述检索计划。",message.evidence.len(), json!((1..=message.evidence.len()).collect::<Vec<_>>()))}));
+                messages.push(json!({"role":"user","content":format!("复核本轮所有工具证据并重新给出最终回答。已有 {} 个本地片段，合法 source_id 为 {}，不允许引用其余编号。将跨片段的实体、地点、时间关系逐步连接；答案不必在单一段落中完整出现。只有缺少必要关系时才能表示证据不足，不要因为未找到与问题完全同句的文字就空答。遵守原来的输出格式，证据不足且还有可用工具次数时，只检索缺失的关系；否则给最终回答，不描述检索计划。",message.evidence.len(), json!((1..=message.evidence.len()).collect::<Vec<_>>()))}));
                 continue;
             }
             if !invalid.is_empty() {
@@ -826,6 +830,13 @@ mod tests {
                         }
                     }
                 };
+                // Enforce the system-first contract used by strict chat templates.
+                if body["messages"].as_array().unwrap().iter().skip(1).any(|item| item["role"] == "system") {
+                    stored.lock().unwrap().push(body);
+                    let data = json!({"error":{"message":"System message must be at the beginning."}}).to_string();
+                    write!(stream,"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",data.len(),data).unwrap();
+                    break;
+                }
                 let is_summary = summary.is_some() && body["messages"][0]["content"].as_str().is_some_and(|text| text.contains("上下文摘要"));
                 let deltas = if is_summary { vec![json!({"content":summary.as_ref().unwrap()})] } else { turns.next().unwrap() };
                 stored.lock().unwrap().push(body);
@@ -1409,6 +1420,42 @@ mod tests {
         assert_eq!(m.answer, "918 [1]");
         assert_eq!(m.tool_calls.len(), 1);
     }
+    // A citation retry must not replace the long question when budgeting search results.
+    #[tokio::test]
+    async fn unsupported_citation_search_preserves_question_budget() {
+        let (config, requests) = server_with_summary(vec![
+            vec![json!({"content":"Fact A [1]"})],
+            call("search", "Find evidence for Fact A"),
+            vec![json!({"content":"Fact A [1]"})],
+        ], Some("The search returned Fact A as source_id=1.".into()));
+        let mut current = message();
+        current.question = "question ".repeat(400);
+        answer(
+            &reqwest::Client::new(), &config, "test", &mut current, &[],
+            4096, 512, 5, &CancellationToken::new(),
+            |_| async { Ok(SearchOutput {
+                results: vec![candidate(1, "Fact A"), candidate(2, &"passage ".repeat(350))],
+                trace: vec![],
+            }) },
+            |_, _, _, _| {},
+        ).await.unwrap();
+        assert_eq!(current.answer, "Fact A [1]");
+        assert_eq!(current.evidence.iter().map(|item| item.id).collect::<Vec<_>>(), vec![1]);
+        assert_eq!(current.tool_calls[0].source_count, 1);
+        assert_eq!(current.context.as_ref().unwrap().omitted_sources, 1);
+        let captured = requests.lock().unwrap();
+        assert_eq!(captured.len(), 3);
+        assert_eq!(captured[1]["tool_choice"], "required");
+        assert_eq!(captured[1]["messages"][2]["role"], "user");
+        assert_eq!(captured[2]["messages"][1], captured[0]["messages"][1]);
+        let messages = captured[2]["messages"].as_array().unwrap();
+        let result: Value = serde_json::from_str(messages.last().unwrap()["content"].as_str().unwrap()).unwrap();
+        assert_eq!(result["sources"].as_array().unwrap().len(), 1);
+        assert_eq!(result["sources"][0]["source_id"], 1);
+        assert_eq!(result["sources"][0]["content"], "Fact A");
+        assert_eq!(result["omitted_sources"], 1);
+    }
+
     #[tokio::test]
     async fn grounding_rechecks_empty_answer_against_evidence() {
         let (config, _) = server(vec![
@@ -1603,6 +1650,60 @@ mod tests {
         assert_eq!(m.question, "Who did the task?");
         assert_eq!(req[1]["tool_choice"], "none");
     }
+    // A citation retry at the tool limit must retain the completed exchange and stay tool-free.
+    #[tokio::test]
+    async fn citation_repair_at_tool_limit_preserves_evidence_and_pairing() {
+        let (config, requests) = server(vec![
+            call("search", "Who did the task?"),
+            vec![json!({"content":"Fact A [9]"})],
+            vec![json!({"content":"Fact A [1]"})],
+        ]);
+        let mut current = message();
+        super::answer(
+            &reqwest::Client::new(), &config, "test", &mut current, &[],
+            16384, 512, 5, &CancellationToken::new(),
+            AgentOptions { max_tool_calls: 1, system_prompt: "Preserve the original question and cite retrieved evidence.", ..Default::default() },
+            |_| async { Ok(SearchOutput { results: vec![candidate(42, "Fact A")], trace: vec![] }) },
+            |_, _| async { Ok(true) }, |_, _, _, _| {},
+        ).await.unwrap();
+        assert_eq!(current.answer, "Fact A [1]");
+        assert_eq!(current.tool_calls.len(), 1);
+        assert_eq!(current.tool_calls[0].id, "search");
+        assert_eq!(current.tool_calls[0].source_count, 1);
+        assert_eq!(current.evidence.len(), 1);
+        assert_eq!(current.evidence[0].id, 42);
+        assert_eq!(current.evidence[0].content, "Fact A");
+        let captured = requests.lock().unwrap();
+        assert_eq!(captured.len(), 3);
+        assert_eq!(captured[0]["tool_choice"], "auto");
+        assert_eq!(captured[0]["messages"][0]["role"], "system");
+        assert!(captured[0]["messages"][0]["content"].as_str().unwrap()
+            .starts_with("Preserve the original question and cite retrieved evidence."));
+        for request in captured.iter() {
+            assert_eq!(request["messages"][0], captured[0]["messages"][0]);
+            assert_eq!(request["messages"][1]["role"], "user");
+            let question: Value = serde_json::from_str(request["messages"][1]["content"].as_str().unwrap()).unwrap();
+            assert_eq!(question, json!({"question":"查询本地文件","scope":["/allowed"],"references":[]}));
+        }
+        for request in &captured[1..] {
+            assert_eq!(request["tool_choice"], "none");
+            let messages = request["messages"].as_array().unwrap();
+            assert_eq!(messages[2]["role"], "assistant");
+            assert_eq!(messages[2]["tool_calls"][0]["id"], "search");
+            assert_eq!(messages[3]["role"], "tool");
+            assert_eq!(messages[3]["tool_call_id"], "search");
+            assert!(messages[4..].iter().all(|item| item["role"] == "user"));
+            let result: Value = serde_json::from_str(messages[3]["content"].as_str().unwrap()).unwrap();
+            assert_eq!(result["sources"].as_array().unwrap().len(), 1);
+            assert_eq!(result["sources"][0]["source_id"], 1);
+            assert_eq!(result["sources"][0]["content"], "Fact A");
+            assert_eq!(result["sources"][0]["path"], "/allowed/42.md");
+            assert_eq!(result["sources"][0]["version"], "unchanged");
+        }
+        assert_eq!(captured[1]["messages"].as_array().unwrap().len(), 5);
+        assert_eq!(captured[2]["messages"].as_array().unwrap().len(), 6);
+    }
+
     #[tokio::test]
     async fn first_search_preserves_bilingual_query_and_original_question() {
         let bilingual = "向量索引在什么条件下重建？ Under what conditions is the vector index rebuilt?";
@@ -2703,6 +2804,19 @@ mod tests {
         assert_eq!(messages[1]["content"], "金蝶客户如何使用 Zleap");
         assert_eq!(messages[3]["content"], "继续");
         assert_eq!(messages[5]["content"], "检索正文".repeat(4000));
+    }
+
+    // Retry instructions must not replace the question when deciding which sources fit.
+    #[test]
+    fn source_budget_keeps_current_question_after_followup() {
+        for role in ["system", "user"] {
+            let messages = vec![
+                json!({"role":"system","content":"Answer from evidence."}),
+                json!({"role":"user","content":json!({"question":"question ".repeat(300),"scope":[],"references":[]}).to_string()}),
+                json!({"role":role,"content":"Retrieve evidence before answering."}),
+            ];
+            assert!(!sources_fit(&messages, 1000, &[], &"passage ".repeat(200)), "follow-up role: {role}");
+        }
     }
 
     #[test]
