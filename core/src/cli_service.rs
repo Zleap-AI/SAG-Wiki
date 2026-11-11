@@ -165,12 +165,14 @@ impl CliService {
         #[cfg(windows)]
         {
             let username = std::env::var("USERNAME").context("无法获取当前用户")?;
-            let result = std::process::Command::new("icacls")
-                .arg(temp.path())
-                .args(["/inheritance:r", "/grant:r", &format!("{username}:F")])
-                .output()?;
+            let result = sag_client::run_captured(
+                std::process::Command::new("icacls")
+                    .arg(temp.path())
+                    .args(["/inheritance:r", "/grant:r", &format!("{username}:F")]),
+            )
+            .context("无法启动 icacls 保护 CLI 连接记录")?;
             if !result.status.success() {
-                bail!("无法保护 CLI 连接记录")
+                bail!("无法保护 CLI 连接记录：{}", String::from_utf8_lossy(&result.stderr).trim())
             }
         }
         temp.write_all(&serde_json::to_vec(&endpoint)?)?;

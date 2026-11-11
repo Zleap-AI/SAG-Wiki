@@ -41,6 +41,13 @@ it('无效组件显示错误，允许重新选择且不回退联网下载',async
 it('音视频不展示仅支持文档的离线导入入口',async()=>{
  await start();openDoclingDownload(['media'],['mp3'],async()=>{});await tick();expect(button('导入离线组件')).toBeUndefined();
 });
+it('同时需要文档与音视频组件时仍展示离线导入入口',async()=>{
+ await start();openDoclingDownload(['documents','media'],['pdf','mp3'],async()=>{});await tick();expect(button('导入离线组件')?.disabled).toBe(false);
+});
+it('文档组件已安装后只剩音视频时不再展示离线导入入口',async()=>{
+ await start();doclingStatus.set({...initial,profiles:[{id:'documents',installed:true,extensions:['pdf']},{id:'media',installed:false,extensions:['mp3']}]});
+ openDoclingDownload(['documents','media'],['pdf','mp3'],async()=>{});await tick();expect(button('导入离线组件')).toBeUndefined();
+});
 
 it('导入就绪后仍需用户点击应用，安装期间不允许重复导入',async()=>{
  await start();const apply=vi.fn(async()=>{});openDoclingDownload(['documents'],['pdf'],apply);await tick();

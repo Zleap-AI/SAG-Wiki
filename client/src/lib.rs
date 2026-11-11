@@ -246,6 +246,21 @@ fn prevent_standard_handle_inheritance() -> std::io::Result<()> {
     }
     Ok(())
 }
+/// Run a command to completion and capture its output.
+///
+/// Unlike `Command::output`, stdin is a pipe that is closed immediately rather
+/// than the `NUL` device. On some Windows installations opening `NUL` fails
+/// with "file not found" before the child is ever created, which made every
+/// captured command look like a missing executable (see issue #73).
+pub fn run_captured(command: &mut std::process::Command) -> std::io::Result<std::process::Output> {
+    let mut child = command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
+    drop(child.stdin.take());
+    child.wait_with_output()
+}
 pub fn spawn_service(data: &Path, executable: &Path) -> Result<()> {
     let mut command = std::process::Command::new(executable);
     command
@@ -288,10 +303,8 @@ async fn ensure_build(data: &Path, executable: &Path, current: &BuildInfo) -> Re
             return Ok(client.clone());
         }
     }
-    let output = std::process::Command::new(executable)
-        .arg("--build-info")
-        .output()
-        .context("无法检查 SAG 服务构建")?;
+    let output = run_captured(std::process::Command::new(executable).arg("--build-info"))
+        .with_context(|| format!("无法检查 SAG 服务构建：{}", executable.display()))?;
     if !output.status.success() {
         bail!(
             "无法检查 SAG 服务构建：{}",
