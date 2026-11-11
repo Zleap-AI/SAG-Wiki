@@ -1,5 +1,20 @@
 use super::*;
 use sag_protocol::mineru::{MineruConfig, MineruProvider};
+#[test]
+fn windows_conversion_destination_is_not_held_open() {
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg(windows)]
+    {
+        let held = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+        let result = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+        assert_eq!(result.persist(held.path()).unwrap_err().error.raw_os_error(), Some(5));
+    }
+    let destination = tempfile::NamedTempFile::new_in(dir.path()).unwrap().into_temp_path();
+    let mut result = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+    result.write_all(b"![figure](images/x.png)").unwrap();
+    result.persist(&destination).unwrap();
+    assert!(std::fs::read_to_string(&destination).unwrap().contains("![figure]"));
+}
 fn default_config()->MineruConfig {MineruConfig{provider:MineruProvider::Ai302,..Default::default()}}
 
 #[test]
