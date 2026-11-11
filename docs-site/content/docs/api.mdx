@@ -1,0 +1,219 @@
+---
+title: "API 文档"
+description: "搜索、文件夹与服务状态接口的参数、响应和错误码。"
+---
+
+首次接入请先阅读 [API 说明](/zh/docs/api-guide)，完成服务开启和 Key 配置。
+
+## 认证
+
+默认基础地址为 `http://服务端IP:24681`，以实际服务配置为准。所有接口均使用 JSON，并要求请求头：
+
+```text
+Authorization: Bearer <API_KEY>
+```
+
+多个 Key 共享全部知识库。无 Key、Key 无效或已撤销时统一返回 `401`，包括服务尚未创建任何 Key 的情况。API 继续运行，不因 Key 数量变为零而关闭。
+
+## 搜索
+
+<ApiEndpoint method="POST" path="/v1/search" />
+
+### 请求参数
+
+<ApiParameters>
+  <ApiParameter name="query" type="string" required="必填">搜索内容，长度为 1–2000 个字符。</ApiParameter>
+  <ApiParameter name="mode" type="string" defaultValue="默认 deep">可选 deep（深入检索）或 fast（快速搜索）。</ApiParameter>
+  <ApiParameter name="paths" type="string[]">服务端完整目录路径。可传入多个目录，省略或空数组时搜索全部知识库。</ApiParameter>
+  <ApiParameter name="limit" type="integer" defaultValue="默认 10">最多返回的原文片段数，范围 1–100。</ApiParameter>
+</ApiParameters>
+
+`fast` 复用本地全文检索，无需模型。`deep` 复用决策模型与现有检索配置，配置不完整或模型请求失败时明确报错，不改变请求指定的模式。
+
+一个或多个目录作为同一次检索范围，包含其允许访问的子目录，去除重复范围后统一排序。任一路径无效或超出知识库范围时，整次请求报错。API 不自动导入目录。
+
+目录可使用符号链接路径或实际路径，两者指向同一目录时合并搜索。历史索引中的根目录后来变为符号链接时，全库搜索仍可使用原索引。已排除的目录，以及指向知识库范围外的子目录链接，仍不可访问。
+
+### 请求与响应
+
+<Tabs className="api-examples" items={["cURL", "请求体", "200 响应"]}>
+
+<Tab value="cURL">
+
+```bash
+curl http://127.0.0.1:24681/v1/search \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"项目如何部署","mode":"deep","limit":10}'
+```
+
+</Tab>
+
+<Tab value="请求体">
+
+```json
+{
+  "query": "项目如何部署",
+  "mode": "deep",
+  "paths": ["/data/项目资料", "/data/技术文档/部署指南"],
+  "limit": 10
+}
+```
+
+</Tab>
+
+<Tab value="200 响应">
+
+```json
+{
+  "request_id": "example-request",
+  "mode": "deep",
+  "elapsed_ms": 1820,
+  "results": [
+    {
+      "path": "/data/技术文档/部署指南/发布流程.md",
+      "heading": "部署步骤",
+      "start_line": 12,
+      "end_line": 18,
+      "content": "部署前先检查配置，再执行发布命令。"
+    }
+  ],
+  "truncated": false
+}
+```
+
+</Tab>
+
+</Tabs>
+
+### 响应字段
+
+| 返回字段 | 含义 |
+| --- | --- |
+| `request_id` | 本次请求标识 |
+| `mode` | 实际使用的检索模式 |
+| `elapsed_ms` | 服务端耗时，包含排队 |
+| `results` | 按相关性返回的原文片段数组，同一文件可以有多条记录 |
+| `path` | 服务端完整文件路径 |
+| `heading` | 片段对应标题 |
+| `start_line`、`end_line` | 原文起止行号；转换文档沿用可检索正文的定位语义 |
+| `content` | 原文片段内容 |
+| `truncated` | 因响应大小边界减少返回结果时为真，正常按 `limit` 选取结果不算截断 |
+
+没有匹配时返回 `200` 和空数组。索引仍在进行时，可以返回已有内容，搜索响应不增加索引进行标记。接口按指定数量返回原文片段，不分页、不生成回答或总结。
+
+## 文件夹
+
+<ApiEndpoint method="GET" path="/v1/folders" />
+
+不传 `path` 时，列出全部已加入知识库的根文件夹；传入时，只列出该目录的直接子文件夹。名称仅用于显示，同名目录通过完整路径区分，不使用别名。
+
+### 查询参数
+
+<ApiParameters>
+  <ApiParameter name="path" type="string">服务端完整目录路径。省略时列出全部根文件夹；传入时列出该目录的直接子文件夹。使用 URL 编码。</ApiParameter>
+</ApiParameters>
+
+### 请求与响应
+
+<Tabs className="api-examples" items={["cURL", "200 响应"]}>
+
+<Tab value="cURL">
+
+```bash
+curl http://127.0.0.1:24681/v1/folders \
+  -H "Authorization: Bearer <API_KEY>"
+```
+
+</Tab>
+
+<Tab value="200 响应">
+
+```json
+{
+  "folders": [
+    {"name": "项目资料", "path": "/data/项目资料"},
+    {"name": "技术文档", "path": "/data/技术文档"}
+  ]
+}
+```
+
+</Tab>
+
+</Tabs>
+
+根文件夹一次列全，子文件夹按层级读取。没有结果时返回空数组。只返回允许访问的目录，不返回文件正文；查询路径中的中文、空格和 Windows 路径字符均需 URL 编码。
+
+## 服务状态
+
+<ApiEndpoint method="GET" path="/v1/status" />
+
+<Tabs className="api-examples" items={["cURL", "200 响应"]}>
+
+<Tab value="cURL">
+
+```bash
+curl http://127.0.0.1:24681/v1/status \
+  -H "Authorization: Bearer <API_KEY>"
+```
+
+</Tab>
+
+<Tab value="200 响应">
+
+```json
+{
+  "version": "<实际程序版本>",
+  "api": {"enabled": true, "running": true},
+  "decision_configured": true,
+  "roots": [
+    {"path": "/data/项目资料", "status": "ready", "indexed_files": 128}
+  ]
+}
+```
+
+</Tab>
+
+</Tabs>
+
+`decision_configured` 表示服务端是否已保存可用的决策模型配置。
+
+返回实际程序版本、API 运行状态、决策模型是否配置及根目录索引状态，不返回任何密钥或内部连接令牌。API 关闭时，使用本机 `sag api status` 或桌面设置查看状态。
+
+决策模型相关字段、配置项和错误码统一使用 `decision` 命名。
+
+## 时限与并发
+
+快速搜索整次请求限时 30 秒，深入检索限时 60 秒，均包含排队与执行。API 与桌面端、CLI 共用现有 20 个耗时任务额度，满额后等待，等待不会重置截止时间。
+
+超时、调用方断开连接、所属 Key 被撤销或 API 被关闭时，取消对应 API 搜索。其他 Key、桌面端、普通 CLI 和后台索引任务继续运行。单纯达到并发上限时不立即返回 `429`。
+
+JSON 请求体上限为 32 KiB，接收限时 30 秒。搜索 JSON 响应上限为 512 KiB；超出时减少完整片段并设置 `truncated: true`，不裁切片段正文。
+
+## 错误响应
+
+```json
+{
+  "request_id": "example-request",
+  "error": {"code": "unauthorized", "message": "未授权"}
+}
+```
+
+| HTTP 状态 | 错误码 | 情况 |
+| --- | --- | --- |
+| 400 | `invalid_request` | 参数、JSON、类型或数值范围不正确 |
+| 400 | `invalid_path` | 不是完整目录路径或目录类型不正确 |
+| 401 | `unauthorized` | 缺少、无效或已撤销的 API Key |
+| 403 | `path_not_allowed` | 路径超出知识库授权范围 |
+| 404 | `directory_not_found` | 目录不存在或已移除 |
+| 404 | `not_found` | 接口不存在 |
+| 405 | `method_not_allowed` | HTTP 方法不受支持 |
+| 408 | `invalid_request` | 请求体接收超时 |
+| 409 | `decision_not_configured` | 深入检索所需决策模型未配置 |
+| 413 | `request_too_large` | 请求超过输入大小边界 |
+| 502 | `decision_request_failed` | 决策模型调用失败 |
+| 503 | `api_stopped` | 关闭 API 导致请求取消，连接仍可回应时返回 |
+| 504 | `search_timeout` | 整次搜索请求超时 |
+| 500 | `internal_error` | 检索期间原文件变化或其他内部错误 |
+
+上游模型的认证失败不等同于调用方的 API Key 未授权。失败返回明确错误，不以空结果掩盖。安装、启停和自启操作见 [API 说明](/zh/docs/api-guide)。

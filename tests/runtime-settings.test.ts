@@ -56,7 +56,7 @@ it('search runtime controls belong to Search settings rather than Web Clipper',a
  const value:Settings={answer:{url:'https://api.example.com/v1',model:'demo',models:['demo'],has_key:false},jev:{url:'https://api.example.com/v1',model:'jev',models:[],has_key:false},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},theme:'light',start_page:'ask',editor_size:15,show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048};
  api.mockImplementation(async command=>command==='runtime_schema'?JSON.stringify({defaults:{jev_concurrency:20},fields:[{key:'jev_concurrency',label:'JEV 请求并发数',unit:'',help:'',min:1,max:64,group:'retrieval',advanced:true}]}):undefined);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'retrieval',onClose:()=>{},onSave:async()=>{}}});
- await vi.waitFor(()=>expect(document.querySelector('[aria-label="JEV 请求并发数"]')).not.toBeNull());
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="决策模型请求并发数"]')).not.toBeNull());
  const clipper=[...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(button=>button.textContent?.includes('网页剪藏'))!;clipper.click();await tick();
- expect(document.querySelector('[aria-label="JEV 请求并发数"]')).toBeNull();
+ expect(document.querySelector('[aria-label="决策模型请求并发数"]')).toBeNull();
 });

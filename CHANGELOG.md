@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.1.10
+
+- **版本编号**：桌面端与随包 CLI 统一使用 0.1.10。
+
+### English
+
+- **Version number**: the desktop app and bundled CLI both use 0.1.10.
+
 ## 0.2.9
 
 - **修复 Windows 快捷搜索崩溃**：Windows 版此前未创建快捷搜索窗口，通过全局快捷键、托盘菜单或快捷键设置打开快捷搜索会导致应用退出；现已修复，缺少窗口时报错而不再崩溃。

@@ -72,6 +72,7 @@ Click **?** at the bottom of the sidebar to open the [SAG Wiki documentation](ht
 | Q&A settings | [Q&A parameters](/en/docs/chat#qa-settings-in-detail) |
 | Search settings | [Retrieval parameters](/en/docs/search#search-settings-in-detail) |
 | CLI settings | [Agent integration](/en/docs/agents#cli-settings-in-the-desktop-app) |
+| API service | [API overview](/en/docs/api-guide) |
 | MCP and tool bindings | [MCP and tools](/en/docs/mcp) |
 | Data and privacy | [Storage and cleanup](/en/docs/privacy) |
 | About and software updates | [Versions and updates](/en/docs/installation#about-and-software-updates) |
@@ -86,7 +87,7 @@ File, Model, Search and Q&A settings each expose their runtime parameters. Commo
 | --- | --- |
 | File settings | Built-in/Docling timeout, input/output limits, threads, OCR/table options and batches, page limits, memory, text limits and watcher debounce |
 | Model settings | Retry count, initial/maximum backoff, total deadline; separate MinerU parsing controls |
-| Search settings | JEV concurrency/context, local query workers and query/corpus caches |
+| Search settings | Decision model concurrency/context, local query workers and query/corpus caches |
 | Q&A settings | Folding concurrency and units per batch |
 
 Built-in conversion defaults to 120 seconds; Docling defaults to 1800 seconds with 60 extra seconds for process cleanup. Converted text defaults to 16 MiB, matching the downstream indexing input limit. Raise the output, index input, decoded/prepared text and total preparation budget together when larger text is needed. Memory per job set to 0 means automatic. Actual concurrency also respects conversion workers and reserved memory.

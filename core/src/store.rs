@@ -655,21 +655,53 @@ impl Store {
         let canonical = path
             .canonicalize()
             .with_context(|| format!("路径不可用：{}", path.display()))?;
-        let allowed = {
+        let roots = {
             let connection = self.connection();
             let mut query = connection.prepare_cached("SELECT path FROM roots")?;
-            let paths = query.query_map([], |r| r.get::<_, String>(0))?;
-            let mut allowed = false;
-            for path in paths {
-                allowed |= canonical.starts_with(Path::new(&path?));
-            }
-            allowed
+            let paths = query.query_map([], |r| r.get::<_, String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            paths
         };
+        let mut allowed = roots.iter().any(|root| canonical.starts_with(root));
+        if !allowed {
+            for root in &roots {
+                let actual = match Path::new(root).canonicalize() {
+                    Ok(path) => path,
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(error) => return Err(error).with_context(|| format!("路径不可用：{root}")),
+                };
+                if let Ok(relative) = canonical.strip_prefix(actual) {
+                    if self.is_excluded(&Path::new(root).join(relative))? {
+                        bail!("此路径已从知识库移除，请先重新添加")
+                    }
+                    allowed = true;
+                    break;
+                }
+            }
+        }
         if !allowed {
             bail!("该路径不在已添加的文件夹内")
         };
         if self.is_excluded(&canonical)? { bail!("此路径已从知识库移除，请先重新添加") }
         Ok(canonical)
+    }
+    // Preserve the path namespace used by an index created before a root became a symlink.
+    pub(crate) fn indexed_path(&self, path: &Path) -> Result<PathBuf> {
+        let canonical = self.authorize(path)?;
+        let roots = self.roots()?;
+        if roots.iter().any(|root| canonical.starts_with(&root.path)) {
+            return Ok(canonical);
+        }
+        for root in roots {
+            let actual = match Path::new(&root.path).canonicalize() {
+                Ok(path) => path,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error).with_context(|| format!("路径不可用：{}", root.path)),
+            };
+            if let Ok(relative) = canonical.strip_prefix(actual) {
+                return Ok(Path::new(&root.path).join(relative));
+            }
+        }
+        bail!("目录已从知识库移除")
     }
     pub fn add_root(&self, path: &Path) -> Result<String> {
         let path = path.canonicalize().context("无法打开这个文件夹")?;

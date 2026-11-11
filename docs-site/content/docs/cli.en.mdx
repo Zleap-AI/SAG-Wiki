@@ -151,6 +151,14 @@ Git ignore syntax is supported, including `*`, `**`, trailing-`/` directory rule
 
 Standalone mode rechecks the index before the next search. With desktop auto-watching enabled, creating, modifying, deleting or renaming a rule file rechecks the project, removing newly ignored entries from the index and indexing newly included files. When watching is disabled, use reindexing in File settings. Rules do not delete or hide local files; the SAG file tree still browses them. Only manually removed subdirectories are hidden from the tree.
 
+## HTTP API
+
+Use `sag api start` and `sag api stop` to manage the HTTP service. Stopping the API leaves indexing and ordinary CLI searches running. `sag api status --json` reads its state without starting the backend.
+
+Create a key with `sag api key create --name "Application A"`. The complete key is shown only once. List or revoke keys with `sag api key list` and `sag api key revoke KEY_ID`. Key creation and listing accept `--json`.
+
+Local and LAN applications can call fast or deep search, browse folders and choose multiple directories by their absolute server paths. The CLI's existing search syntax remains unchanged. See the [API overview](/en/docs/api-guide) for setup and [API reference](/en/docs/api) for endpoints.
+
 ## Installation locations and upgrades
 
 | Component | User-level location |

@@ -69,3 +69,30 @@ div:has(> a > .docs-github-label)>[data-theme-toggle] { border:0; border-radius:
 .doc-title-row { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; }
 .doc-title-row h1 { min-width:0; }
 .doc-title-row button { flex-shrink:0; }
+
+.api-endpoint { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px 20px; margin:1.2rem 0 1.6rem; padding:18px 20px; border:1px solid var(--color-fd-border); border-radius:10px; background:var(--color-fd-card); }
+.api-endpoint-route { display:flex; align-items:center; gap:14px; min-width:0; }
+.api-method { padding:3px 8px; border-radius:5px; font:650 12px/1.6 ui-monospace,monospace; }
+.api-method-post { color:#18734a; background:#e8f4ed; }
+.api-method-get { color:#285fba; background:#eaf0fc; }
+.dark .api-method-post { color:#86dcb0; background:#163b2b; }
+.dark .api-method-get { color:#9cbbfa; background:#1e3054; }
+.api-path { font:600 16px/1.6 ui-monospace,monospace; overflow-wrap:anywhere; }
+.api-endpoint-meta { color:var(--color-fd-muted-foreground); font-size:12px; }
+.api-parameters { margin:1rem 0 1.5rem; border-top:1px solid var(--color-fd-border); }
+.api-parameter { padding:17px 0; border-bottom:1px solid var(--color-fd-border); }
+.api-parameter dt { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; font-size:12px; }
+.api-parameter dt code { padding:0; background:none; border:0; border-radius:0; font:600 14px/1.6 ui-monospace,monospace; }
+.api-parameter-type { color:var(--color-fd-muted-foreground); font-family:ui-monospace,monospace; }
+.api-parameter-required { color:#b73e38; font-weight:500; }
+.dark .api-parameter-required { color:#f29b95; }
+.api-parameter-default { margin-left:auto; color:var(--color-fd-muted-foreground); }
+.api-parameter dd { margin:6px 0 0; font-size:14px; line-height:1.75; color:var(--color-fd-muted-foreground); }
+.api-parameter dd p { margin:0; }
+.api-examples [role=tab] { min-height:44px; }
+.api-examples [role=tab]:focus-visible { outline:2px solid var(--color-fd-primary); outline-offset:-3px; border-radius:4px; }
+@media(max-width:640px) {
+ .api-endpoint { padding:14px; }
+ .api-path { font-size:14px; }
+ .api-parameter-default { margin-left:0; }
+}

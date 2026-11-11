@@ -23,7 +23,7 @@ use windows_sys::Win32::{
     System::Threading::{GetCurrentProcess, OpenProcessToken},
 };
 
-pub(super) fn protect(path: &Path) -> Result<()> {
+pub(crate) fn protect(path: &Path) -> Result<()> {
     // Request WRITE_DAC explicitly: the temporary file's ordinary read/write
     // handle does not necessarily have permission to update its own DACL.
     let file = OpenOptions::new()

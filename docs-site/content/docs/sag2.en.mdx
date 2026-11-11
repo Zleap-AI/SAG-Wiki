@@ -29,7 +29,7 @@ A **candidate** is a retrieved source passage awaiting evaluation. **Evidence** 
 2. **Judge evidence with Jev.** Each candidate is evaluated for necessary facts supporting the original question, respecting entity and relationship constraints. Related background alone is not necessary evidence.
 3. **Expand from candidates.** High-ranked, not-yet-expanded passages supply terms and full names for retrieving new candidates.
 4. **Reassess with retrieved evidence.** Later judgments can use previous evidence as context, without attributing facts from other passages to the current candidate.
-5. **Organize and return sources locally.** Ranking and diversity processing run locally; results retain file paths and source locations.
+5. **Organize and return sources locally.** Results retain relevance-score order, file paths and source locations. No DPP diversity reranking is applied.
 
 In SAG Wiki, initial retrieval is followed by one expansion by default, for at most two rounds. Retrieval stops early when there are no new candidates or expansion terms. Settings allow up to two expansions. The paper's experiments use up to two expansions by default, which differs from the application's default.
 

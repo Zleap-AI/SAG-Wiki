@@ -163,6 +163,26 @@ it('切回 API Key 后仍禁止复用原供应商的保存密钥',async()=>{
  expect(api.mock.calls.filter(([command])=>!['mineru_schema','runtime_schema'].includes(command))).toHaveLength(0);await save();expect(onSave).not.toHaveBeenCalled();
 });
 
+it('切换到 Zleap 自动填写 Zev-1，测试和保存使用新模型',async()=>{
+ const onSave=await setup();
+ const model=card('jev').querySelector<HTMLInputElement>('input[type=text]')!;
+ expect(model.value).toBe('jev-latest');
+ await choose('jev','zleap');
+ expect(model.value).toBe('Zev-1');expect(address('jev').value).toBe('https://api.zleap.com/v1');
+ await input(key('jev'),'test-zleap-key');api.mockResolvedValue('连接成功');
+ card('jev').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'jev',key:'test-zleap-key',config:expect.objectContaining({model:'Zev-1'})})));
+ await save();expect(onSave).toHaveBeenCalledTimes(1);
+ expect(onSave.mock.calls[0][0].jev.model).toBe('Zev-1');
+});
+it('打开设置保留已有 Zleap 模型，切走后切回使用 Zev-1',async()=>{
+ const settings=structuredClone(value);settings.jev={...settings.jev,url:'https://api.zleap.com/v1',model:'custom-decision'};
+ await setup(settings);
+ const model=card('jev').querySelector<HTMLInputElement>('input[type=text]')!;
+ expect(model.value).toBe('custom-decision');
+ await choose('jev','302');expect(model.value).toBe('custom-decision');
+ await choose('jev','zleap');expect(model.value).toBe('Zev-1');
+});
 it('Zleap 预设显示控制台密钥入口，并与 302 问答密钥隔离',async()=>{
  const settings=structuredClone(value);settings.jev={...settings.jev,url:'https://api.zleap.com/v1',model:'Zev-1',auth_mode:'bearer'};
  const onSave=await setup(settings);

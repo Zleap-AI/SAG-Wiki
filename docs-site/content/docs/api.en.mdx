@@ -1,0 +1,219 @@
+---
+title: "API reference"
+description: "Parameters, responses and errors for search, folders and service status."
+---
+
+Start with the [API overview](/en/docs/api-guide) to enable the service and configure a key.
+
+## Authentication
+
+The default base address is `http://SERVER_IP:24681`; use the actual service configuration. All endpoints use JSON and require:
+
+```text
+Authorization: Bearer <API_KEY>
+```
+
+Multiple keys share the entire knowledge base. Missing, invalid or revoked keys return `401`, including when no key has been created. The API continues running when the valid-key count reaches zero.
+
+## Search
+
+<ApiEndpoint method="POST" path="/v1/search" />
+
+### Request body
+
+<ApiParameters>
+  <ApiParameter name="query" type="string" required="Required">Search text. Must contain 1–2000 characters.</ApiParameter>
+  <ApiParameter name="mode" type="string" defaultValue="Default: deep">Either deep (deep retrieval) or fast (full-text search).</ApiParameter>
+  <ApiParameter name="paths" type="string[]">Absolute server directory paths. Accepts multiple directories; omitted or empty searches the entire knowledge base.</ApiParameter>
+  <ApiParameter name="limit" type="integer" defaultValue="Default: 10">Maximum source passages returned. Range: 1–100.</ApiParameter>
+</ApiParameters>
+
+`fast` reuses local full-text search without a model. `deep` reuses the decision model and existing retrieval settings. Incomplete configuration or model failures return explicit errors while preserving the requested mode.
+
+One or more directories form a single search scope, including their permitted subdirectories. Duplicate scopes are removed and results ranked together. Any invalid or unauthorized path fails the entire request. The API does not import new directories automatically.
+
+Directories can use a symbolic-link path or its actual path; both resolve to the same search scope. If an indexed root later becomes a symbolic link, whole-library search can still use its existing index. Excluded directories and subdirectory links pointing outside the knowledge base remain inaccessible.
+
+### Request and response
+
+<Tabs className="api-examples" items={["cURL", "Request body", "200 response"]}>
+
+<Tab value="cURL">
+
+```bash
+curl http://127.0.0.1:24681/v1/search \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"How is the project deployed?","mode":"deep","limit":10}'
+```
+
+</Tab>
+
+<Tab value="Request body">
+
+```json
+{
+  "query": "How is the project deployed?",
+  "mode": "deep",
+  "paths": ["/data/project-notes", "/data/technical-docs/deployment"],
+  "limit": 10
+}
+```
+
+</Tab>
+
+<Tab value="200 response">
+
+```json
+{
+  "request_id": "example-request",
+  "mode": "deep",
+  "elapsed_ms": 1820,
+  "results": [
+    {
+      "path": "/data/technical-docs/deployment/release.md",
+      "heading": "Deployment steps",
+      "start_line": 12,
+      "end_line": 18,
+      "content": "Check configuration before running the release command."
+    }
+  ],
+  "truncated": false
+}
+```
+
+</Tab>
+
+</Tabs>
+
+### Response fields
+
+| Field | Meaning |
+| --- | --- |
+| `request_id` | Request identifier |
+| `mode` | Retrieval mode actually used |
+| `elapsed_ms` | Server duration, including queueing |
+| `results` | Ranked source passages; a file can produce multiple records |
+| `path` | Absolute server file path |
+| `heading` | Passage heading |
+| `start_line`, `end_line` | Source line range; converted documents retain the searchable text's location semantics |
+| `content` | Source passage text |
+| `truncated` | True when a response-size boundary reduces results; selecting the top `limit` results is not truncation |
+
+No matches returns `200` with an empty array. Already indexed content can be searched while indexing continues, with no indexing-in-progress marker in search responses. The endpoint returns up to the requested number of source passages without pagination, generated answers or summaries.
+
+## Folders
+
+<ApiEndpoint method="GET" path="/v1/folders" />
+
+With no `path`, list all imported knowledge-base roots. Supplying `path` lists only that directory's immediate subfolders. Names are display labels; absolute paths distinguish identically named folders. No aliases are used.
+
+### Query parameters
+
+<ApiParameters>
+  <ApiParameter name="path" type="string">Absolute server directory path. Omit to list all roots; supply to list immediate subfolders. URL-encode the value.</ApiParameter>
+</ApiParameters>
+
+### Request and response
+
+<Tabs className="api-examples" items={["cURL", "200 response"]}>
+
+<Tab value="cURL">
+
+```bash
+curl http://127.0.0.1:24681/v1/folders \
+  -H "Authorization: Bearer <API_KEY>"
+```
+
+</Tab>
+
+<Tab value="200 response">
+
+```json
+{
+  "folders": [
+    {"name": "Project notes", "path": "/data/project-notes"},
+    {"name": "Technical docs", "path": "/data/technical-docs"}
+  ]
+}
+```
+
+</Tab>
+
+</Tabs>
+
+All roots are listed together; subfolders are browsed one level at a time. No matches returns an empty array. Only permitted directories are returned, without file contents. URL-encode the path, including spaces, non-ASCII text and Windows path characters.
+
+## Service status
+
+<ApiEndpoint method="GET" path="/v1/status" />
+
+<Tabs className="api-examples" items={["cURL", "200 response"]}>
+
+<Tab value="cURL">
+
+```bash
+curl http://127.0.0.1:24681/v1/status \
+  -H "Authorization: Bearer <API_KEY>"
+```
+
+</Tab>
+
+<Tab value="200 response">
+
+```json
+{
+  "version": "<actual program version>",
+  "api": {"enabled": true, "running": true},
+  "decision_configured": true,
+  "roots": [
+    {"path": "/data/project-notes", "status": "ready", "indexed_files": 128}
+  ]
+}
+```
+
+</Tab>
+
+</Tabs>
+
+`decision_configured` reports whether the server has saved usable decision-model configuration.
+
+Returns the actual version, API runtime state, decision-model configuration availability and root indexing states. It never returns secrets or internal connection tokens. When the API is off, inspect status through local `sag api status` or desktop settings.
+
+Decision-model fields, configuration names and error codes consistently use `decision`.
+
+## Deadlines and concurrency
+
+Fast requests have a 30-second deadline and deep requests a 60-second deadline, including queueing and execution. API searches share the existing 20 expensive-task slots with desktop and CLI. Full capacity causes waiting without resetting the deadline.
+
+A timeout, caller disconnect, revoked key or stopped API cancels the corresponding API search. Other keys, desktop requests, ordinary CLI commands and indexing tasks continue. Reaching the concurrency limit alone does not immediately return `429`.
+
+The JSON request body is limited to 32 KiB and must arrive within 30 seconds. Search JSON responses are limited to 512 KiB; oversized responses omit complete passages and set `truncated` to `true`, without cutting passage text.
+
+## Error responses
+
+```json
+{
+  "request_id": "example-request",
+  "error": {"code": "unauthorized", "message": "Unauthorized"}
+}
+```
+
+| HTTP status | Error code | Condition |
+| --- | --- | --- |
+| 400 | `invalid_request` | Invalid parameters, JSON, types or ranges |
+| 400 | `invalid_path` | Path is not an absolute directory path or has the wrong type |
+| 401 | `unauthorized` | Missing, invalid or revoked API key |
+| 403 | `path_not_allowed` | Path is outside the authorized knowledge-base scope |
+| 404 | `directory_not_found` | Directory is missing or removed |
+| 404 | `not_found` | Endpoint does not exist |
+| 405 | `method_not_allowed` | HTTP method is unsupported |
+| 408 | `invalid_request` | Request body reception timed out |
+| 409 | `decision_not_configured` | Deep search requires decision-model configuration |
+| 413 | `request_too_large` | Request exceeds the input-size boundary |
+| 502 | `decision_request_failed` | Decision-model request failed |
+| 503 | `api_stopped` | Stopping the API cancelled the request; returned if the connection remains writable |
+| 504 | `search_timeout` | Whole search request timed out |
+| 500 | `internal_error` | Source changed during retrieval or another internal failure |
+
+An upstream model authentication failure is distinct from an unauthorized calling API key. Failures return explicit errors rather than empty results. See the [API overview](/en/docs/api-guide) for installation and service management.

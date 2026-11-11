@@ -391,7 +391,6 @@ where
             .collect();
         expanded.extend(frontier.iter().map(|c| c.id));
     }
-    corpus.diversify(&mut retained);
     if let Some(limit) = file_limit {
         // The deep-search list also retains already scored matches after the V10 result.
         // This keeps file browsing coverage without another model request.
@@ -744,10 +743,17 @@ mod oracle_tests {
             .await
             .unwrap();
             assert_eq!(round, expected.len());
-            assert_eq!(
-                serde_json::json!(output.results.iter().map(|c| c.id).collect::<Vec<_>>()),
-                case["result"]["ranked_ids"]
-            );
+            // Keep the frozen scores and candidate set, but return relevance order.
+            let expected_scores: HashMap<i64, f64> = case["result"]["ranked_ids"]
+                .as_array().unwrap().iter()
+                .zip(case["result"]["ranked_scores"].as_array().unwrap())
+                .map(|(id, score)| (id.as_i64().unwrap(), score.as_f64().unwrap()))
+                .collect();
+            assert_eq!(output.results.len(), expected_scores.len());
+            for candidate in &output.results {
+                assert_eq!(candidate.score, expected_scores[&candidate.id]);
+            }
+            assert!(output.results.windows(2).all(|pair| pair[0].score >= pair[1].score));
             for (actual, want) in output
                 .trace
                 .iter()
