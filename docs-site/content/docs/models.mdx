@@ -20,7 +20,7 @@ description: "配置回答模型、Jev 与 MinerU 文档解析，并验证连接
 
 ### 供应商
 
-选择供应商后会填入对应接口地址。问答模型提供 OpenAI、DeepSeek、GLM、OpenRouter、302.AI 和自定义；Jev 提供 302.AI、OpenRouter、Typesafe 和自定义。
+选择供应商后会填入对应接口地址。问答模型提供 OpenAI、DeepSeek、GLM、OpenRouter、302.AI 和自定义；Jev 提供 Zleap、302.AI、OpenRouter、Typesafe 和自定义。首次启动默认选择 Zleap；已有用户的服务地址和模型配置保持不变。
 
 问答接口和 Jev 判断接口是两类接口，不能只因供应商相同就互换地址。自定义服务必须兼容对应接口。
 
@@ -43,9 +43,11 @@ Jev 可填写基础地址（如 `http://127.0.0.1:8000/v1`），也可填写完�
 
 问答模型的 **可选模型 · 每行一个** 决定界面里可以切换哪些模型。每行填写一个服务支持的准确模型 ID，不加逗号；去重后保存。连接测试使用列表第一项。
 
-Jev 的 **模型名称** 填写一个 Jev 模型 ID。当前默认配置为 `jev-latest`；服务是否支持该名称，以供应商实际提供的模型为准。
+Jev 的 **模型名称** 填写一个 Jev 模型 ID。首次默认使用 Zleap 开放平台的 `Zev-1`，基础地址为 `https://api.zleap.com/v1`，实际请求 `/v1/systemone`，使用 API Key 鉴权。参见[决策模型文档](https://platform.zleap.com/docs/decision)。切换供应商后，请核对模型名称是否受该服务支持。
 
 ### API 密钥
+
+选择 Zleap 时，点击 **获取 API Key** 打开[开放平台控制台](https://platform.zleap.com/console)，创建并填写该平台的密钥。Zleap 决策模型与 302.AI 问答模型的密钥分别配置。
 
 粘贴对应服务的密钥。输入框默认隐藏，可点击显示或隐藏；已保存时留空会保留原密钥。“移除保存的密钥”会立即删除对应密钥。
 

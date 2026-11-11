@@ -16,7 +16,7 @@ sag
 
 The published `@zleap-ai/sag` contains native executables for these two platforms. Rust, source compilation and desktop installation are unnecessary. npm registers the `sag` command. Reuse an existing working `sag` installation.
 
-The first interactive run of `sag` guides configuration of the JEV retrieval service. The endpoint and model prompts show their current values; press Enter to keep them. API Key authentication is the default; first-time setup in this mode requires a key, entered with hidden input. The default endpoint is `https://api.302ai.cn/typesafeai/v1`, and the model is `jev-latest`. CLI search needs only this retrieval configuration. The answer model is configured separately in desktop.
+The first interactive run of `sag` guides configuration of the JEV retrieval service. The endpoint and model prompts show their current values; press Enter to keep them. API Key authentication is the default; first-time setup in this mode requires a key, entered with hidden input. The default endpoint is `https://api.zleap.com/v1`, and the model is `Zev-1`. Create the API key in the [Zleap Open Platform console](https://platform.zleap.com/console). CLI search needs only this retrieval configuration. The answer model is configured separately in desktop.
 
 If no terminal was available during installation, the first terminal invocation of `sag` or `sag "search query"` opens the same setup flow. When started from a search, saving configuration resumes the original query. Existing usable API Key or no-authentication settings are reused automatically. Ctrl+C cancels; nothing is saved until setup finishes. Run `sag config` to configure it again at any time.
 

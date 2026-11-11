@@ -20,7 +20,7 @@ Local indexing and quick search need neither model. Jev alone enables semantic r
 
 ### Provider
 
-Selecting a provider fills its endpoint. Answer providers include OpenAI, DeepSeek, GLM, OpenRouter, 302.AI and Custom. Jev providers include 302.AI, OpenRouter, Typesafe and Custom.
+Selecting a provider fills its endpoint. Answer providers include OpenAI, DeepSeek, GLM, OpenRouter, 302.AI and Custom. Jev providers include Zleap, 302.AI, OpenRouter, Typesafe and Custom. New installations default to Zleap; existing endpoint and model settings are preserved.
 
 Answer generation and Jev judging use different APIs. Endpoints are not interchangeable simply because they share a provider. A custom service must support the relevant API.
 
@@ -43,9 +43,11 @@ The service must implement the Jev judging API. For the CLI, use `sag config --u
 
 **Available models · one per line** controls the answer models shown in the UI. Enter an exact supported model ID on each line, without commas. Duplicates are removed on save. Connection testing uses the first entry.
 
-For Jev, enter one model ID in **Model name**. The current default is `jev-latest`; verify availability with your provider.
+For Jev, enter one model ID in **Model name**. New installations use `Zev-1` on the Zleap Open Platform with base URL `https://api.zleap.com/v1`, requesting `/v1/systemone` with API key authentication. See the [decision model documentation](https://platform.zleap.com/docs/decision). When switching providers, check that the model name is supported.
 
 ### API key
+
+With Zleap selected, **Get API Key** opens the [Open Platform console](https://platform.zleap.com/console). Create a key there and enter it in the Jev card. Configure Zleap decision and 302.AI answer model keys separately.
 
 Enter the key for the selected service. The field is hidden by default; use Show or Hide to inspect it. Leaving a saved field blank preserves its key. **Remove saved key** deletes that key immediately.
 

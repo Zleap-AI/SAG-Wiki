@@ -2780,15 +2780,16 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     }
 
     #[test]
-    fn new_settings_use_302_jev_and_keep_saved_provider() {
+    fn new_settings_use_zleap_jev_and_keep_saved_provider() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("settings.sqlite");
         let store = Store::open(&path).unwrap();
         let mut settings = store.settings().unwrap();
-        assert_eq!(settings.jev.url, "https://api.302ai.cn/typesafeai/v1");
-        assert_eq!(settings.jev.model, "jev-latest");
-        assert_eq!(crate::models::endpoint(&settings.jev, true), "https://api.302ai.cn/typesafeai/v1/systemone");
+        assert_eq!(settings.jev.url, "https://api.zleap.com/v1");
+        assert_eq!(settings.jev.model, "Zev-1");
+        assert_eq!(crate::models::endpoint(&settings.jev, true), "https://api.zleap.com/v1/systemone");
         assert!(!settings.jev.has_key);
+        assert_eq!(settings.jev.auth_mode, crate::types::ModelAuthMode::Bearer);
 
         settings.jev.url = "https://openrouter.ai/api/alpha/decisions".into();
         settings.jev.model = "typesafe/jev-1.13".into();

@@ -312,8 +312,8 @@ impl Default for Settings {
             credential_error: None,
             answer: ModelConfig::default(),
             jev: ModelConfig {
-                url: "https://api.302ai.cn/typesafeai/v1".into(),
-                model: "jev-latest".into(),
+                url: "https://api.zleap.com/v1".into(),
+                model: "Zev-1".into(),
                 models: vec![],
                 has_key: false,
                 auth_mode: ModelAuthMode::Bearer,

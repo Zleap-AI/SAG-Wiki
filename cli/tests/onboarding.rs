@@ -78,11 +78,11 @@ fn first_run_guides_configuration_and_does_not_echo_the_key() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
-    terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]：");
-    assert!(terminal.output.contains("https://api.302ai.cn/typesafeai/v1"));
+    terminal.wait_for("JEV 接口地址 [https://api.zleap.com/v1]：");
+    assert!(terminal.output.contains("https://api.zleap.com/v1"));
     terminal.send("\n");
-    terminal.wait_for("模型名称 [jev-latest]：");
-    assert!(terminal.output.contains("jev-latest"));
+    terminal.wait_for("模型名称 [Zev-1]：");
+    assert!(terminal.output.contains("Zev-1"));
     terminal.send("\n");
     terminal.wait_for("API 密钥（输入隐藏）：");
     terminal.send_secret("first-run-private-key\n");
@@ -132,8 +132,8 @@ fn piped_installer_guides_setup_through_the_terminal() {
         .env("PATH", "/usr/bin:/bin").env("SAG_DATA_DIR", home.path().join("data"))
         .env("SAG_BINARY", env!("CARGO_BIN_EXE_sag"));
     let mut terminal = Terminal::start(command);
-    terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]："); terminal.send("\n");
-    terminal.wait_for("模型名称 [jev-latest]："); terminal.send("\n");
+    terminal.wait_for("JEV 接口地址 [https://api.zleap.com/v1]："); terminal.send("\n");
+    terminal.wait_for("模型名称 [Zev-1]："); terminal.send("\n");
     terminal.wait_for("API 密钥（输入隐藏）："); terminal.send_secret("installer-hidden-key\n");
     terminal.wait_for("配置已保存"); terminal.finish();
     assert!(!terminal.output.contains("installer-hidden-key"));
@@ -150,7 +150,7 @@ fn setup_continues_the_original_search_after_saving() {
         if current<2{
             assert_eq!(request["command"]["command"],"configure");
             if current==1{assert_eq!(request["command"]["key"],"search-private-key");}
-            serde_json::json!({"type":"configured","data":{"url":"https://api.302ai.cn/typesafeai/v1","model":"jev-latest","models":[],"has_key":current==1}})
+            serde_json::json!({"type":"configured","data":{"url":"https://api.zleap.com/v1","model":"Zev-1","models":[],"has_key":current==1}})
         }else{
             assert_eq!(request["command"]["query"],"where is session validation?");
             serde_json::json!({"type":"search","data":{"protocol_version":2,"scope":server_root,"results":[{"path":"./evidence.md","absolute_path":server_root.join("evidence.md"),"start_line":1,"end_line":1,"content":"session validation evidence"}],"truncated":false}})
@@ -159,8 +159,8 @@ fn setup_continues_the_original_search_after_saving() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.args(["where is session validation?", "-c"]).current_dir(root).env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
-    terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]："); terminal.send("\n");
-    terminal.wait_for("模型名称 [jev-latest]："); terminal.send("\n");
+    terminal.wait_for("JEV 接口地址 [https://api.zleap.com/v1]："); terminal.send("\n");
+    terminal.wait_for("模型名称 [Zev-1]："); terminal.send("\n");
     terminal.wait_for("API 密钥（输入隐藏）："); terminal.send_secret("search-private-key\n");
     terminal.wait_for("session validation evidence"); terminal.finish();
     assert!(!terminal.output.contains("search-private-key"));
@@ -265,7 +265,7 @@ fn cancelling_setup_does_not_save_a_key() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
-    terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]：");
+    terminal.wait_for("JEV 接口地址 [https://api.zleap.com/v1]：");
     terminal.send("\u{3}");
     terminal.expect_exit(130);
     let shown = Command::new(env!("CARGO_BIN_EXE_sag")).arg("config")
@@ -281,8 +281,8 @@ fn cancelling_password_input_restores_terminal_echo() {
     let mut command = Command::new(env!("CARGO_BIN_EXE_sag"));
     command.env("SAG_DATA_DIR", data.path());
     let mut terminal = Terminal::start(command);
-    terminal.wait_for("JEV 接口地址 [https://api.302ai.cn/typesafeai/v1]："); terminal.send("\n");
-    terminal.wait_for("模型名称 [jev-latest]："); terminal.send("\n");
+    terminal.wait_for("JEV 接口地址 [https://api.zleap.com/v1]："); terminal.send("\n");
+    terminal.wait_for("模型名称 [Zev-1]："); terminal.send("\n");
     terminal.wait_for("API 密钥（输入隐藏）："); terminal.send_secret("\u{3}");
     terminal.expect_exit(130);
     let mut mode = std::mem::MaybeUninit::<libc::termios>::uninit();
