@@ -37,6 +37,7 @@
       "licenses/GRAPH-VIEW.txt": "licenses/GRAPH-VIEW.txt",
       "icons/windows/icon.ico": "icons/sag-rounded-v2.ico",
       "bin/sag.exe": "bin/sag.exe",
+      "bin/qpdf/": "bin/qpdf/",
       "licenses/PELE.txt": "licenses/PELE.txt",
       "clipper/sag-web-clipper-chrome.zip": "clipper/sag-web-clipper-chrome.zip"
     },

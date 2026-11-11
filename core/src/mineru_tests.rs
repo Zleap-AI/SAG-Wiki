@@ -18,6 +18,23 @@ fn windows_conversion_destination_is_not_held_open() {
 fn default_config()->MineruConfig {MineruConfig{provider:MineruProvider::Ai302,..Default::default()}}
 
 #[test]
+#[ignore = "set SAG_TEST_LARGE_PDF to a local large PDF; no upload"]
+fn real_large_pdf_preparation_with_qpdf() {
+    let source = PathBuf::from(std::env::var_os("SAG_TEST_LARGE_PDF").unwrap());
+    let started = std::time::Instant::now();
+    let parts = prepare(&source, 200 * MIB, &|| false).unwrap();
+    let mut next = 1;
+    for part in &parts {
+        assert_eq!(part.start, next);
+        assert!(part.end - part.start < 200);
+        assert_eq!(lopdf::Document::load_mem(&part.bytes).unwrap().get_pages().len(), (part.end - part.start + 1) as usize);
+        next = part.end + 1;
+    }
+    assert_eq!(next - 1, lopdf::Document::load(&source).unwrap().get_pages().len() as u32);
+    assert!(started.elapsed() < Duration::from_secs(120));
+}
+
+#[test]
 fn settings_default_disabled_and_provider_keys_are_separate() {
     let dir = tempfile::tempdir().unwrap();
     let mut config = default_config();

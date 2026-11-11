@@ -352,18 +352,28 @@ fn prepare_with_runtime(
         ranges.push_back((start, end));
         start = end + 1;
     }
+    let qpdf = std::env::var_os("SAG_QPDF").map(PathBuf::from).unwrap_or_else(|| {
+        #[cfg(test)]
+        { return Path::new(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/bin/qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" }); }
+        #[cfg(not(test))]
+        std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new(".")).join("qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" })
+    });
+    ensure!(qpdf.is_file(), "缺少 QPDF 拆页程序，请重新安装完整安装包");
+    let temporary = tempfile::tempdir()?;
+    let split_started = std::time::Instant::now();
     let mut parts = Vec::new();
     while let Some((start, end)) = ranges.pop_front() {
         ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
-        let mut split = document.clone();
-        let remove = (1..=count)
-            .filter(|page| *page < start || *page > end)
-            .collect::<Vec<_>>();
-        split.delete_pages(&remove);
-        split.prune_objects();
-        split.compress();
-        let mut bytes = Vec::new();
-        split.save_to(&mut bytes)?;
+        let destination = temporary.path().join(format!("pages-{start}-{end}.pdf"));
+        let remaining = Duration::from_secs(120).saturating_sub(split_started.elapsed());
+        ensure!(!remaining.is_zero(), "QPDF 拆页超时");
+        let mut command = std::process::Command::new(&qpdf);
+        command.arg("--warning-exit-0").arg("--deterministic-id").arg("--empty").arg("--pages").arg(source)
+            .arg(format!("{start}-{end}")).arg("--").arg(&destination);
+        crate::process_supervisor::run(&mut command,
+            crate::process_supervisor::Limits { timeout: remaining, memory_bytes: None },
+            cancel, |_| {}).context("QPDF 拆页失败")?;
+        let bytes = std::fs::read(&destination)?;
         if bytes.len() as u64 > limit {
             ensure!(start < end, "PDF 单页超过所选 MinerU 服务商上传限制");
             let middle = start + (end - start) / 2;
