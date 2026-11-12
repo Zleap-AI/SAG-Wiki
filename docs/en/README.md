@@ -8,6 +8,7 @@
 | [Development guide](development.md) | Environment, running, building and code checks |
 | [Files and Explore design](files-and-explore.md) | File workspace, relationship graph, interaction state and data interfaces |
 | [CLI and Harness](cli-and-harness.md) | Standalone installation, configuration, search options and ignore rules |
+| [CLI and HTTP API design](cli-http-api.md) | API service, keys, desktop settings, launch at startup and the Linux CLI |
 | [Built-in MCP tools](mcp-tools.md) | Tool protocol, scope, citations and context budgets |
 | [npm publishing](npm-publishing.md) | Native CLI packaging and npm distribution |
 | [In-app update publishing](app-update-publishing.md) | Update signing, package creation, release files and validation |
