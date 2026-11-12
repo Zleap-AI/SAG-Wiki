@@ -707,7 +707,7 @@ fn completed_conversions_are_searchable_before_the_conversion_phase_finishes() {
         fs::write(&output, "streamingevidence").unwrap();
         records.insert(
             name,
-            (format!("{}:{}", crate::anydoc::CACHE_VERSION, fingerprint(&source).unwrap()), fingerprint(&output).unwrap()),
+            (format!("{}:{}", crate::conversion::identity(&source, &settings), fingerprint(&source).unwrap()), fingerprint(&output).unwrap()),
         );
     }
     fs::write(

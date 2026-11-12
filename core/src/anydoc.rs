@@ -68,6 +68,11 @@ pub fn convert_with_runtime(source: &Path, output: &Path, runtime: &sag_protocol
             return Err(Failure::new(FailureKind::Memory,
                 format!("PDF 页数超过配置上限（{pages} > {}）", runtime.max_document_pages)).into());
         }
+        // Skip image decoding only when neither fonts nor possible text/marked
+        // content are present. ActualText can supply accessible text without fonts.
+        if !pdf_has_text_resources(&pdf) {
+            return Ok(Outcome::NeedsOcr("PDF 没有文字字体资源，需要 OCR".into()));
+        }
     }
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::Builder::new()
@@ -108,6 +113,65 @@ pub fn convert_with_runtime(source: &Path, output: &Path, runtime: &sag_protocol
     }
     fs::write(output, markdown)?;
     Ok(Outcome::Converted)
+}
+
+fn pdf_has_text_resources(pdf: &lopdf::Document) -> bool {
+    use lopdf::Object;
+    let mut pending: Vec<&Object> = pdf.objects.values().collect();
+    let mut streams = Vec::new();
+    while let Some(object) = pending.pop() {
+        let dictionary = match object {
+            Object::Dictionary(dictionary) => dictionary,
+            Object::Stream(stream) => {
+                streams.push(stream);
+                &stream.dict
+            }
+            Object::Array(values) => {
+                pending.extend(values);
+                continue;
+            }
+            _ => continue,
+        };
+        if dictionary.get(b"Font").is_ok()
+            || dictionary.get(b"ActualText").is_ok()
+            || matches!(dictionary.get(b"Type"), Ok(Object::Name(name)) if name == b"Font")
+        {
+            return true;
+        }
+        pending.extend(dictionary.iter().map(|(_, value)| value));
+    }
+    streams.into_iter().any(stream_may_contain_text)
+}
+
+fn stream_may_contain_text(stream: &lopdf::Stream) -> bool {
+    use std::io::Read;
+    if matches!(stream.dict.get(b"Subtype"), Ok(lopdf::Object::Name(name)) if name == b"Image") {
+        return false;
+    }
+    // Never expand an image or an unbounded content stream for this shortcut.
+    // Unknown encodings/parameters retain the existing native parser path.
+    const LIMIT: u64 = 1024 * 1024;
+    let mut decoded = Vec::new();
+    let bytes = match stream.dict.get(b"Filter") {
+        Err(_) => stream.content.as_slice(),
+        Ok(lopdf::Object::Name(name))
+            if name == b"FlateDecode" && stream.dict.get(b"DecodeParms").is_err() =>
+        {
+            if flate2::read::ZlibDecoder::new(stream.content.as_slice())
+                .take(LIMIT + 1)
+                .read_to_end(&mut decoded)
+                .is_err()
+            {
+                return true;
+            }
+            decoded.as_slice()
+        }
+        _ => return true,
+    };
+    bytes.len() as u64 > LIMIT
+        || [b"BT".as_slice(), b"Tj", b"TJ", b"BDC", b"DP"]
+            .iter()
+            .any(|marker| bytes.windows(marker.len()).any(|part| part == *marker))
 }
 
 fn result_message(result: &std::result::Result<String, anydoc::ConvertError>) -> String {
@@ -265,4 +329,59 @@ mod tests {
         out.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n", objects.len() + 1).into_bytes());
         out
     }
+}
+
+#[cfg(test)]
+mod pdf_text_resource_tests {
+    use super::*;
+    #[test]
+    fn no_fonts_means_ocr_but_inline_and_form_fonts_keep_native_parsing() {
+        use lopdf::{dictionary, Document, Object, Stream};
+        let mut doc = Document::with_version("1.5");
+        doc.add_object(Stream::new(
+            dictionary! {"Type"=>"XObject","Subtype"=>"Image"},
+            vec![0; 100],
+        ));
+        assert!(!pdf_has_text_resources(&doc));
+        let mut inline = doc.clone();
+        inline.add_object(dictionary!{"Type"=>"Page","Resources"=>dictionary!{"Font"=>dictionary!{"F1"=>dictionary!{"Subtype"=>"Type1","BaseFont"=>"Helvetica"}}}});
+        assert!(pdf_has_text_resources(&inline));
+        doc.add_object(Stream::new(dictionary!{"Type"=>"XObject","Subtype"=>"Form","Resources"=>dictionary!{"Font"=>Object::Reference((99,0))}},vec![]));
+        assert!(
+            pdf_has_text_resources(&doc),
+            "form resources must not be misclassified as image-only"
+        );
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn fontless_actual_text_keeps_the_native_parser() {
+    use lopdf::{dictionary, Document, Object, Stream};
+    let mut indirect = Document::with_version("1.5");
+    indirect
+        .add_object(dictionary! {"ActualText"=>Object::string_literal("Accessible outline text")});
+    assert!(pdf_has_text_resources(&indirect));
+    let mut inline = Document::with_version("1.5");
+    let mut stream = Stream::new(
+        dictionary! {},
+        b"/Span << /ActualText (Accessible outline text) >> BDC /Image1 Do EMC ".repeat(20),
+    );
+    stream.compress().unwrap();
+    assert!(stream.dict.get(b"Filter").is_ok());
+    inline.add_object(stream);
+    assert!(pdf_has_text_resources(&inline));
+}
+
+#[cfg(test)]
+#[test]
+#[ignore = "requires SAG_PDF_OCR_PROBE_SOURCE pointing to an image-only PDF"]
+fn real_image_only_pdf_hands_off_without_native_decoding() {
+    let source=std::path::PathBuf::from(std::env::var("SAG_PDF_OCR_PROBE_SOURCE").unwrap());
+    let dir=tempfile::tempdir().unwrap();
+    let started=std::time::Instant::now();
+    let result=convert(&source,&dir.path().join("output.md"),||false).unwrap();
+    assert!(matches!(result,Outcome::NeedsOcr(_)));
+    assert!(started.elapsed()<Duration::from_secs(10),"image-only handoff must not spend the native conversion timeout");
+    println!("image-only PDF OCR handoff_ms={}",started.elapsed().as_millis());
 }

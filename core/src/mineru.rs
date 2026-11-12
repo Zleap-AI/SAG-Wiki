@@ -18,6 +18,7 @@ use std::{
 const MIB: u64 = 1024 * 1024;
 const ZIP_LIMIT: u64 = 200 * MIB;
 const PAGE_LIMIT: u32 = 200;
+pub(crate) const PDF_SEGMENT_PAGES: u32 = 50;
 
 pub fn supports(source: &Path) -> bool {
     source
@@ -278,11 +279,11 @@ fn task_lock(path: &Path, cancel: &impl Fn() -> bool) -> Result<TaskLock> {
 }
 
 #[derive(Debug)]
-struct Part {
-    bytes: Vec<u8>,
-    start: u32,
-    end: u32,
-    name: String,
+pub(crate) struct Part {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) start: u32,
+    pub(crate) end: u32,
+    pub(crate) name: String,
 }
 #[cfg(test)]
 fn prepare(source: &Path, limit: u64, cancel: &impl Fn() -> bool) -> Result<Vec<Part>> {
@@ -291,6 +292,23 @@ fn prepare(source: &Path, limit: u64, cancel: &impl Fn() -> bool) -> Result<Vec<
 fn prepare_with_runtime(
     source: &Path,
     limit: u64,
+    runtime: &RuntimeSettings,
+    cancel: &impl Fn() -> bool,
+) -> Result<Vec<Part>> {
+    prepare_with_page_limit(source, limit, PAGE_LIMIT, runtime, cancel)
+}
+pub(crate) fn prepare_pdf_segments(
+    source: &Path,
+    limit: u64,
+    runtime: &RuntimeSettings,
+    cancel: &impl Fn() -> bool,
+) -> Result<Vec<Part>> {
+    prepare_with_page_limit(source, limit, PDF_SEGMENT_PAGES, runtime, cancel)
+}
+fn prepare_with_page_limit(
+    source: &Path,
+    limit: u64,
+    page_limit: u32,
     runtime: &RuntimeSettings,
     cancel: &impl Fn() -> bool,
 ) -> Result<Vec<Part>> {
@@ -333,11 +351,14 @@ fn prepare_with_runtime(
         lopdf::Document::load_mem(&content).context("无法读取 PDF 页码，尝试下一解析器")?;
     let count = u32::try_from(document.get_pages().len()).context("PDF 页数超过支持范围")?;
     ensure!(count > 0, "PDF 中没有可解析页面");
-    ensure!(
-        count as usize <= runtime.max_document_pages,
-        "文档页数超过配置上限"
-    );
-    if count <= PAGE_LIMIT && content.len() as u64 <= limit {
+    if count as usize > runtime.max_document_pages {
+        return Err(crate::process_supervisor::Failure::new(
+            crate::process_supervisor::FailureKind::Memory,
+            "文档页数超过配置上限",
+        ).into());
+    }
+    ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
+    if count <= page_limit && content.len() as u64 <= limit {
         return Ok(vec![Part {
             bytes: content,
             start: 1,
@@ -348,11 +369,12 @@ fn prepare_with_runtime(
     let mut ranges = std::collections::VecDeque::new();
     let mut start = 1;
     while start <= count {
-        let end = (start + PAGE_LIMIT - 1).min(count);
+        let end = (start + page_limit - 1).min(count);
         ranges.push_back((start, end));
         start = end + 1;
     }
     let mut parts = Vec::new();
+    let mut prepared_bytes = 0u64;
     while let Some((start, end)) = ranges.pop_front() {
         ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
         let mut split = document.clone();
@@ -361,6 +383,7 @@ fn prepare_with_runtime(
             .collect::<Vec<_>>();
         split.delete_pages(&remove);
         split.prune_objects();
+        ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
         split.compress();
         let mut bytes = Vec::new();
         split.save_to(&mut bytes)?;
@@ -370,6 +393,14 @@ fn prepare_with_runtime(
             ranges.push_front((middle + 1, end));
             ranges.push_front((start, middle));
             continue;
+        }
+        ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
+        prepared_bytes += bytes.len() as u64;
+        if prepared_bytes > input_limit {
+            return Err(crate::process_supervisor::Failure::new(
+                crate::process_supervisor::FailureKind::Memory,
+                "PDF 分段准备超过配置的转换输入大小限制",
+            ).into());
         }
         parts.push(Part {
             bytes,
@@ -895,13 +926,21 @@ async fn parse_part_with_limit(
                 std::fs::remove_file(path)?;
                 bail!("MinerU 解析失败，尝试下一解析器");
             }
-            "waiting-file" | "pending" => {
-                progress("queued");
-                tokio::time::sleep(Duration::from_secs(config.poll_interval_secs)).await;
-            }
-            "running" | "converting" => {
-                progress("parsing");
-                tokio::time::sleep(Duration::from_secs(config.poll_interval_secs)).await;
+            state @ ("waiting-file" | "pending" | "running" | "converting") => {
+                // Query once before checking age: a previously timed-out task may
+                // now have a complete result. Never restart a pending task's
+                // budget on every reindex, or the same journal can wait forever.
+                let remaining = config
+                    .task_timeout_secs
+                    .saturating_sub(now().saturating_sub(task.submitted_at));
+                ensure!(remaining > 0,
+                    "MinerU 任务超时（从首次提交计算，当前状态：{state}），任务记录已保留，尝试本地解析");
+                progress(if matches!(state, "running" | "converting") {
+                    "parsing"
+                } else {
+                    "queued"
+                });
+                tokio::time::sleep(Duration::from_secs(config.poll_interval_secs.min(remaining))).await;
             }
             _ => bail!("MinerU 返回了未知任务状态"),
         }
@@ -978,6 +1017,29 @@ fn convert_at(
         &|_| {},
     )
 }
+pub(crate) fn convert_pdf_segment_with_runtime(
+    source: &Path,
+    output: &Path,
+    config: &MineruConfig,
+    key: &str,
+    runtime: &RuntimeSettings,
+    cancel: &impl Fn() -> bool,
+    progress: &impl Fn(&str),
+    original_start: u32,
+) -> Result<()> {
+    convert_range_at_with_progress(
+        source,
+        output,
+        config,
+        key,
+        cancel,
+        config.provider.base_url(),
+        runtime,
+        progress,
+        Some(original_start),
+    )
+}
+
 fn convert_at_with_progress(
     source: &Path,
     output: &Path,
@@ -988,6 +1050,22 @@ fn convert_at_with_progress(
     runtime: &RuntimeSettings,
     progress: &impl Fn(&str),
 ) -> Result<()> {
+    convert_range_at_with_progress(
+        source, output, config, key, cancel, base, runtime, progress, None,
+    )
+}
+
+fn convert_range_at_with_progress(
+    source: &Path,
+    output: &Path,
+    config: &MineruConfig,
+    key: &str,
+    cancel: &impl Fn() -> bool,
+    base: &str,
+    runtime: &RuntimeSettings,
+    progress: &impl Fn(&str),
+    original_start: Option<u32>,
+) -> Result<()> {
     if config.provider == MineruProvider::Ai302 {
         ensure!(source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")),"302.AI 开源部署版仅支持 PDF，尝试本地解析");
     }
@@ -997,12 +1075,18 @@ fn convert_at_with_progress(
     let _admission = admission(config, cancel)?;
     progress("preparing");
     let started = std::time::Instant::now();
-    let parts = prepare_with_runtime(
+    let mut parts = prepare_with_runtime(
         source,
         config.provider.upload_limit_bytes(),
         runtime,
         cancel,
     )?;
+    if let Some(start) = original_start {
+        for part in &mut parts {
+            part.start += start - 1;
+            part.end += start - 1;
+        }
+    }
     let output_limit = runtime.conversion_output_mib as u64 * MIB;
     let prepared_elapsed = started.elapsed();
     let paths = parts
@@ -1027,9 +1111,9 @@ fn convert_at_with_progress(
             let http=client(config.request_timeout_secs)?;
             let mut output_text=String::new();
             for (part,path) in parts.iter().zip(&paths){
-                let text=parse_part_with_limit(&http,base,part,path,config,key,parts.len()>1,progress,output_limit).await?;
+                let text=parse_part_with_limit(&http,base,part,path,config,key,parts.len()>1 || original_start.is_some(),progress,output_limit).await?;
                 ensure!(output_text.len() as u64+text.len()as u64<=output_limit,"MinerU 合并正文超过大小限制");
-                if part.start>0{output_text.push_str(&format!("\n\n<!-- source-pages:{}-{} -->\n\n",part.start,part.end));}
+                if part.start>0 && original_start.is_none(){output_text.push_str(&format!("\n\n<!-- source-pages:{}-{} -->\n\n",part.start,part.end));}
                 output_text.push_str(&text);
             }
             Ok(output_text)

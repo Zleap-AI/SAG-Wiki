@@ -97,9 +97,15 @@ Open **Settings → Model settings → Document parsing · MinerU**. Choose **30
 
 302 responses support task identifiers, result URLs, direct Markdown and JSON-encoded strings. Split PDF results must preserve page mappings before publication; otherwise parsing falls back locally without truncating content. Both previous 302 choices migrate to this single configuration and retain the saved key.
 
-Split parts are merged from their structured results with the original page markers kept. Repeated headers, footers and page numbers are dropped; code blocks become fenced code with their language, caption and footnote; charts keep their description and footnote; other named types keep their text as paragraphs. A type with nothing readable fails the conversion with its name and page number, then falls back to local parsing.
+Before parsing, long PDFs are split into parts of **at most 50 pages**. Parts exceeding the upload byte limit are split further. Each part independently tries MinerU, the applicable built-in anydoc parser, then installed Docling. Only a failed part falls back to local parsing; the entire PDF is not parsed again. Parts run sequentially, preserving the selected provider and parser priority. When a scanned part can be identified as having no text layer, the built-in parser immediately reports that OCR is needed and hands off to installed Docling. Components are never installed automatically.
+
+Successful part Markdown is cached in `.sag-pdf-parts` inside the conversion directory, alongside resumable cloud task journals. Retries reuse successful parts whose content and parsing settings still match. Changed content or settings that affect the parsed text use a new cache entry. Only after every part succeeds is the complete document merged in source order and indexed. Cancellation or failure never publishes partial text or replaces an existing complete conversion. Merging keeps original page ranges, and page numbers in structured cloud results are mapped back to the source PDF.
+
+Cloud parts are merged from their structured results with the original page markers kept. Repeated headers, footers and page numbers are dropped; code blocks become fenced code with their language, caption and footnote; charts keep their description and footnote; other named types keep their text as paragraphs. A type with nothing readable fails the conversion with its name and page number, then falls back to local parsing.
 
 MinerU official continues to use `https://mineru.net/api/v4` and its official token, with separate VLM / Pipeline options. Keys are never reused across providers and providers are not switched automatically. Remote parsing sends the original document; see [Data and privacy](/en/docs/privacy).
+
+When resuming a MinerU task, SAG first checks for an existing result. If it is still queued, parsing or converting, its time limit is measured from the original submission and is not reset by reindexing. Expired tasks fall back to local parsing, with the timeout recorded in index history. Task journals are retained to avoid duplicate submissions; a result completed later can still be retrieved on the next indexing run. Cloud queue times depend on the provider.
 
 ## Advanced runtime settings
 
