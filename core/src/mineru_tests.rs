@@ -20,7 +20,7 @@ fn default_config()->MineruConfig {MineruConfig{provider:MineruProvider::Ai302,.
 #[test]
 #[ignore = "set SAG_TEST_LARGE_PDF to a local large PDF; no upload"]
 fn real_large_pdf_preparation_with_qpdf() {
-    let source = PathBuf::from(std::env::var_os("SAG_TEST_LARGE_PDF").unwrap());
+    let source = PathBuf::from(std::env::var_os("SAG_TEST_LARGE_PDF").unwrap()).canonicalize().unwrap();
     let started = std::time::Instant::now();
     let parts = prepare(&source, 200 * MIB, &|| false).unwrap();
     let mut next = 1;
@@ -205,6 +205,7 @@ fn large_pdf_splits_at_provider_page_limit_and_keeps_original_ranges() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("large.pdf");
     std::fs::write(&source, pdf(201)).unwrap();
+    let source = source.canonicalize().unwrap();
     let parts = prepare(&source, 50 * MIB, &|| false).unwrap();
     assert_eq!(
         parts

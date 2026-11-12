@@ -360,6 +360,11 @@ fn prepare_with_runtime(
     });
     ensure!(qpdf.is_file(), "缺少 QPDF 拆页程序，请重新安装完整安装包");
     let temporary = tempfile::tempdir()?;
+    // QPDF's Windows path parser does not accept verbatim (\\?\) paths.
+    // Use a short local snapshot, also keeping all segments on the same bytes
+    // if the original file changes while preparation is running.
+    let qpdf_source = temporary.path().join("input.pdf");
+    std::fs::write(&qpdf_source, &content)?;
     let split_started = std::time::Instant::now();
     let mut parts = Vec::new();
     while let Some((start, end)) = ranges.pop_front() {
@@ -368,7 +373,7 @@ fn prepare_with_runtime(
         let remaining = Duration::from_secs(120).saturating_sub(split_started.elapsed());
         ensure!(!remaining.is_zero(), "QPDF 拆页超时");
         let mut command = std::process::Command::new(&qpdf);
-        command.arg("--warning-exit-0").arg("--deterministic-id").arg("--empty").arg("--pages").arg(source)
+        command.arg("--warning-exit-0").arg("--deterministic-id").arg("--empty").arg("--pages").arg(&qpdf_source)
             .arg(format!("{start}-{end}")).arg("--").arg(&destination);
         crate::process_supervisor::run(&mut command,
             crate::process_supervisor::Limits { timeout: remaining, memory_bytes: None },
