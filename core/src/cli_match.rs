@@ -156,7 +156,12 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
         let Some(document) = tools.store.matching_document(file, |body| {
             mode == MatchOutputMode::Count || request.options.invert_match || matcher.literals.as_ref().is_none_or(|set| set.is_match(body))
         })? else { return Ok(true); };
-        let relative = format!("./{}", file.strip_prefix(&path)?.display());
+        // Match results use "/" everywhere, as notes and explore output do, so a
+        // Windows client does not see backslashes where every other path has "/".
+        let relative = format!(
+            "./{}",
+            file.strip_prefix(&path)?.to_string_lossy().replace('\\', "/")
+        );
         let spans: Vec<_> = text::Lines::new(&document.body)
             .spans
             .into_iter()
