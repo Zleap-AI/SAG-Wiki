@@ -146,11 +146,13 @@ Open **Index history → View** to inspect progress, completion and failures. Ch
 
 Exceptionally long table rows are indexed in smaller passages without editing the original file or its line breaks. Results still point to the original locations. File size and memory budgets remain enforced; exceeding them reports an error instead of writing an incomplete index.
 
-The bottom of the sidebar shows the current stage, progress and partial failures. Longer text wraps while keeping the close button available. Click the status to inspect failed files.
+The bottom of the sidebar shows the current stage, progress and partial failures. During file conversion, a separate **Parser** line identifies the parser actually in use, such as MinerU, anydoc or Docling. When concurrent files use different parsers, their names appear together. The label updates when a failed attempt falls back to another parser. Before a parser starts, it shows “Preparing conversion…”; the line disappears outside conversion stages. Index details also identify the parser for each active file. After pausing, a file that is still finishing continues to show its parser until that work ends.
+
+Longer text wraps while keeping the close button available. Click the status to inspect current tasks and failed files.
 
 After you dismiss a failure notice, the app remembers the current failure details and keeps that notice hidden when you reopen the interface. New indexing runs still show progress, and changed failure details trigger a new notice. You can still inspect dismissed failures through the index status card on the Files page or **Index history → View**.
 
-![Sidebar indexing progress and partial failure status](/images/product-index-status-en.png)
+![Sidebar conversion progress and active parsers](/images/product-index-status-en.png)
 
 ![After dismissal and reopening, the sidebar notice stays hidden while index details remain available on the Files page](/images/product-index-status-dismissed-en.png)
 

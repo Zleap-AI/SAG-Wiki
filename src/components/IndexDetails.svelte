@@ -118,7 +118,7 @@
      </ol>
      <p class="index-stage-description">{$t(indexStage(task.stage)?.description??'先索引文本，再转换其他格式，最后索引转换结果。')}</p>
      {#if task.total>0}<div class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:task.completed,value1:task.total})}</div><progress aria-label={$t('{value0} 的索引进度',{value0:root.name})} value={task.completed} max={task.total}></progress>{/if}
-     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span>{displayPath(file)}</span></li>{/each}</ul>{/if}
+     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span class="index-current-file-copy"><span class="index-current-file-path">{displayPath(file)}</span>{#if task.stage==='converting'||task.stage==='retrying_conversion'}{@const conversion=task.conversions?.find(item=>item.path===file)}<span class="index-file-parser">{conversion?$t('解析方式：{value0}',{value0:conversion.engine}):$t('正在准备转换…')}</span>{/if}</span></li>{/each}</ul>{/if}
     {/if}
    </section>
   {/each}
@@ -226,4 +226,6 @@
  .index-failure{margin-top:8px}
  .index-failure summary{font-size:12px;color:var(--color-secondary);cursor:pointer}
  .index-failure pre{font-size:12px;margin-top:8px}
+ .index-current-file-copy{display:flex;flex-direction:column;gap:2px;min-width:0;overflow-wrap:anywhere}
+ .index-file-parser{font-size:12px;color:var(--color-secondary)}
 </style>

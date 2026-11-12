@@ -131,12 +131,19 @@ pub struct IndexStatus {
     pub tasks: Vec<IndexTask>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexConversion {
+    pub path: String,
+    pub engine: String,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexTask {
     pub path: String,
     pub stage: String,
     pub completed: usize,
     pub total: usize,
     pub files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub conversions: Vec<IndexConversion>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexHistory {
