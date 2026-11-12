@@ -540,7 +540,10 @@ impl Store {
         let path = path_text(directory)?;
         let prefix = format!("{}{}", path.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
         Ok(self.connection().query_row(
-            "SELECT COUNT(*) FROM documents WHERE path=?1 OR instr(path,?2)=1",
+            // Converted documents live under .sag-converted; count them by their source path.
+            "SELECT COUNT(*) FROM documents d WHERE d.path=?1 OR instr(d.path,?2)=1
+               OR EXISTS(SELECT 1 FROM conversions c WHERE c.output=d.path AND c.valid=1
+                         AND (c.source=?1 OR instr(c.source,?2)=1))",
             params![path, prefix], |row| row.get::<_, i64>(0),
         )? as usize)
     }
@@ -818,6 +821,12 @@ impl Store {
     }
     pub fn document(&self, path: &Path) -> Result<Document> {
         Ok(self.matching_document(path, |_| true)?.unwrap())
+    }
+    pub(crate) fn has_valid_conversion(&self, source: &Path) -> Result<bool> {
+        Ok(self.connection().query_row(
+            "SELECT EXISTS(SELECT 1 FROM conversions WHERE source=? AND valid=1)",
+            [path_text(source)?], |row| row.get(0),
+        )?)
     }
     pub(crate) fn matching_document(&self, path: &Path, matches: impl FnOnce(&str) -> bool) -> Result<Option<Document>> {
         let path = self.authorize(path)?;
