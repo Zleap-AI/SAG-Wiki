@@ -1,4 +1,7 @@
 {
+  "解析方式：{value0}": "Parser: {value0}",
+  "正在准备转换…": "Preparing conversion…",
+  "、": ", ",
   "复制以下指令，发送给你的 Agent 完成接入。": "Copy the instruction below and send it to your agent to complete setup.",
   "其他 Agent": "Other agents",
   "其他 Agent 的安装指令": "Setup instruction for other agents",

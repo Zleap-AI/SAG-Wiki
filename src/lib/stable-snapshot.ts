@@ -19,6 +19,8 @@ export function sameIndexStatus(previous: IndexStatus, next: IndexStatus): boole
   return previous.paused === next.paused && previous.tasks.length === next.tasks.length && next.tasks.every((task, index) => {
     const old = previous.tasks[index];
     return old.path === task.path && old.stage === task.stage && old.completed === task.completed && old.total === task.total &&
+      (old.conversions?.length??0) === (task.conversions?.length??0) &&
+      (task.conversions??[]).every((item, conversionIndex) => item.path === old.conversions?.[conversionIndex].path && item.engine === old.conversions?.[conversionIndex].engine) &&
       old.files.length === task.files.length && task.files.every((file, fileIndex) => file === old.files[fileIndex]);
   });
 }
