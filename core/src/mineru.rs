@@ -559,13 +559,24 @@ fn archive_content_with_limit(
             };
             // MinerU names the same value differently across versions, so take the
             // first populated field and ignore a block that carries nothing usable.
+            // A version may also nest the text in an object instead of a plain string.
             let text_of = |name: &str| -> String {
+                fn leaf(value: &Value) -> &str {
+                    match value {
+                        Value::String(text) => text,
+                        _ => value
+                            .get("text")
+                            .or_else(|| value.get("content"))
+                            .and_then(Value::as_str)
+                            .unwrap_or_default(),
+                    }
+                }
                 match row.get(name) {
                     Some(Value::String(text)) => text.clone(),
                     Some(Value::Array(items)) => items
                         .iter()
-                        .filter_map(|item| item.as_str())
-                        .map(str::to_owned)
+                        .map(leaf)
+                        .filter(|text| !text.trim().is_empty())
                         .collect::<Vec<_>>()
                         .join("\n\n"),
                     _ => String::new(),
@@ -589,7 +600,12 @@ fn archive_content_with_limit(
                     body.push_str(&strings("image_footnote")?);
                 }
                 "chart" => {
-                    body.push_str(&format!("[图片：{}]", first(&["chart_caption", "content", "text"])));
+                    // An empty placeholder carries no information but still earns a
+                    // page anchor, so emit the label only when there is a description.
+                    let caption = first(&["chart_caption", "content", "text"]);
+                    if !caption.trim().is_empty() {
+                        body.push_str(&format!("[图片：{caption}]"));
+                    }
                     body.push_str(&first(&["chart_footnote"]));
                 }
                 "table" => {
@@ -598,7 +614,7 @@ fn archive_content_with_limit(
                     let table = strings("table_body")?;
                     ensure!(
                         !table.trim().is_empty(),
-                        "MinerU 分段表格缺少正文，尝试下一解析器"
+                        "MinerU 分段第 {original} 页表格缺少正文，尝试下一解析器"
                     );
                     body.push_str(&table);
                     body.push_str("\n\n");
@@ -613,7 +629,7 @@ fn archive_content_with_limit(
                 }
                 "equation" => {
                     let text = strings("text")?;
-                    ensure!(!text.trim().is_empty(), "MinerU 分段公式缺少正文");
+                    ensure!(!text.trim().is_empty(), "MinerU 分段第 {original} 页公式缺少正文，尝试下一解析器");
                     body.push_str("$$\n");
                     body.push_str(&text);
                     body.push_str("\n$$");
@@ -626,10 +642,16 @@ fn archive_content_with_limit(
                     body.push_str(&strings("text")?);
                 }
                 "code" => {
-                    body.push_str(&first(&["code_caption"]));
-                    body.push_str("\n\n");
+                    let caption = first(&["code_caption"]);
+                    if !caption.trim().is_empty() {
+                        body.push_str(&caption);
+                        body.push_str("\n\n");
+                    }
                     let code = first(&["code_body", "text"]);
-                    ensure!(!code.trim().is_empty(), "MinerU 分段代码块缺少正文，尝试下一解析器");
+                    ensure!(
+                        !code.trim().is_empty(),
+                        "MinerU 分段第 {original} 页代码块缺少正文，尝试下一解析器"
+                    );
                     // Outrun any backtick run inside the code so the fence cannot close early.
                     let fence = "`".repeat(
                         code.split(|value| value != '`')
@@ -639,16 +661,25 @@ fn archive_content_with_limit(
                             .max(2)
                             + 1,
                     );
+                    // Keep the language label instead of dropping names such as
+                    // "objective c" or "c++ (17)": sanitise rather than discard.
                     let language = first(&["guess_lang", "code_language"]);
-                    let language = language.trim();
-                    let language = if language
-                        .bytes()
-                        .all(|byte| byte.is_ascii_alphanumeric() || b"+-_#".contains(&byte))
-                    {
-                        language
-                    } else {
-                        ""
-                    };
+                    let language = language
+                        .trim()
+                        .chars()
+                        .take(24)
+                        .map(|value| {
+                            if value.is_ascii_whitespace() {
+                                '-'
+                            } else if value.is_ascii_alphanumeric() || "+-_.#".contains(value) {
+                                value
+                            } else {
+                                '\0'
+                            }
+                        })
+                        .filter(|value| *value != '\0')
+                        .collect::<String>();
+                    let language = language.trim_matches('-');
                     body.push_str(&fence);
                     body.push_str(language);
                     body.push('\n');

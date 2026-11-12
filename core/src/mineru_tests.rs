@@ -118,6 +118,55 @@ fn split_page_mapping_keeps_code_charts_and_drops_running_matter() {
 }
 
 #[test]
+fn split_page_mapping_reads_nested_text_and_keeps_chart_and_code_details() {
+    let rows = json!([
+        {"type":"chart","chart_caption":[{"text":"Nested sales"}],"chart_footnote":["Source"],"page_idx":0},
+        {"type":"chart","page_idx":1},
+        {"type":"chart","chart_footnote":["Loose note"],"page_idx":2},
+        {"type":"text","text":"Body","page_idx":3},
+        {"type":"code","code_body":"print(1)","guess_lang":"objective c","page_idx":4},
+        {"type":"code","code_body":"int x;","code_language":"c++ (17)","page_idx":5}
+    ]);
+    let output = archive_content(archive("full", Some(rows)), 201, 206, true).unwrap();
+    for expected in [
+        "[图片：Nested sales]",
+        "Source",
+        "Loose note",
+        "```objective-c\nprint(1)\n```",
+        "```c++-17\nint x;\n```",
+    ] {
+        assert!(output.contains(expected), "missing {expected} in {output}");
+    }
+    // A chart with no caption and no footnote keeps no anchor, so it cannot be cited.
+    assert!(!output.contains("source-page:202"), "{output}");
+    assert!(output.contains("source-page:203"), "{output}");
+    // The caption nests its text in an object; reporting it as unreadable would be wrong.
+    for page in 201..=206 {
+        assert!(output.contains(&format!("source-page:{page}")) || page == 202, "missing page {page}");
+    }
+}
+
+#[test]
+fn empty_segment_blocks_report_their_page() {
+    let error = archive_content(
+        archive("full", Some(json!([{"type":"table","table_caption":["Only a caption"],"page_idx":0}]))),
+        201,
+        202,
+        true,
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("第 201 页"), "{error:#}");
+    let error = archive_content(
+        archive("full", Some(json!([{"type":"equation","page_idx":1}]))),
+        201,
+        202,
+        true,
+    )
+    .unwrap_err();
+    assert!(format!("{error:#}").contains("第 202 页"), "{error:#}");
+}
+
+#[test]
 fn unknown_segment_types_report_type_and_page() {
     let error = archive_content(
         archive("full", Some(json!([{"type":"signature_block","page_idx":0}]))),
