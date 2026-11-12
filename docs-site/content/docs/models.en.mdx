@@ -32,6 +32,8 @@ When switching to a different service origin, supply that provider's API key. Th
 
 The decision model accepts a base URL such as `http://127.0.0.1:8000/v1`, or a complete `/systemone` or `/decisions` endpoint. The endpoint suffix is not added twice.
 
+For answer models, Chat Completions remains the default. To use Responses, enter the full endpoint, such as `https://api.openai.com/v1/responses`, or the corresponding proxy URL. This enables streamed answers, function calls and reasoning state replay. Reasoning strength uses `reasoning.effort`; the highest UI level maps to `max`. GPT-6 Astra and GPT-6.1 Sol do not offer a reasoning-off level. Available levels depend on the model and service; choose a supported level or restore the default if rejected. A base URL ending in `/v1` continues to use Chat Completions.
+
 ### Decision model authentication
 
 - **API Key**: use for services that require a key. Existing configurations retain this default.

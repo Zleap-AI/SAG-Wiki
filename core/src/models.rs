@@ -1,3 +1,5 @@
+mod responses;
+
 use sag_protocol::runtime::RuntimeSettings;
 use crate::types::{Candidate, ModelAuthMode, ModelConfig};
 use anyhow::{anyhow, bail, Context, Result};
@@ -114,7 +116,7 @@ pub fn endpoint(config: &ModelConfig, jev: bool) -> String {
     let Ok(mut url) = reqwest::Url::parse(config.url.trim()) else { return config.url.clone(); };
     let path = url.path().trim_end_matches('/');
     let complete = if jev { path.ends_with("/decisions") || path.ends_with("/systemone") }
-        else { path.ends_with("/chat/completions") };
+        else { path.ends_with("/chat/completions") || path.ends_with("/responses") };
     let path = if complete { path.to_owned() }
         else { format!("{path}/{}", if jev { "systemone" } else { "chat/completions" }) };
     url.set_path(&path);
@@ -427,6 +429,12 @@ pub(crate) fn payload(config: &ModelConfig, messages: Vec<Value>, stream: bool) 
     if stream {
         p["stream_options"] = json!({"include_usage":true});
     }
+    if responses::enabled(config) {
+        if let Some(effort) = config.reasoning_effort {
+            p["reasoning_effort"] = serde_json::to_value(effort)?;
+        }
+        return Ok(p);
+    }
     if config.model.to_lowercase().starts_with("qwen") {
         // Preserve the existing Qwen default for models without an explicit profile.
         p["enable_thinking"] = json!(false);
@@ -676,6 +684,7 @@ pub struct ChatTurn {
     pub tool_calls: Vec<Value>,
     pub input_tokens: Option<usize>,
     pub output_tokens: Option<usize>,
+    pub response_output: Vec<Value>,
 }
 pub enum ChatDelta<'a> {
     Content(&'a str),
@@ -703,6 +712,9 @@ async fn chat_turn_inner(
     runtime: &RuntimeSettings, cancel: &CancellationToken, mut emit: impl FnMut(ChatDelta<'_>),
     require_complete: bool,
 ) -> Result<ChatTurn> {
+    if responses::enabled(config) {
+        return responses::turn(client, config, key, payload, timeout, runtime, cancel, emit, require_complete).await;
+    }
     let response = request_with_runtime(
         client,
         &endpoint(config, false),
@@ -745,6 +757,7 @@ async fn chat_turn_inner(
                     text: full,
                     input_tokens,
                     output_tokens,
+                    response_output: vec![],
                 });
             }
             if data.is_empty() {
@@ -807,6 +820,7 @@ async fn chat_turn_inner(
         text: full,
         input_tokens,
         output_tokens,
+        response_output: vec![],
     })
 }
 pub async fn test_connection(
@@ -816,6 +830,12 @@ pub async fn test_connection(
     key: &str,
     timeout: u64,
 ) -> Result<String> {
+    if kind != "jev" && responses::enabled(config) {
+        let payload = payload(config, vec![json!({"role":"user","content":"Reply with OK."})], true)?;
+        let turn = chat_turn(client, config, key, &payload, timeout, &CancellationToken::new(), |_| {}).await?;
+        anyhow::ensure!(turn.tool_calls.is_empty() && !turn.text.trim().is_empty(), "接口连通，但未返回回答");
+        return Ok("连接成功".into());
+    }
     let key = if kind == "jev" && config.auth_mode == ModelAuthMode::None { "" } else { key };
     let cancel = CancellationToken::new();
     let payload = if kind == "jev" {
