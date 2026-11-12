@@ -7,7 +7,14 @@ Major changes by version. See the feature guides for instructions and the [Insta
 
 ## 0.2.10
 
-- **Version number**: the desktop app and bundled CLI both use 0.2.10.
+- **HTTP API**: programs on this computer or the local network can run fast or deep searches, browse folders and limit a search to one or more folders by full path. The API shares the knowledge base, index and decision-model settings with the desktop app and CLI, and returns source passages.
+- **API service settings and CLI commands**: the desktop app adds **Settings → API service** to turn the service on or off, show local and LAN addresses, and manage keys and launch at startup. The standalone CLI adds `sag api start/stop/status`, `sag api key create/list/revoke` and `sag api autostart`.
+- **Standalone CLI on Linux**: the npm package adds Linux ARM64 and x86_64, verified on Ubuntu 24.04 and Debian 12, so search and the API service run without the desktop app.
+- **Jev renamed to decision model**: Settings and the documentation use "decision model" throughout; switching to Zleap fills in `Zev-1` automatically.
+- **Results ordered by relevance**: deep search returns results sorted by local relevance score, without DPP diversity reranking.
+- **Indexing symlinked folders**: when a knowledge-base root becomes a symbolic link, indexed content is still recognized under its original path, and removed folders ask to be added again.
+
+The desktop app and bundled CLI both use 0.2.10.
 
 ## 0.2.9
 

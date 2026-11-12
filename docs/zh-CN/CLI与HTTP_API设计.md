@@ -1,5 +1,7 @@
 # SAG CLI 与 HTTP API 设计
 
+[English](../en/cli-http-api.md) · [文档目录](README.md)
+
 日期：2026-11-12
 
 状态：已按本文实现 API 服务、CLI 管理和桌面设置。本文保留设计约定，具体实现与验证结果见第 17 节。
