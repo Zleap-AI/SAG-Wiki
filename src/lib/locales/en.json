@@ -1760,5 +1760,11 @@
   "已关闭": "Stopped",
   "名称": "Name",
   "操作": "Actions",
-  "完成": "Done"
+  "完成": "Done",
+  "正在压缩上下文：已完成 {value0} 块": "Summarizing context: {value0} chunks completed",
+  "正在重试上下文压缩：已完成 {value0} 块，第 {value1} 次重试": "Retrying context summary: {value0} chunks completed, retry {value1}",
+  "上下文摘要响应未完整结束": "The context summary response ended before completion",
+  "上下文摘要请求超过总时间限制": "The context summary request exceeded its total time limit",
+  "模型连接失败": "Model connection failed",
+  "上下文摘要达到输出上限": "The context summary reached its output limit"
 }

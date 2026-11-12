@@ -76,7 +76,7 @@ The answer-model test asks for a short reply; output length follows the model se
 - Authentication failure: check the provider, key and expiry.
 - Unknown model: verify the exact ID and account access.
 - Invalid endpoint: check the API URL and required path.
-- Timeout: check the network and provider status; Q&A request timeouts are adjusted in Q&A settings.
+- Timeout: check the network and service. Answer and context-summary calls share Request timeout in Q&A settings. Summary body timeouts have bounded retries; if they still fail, try 300 seconds. Increasing the client deadline may not help if the model service or proxy disconnects earlier. See [Q&A and context management](./chat).
 - No tool calls: verify that the model and API support tools, then check that model's bindings.
 
 Keys are stored in the current user's application data directory. macOS uses owner-only file permissions; other processes running as that user may still read them. Do not publicly share the data directory. See [Data and privacy](/en/docs/privacy).

@@ -290,10 +290,10 @@ where
             require_tool = false;
         }
         deduplicate_sources(&mut messages);
-        if tokens(&messages, &definitions) > budget {
+        if compaction::should_compact(&messages, &question, &definitions, budget) {
             progress("正在压缩上下文", None, message.tool_calls.len(), None);
             let compact_started = std::time::Instant::now();
-            let compacted = match compaction::compact(client, config, key, &messages, &recent_history, &question, history.len(), &definitions, budget, timeout, runtime, cancel).await {
+            let compacted = match compaction::compact(client, config, key, &messages, &recent_history, &question, history.len(), &definitions, budget, timeout, runtime, cancel, |status| progress(status, None, message.tool_calls.len(), None)).await {
                 Ok(compacted) => compacted,
                 Err(error) if models::context_limit_error(&error) => { budget = budget * 3 / 4; continue; }
                 Err(error) => return Err(error),
@@ -1444,10 +1444,18 @@ mod tests {
         assert_eq!(current.tool_calls[0].source_count, 1);
         assert_eq!(current.context.as_ref().unwrap().omitted_sources, 1);
         let captured = requests.lock().unwrap();
+        // Early compaction may add summary requests, but must preserve the question
+        // and the complete source exchange in the three answer-model requests.
+        let captured = captured.iter().filter(|request| request.get("tools").is_some()).collect::<Vec<_>>();
         assert_eq!(captured.len(), 3);
         assert_eq!(captured[1]["tool_choice"], "required");
         assert_eq!(captured[1]["messages"][2]["role"], "user");
-        assert_eq!(captured[2]["messages"][1], captured[0]["messages"][1]);
+        for request in &captured {
+            assert!(request["messages"].as_array().unwrap().iter().any(|item| {
+                item["role"] == "user" && item["content"].as_str().and_then(|text| serde_json::from_str::<Value>(text).ok())
+                    .is_some_and(|value| value["question"] == current.question)
+            }), "the complete current question must survive proactive compaction");
+        }
         let messages = captured[2]["messages"].as_array().unwrap();
         let result: Value = serde_json::from_str(messages.last().unwrap()["content"].as_str().unwrap()).unwrap();
         assert_eq!(result["sources"].as_array().unwrap().len(), 1);

@@ -202,10 +202,8 @@ async fn request_with_runtime(
             }
             Err(e) => {
                 if failures >= runtime.retry_count || !(e.is_timeout() || e.is_connect() || e.is_request()) {
-                    return Err(anyhow!(
-                        "模型连接失败：{}",
-                        redact(&e.to_string(), key)
-                    ));
+                    // Preserve the transport cause for buffered summary retries, without URLs.
+                    return Err(anyhow!(e.without_url()).context("模型连接失败"));
                 }
                 failures += 1;
             }
@@ -448,6 +446,55 @@ pub(crate) fn payload(config: &ModelConfig, messages: Vec<Value>, stream: bool) 
     }
     Ok(p)
 }
+// Summary generation is buffered: it can be retried without duplicating visible text or tools.
+pub(crate) fn summary_payload(config: &ModelConfig, messages: Vec<Value>, output: usize) -> Result<Value> {
+    let mut config = config.clone();
+    config.reasoning_effort = model_capability(&config)
+        .and_then(|entry| entry.levels.iter().find(|level| level.value == crate::types::ReasoningEffort::None))
+        .map(|level| level.value);
+    let mut value = payload(&config, messages, true)?;
+    // Only the catalogued Qwen/DeepSeek endpoints are known to support this parameter.
+    // Unknown OpenAI-compatible endpoints keep their existing parameter contract.
+    if model_capability(&config).is_some() {
+        value["max_tokens"] = json!(output);
+    }
+    Ok(value)
+}
+
+#[derive(Debug)]
+struct IncompleteSummary;
+impl std::fmt::Display for IncompleteSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "上下文摘要响应未完整结束") }
+}
+impl std::error::Error for IncompleteSummary {}
+
+#[derive(Debug)]
+struct SummaryOutputLimit;
+impl std::fmt::Display for SummaryOutputLimit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "上下文摘要达到输出上限") }
+}
+impl std::error::Error for SummaryOutputLimit {}
+
+pub(crate) fn summary_output_limited(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<SummaryOutputLimit>().is_some()
+}
+
+pub(crate) fn retryable_summary_error(error: &anyhow::Error) -> bool {
+    error.downcast_ref::<IncompleteSummary>().is_some()
+        || error.downcast_ref::<reqwest::Error>().is_some_and(|e| e.is_timeout() || e.is_connect() || e.is_request() || e.is_body() || e.is_decode())
+        || error.downcast_ref::<RequestError>().is_some_and(|e| matches!(e.status, 408 | 429 | 499 | 500 | 502 | 503 | 504 | 529))
+}
+
+pub(crate) async fn summary_turn(
+    client: &Client, config: &ModelConfig, key: &str, payload: &Value, timeout: u64,
+    runtime: &RuntimeSettings, cancel: &CancellationToken,
+) -> Result<ChatTurn> {
+    // The compactor owns the retry count/deadline, including response body reads.
+    let mut single_attempt = runtime.clone();
+    single_attempt.retry_count = 0;
+    chat_turn_inner(client, config, key, payload, timeout, &single_attempt, cancel, |_| {}, true).await
+}
+
 // Reading layers use TextFold's no-reasoning default, independently of chat settings.
 pub(crate) fn fold_payload(config: &ModelConfig, messages: Vec<Value>) -> Result<Value> {
     let mut config = config.clone();
@@ -649,6 +696,13 @@ pub async fn chat_turn_with_runtime(
     client: &Client, config: &ModelConfig, key: &str, payload: &Value, timeout: u64,
     runtime: &RuntimeSettings, cancel: &CancellationToken, mut emit: impl FnMut(ChatDelta<'_>),
 ) -> Result<ChatTurn> {
+    chat_turn_inner(client, config, key, payload, timeout, runtime, cancel, &mut emit, false).await
+}
+async fn chat_turn_inner(
+    client: &Client, config: &ModelConfig, key: &str, payload: &Value, timeout: u64,
+    runtime: &RuntimeSettings, cancel: &CancellationToken, mut emit: impl FnMut(ChatDelta<'_>),
+    require_complete: bool,
+) -> Result<ChatTurn> {
     let response = request_with_runtime(
         client,
         &endpoint(config, false),
@@ -665,6 +719,7 @@ pub async fn chat_turn_with_runtime(
     let mut input_tokens = None;
     let mut output_tokens = None;
     let mut limited = false;
+    let mut finished = false;
     let mut calls = std::collections::BTreeMap::<usize, Value>::new();
     loop {
         let chunk =
@@ -679,6 +734,7 @@ pub async fn chat_turn_with_runtime(
             let data = data.trim();
             if data == "[DONE]" {
                 if limited {
+                    if require_complete { return Err(SummaryOutputLimit.into()); }
                     bail!("模型服务因长度限制结束了输出，已保留当前内容；可重试或继续提问")
                 }
                 if full.is_empty() && calls.is_empty() {
@@ -698,6 +754,9 @@ pub async fn chat_turn_with_runtime(
             if let Some(usage) = value.get("usage") {
                 input_tokens = usage["prompt_tokens"].as_u64().map(|n| n as usize);
                 output_tokens = usage["completion_tokens"].as_u64().map(|n| n as usize);
+            }
+            if value["choices"][0]["finish_reason"].as_str().is_some_and(|reason| matches!(reason, "stop" | "tool_calls")) {
+                finished = true;
             }
             if value["choices"][0]["finish_reason"] == "length" {
                 limited = true;
@@ -735,10 +794,12 @@ pub async fn chat_turn_with_runtime(
             }
         }
     }
+    if require_complete && !finished && !limited { return Err(IncompleteSummary.into()); }
     if full.is_empty() && calls.is_empty() {
         bail!("模型没有返回回答内容")
     };
     if limited {
+        if require_complete { return Err(SummaryOutputLimit.into()); }
         bail!("模型服务因长度限制结束了输出，已保留当前内容；可重试或继续提问")
     }
     Ok(ChatTurn {

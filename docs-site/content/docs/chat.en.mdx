@@ -69,9 +69,13 @@ Open history from the conversation list on the Q&A home. Use its search button t
 
 History that has not yet been summarized includes previous questions, final answers and compact tool records. Each tool record keeps its name, status and the first 500 characters of its result. Reasoning, tool arguments and intermediate text are excluded from the next turn. The full record remains available in the interface.
 
-The app checks the context budget before each model request, including during tool use. When content grows too large, the current answer model produces a summary covering the task, user constraints, confirmed facts and evidence, completed work, remaining questions and next steps. That summary replaces older content. The most recent exchange and complete tool call are retained when space permits.
+The app checks the context budget before each model request, including during tool use. When content approaches the budget, compaction starts early and leaves headroom; the current answer model produces a summary covering the task, user constraints, confirmed facts and evidence, completed work, remaining questions and next steps. That summary replaces older content. The most recent exchange and complete tool call are retained when space permits.
 
-Very long histories are summarized in batches and merged. The summary is saved with the conversation for later turns. Summarization makes additional model requests without counting as tool calls. A failed summary reports an error and preserves the original records. Full questions, answers, tool records and source passages remain stored locally and are not overwritten by the summary.
+Very long histories are summarized in bounded batches and merged, so one summary request does not have to process all the content. Summaries prefer the no-reasoning mode in supported model profiles and set an output cap for models with known support; other compatible endpoints are not forced to accept those parameters. The completed summary is saved with the conversation for later turns. Summarization makes additional model requests without counting as tool calls.
+
+Connection failures, retryable HTTP errors, response body timeouts and incomplete summary streams are retried within the model retry count, backoff and total time limit in advanced runtime settings. The first retry repeats the current batch; consecutive failures reduce its size. Successful batches are retained within the same running compaction task, so retries do not restart the entire summary or repeat tool operations. Progress shows completed batches and retries. Cancellation stops waiting and retries. Recovery checkpoints are held only in the running task, not across app restarts or manually restarted Q&A requests.
+
+If retries fail, an error is shown and the original records are preserved. Incomplete summaries are never used for subsequent answers. Full questions, answers, tool records and source passages remain stored locally and are not overwritten by the summary.
 
 Requests keep the system prompt first, including retries after citation checks, empty-answer checks, and tool-limit reminders. Tool results and citation IDs remain intact.
 
@@ -112,7 +116,7 @@ A system prompt does not replace connection settings or add tool support to an i
 | --- | --- | --- |
 | Tool calls per turn | 0 / 0–100 | The default, 0, means unlimited. Values from 1 to 100 cap the total SAG and external MCP calls during one Q&A turn. At that limit, the model answers from available results and identifies what remains unconfirmed. |
 | Answer context budget (tokens) | 65536 / minimum 4096 | Controls input including the question, history, tool records and citations. No fixed maximum; set it within the model's actual capacity. History or material may be reduced to fit. |
-| Request timeout | 120 seconds / 10–600 seconds | How long to wait for service requests. A short timeout can interrupt slow models; a long one delays failure feedback. |
+| Request timeout | 120 seconds / 10–600 seconds | Applies to each answer or summary model request, including response body reads, rather than the entire Q&A turn. A short timeout can interrupt slow models; a long one delays failure feedback. |
 
 The context budget is not an output-length setting; output length is controlled by the model service. Entering a value beyond the provider limit does not expand model capacity and may cause failure.
 
@@ -121,3 +125,5 @@ The tool-call limit differs from SAG2 expansion rounds. One `search` call can co
 ### Save and verify
 
 After saving, send a new question and check the selected model, tool calls and citations. When changing models, verify that model's prompt, reasoning and tools instead of assuming it inherits the previous model's configuration.
+
+If context summarization fails with a timeout, try increasing Request timeout to 300 seconds (up to 600) and retry. This can help when the client deadline is too short; it cannot guarantee recovery from an earlier model-service or proxy disconnection. Each summary batch, including its retries, backoff and response body reads, is bounded by Model request total time limit in advanced runtime settings.
