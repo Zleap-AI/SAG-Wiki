@@ -555,3 +555,6 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .note-badge[data-state=unverified]{background:transparent;border:1.5px dashed var(--color-muted)}
 .real-client .note-badge-count{margin-left:auto;margin-right:4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:color-mix(in srgb,#d9822b 18%,transparent);color:#b5691c;font-size:11px;font-weight:600;line-height:18px;text-align:center;flex-shrink:0}
 .real-client .answer-actions .note-saved{color:var(--color-ink)}
+
+/* Keep parser information separate from the stage, count and dismiss action. */
+.real-client .index-status-parser{font-size:var(--text-caption);color:var(--color-secondary);line-height:1.5;overflow-wrap:anywhere}
