@@ -97,6 +97,8 @@ Open **Settings → Model settings → Document parsing · MinerU**. Choose **30
 
 302 responses support task identifiers, result URLs, direct Markdown and JSON-encoded strings. Split PDF results must preserve page mappings before publication; otherwise parsing falls back locally without truncating content. Both previous 302 choices migrate to this single configuration and retain the saved key.
 
+Split parts are merged from their structured results with the original page markers kept. Repeated headers, footers and page numbers are dropped; code blocks become fenced code with their language, caption and footnote; charts keep their description and footnote; other named types keep their text as paragraphs. A type with nothing readable fails the conversion with its name and page number, then falls back to local parsing.
+
 MinerU official continues to use `https://mineru.net/api/v4` and its official token, with separate VLM / Pipeline options. Keys are never reused across providers and providers are not switched automatically. Remote parsing sends the original document; see [Data and privacy](/en/docs/privacy).
 
 ## Advanced runtime settings
