@@ -1,10 +1,9 @@
 name: Linux CLI and HTTP API
 
+# Linux CLI and HTTP API coverage runs after a push to main or on demand.
+# Pull requests are gated only by the two native E2E checks in pr-e2e.yml.
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [main]
-    paths: ['core/**', 'client/**', 'protocol/**', 'cli/**', 'npm/**', 'scripts/package-npm-cli.mjs', 'tests/http-api-e2e.py', 'tests/local-jev-e2e.py', '.github/workflows/cli-linux.yml']
   push:
     branches: [main]
     paths: ['core/**', 'client/**', 'protocol/**', 'cli/**', 'npm/**', 'scripts/package-npm-cli.mjs', 'tests/http-api-e2e.py', 'tests/local-jev-e2e.py', '.github/workflows/cli-linux.yml']

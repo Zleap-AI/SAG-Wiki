@@ -10,6 +10,8 @@ export function modelCapability(model:string,endpoint:string){
 
 export function reasoningLevels(model:string,endpoint:string):{value:ReasoningEffort|null;label:string}[]{
  const defaults={value:null,label:'默认'};
- const levels=modelCapability(model,endpoint)?.levels.map(level=>level.value as ReasoningEffort)??[];
+ let responses=false;
+ try{responses=new URL(endpoint).pathname.replace(/\/+$/,'').endsWith('/responses')}catch{return [defaults]}
+ const levels:ReasoningEffort[]=responses?(/^gpt-(6-astra|6\.1-sol)(?:-|$)/i.test(model)?['low','medium','high','max']:['none','low','medium','high','max']):modelCapability(model,endpoint)?.levels.map(level=>level.value as ReasoningEffort)??[];
  return [defaults,...levels.map(value=>({value,label:reasoningLabels[value]}))];
 }
