@@ -32,6 +32,8 @@ When switching to a different service origin, supply that provider's API key. Th
 
 The decision model accepts a base URL such as `http://127.0.0.1:8000/v1`, or a complete `/systemone` or `/decisions` endpoint. The endpoint suffix is not added twice.
 
+For answer models, Chat Completions remains the default. To use Responses, enter the full endpoint, such as `https://api.openai.com/v1/responses`, or the corresponding proxy URL. This enables streamed answers, function calls and reasoning state replay. Reasoning strength uses `reasoning.effort`; the highest UI level maps to `max`. GPT-6 Astra and GPT-6.1 Sol do not offer a reasoning-off level. Available levels depend on the model and service; choose a supported level or restore the default if rejected. A base URL ending in `/v1` continues to use Chat Completions.
+
 ### Decision model authentication
 
 - **API Key**: use for services that require a key. Existing configurations retain this default.
@@ -94,6 +96,8 @@ Open **Settings → Model settings → Document parsing · MinerU**. Choose **30
 **Test connection** checks only the selected parser endpoint. It accesses no account API logs, uploads no files and creates no task. A 400 / 422 response for missing task parameters establishes reachability only, not parsing permission; 401 / 403 means the request was rejected. Results appear beside the button. Validate actual parsing with a small PDF.
 
 302 responses support task identifiers, result URLs, direct Markdown and JSON-encoded strings. Split PDF results must preserve page mappings before publication; otherwise parsing falls back locally without truncating content. Both previous 302 choices migrate to this single configuration and retain the saved key.
+
+Split parts are merged from their structured results with the original page markers kept. Repeated headers, footers and page numbers are dropped; code blocks become fenced code with their language, caption and footnote; charts keep their description and footnote; other named types keep their text as paragraphs. A type with nothing readable fails the conversion with its name and page number, then falls back to local parsing.
 
 MinerU official continues to use `https://mineru.net/api/v4` and its official token, with separate VLM / Pipeline options. Keys are never reused across providers and providers are not switched automatically. Remote parsing sends the original document; see [Data and privacy](/en/docs/privacy).
 
