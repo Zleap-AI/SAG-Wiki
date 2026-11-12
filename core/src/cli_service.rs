@@ -513,7 +513,7 @@ impl CliService {
                             let relative = canonical.strip_prefix(&path)?;
                             result.results.push(SearchResult {
                                 heading: heading.clone(),
-                                path: format!("./{}", relative.display()),
+                                path: format!("./{}", relative.to_string_lossy().replace('\\', "/")),
                                 absolute_path: store::path_text(&canonical)?,
                                 start_line: span.start_line,
                                 end_line: span.end_line,
