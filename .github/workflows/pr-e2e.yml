@@ -75,3 +75,6 @@ jobs:
         run: cargo build --locked --manifest-path cli/Cargo.toml
       - name: Exercise real service and CLI with local Jev fixture
         run: python tests/local-jev-e2e.py --binary "${{ matrix.binary }}"
+
+      - name: Exercise CLI-managed HTTP API and persisted state
+        run: python tests/http-api-e2e.py --binary "${{ matrix.binary }}"

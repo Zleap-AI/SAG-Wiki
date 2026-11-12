@@ -1,5 +1,27 @@
 # 更新日志 / Changelog
 
+## 0.2.10
+
+- **新增 HTTP API**：本机和局域网程序可通过 API 进行快速或深入检索、浏览文件夹，并按完整路径指定一个或多个搜索目录。API 与桌面端、CLI 共用知识库、索引和决策模型配置，结果按原文片段返回。
+- **API 服务设置与 CLI 命令**：桌面端新增 **设置 → API 服务**，可开关服务、查看本机与局域网地址、管理 Key 和开机自启；独立 CLI 新增 `sag api start/stop/status`、`sag api key create/list/revoke` 和 `sag api autostart` 命令。
+- **独立 CLI 支持 Linux**：npm 包新增 Linux ARM64 / x86_64，已在 Ubuntu 24.04 和 Debian 12 上验证，无需桌面端即可运行搜索和 API 服务。
+- **Jev 更名为决策模型**：设置页与文档统一使用“决策模型”名称；切换到 Zleap 时自动填入 `Zev-1`。
+- **检索结果按相关性排序**：深入检索在本地按相关性分数排序返回，不再进行 DPP 多样性重排。
+- **改善符号链接目录的索引**：知识库根目录变为符号链接后，仍按原有路径识别已索引内容，已移除的目录会明确提示重新添加。
+
+桌面端与随包 CLI 版本统一为 0.2.10。
+
+### English
+
+- **HTTP API**: programs on this computer or the local network can run fast or deep searches, browse folders and limit a search to one or more folders by full path. The API shares the knowledge base, index and decision-model settings with the desktop app and CLI, and returns source passages.
+- **API service settings and CLI commands**: the desktop app adds **Settings → API service** to turn the service on or off, show local and LAN addresses, and manage keys and launch at startup. The standalone CLI adds `sag api start/stop/status`, `sag api key create/list/revoke` and `sag api autostart`.
+- **Standalone CLI on Linux**: the npm package adds Linux ARM64 and x86_64, verified on Ubuntu 24.04 and Debian 12, so search and the API service run without the desktop app.
+- **Jev renamed to decision model**: Settings and the documentation use "decision model" throughout; switching to Zleap fills in `Zev-1` automatically.
+- **Results ordered by relevance**: deep search returns results sorted by local relevance score, without DPP diversity reranking.
+- **Indexing symlinked folders**: when a knowledge-base root becomes a symbolic link, indexed content is still recognized under its original path, and removed folders ask to be added again.
+
+The desktop app and bundled CLI both use 0.2.10.
+
 ## 0.2.9
 
 - **修复 Windows 快捷搜索崩溃**：Windows 版此前未创建快捷搜索窗口，通过全局快捷键、托盘菜单或快捷键设置打开快捷搜索会导致应用退出；现已修复，缺少窗口时报错而不再崩溃。
