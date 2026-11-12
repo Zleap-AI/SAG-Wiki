@@ -557,12 +557,40 @@ fn archive_content_with_limit(
                     _ => bail!("MinerU 结构化正文格式无效"),
                 }
             };
+            // MinerU names the same value differently across versions, so take the
+            // first populated field and ignore a block that carries nothing usable.
+            let text_of = |name: &str| -> String {
+                match row.get(name) {
+                    Some(Value::String(text)) => text.clone(),
+                    Some(Value::Array(items)) => items
+                        .iter()
+                        .filter_map(|item| item.as_str())
+                        .map(str::to_owned)
+                        .collect::<Vec<_>>()
+                        .join("\n\n"),
+                    _ => String::new(),
+                }
+            };
+            let first = |names: &[&str]| {
+                names
+                    .iter()
+                    .map(|name| text_of(name))
+                    .find(|value| !value.trim().is_empty())
+                    .unwrap_or_default()
+            };
             let kind = row["type"].as_str().unwrap_or("");
             let mut body = String::new();
             match kind {
+                // Running headers, folios and footers repeat on every page and only
+                // add retrieval noise; full.md leaves them out for single-part files.
+                "header" | "footer" | "page_number" => continue,
                 "image" => {
                     body.push_str(&format!("[图片：{}]", strings("image_caption")?));
                     body.push_str(&strings("image_footnote")?);
+                }
+                "chart" => {
+                    body.push_str(&format!("[图片：{}]", first(&["chart_caption", "content", "text"])));
+                    body.push_str(&first(&["chart_footnote"]));
                 }
                 "table" => {
                     body.push_str(&strings("table_caption")?);
@@ -597,7 +625,52 @@ fn archive_content_with_limit(
                     }
                     body.push_str(&strings("text")?);
                 }
-                _ => bail!("MinerU 分段结果包含无法保留的正文类型，尝试下一解析器"),
+                "code" => {
+                    body.push_str(&first(&["code_caption"]));
+                    body.push_str("\n\n");
+                    let code = first(&["code_body", "text"]);
+                    ensure!(!code.trim().is_empty(), "MinerU 分段代码块缺少正文，尝试下一解析器");
+                    // Outrun any backtick run inside the code so the fence cannot close early.
+                    let fence = "`".repeat(
+                        code.split(|value| value != '`')
+                            .map(str::len)
+                            .max()
+                            .unwrap_or(0)
+                            .max(2)
+                            + 1,
+                    );
+                    let language = first(&["guess_lang", "code_language"]);
+                    let language = language.trim();
+                    let language = if language
+                        .bytes()
+                        .all(|byte| byte.is_ascii_alphanumeric() || b"+-_#".contains(&byte))
+                    {
+                        language
+                    } else {
+                        ""
+                    };
+                    body.push_str(&fence);
+                    body.push_str(language);
+                    body.push('\n');
+                    body.push_str(code.trim_end_matches(['\n', '\r']));
+                    body.push('\n');
+                    body.push_str(&fence);
+                    body.push('\n');
+                    body.push_str(&first(&["code_footnote"]));
+                }
+                other => {
+                    // Unknown named types keep their text; only a block with nothing
+                    // readable at all fails, and the message names it for diagnosis.
+                    let body_key = format!("{other}_body");
+                    let text_key = format!("{other}_text");
+                    let text = first(&["text", "content", "body", &body_key, &text_key]);
+                    let invalid = format!("\"{}\"", other.chars().take(32).collect::<String>());
+                    ensure!(
+                        !text.trim().is_empty(),
+                        "MinerU 分段第 {original} 页包含不支持的类型 {invalid}，尝试下一解析器"
+                    );
+                    body.push_str(&text);
+                }
             }
             if body.trim().is_empty() {
                 continue;
