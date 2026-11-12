@@ -136,7 +136,14 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
     tools.visit(paths, true, |file, _, metadata| {
         if !metadata.is_file() { return Ok(true); }
         let (_, rules) = rules.iter_mut().find(|(root, _)| file.starts_with(root)).expect("authorized root");
-        if !store::Store::indexable_path(file, rules.file(file)?) { return Ok(true); }
+        let options = rules.file(file)?;
+        if crate::docling::is_source(file) {
+            // Match converted sources through their output; skip ones without a valid conversion.
+            if !crate::docling::should_convert(file, options) || !tools.store.has_valid_conversion(file)? { return Ok(true); }
+        } else if crate::docling::in_output(file) && !crate::docling::in_output(&path) {
+            // Converted outputs are already matched through their sources.
+            return Ok(true);
+        } else if !store::Store::indexable_path(file, options) { return Ok(true); }
         let mut included = filters.first().is_none_or(|(include, _)| !include);
         for (include, pattern) in &filters {
             if pattern.matches_path(std::path::Path::new(file.file_name().unwrap())) {
