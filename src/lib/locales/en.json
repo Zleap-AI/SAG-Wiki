@@ -1,4 +1,7 @@
 {
+  "尝试重试转换": "Retrying failed conversions",
+  "重试转换": "Retry conversion",
+  "正在重试此前失败的文件，已成功转换的文件继续复用。": "Retrying previously failed files; successful conversions are reused.",
   "复制以下指令，发送给你的 Agent 完成接入。": "Copy the instruction below and send it to your agent to complete setup.",
   "其他 Agent": "Other agents",
   "其他 Agent 的安装指令": "Setup instruction for other agents",

@@ -1376,7 +1376,8 @@ impl Store {
                             // relative source links from directory depth, not the file name.
                             let staged = tempfile::Builder::new().prefix(".sag-pending-").suffix(".md")
                                 .tempfile_in(output.parent().unwrap())?.into_temp_path();
-                            self.indexing.file(root, source, || crate::conversion::convert(source, &staged, &self.docling, settings, || self.indexing.cancelled(root), |attempt| self.indexing.conversion_attempt(root,source,attempt)))?;
+                            let retry: bool = self.connection().query_row("SELECT EXISTS(SELECT 1 FROM index_issues WHERE path=?)", [&source_text], |row| row.get(0))?;
+                            self.indexing.file_attempt(root, source, retry, || crate::conversion::convert(source, &staged, &self.docling, settings, || self.indexing.cancelled(root), |attempt| self.indexing.conversion_attempt(root,source,attempt)))?;
                             converted = true;
                             // Pause between conversion and acceptance without retaining an
                             // "active file" entry or a database lock.
