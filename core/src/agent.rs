@@ -461,7 +461,11 @@ where
             progress("正在生成回答", Some(AnswerDelta::Append(&result)), 0, None);
             return Ok(traces);
         }
-        messages.push(json!({"role":"assistant","content":if turn.text.is_empty(){Value::Null}else{json!(turn.text)},"tool_calls":turn.tool_calls}));
+        let mut assistant = json!({"role":"assistant","content":if turn.text.is_empty(){Value::Null}else{json!(turn.text)},"tool_calls":turn.tool_calls});
+        if !turn.response_output.is_empty() {
+            assistant["responses_output"] = json!(turn.response_output);
+        }
+        messages.push(assistant);
         for (index, call) in turn.tool_calls.into_iter().enumerate() {
             if index >= remaining {
                 messages.push(json!({"role":"tool","tool_call_id":call["id"],"content":"本轮工具调用次数已用尽，此调用未执行。请根据已有结果给出结论和证据缺口。"}));
