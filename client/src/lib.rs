@@ -18,6 +18,16 @@ use tokio::{
 };
 
 type Pending = HashMap<String, oneshot::Sender<Result<Output, String>>>;
+/// Marks a client-side wait that expired before the service answered. Callers can
+/// report what the request had already done instead of a bare timeout.
+#[derive(Debug)]
+pub struct RequestTimeout;
+impl std::fmt::Display for RequestTimeout {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("SAG 请求等待超时")
+    }
+}
+impl std::error::Error for RequestTimeout {}
 struct Inner {
     alive: AtomicBool,
     info: ServiceInfo,
@@ -194,7 +204,7 @@ impl Client {
             Err(_) => {
                 self.0.pending.lock().unwrap().remove(&id);
                 let _ = self.0.outgoing.send(Frame::Cancel { id }).await;
-                bail!("请求超时，已取消本次请求")
+                Err(anyhow::Error::new(RequestTimeout).context("请求超时，已取消本次请求"))
             }
         }
     }
