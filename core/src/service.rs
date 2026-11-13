@@ -226,6 +226,12 @@ fn reindex_all(state: &Arc<Service>) -> CommandResult<Vec<Root>> {
     }
     state.store.roots().map_err(error)
 }
+fn retry_failed_indexes(state: &Arc<Service>) -> CommandResult<Vec<Root>> {
+    for (root, paths) in state.store.prepare_failed_reindex().map_err(error)? {
+        state.scan.send(IndexRequest::RetryFailed { root, paths }).map_err(error)?;
+    }
+    state.store.roots().map_err(error)
+}
 fn save_document(
     path: String,
     body: String,
@@ -1131,7 +1137,7 @@ impl Service {
                         }
                         continue;
                     },
-                    IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } => {
+                    IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } | IndexRequest::RetryFailed { root, .. } => {
                         root.clone()
                     }
                 };
@@ -1251,6 +1257,7 @@ impl Service {
                 | Op::RemoveRoot { .. }
                 | Op::SaveDocument { .. }
                 | Op::ReindexAll
+                | Op::RetryFailedIndexes
                 | Op::SetIndexPaused { .. }
                 | Op::UninstallDocling
                 | Op::ClearIndexHistory
@@ -1339,7 +1346,12 @@ impl Service {
                 Out::Unit
             }
             Op::ReindexAll => Out::Roots(reindex_all(self)?),
-            Op::GetIndexStatus => Out::IndexStatus(self.store.indexing.status()),
+            Op::RetryFailedIndexes => Out::Roots(retry_failed_indexes(self)?),
+            Op::GetIndexStatus => {
+                let mut status = self.store.indexing.status();
+                status.failed_files = self.store.failed_index_count().map_err(error)?;
+                Out::IndexStatus(status)
+            },
             Op::GetIndexHistory => Out::IndexHistory(self.store.index_history().map_err(error)?),
             Op::SetConversionWorkers { workers } => {
                 let mut settings = self.store.settings().map_err(error)?;

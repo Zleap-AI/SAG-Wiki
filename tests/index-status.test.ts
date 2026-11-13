@@ -621,3 +621,71 @@ it('does not mix another root PDF parts with the displayed root file progress',a
  expect(document.querySelector('.index-status-meta')?.textContent).toContain('1 / 5');
  expect(document.querySelector('.index-status-segment')).toBeNull();
 });
+
+it('失败卡片直接重建失败文件，提交期间阻止重复点击并保留详情入口',async()=>{
+ let resolveRetry:(value:unknown)=>void=()=>{};
+ const pending=new Promise(resolve=>resolveRetry=resolve);
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[],failed_files:2};
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'partial',count:8,error:'未能索引 2 个文件'}];
+  if(command==='retry_failed_indexes')return pending;
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.index-retry-button')).not.toBeNull());
+ const button=document.querySelector<HTMLButtonElement>('.index-retry-button')!;
+ expect(button.textContent).toContain('重建索引');
+ expect(document.querySelector('.index-retry-hint')?.textContent).toContain('2');
+ button.click();button.click();
+ await vi.waitFor(()=>expect(button.disabled).toBe(true));
+ expect(button.textContent).toContain('正在重建');
+ expect(invoke.mock.calls.filter(([command])=>command==='retry_failed_indexes')).toHaveLength(1);
+ expect(invoke.mock.calls.some(([command])=>command==='reindex_all')).toBe(false);
+ expect(document.querySelector('[aria-label="查看索引详情"]')).not.toBeNull();
+ resolveRetry([{path:'/notes',name:'Notes',status:'pending',count:8,error:null}]);
+ await tick();
+});
+
+it('仅有目录监听失败时不提供文件重建入口',async()=>{
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[],failed_files:0};
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'partial',count:8,error:'文件监听失败，自动更新受限'}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')).not.toBeNull());
+ expect(document.querySelector('.index-retry-button')).toBeNull();
+});
+
+it('失败文件重建提交错误留在卡片中并允许再次尝试',async()=>{
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:[],failed_files:1};
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'partial',count:8,error:'previous failure'}];
+  if(command==='retry_failed_indexes')throw new Error('服务暂时不可用');
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-retry-button')).not.toBeNull());
+ const button=document.querySelector<HTMLButtonElement>('.index-retry-button')!;
+ button.click();
+ await vi.waitFor(()=>expect(document.querySelector('[role="alert"]')?.textContent).toContain('服务暂时不可用'));
+ expect(button.disabled).toBe(false);
+ button.click();
+ await vi.waitFor(()=>expect(invoke.mock.calls.filter(([command])=>command==='retry_failed_indexes')).toHaveLength(2));
+});
+
+it('暂停时保留失败重建入口但禁止启动',async()=>{
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:true,tasks:[],failed_files:1};
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'partial',count:8,error:'previous failure'}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.index-retry-button')?.disabled).toBe(true));
+ document.querySelector<HTMLButtonElement>('.index-retry-button')!.click();
+ expect(invoke.mock.calls.some(([command])=>command==='retry_failed_indexes')).toBe(false);
+});

@@ -1,4 +1,10 @@
 {
+  "1 个失败文件": "1 failed file",
+  "索引已暂停，请先继续索引": "Indexing is paused. Resume indexing first.",
+  "仅重建失败文件，保留已成功的索引": "Rebuild only failed files and keep successful indexes",
+  "{value0} 个失败文件": "{value0} failed files",
+  "正在重建…": "Rebuilding…",
+  "重建索引": "Rebuild index",
   "尝试重试转换": "Retrying failed conversions",
   "重试转换": "Retry conversion",
   "正在重试此前失败的文件，已成功转换的文件继续复用。": "Retrying previously failed files; successful conversions are reused.",

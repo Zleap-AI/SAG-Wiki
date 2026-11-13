@@ -1,5 +1,7 @@
 #[path = "store_notes.rs"]
 mod notes_index;
+#[path = "store_retry.rs"]
+mod retry_index;
 use crate::{ignore_rules, text, types::*};
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
@@ -1210,7 +1212,7 @@ impl Store {
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(false))?;
         let count = self.scan_directory(root, directory, &files, &settings, verify, Some(false), &progress)?;
         let (sources, convert) = self.conversion_files(Path::new(root), directory, &settings, &excluded)?;
-        let issues = if convert { self.convert_sources(root, directory, &sources, &settings, &progress)? } else { vec![] };
+        let issues = if convert { self.convert_sources(root, directory, &sources, &settings, true, &progress)? } else { vec![] };
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(true))?;
         let converted_count = self.scan_directory(root, directory, &files, &settings, false, Some(true), progress)?;
         for (path, error) in issues {
@@ -1263,7 +1265,7 @@ impl Store {
         let convert = rules.converts_files() || !files.is_empty();
         Ok((files, convert))
     }
-    fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
+    fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, prune: bool, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
         /// The stored source hash for a content hash (or a previously stored
         /// hash, whose last segment is the content hash) under this identity.
         fn hash_for_identity(hash: &str, identity: &str) -> String {
@@ -1293,40 +1295,44 @@ impl Store {
                     params![path_text(&source)?,root,source_hash,path_text(&output)?,output_hash])?;
             }
         }
-        let sources_set: HashSet<_> = sources.iter().map(|path| path_text(path)).collect::<Result<_>>()?;
-        let previous = {
-            let db = self.connection();
-            let scope = path_text(directory)?;
-            let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-            let mut query = db.prepare("SELECT source,output,output_hash FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
-            let rows = query.query_map(params![root,scope,prefix], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows
-        };
-        for (source, output, output_hash) in previous {
-            self.indexing.checkpoint_root(root)?;
-            let options = rules.file(Path::new(&source))?;
-            if sources_set.contains(&source) || !crate::docling::should_convert(Path::new(&source), options) { continue; }
-            let path = Path::new(&output);
-            // Delete only our unchanged derivative; user-edited Markdown is preserved.
-            if path.is_file() && crate::docling::fingerprint(path)? == output_hash {
-                fs::remove_file(path)?;
+        // A retry list is deliberately incomplete: never prune healthy derivatives
+        // or other failure records merely because they are absent from that list.
+        if prune {
+            let sources_set: HashSet<_> = sources.iter().map(|path| path_text(path)).collect::<Result<_>>()?;
+            let previous = {
+                let db = self.connection();
+                let scope = path_text(directory)?;
+                let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+                let mut query = db.prepare("SELECT source,output,output_hash FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+                let rows = query.query_map(params![root,scope,prefix], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                rows
+            };
+            for (source, output, output_hash) in previous {
+                self.indexing.checkpoint_root(root)?;
+                let options = rules.file(Path::new(&source))?;
+                if sources_set.contains(&source) || !crate::docling::should_convert(Path::new(&source), options) { continue; }
+                let path = Path::new(&output);
+                // Delete only our unchanged derivative; user-edited Markdown is preserved.
+                if path.is_file() && crate::docling::fingerprint(path)? == output_hash {
+                    fs::remove_file(path)?;
+                }
+                self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
+                self.remove_indexed(&output)?;
             }
-            self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
-            self.remove_indexed(&output)?;
-        }
-        let stale_failures: Vec<String> = {
-            let db = self.connection();
-            let scope = path_text(directory)?;
-            let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-            let mut query = db.prepare("SELECT source FROM conversion_failures WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
-            let rows = query.query_map(params![root,scope,prefix], |row| row.get::<_, String>(0))?
-                .filter(|row| row.as_ref().is_ok_and(|source| !sources_set.contains(source)))
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows
-        };
-        for source in stale_failures {
-            self.connection().execute("DELETE FROM conversion_failures WHERE source=?", [&source])?;
+            let stale_failures: Vec<String> = {
+                let db = self.connection();
+                let scope = path_text(directory)?;
+                let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+                let mut query = db.prepare("SELECT source FROM conversion_failures WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+                let rows = query.query_map(params![root,scope,prefix], |row| row.get::<_, String>(0))?
+                    .filter(|row| row.as_ref().is_ok_and(|source| !sources_set.contains(source)))
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                rows
+            };
+            for source in stale_failures {
+                self.connection().execute("DELETE FROM conversion_failures WHERE source=?", [&source])?;
+            }
         }
         if !sources.is_empty() {
             self.indexing.phase(root, "converting", sources.len());
@@ -1495,6 +1501,20 @@ impl Store {
                         let tx = db.transaction()?;
                         Self::write_prepared(&tx, root, file)?;
                         tx.commit()?;
+                    }
+                    if !prune {
+                        // The normal native scan retires source issues before
+                        // conversions. Selective recovery skips that sweep, so
+                        // clear the source only after its cached output was accepted.
+                        // prepare_indexed_file reports recoverable read failures
+                        // as output issues rather than Err. An unchanged result
+                        // is accepted only when that output remains indexed and healthy.
+                        self.connection().execute(
+                            "DELETE FROM index_issues WHERE root=?1 AND path=?2
+                             AND EXISTS(SELECT 1 FROM documents WHERE root=?1 AND path=?3)
+                             AND NOT EXISTS(SELECT 1 FROM index_issues WHERE root=?1 AND path=?3)",
+                            params![root,source,path_text(&output)?],
+                        )?;
                     }
                 }
                 progress(IndexProgress { count: index + 1, total: sources.len() });
@@ -2634,6 +2654,127 @@ cat "$source" > "$output"
     #[cfg(unix)]
     fn conversion_calls(calls: &Path) -> usize {
         fs::read_to_string(calls).map_or(0, |text| text.lines().count())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_failed_indexes_retries_cached_failures_without_touching_healthy_files() {
+        let (_dir, store, root, calls) = failing_conversion_fixture();
+        let healthy = root.join("healthy.txt");
+        fs::write(&healthy, "original healthy searchable text").unwrap();
+        let failed = root.join("broken.eml");
+        fs::write(&failed, "broken converted source").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        assert_eq!(conversion_calls(&calls), 1);
+        let before: String = store.connection().query_row("SELECT hash FROM documents WHERE path=?", [path_text(&healthy).unwrap()], |row| row.get(0)).unwrap();
+        // Detect an accidental full scan: this healthy file must retain its old index.
+        fs::write(&healthy, "changed healthy text that must not be reindexed").unwrap();
+        assert_eq!(store.failed_index_count().unwrap(), 1);
+        let work = store.prepare_failed_reindex().unwrap();
+        assert_eq!(work, vec![(root.to_string_lossy().into_owned(), vec![failed.clone()])]);
+        assert!(store.prepare_failed_reindex().is_err(), "pending work must reject a second click");
+        for (root, paths) in work {
+            store.retry_failed_indexes(&root, &paths, |_| {}).unwrap();
+        }
+        assert_eq!(conversion_calls(&calls), 2, "cached failure must actually be retried");
+        let indexed: String = store.connection().query_row("SELECT hash FROM documents WHERE path=?", [path_text(&healthy).unwrap()], |row| row.get(0)).unwrap();
+        assert_eq!(indexed, before);
+        assert_eq!(store.failed_index_count().unwrap(), 1, "failed retry must remain actionable");
+    }
+
+    #[test]
+    fn retry_failed_indexes_recovers_native_failures_and_drops_deleted_or_excluded_targets() {
+        let (_dir, store, root) = setup();
+        let root_text = root.to_str().unwrap();
+        let recovered = root.join("recovered.txt");
+        let removed = root.join("removed.txt");
+        let excluded = root.join("node_modules/skip.txt");
+        fs::write(&recovered, "recovered native text").unwrap();
+        store.scan(root_text, |_| {}).unwrap();
+        fs::create_dir_all(excluded.parent().unwrap()).unwrap();
+        fs::write(&excluded, "excluded text").unwrap();
+        for path in [&recovered, &removed, &excluded] {
+            store.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?)", params![path_text(path).unwrap(), root_text, "previous read failure"]).unwrap();
+        }
+        store.root_status(root_text, "partial", Some("previous failures")).unwrap();
+        let work = store.prepare_failed_reindex().unwrap();
+        for (root, paths) in work { store.retry_failed_indexes(&root, &paths, |_| {}).unwrap(); }
+        assert_eq!(store.failed_index_count().unwrap(), 0);
+        let db = store.connection();
+        assert_eq!(db.query_row("SELECT count(*) FROM index_issues", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(db.query_row("SELECT count(*) FROM documents WHERE path=?", [path_text(&excluded).unwrap()], |row| row.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(db.query_row("SELECT status FROM roots WHERE path=?", [root_text], |row| row.get::<_, String>(0)).unwrap(), "ready");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_failed_indexes_preserves_unselected_converted_files() {
+        let (_dir, store, root) = converted_text_fixture();
+        let healthy = root.join("healthy.eml");
+        let recovered = root.join("recovered.eml");
+        fs::write(&healthy, "healthy converted evidence").unwrap();
+        fs::write(&recovered, "previous converted evidence").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let output = crate::docling::output_path(&root, &healthy).unwrap();
+        let before = fs::read(&output).unwrap();
+        fs::write(&healthy, "healthy source has changed but is outside retry scope").unwrap();
+        fs::write(&recovered, "recovered converted evidence").unwrap();
+        store.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?)", params![path_text(&recovered).unwrap(),path_text(&root).unwrap(),"previous conversion failure"]).unwrap();
+        store.root_status(root.to_str().unwrap(), "partial", Some("conversion failed")).unwrap();
+        for (root, paths) in store.prepare_failed_reindex().unwrap() { store.retry_failed_indexes(&root, &paths, |_| {}).unwrap(); }
+        assert_eq!(fs::read(&output).unwrap(), before);
+        let healthy_valid: bool = store.connection().query_row("SELECT valid FROM conversions WHERE source=?", [path_text(&healthy).unwrap()], |row| row.get(0)).unwrap();
+        assert!(healthy_valid);
+        assert_eq!(store.failed_index_count().unwrap(), 0);
+        let recovered_text = fs::read_to_string(crate::docling::output_path(&root, &recovered).unwrap()).unwrap();
+        assert!(recovered_text.contains("recovered converted evidence"));
+        assert!(!recovered_text.contains("previous converted evidence"));
+    }
+
+    #[test]
+    fn retry_failed_indexes_ignores_directory_and_watcher_failures_and_rejects_pause() {
+        let (_dir, store, root) = setup();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        store.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?)", params![path_text(&root).unwrap(),path_text(&root).unwrap(),"directory unavailable"]).unwrap();
+        store.root_status(root.to_str().unwrap(), "partial", Some("directory unavailable")).unwrap();
+        assert_eq!(store.failed_index_count().unwrap(), 0);
+        assert!(store.prepare_failed_reindex().unwrap().is_empty());
+        store.indexing.set_paused(true);
+        assert!(store.prepare_failed_reindex().is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_failed_indexes_clears_source_issue_after_cached_output_is_accepted() {
+        let (_dir, store, root) = converted_text_fixture();
+        let source = root.join("restored.eml");
+        fs::write(&source, "original converted evidence").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        // A previous attempt failed; restoring the original bytes lets the
+        // retry reuse its valid output rather than invoking conversion again.
+        store.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?)", params![path_text(&source).unwrap(),path_text(&root).unwrap(),"previous attempt failed"]).unwrap();
+        store.root_status(root.to_str().unwrap(), "partial", Some("previous attempt failed")).unwrap();
+        for (root, paths) in store.prepare_failed_reindex().unwrap() { store.retry_failed_indexes(&root, &paths, |_| {}).unwrap(); }
+        assert_eq!(store.failed_index_count().unwrap(), 0);
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_failed_indexes_keeps_source_issue_if_cached_output_cannot_be_indexed() {
+        let (_dir, store, root) = converted_text_fixture();
+        let source = root.join("unreadable-output.eml");
+        fs::write(&source, "original converted evidence").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        // A malformed UTF-16 BOM makes output acceptance fail after selecting
+        // the cached conversion. Its source must not be reported as recovered.
+        fs::write(crate::docling::output_path(&root, &source).unwrap(), [0xff,0xfe,0xff]).unwrap();
+        store.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?)", params![path_text(&source).unwrap(),path_text(&root).unwrap(),"previous attempt failed"]).unwrap();
+        store.root_status(root.to_str().unwrap(), "partial", Some("previous attempt failed")).unwrap();
+        for (root, paths) in store.prepare_failed_reindex().unwrap() { store.retry_failed_indexes(&root, &paths, |_| {}).unwrap(); }
+        let source_issue: bool = store.connection().query_row("SELECT EXISTS(SELECT 1 FROM index_issues WHERE path=?)", [path_text(&source).unwrap()], |row| row.get(0)).unwrap();
+        assert!(source_issue, "output acceptance failure must retain the source failure");
+        assert_eq!(store.failed_index_count().unwrap(), 1);
     }
 
     #[cfg(unix)]

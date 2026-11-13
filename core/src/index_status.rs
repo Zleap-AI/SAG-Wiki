@@ -22,7 +22,7 @@ pub struct IndexControl {
 impl IndexControl {
     pub fn status(&self) -> IndexStatus {
         let state = self.state.lock().unwrap();
-        IndexStatus { paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
+        IndexStatus { failed_files: 0, paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
             if task.stage == "converting" && task.files.iter().any(|file| state.retrying.contains(&(task.path.clone(), file.clone()))) {
                 task.stage = "retrying_conversion".into();
             }

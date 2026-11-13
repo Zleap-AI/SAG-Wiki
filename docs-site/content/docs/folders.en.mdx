@@ -146,6 +146,12 @@ Use `.sagignore` for more precise path or file patterns, directory rules and `!`
 
 ### Reindex and history
 
+**Rebuild failed files only:** when there are file-level failures, the indexing status card in the lower-left corner shows the failed-file count and a **Rebuild index** button. Click it to immediately retry current failed files across all added folders, without opening a list or confirming. Successful indexes and converted files are kept; this action does not scan the entire folder. Click the status text above the button to inspect failure details.
+
+The card shows progress while rebuilding and prevents duplicate submissions. Resume paused indexing before starting. Recovered files are removed from the current failures; unresolved component, file or permission problems remain visible. Deleted or excluded files have their stale failure records removed. If only a folder-reading or watcher error remains and there are no retryable files, the button is hidden; inspect the details and use folder-level or global reindexing.
+
+![Rebuild failed files from the lower-left status card](/images/product-index-retry-en.png)
+
 Global **Reindex** checks all registered directories using saved types and exclusions, updating changed indexes. Save relevant changes before running it.
 
 Open **Index history → View** to inspect progress, completion and failures. Check error paths and messages rather than assuming a total file count means everything succeeded.
