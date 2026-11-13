@@ -43,10 +43,25 @@ export async function prepareQpdf(destination, target=process.env.TAURI_ENV_TARG
   rmSync(full);
  }
  // Windows loads DLLs from bin; lib and include contain SDK/link-time files only.
- // Retain upstream documentation/notices in share unchanged.
+ // Keep the audited license records from the pinned 12.4.2 manual;
+ // manual HTML, fonts, scripts, images and examples are not runtime inputs.
  if(windows){
   rmSync(join(destination,'lib'),{recursive:true,force:true});
   rmSync(join(destination,'include'),{recursive:true,force:true});
+  const docs=join(destination,'share/doc/qpdf');
+  const notices=new Set(['manual-html/license.html','manual-html/_sources/license.rst.txt']);
+  for(const name of notices)if(!existsSync(join(docs,name))||!statSync(join(docs,name)).isFile())
+   throw Error('Unexpected QPDF manual license layout');
+  const prune=(directory,prefix='')=>{
+   for(const entry of readdirSync(directory,{withFileTypes:true})){
+    const name=prefix+entry.name,path=join(directory,entry.name);
+    if(entry.isDirectory()){
+     prune(path,name+'/');
+     if(readdirSync(path).length===0)rmSync(path,{recursive:true});
+    }else if(!notices.has(name))rmSync(path);
+   }
+  };
+  prune(docs);
  }
  cpSync(resolve('third-party/qpdf'),join(destination,'licenses'),{recursive:true});
  if(!windows)chmodSync(join(destination,'bin/qpdf'),0o755);

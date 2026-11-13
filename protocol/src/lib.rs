@@ -129,11 +129,22 @@ pub struct IndexEvent {
 pub struct IndexStatus {
     pub paused: bool,
     pub tasks: Vec<IndexTask>,
+    #[serde(default)]
+    pub failed_files: usize,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConversionSegment {
+    pub current: usize,
+    pub total: usize,
+    pub start_page: u32,
+    pub end_page: u32,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexConversion {
     pub path: String,
     pub engine: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment: Option<ConversionSegment>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexTask {
@@ -261,6 +272,7 @@ pub enum Operation {
         path: String,
     },
     ReindexAll,
+    RetryFailedIndexes,
     GetIndexStatus,
     GetIndexHistory,
     GetIndexHistoryLog {

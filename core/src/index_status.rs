@@ -22,7 +22,7 @@ pub struct IndexControl {
 impl IndexControl {
     pub fn status(&self) -> IndexStatus {
         let state = self.state.lock().unwrap();
-        IndexStatus { paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
+        IndexStatus { failed_files: 0, paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
             if task.stage == "converting" && task.files.iter().any(|file| state.retrying.contains(&(task.path.clone(), file.clone()))) {
                 task.stage = "retrying_conversion".into();
             }
@@ -57,6 +57,9 @@ impl IndexControl {
     pub fn task(&self, root: &str) -> IndexTask { self.state.lock().unwrap().tasks[root].clone() }
     pub fn log(&self, root: &str) -> Vec<IndexFileLog> { self.state.lock().unwrap().logs[root].clone() }
     pub fn indexed(&self, root: &str) -> (usize, usize) { self.state.lock().unwrap().indexed[root] }
+    pub(crate) fn record_indexed_progress(&self, root: &str, completed: usize, total: usize) {
+        *self.state.lock().unwrap().indexed.get_mut(root).unwrap() = (completed, total);
+    }
     pub fn finish(&self, root: &str) {
         let mut state = self.state.lock().unwrap();
         state.cancelled.remove(root);
@@ -106,15 +109,17 @@ impl IndexControl {
         // cloud phase updates without being inferred from old log rows.
         if let Some(task) = state.tasks.get_mut(root) {
             if task.files.contains(&path) && task.stage == "converting" {
+                let segment = attempt.segment.clone().or_else(|| task.conversions.iter()
+                    .find(|item| item.path == path).and_then(|item| item.segment.clone()));
                 task.conversions.retain(|item| item.path != path);
-                if attempt.phase.is_some() {
-                    task.conversions.push(IndexConversion { path: path.clone(), engine: attempt.engine.clone() });
+                if attempt.phase.is_some() || segment.is_some() {
+                    task.conversions.push(IndexConversion { path: path.clone(), engine: if attempt.phase.is_none() { String::new() } else { attempt.engine.clone() }, segment });
                     task.conversions.sort_by(|a,b| a.path.cmp(&b.path));
                 }
             }
         }
         // Starting only drives live status; retain the existing history format.
-        if attempt.phase.as_deref() == Some("starting") { return; }
+        if matches!(attempt.phase.as_deref(), Some("starting" | "segment")) { return; }
         if let Some(log)=state.logs.get_mut(root) {
             if attempt.phase.is_some() && log.iter().rev().find(|row|row.path==path&&row.engine.as_deref()==Some(&attempt.engine))
                 .is_some_and(|row|row.phase==attempt.phase) {return;}
@@ -195,7 +200,7 @@ mod parser_status_tests {
     use super::*;
     fn report(control: &IndexControl, path: &str, engine: &str, phase: Option<&str>) {
         control.conversion_attempt("root", Path::new(path), crate::conversion::Attempt {
-            engine: engine.into(), phase: phase.map(Into::into), elapsed_ms: 0, error: None,
+            segment: None, engine: engine.into(), phase: phase.map(Into::into), elapsed_ms: 0, error: None,
         });
     }
     #[test]
@@ -225,6 +230,27 @@ mod parser_status_tests {
         assert!(control.status().tasks[0].conversions.is_empty());
         control.finish("root");
         assert!(control.status().tasks.is_empty());
+    }
+    #[test]
+    fn segment_status_survives_engine_boundaries_and_clears_with_the_file() {
+        let control=IndexControl::default();control.begin("root");control.phase("root","converting",1);
+        control.file("root",Path::new("long.pdf"),|| {
+            control.conversion_attempt("root",Path::new("long.pdf"),crate::conversion::Attempt {
+                segment:Some(sag_protocol::ConversionSegment {current:2,total:20,start_page:51,end_page:100}),
+                phase:Some("segment".into()),engine:String::new(),elapsed_ms:0,error:None,
+            });
+            report(&control,"long.pdf","MinerU",Some("starting"));
+            report(&control,"long.pdf","MinerU",None);
+            let item=control.task("root").conversions.remove(0);
+            assert!(item.engine.is_empty());assert_eq!(item.segment.unwrap().current,2);
+            assert_eq!(control.status().tasks.len(),1);
+            report(&control,"long.pdf","Docling",Some("starting"));
+            let item=control.task("root").conversions.remove(0);
+            assert_eq!(item.engine,"Docling");assert_eq!(item.segment.unwrap().start_page,51);
+            Ok(())
+        }).unwrap();
+        assert!(control.task("root").conversions.is_empty());
+        assert_eq!(control.status().tasks.len(),1);
     }
     #[test]
     fn active_parser_does_not_depend_on_bounded_history() {

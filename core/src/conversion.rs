@@ -11,6 +11,7 @@ use std::{fs, path::Path, time::Instant};
 mod pdf_segments;
 
 pub struct Attempt {
+    pub segment: Option<sag_protocol::ConversionSegment>,
     pub phase: Option<String>,
     pub engine: String,
     pub elapsed_ms: u64,
@@ -59,6 +60,7 @@ fn run_engines(
             bail!("已停止转换，未发布输出")
         }
         report(Attempt {
+            segment: None,
             phase: Some("starting".into()),
             engine: (*engine).into(),
             elapsed_ms: 0,
@@ -68,6 +70,7 @@ fn run_engines(
         let result = convert(engine);
         let message = result.as_ref().err().map(|error| format!("{error:#}"));
         report(Attempt {
+            segment: None,
             phase: None,
             engine: (*engine).into(),
             elapsed_ms: started.elapsed().as_millis() as u64,
@@ -99,6 +102,27 @@ fn cloud_supports(source:&Path, config:&sag_protocol::mineru::MineruConfig)->boo
 }
 pub(crate) fn local_formats(formats:&Option<Vec<String>>,config:&sag_protocol::mineru::MineruConfig)->Option<Vec<String>> {
     formats.as_ref().map(|formats|formats.iter().filter(|extension|!cloud_supports(Path::new(&format!("file.{extension}")),config)).cloned().collect())
+}
+
+/// Remembered conversion failures survive routine scans. This key changes only
+/// when something able to change the outcome changes: the parsed-content
+/// identity, the installed tools, or the conversion budgets the runner
+/// receives. A retry therefore happens after an upgrade, an install or a
+/// settings change, but a known bad file is not parsed again on every scan.
+pub fn failure_identity(source: &Path, settings: &Settings, tools: &str) -> String {
+    let runtime = &settings.runtime;
+    format!(
+        "{}:{tools}:timeout={}:input={}:output={}:threads={}:ocr_batch={}:layout_batch={}:table_batch={}:queue={}",
+        identity(source, settings),
+        runtime.docling_timeout_secs,
+        runtime.conversion_input_mib,
+        runtime.conversion_output_mib,
+        runtime.docling_threads,
+        runtime.ocr_batch_size,
+        runtime.layout_batch_size,
+        runtime.table_batch_size,
+        runtime.queue_max_size,
+    )
 }
 
 pub fn identity(source: &Path, settings: &Settings) -> String {
@@ -175,12 +199,17 @@ pub fn convert(
                 Err(error) => return Err(error),
             };
         if parts.len() > 1 {
+            let report = std::cell::RefCell::new(&mut report);
             return pdf_segments::convert_parts(
                 &parts,
                 output,
                 &identity(source, settings),
                 settings.runtime.conversion_output_mib as u64 * 1024 * 1024,
                 &cancel,
+                |part, current, total| report.borrow_mut()(Attempt {
+                    segment: Some(sag_protocol::ConversionSegment { current, total, start_page: part.start, end_page: part.end }),
+                    phase: Some("segment".into()), engine: String::new(), elapsed_ms: 0, error: None,
+                }),
                 |part, input, result| {
                     convert_single(
                         input,
@@ -188,7 +217,7 @@ pub fn convert(
                         docling,
                         settings,
                         &cancel,
-                        &mut report,
+                        |attempt| report.borrow_mut()(attempt),
                         Some(part.start),
                     )
                 },
@@ -238,6 +267,7 @@ fn convert_single(
                     let key = crate::mineru::key(docling.data_directory(), &settings.mineru)?;
                     let progress = |phase: &str| {
                         report.borrow_mut()(Attempt {
+                            segment: None,
                             phase: Some(phase.into()),
                             engine: "MinerU".into(),
                             elapsed_ms: 0,
@@ -313,6 +343,32 @@ fn convert_single(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembered_failures_expire_only_after_relevant_changes() {
+        let settings = Settings::default();
+        let source = Path::new("report.pdf");
+        let tools = "component=missing:splitter=missing";
+        let base = failure_identity(source, &settings, tools);
+        assert_eq!(base, failure_identity(source, &settings, tools));
+        // Installing a component or the page splitter, changing a budget or the
+        // parsed-content options can turn the same source into a success.
+        assert_ne!(base, failure_identity(source, &settings, "component=2.140.0-documents.1:splitter=missing"));
+        assert_ne!(base, failure_identity(source, &settings, "component=missing:splitter=qpdf"));
+        for change in [
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.docling_timeout_secs += 300,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.conversion_input_mib += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.conversion_output_mib += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.ocr_batch_size += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.queue_max_size += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.do_ocr = false,
+        ] {
+            let mut changed = settings.clone();
+            change(&mut changed.runtime);
+            assert_ne!(base, failure_identity(source, &changed, tools));
+        }
+    }
+
     fn text_pdf(pages: u32) -> Vec<u8> {
         use lopdf::{dictionary, Document, Object, Stream};
         let mut pdf = Document::with_version("1.5");
@@ -411,7 +467,7 @@ mod tests {
             &Docling::new(dir.path()),
             &settings,
             || false,
-            |_| panic!("successful parts should be cached"),
+            |attempt| assert_eq!(attempt.phase.as_deref(), Some("segment"), "cached parts must only report progress"),
         )
         .unwrap();
         assert_eq!(fs::read(output).unwrap(), first);

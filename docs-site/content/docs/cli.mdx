@@ -7,7 +7,7 @@ description: "命令参数、输出格式与索引管理。"
 
 sag 可以独立运行，不需要安装或启动 SAG Wiki 桌面端。检索命令会自动启动或复用本机服务。
 
-安装 Node.js 18 或以上版本后，在 macOS Apple Silicon 或 Windows x64 上执行：
+安装 Node.js 18 或以上版本后，在 macOS Apple Silicon、Windows x64 或 Linux ARM64 / x86_64 上执行：
 
 ```sh
 npm install -g @zleap-ai/sag
@@ -17,7 +17,7 @@ sag
 
 已发布的 `@zleap-ai/sag` 包含这两个平台的原生程序，无需 Rust、源码编译或桌面端。npm 负责注册 `sag` 命令；已有可用的 `sag` 时直接复用。
 
-独立 CLI 与 npm 打包时会将 QPDF 运行程序、所需动态库及许可证放在原生 `sag` 程序旁；使用打包版本无需另行安装 QPDF。源码安装还需要 Node.js 准备辅助程序。
+独立 CLI 与 npm 打包时会将 QPDF 运行程序、所需动态库及许可证放在原生 `sag` 程序旁；使用打包版本无需另行安装 QPDF。源码安装还需要 Node.js 准备辅助程序。Windows 安装包保留 QPDF 运行依赖及许可证，不附带离线手册、文档字体和示例；长 PDF 拆页能力不变。
 
 首次在交互终端运行 `sag` 会引导配置 JEV 检索服务。接口地址和模型名显示当前值，直接回车即可保留；首次使用必须填写密钥，输入隐藏。默认地址为 `https://api.zleap.com/v1`，模型为 `Zev-1`。密钥在 [Zleap 开放平台控制台](https://platform.zleap.com/console)创建。纯 CLI 搜索只需要这一项检索配置，问答模型在桌面端另行设置。
 
