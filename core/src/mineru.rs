@@ -305,6 +305,15 @@ pub(crate) fn prepare_pdf_segments(
 ) -> Result<Vec<Part>> {
     prepare_with_page_limit(source, limit, PDF_SEGMENT_PAGES, runtime, cancel)
 }
+pub(crate) fn splitter_path() -> PathBuf {
+    std::env::var_os("SAG_QPDF").map(PathBuf::from).unwrap_or_else(|| {
+        #[cfg(test)]
+        { return Path::new(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/bin/qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" }); }
+        #[cfg(not(test))]
+        std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new(".")).join("qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" })
+    })
+}
+
 fn prepare_with_page_limit(
     source: &Path,
     limit: u64,
@@ -373,12 +382,7 @@ fn prepare_with_page_limit(
         ranges.push_back((start, end));
         start = end + 1;
     }
-    let qpdf = std::env::var_os("SAG_QPDF").map(PathBuf::from).unwrap_or_else(|| {
-        #[cfg(test)]
-        { return Path::new(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/bin/qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" }); }
-        #[cfg(not(test))]
-        std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new(".")).join("qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" })
-    });
+    let qpdf = splitter_path();
     ensure!(qpdf.is_file(), "缺少 QPDF 拆页程序，请重新安装完整安装包");
     let temporary = tempfile::tempdir()?;
     // QPDF's Windows path parser does not accept verbatim (\\?\) paths.
