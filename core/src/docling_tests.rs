@@ -2343,7 +2343,15 @@ fn pdf_session_segmented_conversion_reuses_process_and_cache() {
     assert!(body.contains("segment 1 complete") && body.contains("segment 2 complete"));
     let pid = fs::read_to_string(converter.home.join("pdf-pid")).unwrap().trim().parse().unwrap();
     assert!(crate::process_supervisor::process_bytes(pid).is_err());
-    crate::conversion::convert_enhanced(&source, &output, &converter, &settings, || false, |_| panic!("cached parts must not parse again")).unwrap();
+    let mut cached_segments = Vec::new();
+    crate::conversion::convert_enhanced(&source, &output, &converter, &settings, || false, |attempt| {
+        // Cached parts still report main's segment progress, without starting a parser.
+        assert_eq!(attempt.phase.as_deref(), Some("segment"), "cached parts must not parse again");
+        assert!(attempt.engine.is_empty());
+        cached_segments.push(attempt.segment.unwrap());
+    }).unwrap();
+    assert_eq!(cached_segments.len(), 2);
+    assert_eq!((cached_segments[0].start_page, cached_segments[1].end_page), (1, 51));
     assert_eq!(fs::read_to_string(converter.home.join("pdf-spawns")).unwrap().lines().count(), 1);
 }
 
