@@ -554,3 +554,53 @@ it('shows English preparation and retry parser labels while keeping stage and co
  listeners.get('data-changed')!({payload:null});
  await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')).toBeNull());
 });
+
+
+it('keeps the same card across PDF parts and stale ready root snapshots',async()=>{
+ let task:any={path:'/notes',stage:'converting',completed:2,total:3,files:['/notes/long.pdf'],conversions:[{path:'/notes/long.pdf',engine:'MinerU',segment:{current:1,total:20,start_page:1,end_page:50}}]};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {language:'en',theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:task?[structuredClone(task)]:[]};
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'ready',count:2,error:null}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-segment')?.textContent).toContain('part 1 / 20'));
+ const card=document.querySelector('.index-status-row');
+ task.conversions=[{path:'/notes/long.pdf',engine:'',segment:{current:8,total:20,start_page:351,end_page:400}}];
+ listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-segment')?.textContent).toContain('part 8 / 20'));
+ expect(document.querySelector('.index-status-row')).toBe(card);
+ expect(document.querySelector('.index-status-pages')?.textContent).toBe('Pages 351–400');
+ expect(document.querySelector('.index-status-parser')?.textContent).toBe('Processing document parts…');
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('Processed 2 / 3 files');
+ document.querySelector<HTMLButtonElement>('[aria-label="View index details"]')?.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-file-segment')?.textContent).toContain('part 8 / 20'));
+ document.querySelector<HTMLButtonElement>('[aria-label="Close index details"]')?.click();
+ document.querySelector<HTMLButtonElement>('[aria-label="Hide indexing status"]')?.click();
+ task.conversions[0].segment.current=9;listeners.get('data-changed')!({payload:null});
+ await new Promise(resolve=>setTimeout(resolve,50));expect(document.querySelector('.index-status-row')).toBeNull();
+});
+
+it('ignores a ready snapshot that predates a newer index progress event',async()=>{
+ let pending=false,release:(()=>void)|undefined;
+ const gate=new Promise<void>(resolve=>release=resolve);
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test'}};
+  if(command==='get_index_status'){if(pending)await gate;return {paused:false,tasks:[]};}
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'ready',count:1,error:null}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(listeners.has('data-changed')).toBe(true));
+ await new Promise(resolve=>setTimeout(resolve,50));
+ pending=true;listeners.get('data-changed')!({payload:null});
+ await tick();
+ listeners.get('index-progress')!({payload:{path:'/notes',count:1,total:3,stage:'converting'}});
+ await tick();const card=document.querySelector('.index-status-row');expect(card).not.toBeNull();
+ // Keep a genuinely fresh task active; only the in-flight old response is empty.
+ invoke.mockImplementation(async command=>command==='get_index_status'?{paused:false,tasks:[{path:'/notes',stage:'converting',completed:1,total:3,files:['/notes/a.pdf']}]}:command==='list_roots'?[{path:'/notes',name:'Notes',status:'indexing',count:1,error:null}]:[]);
+ release!();await new Promise(resolve=>setTimeout(resolve,100));await tick();
+ expect(document.querySelector('.index-status-row')).toBe(card);
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('1 / 3');
+});
