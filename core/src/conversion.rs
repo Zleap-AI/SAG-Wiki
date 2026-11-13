@@ -101,6 +101,27 @@ pub(crate) fn local_formats(formats:&Option<Vec<String>>,config:&sag_protocol::m
     formats.as_ref().map(|formats|formats.iter().filter(|extension|!cloud_supports(Path::new(&format!("file.{extension}")),config)).cloned().collect())
 }
 
+/// Remembered conversion failures survive routine scans. This key changes only
+/// when something able to change the outcome changes: the parsed-content
+/// identity, the installed tools, or the conversion budgets the runner
+/// receives. A retry therefore happens after an upgrade, an install or a
+/// settings change, but a known bad file is not parsed again on every scan.
+pub fn failure_identity(source: &Path, settings: &Settings, tools: &str) -> String {
+    let runtime = &settings.runtime;
+    format!(
+        "{}:{tools}:timeout={}:input={}:output={}:threads={}:ocr_batch={}:layout_batch={}:table_batch={}:queue={}",
+        identity(source, settings),
+        runtime.docling_timeout_secs,
+        runtime.conversion_input_mib,
+        runtime.conversion_output_mib,
+        runtime.docling_threads,
+        runtime.ocr_batch_size,
+        runtime.layout_batch_size,
+        runtime.table_batch_size,
+        runtime.queue_max_size,
+    )
+}
+
 pub fn identity(source: &Path, settings: &Settings) -> String {
     let base = engine_identity(source, settings);
     if source
@@ -313,6 +334,32 @@ fn convert_single(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn remembered_failures_expire_only_after_relevant_changes() {
+        let settings = Settings::default();
+        let source = Path::new("report.pdf");
+        let tools = "component=missing:splitter=missing";
+        let base = failure_identity(source, &settings, tools);
+        assert_eq!(base, failure_identity(source, &settings, tools));
+        // Installing a component or the page splitter, changing a budget or the
+        // parsed-content options can turn the same source into a success.
+        assert_ne!(base, failure_identity(source, &settings, "component=2.140.0-documents.1:splitter=missing"));
+        assert_ne!(base, failure_identity(source, &settings, "component=missing:splitter=qpdf"));
+        for change in [
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.docling_timeout_secs += 300,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.conversion_input_mib += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.conversion_output_mib += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.ocr_batch_size += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.queue_max_size += 1,
+            |runtime: &mut sag_protocol::runtime::RuntimeSettings| runtime.do_ocr = false,
+        ] {
+            let mut changed = settings.clone();
+            change(&mut changed.runtime);
+            assert_ne!(base, failure_identity(source, &changed, tools));
+        }
+    }
+
     fn text_pdf(pages: u32) -> Vec<u8> {
         use lopdf::{dictionary, Document, Object, Stream};
         let mut pdf = Document::with_version("1.5");
