@@ -51,6 +51,8 @@ struct WorkerResponse {
     status: String,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    code: Option<u32>,
 }
 
 enum Event {
@@ -58,8 +60,10 @@ enum Event {
     Error(String),
 }
 
-struct Worker {
+pub(crate) struct Worker {
     child: Child,
+    #[cfg(windows)]
+    job: process_supervisor::windows_job::Job,
     stdin: ChildStdin,
     events: Receiver<Event>,
     stderr: Arc<Mutex<String>>,
@@ -72,7 +76,7 @@ struct Worker {
 }
 
 impl Worker {
-    fn spawn(spec: SpawnSpec, deadline: Instant, cancel: &dyn Fn() -> bool) -> Result<Self> {
+    pub(crate) fn spawn(spec: SpawnSpec, deadline: Instant, cancel: &dyn Fn() -> bool) -> Result<Self> {
         let SpawnSpec {
             mut command,
             runner,
@@ -88,22 +92,27 @@ impl Worker {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
-            command.creation_flags(0x08000000);
+            command.creation_flags(0x08000004);
         }
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = command.spawn().context("无法启动图片 OCR Worker")?;
-        let stdin = child.stdin.take().context("图片 OCR Worker 缺少输入管道")?;
+        let mut child = command.spawn().context("无法启动文档解析 Worker")?;
+        #[cfg(windows)]
+        let job = match process_supervisor::windows_job::Job::new(&child, Some(permit.bytes)) {
+            Ok(job) => job,
+            Err(error) => { let _ = child.kill(); let _ = child.wait(); return Err(error.into()); }
+        };
+        let stdin = child.stdin.take().context("文档解析 Worker 缺少输入管道")?;
         let stdout = child
             .stdout
             .take()
-            .context("图片 OCR Worker 缺少输出管道")?;
+            .context("文档解析 Worker 缺少输出管道")?;
         let stderr_pipe = child
             .stderr
             .take()
-            .context("图片 OCR Worker 缺少错误管道")?;
+            .context("文档解析 Worker 缺少错误管道")?;
         let (tx, events) = mpsc::channel();
         thread::spawn(move || {
             let mut reader = BufReader::new(stdout);
@@ -112,7 +121,7 @@ impl Worker {
                 match reader.read_until(b'\n', &mut line) {
                     Ok(0) => break,
                     Ok(_) if line.len() > MAX_LINE => {
-                        let _ = tx.send(Event::Error("图片 OCR Worker 输出行过长".into()));
+                        let _ = tx.send(Event::Error("文档解析 Worker 输出行过长".into()));
                         break;
                     }
                     Ok(_) => {
@@ -161,6 +170,8 @@ impl Worker {
         });
         let mut worker = Self {
             child,
+            #[cfg(windows)]
+            job,
             stdin,
             events,
             stderr,
@@ -183,14 +194,14 @@ impl Worker {
                 self.terminate();
                 bail!(Failure::new(
                     FailureKind::Cancelled,
-                    "已停止启动图片 OCR Worker"
+                    "已停止启动文档解析 Worker"
                 ));
             }
             if Instant::now() >= deadline {
                 self.terminate();
                 bail!(Failure::new(
                     FailureKind::Timeout,
-                    "图片 OCR Worker 启动超时"
+                    "文档解析 Worker 启动超时"
                 ));
             }
             self.check_memory_periodically(&mut last_memory_check)?;
@@ -206,7 +217,7 @@ impl Worker {
                     if value.get("status").and_then(|value| value.as_str()) == Some("error") {
                         self.terminate();
                         bail!(
-                            "图片 OCR Worker 初始化失败：{}",
+                            "文档解析 Worker 初始化失败：{}",
                             value
                                 .get("message")
                                 .and_then(|value| value.as_str())
@@ -216,25 +227,24 @@ impl Worker {
                 }
                 Ok(Event::Error(error)) => {
                     self.terminate();
-                    bail!("无法读取图片 OCR Worker：{error}");
+                    bail!("无法读取文档解析 Worker：{error}");
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     self.terminate();
-                    bail!("图片 OCR Worker 在就绪前退出{}", self.stderr_suffix());
+                    bail!("文档解析 Worker 在就绪前退出{}", self.stderr_suffix());
                 }
             }
             if let Some(status) = self.child.try_wait()? {
-                self.alive = false;
                 bail!(
-                    "图片 OCR Worker 在就绪前退出（{status}）{}",
+                    "文档解析 Worker 在就绪前退出（{status}）{}",
                     self.stderr_suffix()
                 );
             }
         }
     }
 
-    fn convert(
+    pub(crate) fn convert(
         &mut self,
         source: &Path,
         output: &Path,
@@ -250,22 +260,23 @@ impl Worker {
         self.stdin
             .write_all(&request)
             .and_then(|_| self.stdin.flush())
-            .context("无法向图片 OCR Worker 发送任务")?;
+            .context("无法向文档解析 Worker 发送任务")?;
         let started = Instant::now();
         let mut last_memory_check = started;
+        let mut exited_at = None;
         loop {
             if cancel() {
                 self.terminate();
                 bail!(Failure::new(
                     FailureKind::Cancelled,
-                    "已停止图片 OCR Worker"
+                    "已停止文档解析 Worker"
                 ));
             }
             if Instant::now() >= deadline {
                 self.terminate();
                 bail!(Failure::new(
                     FailureKind::Timeout,
-                    "图片 OCR Worker 处理超时"
+                    "文档解析 Worker 处理超时"
                 ));
             }
             self.check_memory_periodically(&mut last_memory_check)?;
@@ -277,41 +288,42 @@ impl Worker {
                     if response.id != id {
                         continue;
                     }
-                    self.check_memory()?;
                     return match response.status.as_str() {
-                        "ok" => Ok(ImageOutcome::Converted),
-                        "fallback" => Ok(ImageOutcome::Fallback),
-                        "error" => bail!(
-                            "{}",
-                            response
-                                .message
-                                .as_deref()
-                                .unwrap_or("图片 OCR Worker 处理失败")
-                        ),
-                        status => bail!("图片 OCR Worker 返回未知状态：{status}"),
+                        "ok" => { self.check_memory()?; Ok(ImageOutcome::Converted) },
+                        "fallback" => { self.check_memory()?; Ok(ImageOutcome::Fallback) },
+                        "error" => {
+                            let message = format!("{}{}", response.message.as_deref().unwrap_or("解析 Worker 处理失败"), self.stderr_suffix());
+                            match response.code {
+                                Some(75) => Err(Failure::new(FailureKind::Memory, message).into()),
+                                Some(76) => Err(Failure::new(FailureKind::Compatibility, message).into()),
+                                _ => Err(anyhow::anyhow!(message)),
+                            }
+                        },
+                        status => bail!("文档解析 Worker 返回未知状态：{status}"),
                     };
                 }
                 Ok(Event::Error(error)) => {
                     self.terminate();
-                    bail!("无法读取图片 OCR Worker：{error}");
+                    bail!("无法读取文档解析 Worker：{error}");
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
                     self.terminate();
-                    bail!("图片 OCR Worker 意外退出{}", self.stderr_suffix());
+                    bail!("文档解析 Worker 意外退出{}", self.stderr_suffix());
                 }
             }
             if let Some(status) = self.child.try_wait()? {
-                self.alive = false;
-                bail!(
-                    "图片 OCR Worker 意外退出（{status}）{}",
-                    self.stderr_suffix()
-                );
+                // The pipe reader may enqueue the final reply after waitpid.
+                // Keep ownership of the process group until Drop/terminate.
+                let exited = *exited_at.get_or_insert_with(Instant::now);
+                if exited.elapsed() >= Duration::from_secs(1) {
+                    bail!("文档解析 Worker 意外退出（{status}）{}", self.stderr_suffix());
+                }
             }
         }
     }
 
-    fn check_memory_periodically(&self, last_check: &mut Instant) -> Result<()> {
+    fn check_memory_periodically(&mut self, last_check: &mut Instant) -> Result<()> {
         if last_check.elapsed() < MEMORY_POLL {
             return Ok(());
         }
@@ -320,21 +332,27 @@ impl Worker {
         Ok(())
     }
 
-    fn check_memory(&self) -> Result<()> {
+    fn check_memory(&mut self) -> Result<()> {
         match process_supervisor::process_bytes(self.child.id()) {
             Ok(bytes) if bytes > self.permit.bytes => {
                 bail!(Failure::new(
                     FailureKind::Memory,
                     format!(
-                        "图片 OCR Worker 内存超过 {} MiB 限制",
+                        "文档解析 Worker 内存超过 {} MiB 限制",
                         self.permit.bytes / 1024 / 1024
                     )
                 ))
             }
             Ok(_) => Ok(()),
-            Err(error) if self.alive => Err(error.into()),
+            Err(error) if self.alive => {
+                if self.child.try_wait()?.is_some() { Ok(()) } else { Err(error.into()) }
+            },
             Err(_) => Ok(()),
         }
+    }
+
+    pub(crate) fn is_running(&mut self) -> Result<bool> {
+        Ok(self.alive && self.child.try_wait()?.is_none())
     }
 
     fn stderr_suffix(&self) -> String {
@@ -354,6 +372,8 @@ impl Worker {
         unsafe {
             libc::kill(-(self.child.id() as i32), libc::SIGKILL);
         }
+        #[cfg(windows)]
+        self.job.terminate();
         let _ = self.child.kill();
         let _ = self.child.wait();
         self.alive = false;
@@ -430,13 +450,13 @@ impl WorkerPool {
             if cancel() {
                 bail!(Failure::new(
                     FailureKind::Cancelled,
-                    "已停止等待图片 OCR Worker"
+                    "已停止等待文档解析 Worker"
                 ));
             }
             if Instant::now() >= deadline {
                 bail!(Failure::new(
                     FailureKind::Timeout,
-                    "等待图片 OCR Worker 超时"
+                    "等待文档解析 Worker 超时"
                 ));
             }
             // Saved settings apply to the next task. Release idle workers with
@@ -569,6 +589,7 @@ if mode == 'startup': time.sleep(10)
 print(json.dumps({'status': 'ready'}), flush=True)
 for line in sys.stdin:
     request = json.loads(line)
+    if mode == 'exit': sys.exit(1)
     if mode == 'request': time.sleep(10)
     pathlib.Path(request['output']).write_text('fixture OCR', encoding='utf-8')
     print(json.dumps({'id': request['id'], 'status': 'ok'}), flush=True)
@@ -589,6 +610,24 @@ for line in sys.stdin:
             )
             .unwrap(),
             runtime,
+        }
+    }
+
+    #[test]
+    fn final_error_reply_is_drained_after_process_exit() {
+        for (code, expected) in [(75, FailureKind::Memory), (76, FailureKind::Compatibility)] {
+            let mut worker = Worker::spawn(fixture("exit", 128), Instant::now() + Duration::from_secs(5), &|| false).unwrap();
+            // Model a reader thread delivering the flushed final reply after waitpid.
+            let (tx, rx) = mpsc::channel();
+            worker.events = rx;
+            let reader = thread::spawn(move || {
+                thread::sleep(Duration::from_millis(150));
+                let _ = tx.send(Event::Line(format!("{{\"id\":1,\"status\":\"error\",\"code\":{code},\"message\":\"parser failed\"}}")));
+            });
+            let output = tempfile::tempdir().unwrap();
+            let error = worker.convert(Path::new("part.pdf"), &output.path().join("part.md"), Instant::now() + Duration::from_secs(3), &|| false).unwrap_err();
+            reader.join().unwrap();
+            assert_eq!(error.downcast_ref::<Failure>().map(|e| e.kind), Some(expected), "{error:#}");
         }
     }
 

@@ -713,7 +713,7 @@ pub fn run(
 }
 
 #[cfg(windows)]
-mod windows_job {
+pub(crate) mod windows_job {
     use super::*;
     use std::os::windows::io::AsRawHandle;
     type Handle = *mut std::ffi::c_void;
@@ -889,6 +889,8 @@ mod windows_job {
         }
     }
     pub struct Job(Handle);
+    // The owned kernel handle can be moved between supervising threads.
+    unsafe impl Send for Job {}
     impl Job {
         pub fn new(child: &Child, memory: Option<u64>) -> Result<Self, Failure> {
             unsafe {

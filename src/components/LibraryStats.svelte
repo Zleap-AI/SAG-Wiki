@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {indexTaskKey} from '../lib/stable-snapshot';
  import {onMount} from 'svelte';
  import {Button} from 'bits-ui';
  import {api} from '../lib/api';
@@ -48,7 +49,7 @@
     const next=await api<IndexStatus>('get_index_status');
     if(disposed)return;
     status=next;statusError=false;readingStatus=false;onPauseChange?.(next.paused);now=Date.now();
-    const key=JSON.stringify([revision,next.tasks.map(task=>task.path),roots.map(root=>[root.path,root.status,root.count])]);
+    const key=JSON.stringify([revision,next.tasks.map(indexTaskKey),roots.map(root=>[root.path,root.status,root.count])]);
     if(key!==historyKey){
      const records=await api<IndexHistory[]>('get_index_history');
      if(disposed)return;

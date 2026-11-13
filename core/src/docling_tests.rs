@@ -732,13 +732,13 @@ fn completed_conversions_are_searchable_before_the_conversion_phase_finishes() {
     store
         .scan(&root, |progress| {
             if store.indexing.task(&root).stage == "converting" && progress.count > 0 {
-                assert_eq!(store.files().unwrap().len(), progress.count);
+                assert_eq!(store.files().unwrap().len(), 2, "both unchanged owned outputs are available from the basic pass");
                 assert_eq!(
                     store
                         .search_files("streamingevidence", &[], 5)
                         .unwrap()
                         .len(),
-                    progress.count
+                    2
                 );
                 observed.lock().unwrap().push(progress.count);
             }
@@ -1539,8 +1539,9 @@ fn text_is_searchable_before_parallel_conversion_and_converted_indexing_preserve
             })
             .collect::<Vec<_>>();
         assert_eq!(stages[0], "indexing_native");
-        assert_eq!(&stages[1..7], vec!["converting"; 6]);
-        assert_eq!(&stages[7..], vec!["indexing_converted"; 6]);
+        assert_eq!(&stages[1..7], vec!["extracting_basic"; 6]);
+        assert_eq!(&stages[7..13], vec!["converting"; 6]);
+        assert_eq!(&stages[13..], vec!["indexing_converted"; 6]);
         fs::write(
             Path::new(&root).join("report-0.pdf"),
             "newconvertedevidence",
@@ -2227,4 +2228,194 @@ fn cancelling_an_offline_uv_check_reports_cancellation_and_leaves_no_uv() {
     let leftovers: Vec<_> = fs::read_dir(&converter.home).unwrap().filter_map(|e| e.ok())
         .filter(|e| e.file_name().to_string_lossy().starts_with(".tmp")).collect();
     assert!(leftovers.is_empty(), "temporary uv copy was left behind");
+}
+
+#[cfg(unix)]
+#[test]
+fn pdf_session_reuses_process_and_releases_it_at_document_end() {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Docling::new(temp.path());
+    fake_online_uv(&converter);
+    converter.install_online(&converter.home.join("uv")).unwrap();
+    let component = crate::docling_component::active(&converter.home).unwrap();
+    fs::write(&component.python, r#"#!/bin/sh
+set -eu
+base=$(dirname "$0")
+while [ ! -f "$base/active.json" ]; do base=$(dirname "$base"); done
+printf 'spawn\n' >> "$base/pdf-spawns"
+printf '%s\n' "$$" > "$base/pdf-pid"
+printf '{"status":"ready"}\n'
+while IFS= read -r request; do
+ id=$(printf '%s\n' "$request" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+ output=$(printf '%s\n' "$request" | sed -n 's/.*"output":"\([^"]*\)".*/\1/p')
+ printf 'segment %s\n' "$id" > "$output"
+ printf '{"id":%s,"status":"ok"}\n' "$id"
+done
+"#).unwrap();
+    fs::set_permissions(&component.python, fs::Permissions::from_mode(0o755)).unwrap();
+    let runtime = sag_protocol::runtime::RuntimeSettings::default();
+    let session = converter.pdf_session(&runtime);
+    for index in 1..=2 {
+        let source = temp.path().join(format!("part-{index}.pdf"));
+        fs::write(&source, smoke_pdf()).unwrap();
+        let output = output_path(temp.path(), &source).unwrap();
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        session.convert(&source, &output, &|| false).unwrap();
+        assert!(fs::read_to_string(output).unwrap().contains(&format!("segment {index}")));
+    }
+    assert_eq!(fs::read_to_string(converter.home.join("pdf-spawns")).unwrap().lines().count(), 1);
+    let pid = fs::read_to_string(converter.home.join("pdf-pid")).unwrap().trim().parse().unwrap();
+    assert!(converter.uninstall().is_err(), "an active PDF session owns its component");
+    drop(session);
+    assert!(crate::process_supervisor::process_bytes(pid).is_err(), "no idle PDF process survives the document");
+    converter.uninstall().unwrap();
+}
+
+#[cfg(unix)]
+fn pdf_session_fixture(mode: &str) -> (tempfile::TempDir, Docling) {
+    use std::os::unix::fs::PermissionsExt;
+    let temp = tempfile::tempdir().unwrap();
+    let converter = Docling::new(temp.path());
+    fake_online_uv(&converter);
+    converter.install_online(&converter.home.join("uv")).unwrap();
+    fs::write(converter.home.join("pdf-mode"), mode).unwrap();
+    let component = crate::docling_component::active(&converter.home).unwrap();
+    fs::write(&component.python, r#"#!/bin/sh
+set -eu
+base=$(dirname "$0")
+while [ ! -f "$base/active.json" ]; do base=$(dirname "$base"); done
+case " $* " in
+ *" --pdf-worker "*) ;;
+ *)
+  printf 'fallback\n' >> "$base/pdf-fallbacks"
+  output=''
+  while [ "$#" -gt 0 ]; do
+   if [ "$1" = '--output-file' ]; then shift; output=$1; fi
+   shift
+  done
+  printf 'compatible backend output\n' > "$output"
+  exit 0 ;;
+esac
+printf 'spawn\n' >> "$base/pdf-spawns"
+printf '%s\n' "$$" > "$base/pdf-pid"
+printf '{"status":"ready"}\n'
+while IFS= read -r request; do
+ id=$(printf '%s\n' "$request" | sed -n 's/.*"id":\([0-9][0-9]*\).*/\1/p')
+ output=$(printf '%s\n' "$request" | sed -n 's/.*"output":"\([^"]*\)".*/\1/p')
+ mode=$(cat "$base/pdf-mode")
+ if [ "$mode" = 'blocked' ]; then touch "$base/pdf-started"; sleep 30; fi
+ if [ "$mode" = 'compat' ]; then printf '{"id":%s,"status":"error","code":76,"message":"parser rejection"}\n' "$id"; exit 1; fi
+ if [ "$mode" = 'fail-second' ] && [ "$id" = '2' ]; then printf '{"id":%s,"status":"error","code":1,"message":"broken part"}\n' "$id"; exit 1; fi
+ printf 'segment %s complete\n' "$id" > "$output"
+ printf '{"id":%s,"status":"ok"}\n' "$id"
+done
+"#).unwrap();
+    fs::set_permissions(&component.python, fs::Permissions::from_mode(0o755)).unwrap();
+    (temp, converter)
+}
+
+#[cfg(unix)]
+fn session_pdf_pages(count: usize) -> Vec<u8> {
+    use lopdf::{dictionary, Object};
+    let mut pdf = lopdf::Document::load_mem(&smoke_pdf()).unwrap();
+    let original = *pdf.get_pages().values().next().unwrap();
+    let page = pdf.get_object(original).unwrap().clone();
+    let parent = page.as_dict().unwrap().get(b"Parent").unwrap().as_reference().unwrap();
+    let kids: Vec<Object> = (0..count).map(|_| pdf.add_object(page.clone()).into()).collect();
+    pdf.objects.insert(parent, dictionary! {"Type" => "Pages", "Kids" => kids, "Count" => count as i64}.into());
+    let mut bytes = Vec::new();
+    pdf.save_to(&mut bytes).unwrap();
+    bytes
+}
+
+#[cfg(unix)]
+#[test]
+fn pdf_session_segmented_conversion_reuses_process_and_cache() {
+    let (temp, converter) = pdf_session_fixture("ok");
+    let source = temp.path().join("long.pdf");
+    fs::write(&source, session_pdf_pages(51)).unwrap();
+    let output = output_path(temp.path(), &source).unwrap();
+    let settings = sag_protocol::types::Settings::default();
+    crate::conversion::convert_enhanced(&source, &output, &converter, &settings, || false, |_| {}).unwrap();
+    let body = fs::read_to_string(&output).unwrap();
+    assert!(body.contains("source-pages:1-50") && body.contains("source-pages:51-51"));
+    assert!(body.contains("segment 1 complete") && body.contains("segment 2 complete"));
+    let pid = fs::read_to_string(converter.home.join("pdf-pid")).unwrap().trim().parse().unwrap();
+    assert!(crate::process_supervisor::process_bytes(pid).is_err());
+    crate::conversion::convert_enhanced(&source, &output, &converter, &settings, || false, |_| panic!("cached parts must not parse again")).unwrap();
+    assert_eq!(fs::read_to_string(converter.home.join("pdf-spawns")).unwrap().lines().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn pdf_session_failed_segment_preserves_document_and_recovers_from_cache() {
+    let (temp, converter) = pdf_session_fixture("fail-second");
+    let source = temp.path().join("long.pdf");
+    fs::write(&source, session_pdf_pages(51)).unwrap();
+    let output = output_path(temp.path(), &source).unwrap();
+    fs::create_dir_all(output.parent().unwrap()).unwrap();
+    fs::write(&output, "previous complete document").unwrap();
+    let settings = sag_protocol::types::Settings::default();
+    assert!(crate::conversion::convert_enhanced(&source, &output, &converter, &settings, || false, |_| {}).is_err());
+    assert_eq!(fs::read_to_string(&output).unwrap(), "previous complete document");
+    crate::conversion::convert_enhanced(&source, &output, &converter, &settings, || false, |_| {}).unwrap();
+    assert!(fs::read_to_string(output).unwrap().contains("source-pages:51-51"));
+    assert_eq!(fs::read_to_string(converter.home.join("pdf-spawns")).unwrap().lines().count(), 2);
+}
+
+#[cfg(unix)]
+#[test]
+fn pdf_session_compatibility_releases_budget_before_backend_fallback() {
+    // This test deliberately reserves the entire configured global budget.
+    // Isolate that global from unrelated concurrently running unit tests.
+    if std::env::var_os("SAG_TEST_PDF_BUDGET_ISOLATED").is_none() {
+        let result = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "docling::tests::pdf_session_compatibility_releases_budget_before_backend_fallback", "--nocapture"])
+            .env("SAG_TEST_PDF_BUDGET_ISOLATED", "1")
+            .output().unwrap();
+        assert!(result.status.success(), "{}{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        return;
+    }
+    let (temp, converter) = pdf_session_fixture("compat");
+    let source = temp.path().join("part.pdf");
+    fs::write(&source, smoke_pdf()).unwrap();
+    let output = output_path(temp.path(), &source).unwrap();
+    fs::create_dir_all(output.parent().unwrap()).unwrap();
+    let mut runtime = sag_protocol::runtime::RuntimeSettings::default();
+    runtime.conversion_memory_percent = 1;
+    runtime.conversion_job_mib = 1024 * 1024; // Clamp to the entire configured budget.
+    let session = converter.pdf_session(&runtime);
+    let started = std::time::Instant::now();
+    session.convert(&source, &output, &|| started.elapsed() > Duration::from_secs(4)).unwrap();
+    assert!(fs::read_to_string(output).unwrap().contains("compatible backend output"));
+    assert_eq!(fs::read_to_string(converter.home.join("pdf-fallbacks")).unwrap().lines().count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn pdf_session_cancellation_stops_process_and_keeps_previous_output() {
+    use std::sync::atomic::AtomicBool;
+    let (temp, converter) = pdf_session_fixture("blocked");
+    let source = temp.path().join("part.pdf");
+    fs::write(&source, smoke_pdf()).unwrap();
+    let output = output_path(temp.path(), &source).unwrap();
+    fs::create_dir_all(output.parent().unwrap()).unwrap();
+    fs::write(&output, "previous document").unwrap();
+    let stopped = Arc::new(AtomicBool::new(false));
+    let flag = stopped.clone();
+    let marker = converter.home.join("pdf-started");
+    let watcher = std::thread::spawn(move || {
+        let start = std::time::Instant::now();
+        while !marker.exists() && start.elapsed() < Duration::from_secs(3) { std::thread::sleep(Duration::from_millis(10)); }
+        flag.store(true, Ordering::Relaxed);
+    });
+    let runtime = sag_protocol::runtime::RuntimeSettings::default();
+    let session = converter.pdf_session(&runtime);
+    let error = session.convert(&source, &output, &|| stopped.load(Ordering::Relaxed)).unwrap_err();
+    watcher.join().unwrap();
+    assert_eq!(error.downcast_ref::<crate::process_supervisor::Failure>().unwrap().kind, crate::process_supervisor::FailureKind::Cancelled);
+    assert_eq!(fs::read_to_string(output).unwrap(), "previous document");
+    let pid = fs::read_to_string(converter.home.join("pdf-pid")).unwrap().trim().parse().unwrap();
+    assert!(crate::process_supervisor::process_bytes(pid).is_err());
 }

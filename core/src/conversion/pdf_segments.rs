@@ -38,7 +38,7 @@ pub(super) fn convert_parts(
     limit: u64,
     cancel: &impl Fn() -> bool,
     mut progress: impl FnMut(&Part, usize, usize),
-    mut convert: impl FnMut(&Part, &Path, &Path) -> Result<()>,
+    convert: impl FnMut(&Part, &Path, &Path) -> Result<()>,
 ) -> Result<()> {
     let parent = output.parent().context("转换输出缺少父目录")?;
     fs::create_dir_all(parent)?;
@@ -53,6 +53,9 @@ pub(super) fn convert_parts(
     let work = tempfile::Builder::new()
         .prefix(".sag-pdf-work-")
         .tempdir_in(parent)?;
+    // Parser sessions may own handles to these input files. Drop the owned
+    // callback before removing the work directory, including on early errors.
+    let mut convert = convert;
     let mut merged = tempfile::NamedTempFile::new_in(parent)?;
     let mut size = 0u64;
     for (index, part) in parts.iter().enumerate() {
@@ -129,6 +132,38 @@ mod tests {
             })
             .collect()
     }
+    #[test]
+    fn parser_session_drops_before_temporary_inputs_on_success_and_failure() {
+        use std::sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}};
+        struct Session {
+            input: Arc<Mutex<Option<std::path::PathBuf>>>,
+            saw_live_input_at_drop: Arc<AtomicBool>,
+        }
+        impl Session {
+            fn record(&self, path: &Path) { *self.input.lock().unwrap() = Some(path.to_owned()); }
+        }
+        impl Drop for Session {
+            fn drop(&mut self) {
+                self.saw_live_input_at_drop.store(self.input.lock().unwrap().as_ref().unwrap().exists(), Ordering::SeqCst);
+            }
+        }
+        for success in [true, false] {
+            let root = tempfile::tempdir().unwrap();
+            let input = Arc::new(Mutex::new(None));
+            let observed = Arc::new(AtomicBool::new(false));
+            let session = Session { input: input.clone(), saw_live_input_at_drop: observed.clone() };
+            let result = convert_parts(&parts()[..1], &root.path().join("out.md"), "v1", 1024, &|| false, |_,_,_| {}, move |_, source, output| {
+                session.record(source);
+                anyhow::ensure!(success, "fixture parser failure");
+                fs::write(output, "complete segment")?;
+                Ok(())
+            });
+            assert_eq!(result.is_ok(), success);
+            assert!(observed.load(Ordering::SeqCst), "parser must release input handles before removing the work directory");
+            assert!(!input.lock().unwrap().as_ref().unwrap().exists());
+        }
+    }
+
     #[test]
     fn cached_parts_keep_assets_reachable_and_allow_atomic_parser_output() {
         let dir = tempfile::tempdir().unwrap();

@@ -11,6 +11,24 @@ Markdown, plain text, RTF, Word, PowerPoint, Excel, OpenDocument, CSV, EPUB and 
 
 ![The example folder after indexing](/images/product-folders-en.png)
 
+## Progressive indexing and search availability
+
+PDFs first attempt to extract their basic text layer. Mixed text/scanned PDFs and image-only scans continue with background OCR and table structure processing. PDFs with usable text on every page retain built-in anydoc completion without an additional Docling enhancement pass. Once basic text is indexed, it can be searched while enhancement continues. Search coverage increases as background processing finishes. Basic indexing and enhancement use separate background workers. New or changed files in the same folder can continue extracting and indexing basic text while an older PDF undergoes OCR or table enhancement. Index details list basic indexing and background enhancement progress separately. Actual concurrency remains subject to memory budgets, parsers and source-change validation. The file list shows:
+
+| Status | Search availability |
+| --- | --- |
+| Basic text searchable · Enhancement pending | Extracted text layer; OCR and table enhancement have not finished |
+| Basic text searchable · Enhancing | Basic text is searchable while scanned content and tables are processed |
+| Basic text searchable · Enhancement failed | Basic text remains searchable; check indexing details and retry |
+| Awaiting parsing | No searchable text is available; background processing will try applicable parsers |
+| Parsing content · Not searchable yet | Document processing has not produced searchable text yet |
+| Awaiting OCR | Scanned content confirmed to lack a usable text layer must wait for OCR |
+| Recognition failed · Not searchable | No completed basic text is available; check indexing details and retry |
+
+The basic stage may omit scanned images, complex tables or final source positioning. Wait for enhancement and check the original before relying on complete coverage. Image-only scans are not marked searchable simply because they are queued. Pausing background processing preserves access to completed basic indexes.
+
+![Progressive indexing with basic-text and background enhancement statuses](/images/product-progressive-index-en.png)
+
 ## Limit your search scope
 
 Add only the directories you need. Query scope is independent from the folder you are currently browsing. Browsing a folder does not change the search or Q&A scope automatically.
@@ -42,7 +60,7 @@ sag check
 sag add --types md,txt,html,py,js,ts,tsx,json,yaml
 ```
 
-`--types` selects text or built-in document formats for that directory, such as `md,docx,pdf,xlsx`. Wait for indexing to finish before searching.
+`--types` selects text or built-in document formats for that directory, such as `md,docx,pdf,xlsx`. Basic indexed text is searchable before background enhancement finishes.
 
 ## File settings in detail
 
@@ -69,7 +87,7 @@ Other formats lists scanned PDFs, images, audio, video, email, Apple iWork and s
 
 With MinerU disabled, an installed Docling handles PDFs requiring OCR or content unsupported by the built-in parser. With MinerU enabled, use the [MinerU-first flow](/en/docs/models#mineru-document-parsing). If Docling is absent, indexing details explain the required action; those files are not parsed again until the component is installed or the file changes, so install it and reindex. Damaged and encrypted documents report parsing errors. A failed conversion records its reason and is not parsed again on every scan until the file, the parsing engine or component, or the conversion budgets change; changing a conversion budget in file settings, or choosing Reindex, retries it.
 
-Long PDFs are converted sequentially in parts of at most 50 pages. Each part independently tries the applicable parsers, and successful parts are cached for retries. Scanned PDFs that can be identified as having no text layer are handed off immediately to an installed OCR component, avoiding unnecessary text-conversion waits. The complete document is merged and indexed only after every part succeeds; failures never publish partial text. See [Document parsing](/en/docs/models#mineru-document-parsing).
+Long PDFs are converted sequentially in parts of at most 50 pages. Each part independently tries the applicable parsers, and successful parts are cached for retries. Scanned PDFs that can be identified as having no text layer are handed off immediately to an installed OCR component, avoiding unnecessary text-conversion waits. The complete enhanced document is merged only after every enhancement part succeeds. Failures never publish incomplete enhanced text; completed basic indexes remain available. See [Document parsing](/en/docs/models#mineru-document-parsing).
 
 Standalone images use a lightweight OCR path and do not load the layout and table models intended for scanned PDFs. Scanned PDFs and files requiring full layout structure still use the Docling document pipeline. Both paths run entirely offline. When several standalone images are processed together, the backend reuses OCR workers so models are not loaded for every image; workers exit after about 120 idle seconds and release their resources. Image recognition also follows **Settings → File settings → Docling conversion timeout**; waiting for a worker, memory admission and model loading all count toward this timeout. Increasing conversion workers processes more images at once, but excessive concurrency can cause CPU contention and heat, so throughput may stop improving.
 
@@ -147,6 +165,8 @@ Use `.sagignore` for more precise path or file patterns, directory rules and `!`
 ### Reindex and history
 
 **Rebuild failed files only:** when there are file-level failures, the indexing status card in the lower-left corner shows the failed-file count and a **Rebuild index** button. Click it to immediately retry current failed files across all added folders, without opening a list or confirming. Successful indexes and converted files are kept; this action does not scan the entire folder. Click the status text above the button to inspect failure details.
+
+Retrying a failed PDF also restores available basic text first, then continues enhancement in the independent background worker so new files can keep building their basic indexes.
 
 The card shows progress while rebuilding and prevents duplicate submissions. Both native and converted files count toward the rebuild history. Resume paused indexing before starting. Recovered files are removed from the current failures; unresolved component, file or permission problems remain visible. Stale failure records are removed for deleted or excluded files and files replaced by same-named directories; existing indexes inside those directories are preserved. If only a folder-reading or watcher error remains and there are no retryable files, the button is hidden; inspect the details and use folder-level or global reindexing.
 

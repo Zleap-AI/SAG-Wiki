@@ -113,6 +113,10 @@ pub struct FileInfo {
     pub id: i64,
     pub path: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_error: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DocumentTerm {
