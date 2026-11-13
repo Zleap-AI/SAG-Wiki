@@ -23,7 +23,8 @@ pub fn serve(data:&Path,count:usize,mut handler:impl FnMut(serde_json::Value)->s
             sag_client::wire::write(&mut write,&Frame::Welcome{info:ServiceInfo{version:Some(BUILD_VERSION.into()),protocol_version:VERSION,build_id:BUILD_ID.into(),channel:BUILD_CHANNEL.into(),pid,executable:"test-sag".into(),data_directory:"test-data".into()}}).await.unwrap();
             let Some(Frame::Request{id,operation:Operation::Cli{path,command}})=sag_client::wire::read(&mut read).await.unwrap()else{panic!("CLI request expected")};
             let reply:Response=serde_json::from_value(handler(serde_json::json!({"path":path,"command":command}))).unwrap();
-            sag_client::wire::write(&mut write,&Frame::Response{id,result:Ok(Output::Cli(reply))}).await.unwrap();
+            // A client that hit its own wait limit has already disconnected.
+            let _=sag_client::wire::write(&mut write,&Frame::Response{id,result:Ok(Output::Cli(reply))}).await;
         }
     }))
 }

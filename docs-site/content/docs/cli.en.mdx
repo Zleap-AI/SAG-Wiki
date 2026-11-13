@@ -77,7 +77,7 @@ sag uninstall cli
 
 `sag status` shows only background-service connection status, service version, protocol version, process, executable, CLI access and JEV configuration status. It does not depend on the current directory's index state or start a stopped service. Use `sag check` for directory coverage, readiness and file counts.
 
-`sag add` adds the current or a specified directory. It reuses the shared add/index workflow without creating duplicate roots. In desktop service mode, indexing runs in the background and the command returns the current state; standalone mode returns after indexing finishes. Use `sag check` to inspect readiness; no sync parameter is needed. `--json` returns the path, index state and current CLI availability. Added directories also appear in the desktop knowledge base.
+`sag add` adds the current or a specified directory. It reuses the shared add/index workflow without creating duplicate roots. The command waits for this indexing run; `--timeout` (default 600 seconds, for example `sag add --timeout 3600`) limits that wait. When the limit is reached the directory is already added, indexing continues in the background, and the message points at `sag list` for progress. Use `sag check` to inspect readiness; no sync parameter is needed. `--json` returns the path, index state and current CLI availability. Added directories also appear in the desktop knowledge base.
 
 `--types` accepts text, code and built-in documents, for example `sag add --types md,docx,pdf,xlsx`. Omitting it retains saved directory settings; new directories enable Markdown, text, RTF, Office, spreadsheets, EPUB and text-based PDFs by default. Scanned PDFs can use enabled MinerU or a separately installed Docling; components are never downloaded automatically.
 
@@ -130,7 +130,7 @@ sag -F 'TODO' ./src --count
 sag -F 'ready' ./src -q
 ```
 
-The default request timeout is 600 seconds, including index checks in standalone mode. `--timeout` accepts 1–86400 seconds; large multi-batch searches may need a higher value. Ctrl+C terminates the current request with exit code 130. Search argument errors return 2, execution errors return 1, and successful or empty results return 0. `check` uses the check-specific codes above. stdout contains results; stderr contains errors, installation information and truncation notices.
+The default request timeout is 600 seconds, including index checks in standalone mode. `--timeout` accepts 1–86400 seconds and also caps how long `sag add` waits for indexing; reaching it ends the wait without cancelling the background index. Large multi-batch searches may need a higher value. Ctrl+C terminates the current request with exit code 130. Search argument errors return 2, execution errors return 1, and successful or empty results return 0. `check` uses the check-specific codes above. stdout contains results; stderr contains errors, installation information and truncation notices.
 
 Requests are limited to 32 KiB and responses to 512 KiB. At the response limit, complete chunks are retained and truncation is explicitly marked. The retrieval candidate budget is not reduced to shorten output. Changed files require a new query; the CLI does not return new line numbers for stale chunks.
 

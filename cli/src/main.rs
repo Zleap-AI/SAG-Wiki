@@ -49,7 +49,8 @@ struct Args {
     content: bool,
     #[arg(long)]
     json: bool,
-    #[arg(long, default_value_t = DEFAULT_TIMEOUT, value_parser = clap::value_parser!(u64).range(1..=86400))]
+    /// 等待请求完成的上限；`sag add` 用它控制等待索引完成的时间。
+    #[arg(long, global = true, default_value_t = DEFAULT_TIMEOUT, value_parser = clap::value_parser!(u64).range(1..=86400))]
     timeout: u64,
 }
 #[derive(clap::Args, Default)]
@@ -389,7 +390,8 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
             match types { Some(extensions) => Command::AddWithTypes { extensions }, None => Command::Add },
             cwd.join(directory.unwrap_or_default()),
             json,
-            10,
+            // Adding waits for the scan; the request timeout is the wait limit.
+            args.timeout,
         ),
         Some(CliCommand::Remove { directory, json }) => (
             Command::Remove,
@@ -424,7 +426,18 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
     };
     let progress = !json && !args.matching.quiet && interactive()
         && matches!(&command, Command::Search { .. } | Command::Match(_));
-    let response = request(command, path, timeout, interrupted, progress)?;
+    let waits_for_index = matches!(&command, Command::Add | Command::AddWithTypes { .. });
+    let response = match request(command, path, timeout, interrupted, progress) {
+        Ok(response) => response,
+        // The service registers the folder before waiting, so a timeout still means
+        // the folder is added and the scan continues in the background.
+        Err(error) if waits_for_index
+            && error.chain().any(|cause| cause.is::<sag_client::RequestTimeout>()) =>
+        {
+            bail!("等待索引超时：目录已加入知识库，后台索引仍在继续。用 sag list --json 查看进度，或用 --timeout 增加等待时间。")
+        }
+        Err(error) => return Err(error),
+    };
     match response {
         Response::Configured(config) => println!("{}", serde_json::to_string_pretty(&config)?),
         Response::Error(error) => bail!("{error}"),
