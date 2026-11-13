@@ -577,11 +577,11 @@ fn archive_content_with_assets(
             let source = relative.to_string_lossy().replace('\\', "/");
             let target = format!("{package}/{}", path.to_string_lossy().replace('\\', "/"));
             static DESTINATIONS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(
-                r#"!\[[^\]\n]*\]\(\s*<?([^\s<>]+?)(?:>|\s+['"][^\n]*?['"])?\s*\)|(?i:<img\b[^>]*?\bsrc\s*=\s*["']([^"']*)["'][^>]*>)"#
+                r#"!\[(?:\\.|\[[^\]\n]*\]|[^\]\\\n])*\]\(\s*(?:<([^<>\r\n]*)>|([^\s<>]+?))(?:\s+['"][^\n]*?['"])?\s*\)|(?i:<img\b[^>]*?\bsrc\s*=\s*["']([^"']*)["'][^>]*>)"#
             ).unwrap());
             text = DESTINATIONS.replace_all(&text, |captures: &regex::Captures| {
                 let whole = captures.get(0).unwrap();
-                let destination = captures.get(1).or_else(|| captures.get(2)).unwrap();
+                let destination = captures.get(1).or_else(|| captures.get(2)).or_else(|| captures.get(3)).unwrap();
                 if destination.as_str().trim_start_matches("./") != source { return whole.as_str().to_owned(); }
                 let start = destination.start() - whole.start();
                 let end = destination.end() - whole.start();

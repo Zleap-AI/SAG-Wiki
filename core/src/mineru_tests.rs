@@ -931,3 +931,29 @@ fn enterprise_response_variants_and_error_codes_are_classified() {
     assert_eq!(normalize_opensource(json!("A0005")).unwrap()["state"],"failed");
     assert_eq!(normalize_opensource(json!({"data":{"markdown":"# result"}})).unwrap()["markdown"],"# result");
 }
+
+#[test]
+fn archive_assets_rewrite_nested_alt_and_space_destinations() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    zip.start_file("full.md", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"# Result\n![curve [red]](images/x.png)\n![escaped \\] bracket](images/x.png)\n![](<images/my image.png>)").unwrap();
+    for name in ["images/x.png", "images/my image.png"] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"image").unwrap();
+    }
+    let output = archive_content_with_assets(
+        zip.finish().unwrap().into_inner(),
+        0,
+        0,
+        false,
+        MIB,
+        Some(dir.path()),
+    )
+    .unwrap();
+    assert_eq!(output.matches(".sag-mineru-assets/").count(), 3, "{output}");
+    assert!(output.contains("curve [red]") && output.contains("escaped \\] bracket"));
+    assert!(!output.contains("](images/") && !output.contains("](<images/"));
+}

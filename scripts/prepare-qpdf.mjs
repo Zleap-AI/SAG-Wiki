@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {mkdirSync,readFileSync,writeFileSync,existsSync,readdirSync,cpSync,chmodSync} from 'node:fs';
+import {mkdirSync,readFileSync,writeFileSync,existsSync,readdirSync,cpSync,chmodSync,rmSync,statSync,copyFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 const version='12.4.2';
@@ -18,7 +18,16 @@ export async function prepareQpdf(destination, target=process.env.TAURI_ENV_TARG
  if(result.status!==0)throw Error('QPDF extraction failed');
  const locate=dir=>{if(existsSync(join(dir,'bin',windows?'qpdf.exe':'qpdf')))return dir;for(const entry of readdirSync(dir,{withFileTypes:true})){if(entry.isDirectory()){const found=locate(join(dir,entry.name));if(found)return found;}}};
  const root=locate(extracted);if(!root)throw Error('QPDF executable missing');
- cpSync(root,destination,{recursive:true});
+ // npm excludes symlinks; real library files also make tar/desktop payloads
+ // independent of the build cache. Replace stale absolute links from old builds.
+ rmSync(destination,{recursive:true,force:true});
+ const copyFiles=(source,target)=>{
+  if(statSync(source).isDirectory()){
+   mkdirSync(target,{recursive:true});
+   for(const entry of readdirSync(source))copyFiles(join(source,entry),join(target,entry));
+  }else copyFileSync(source,target);
+ };
+ copyFiles(root,destination);
  cpSync(resolve('third-party/qpdf'),join(destination,'licenses'),{recursive:true});
  if(!windows)chmodSync(join(destination,'bin/qpdf'),0o755);
 }

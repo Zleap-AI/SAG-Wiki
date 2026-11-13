@@ -191,6 +191,7 @@ jobs:
       - name: Run native tests with locked dependencies
         run: |
           node scripts/prepare-qpdf.mjs
+          node --test scripts/qpdf-packaging.node-test.mjs
           cargo test --locked --manifest-path protocol/Cargo.toml
           cargo test --locked --manifest-path client/Cargo.toml
           cargo test --locked --manifest-path core/Cargo.toml
