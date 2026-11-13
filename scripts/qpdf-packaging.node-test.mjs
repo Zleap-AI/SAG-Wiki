@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {mkdtempSync,mkdirSync,copyFileSync,cpSync,writeFileSync,existsSync,renameSync,rmSync,realpathSync} from 'node:fs';
+import {mkdtempSync,mkdirSync,copyFileSync,cpSync,writeFileSync,existsSync,renameSync,rmSync,realpathSync,readdirSync} from 'node:fs';
 import {join,resolve,delimiter} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync,execFileSync} from 'node:child_process';
@@ -28,6 +28,11 @@ test('QPDF remains executable after its build cache is removed, including an old
   process.chdir(dir);
   const destination=join(dir,'delivery/qpdf');
   await prepareQpdf(destination,target);
+  assert.ok(!existsSync(join(destination,'bin',windows?'zlib-flate.exe':'zlib-flate')));
+  assert.ok(!existsSync(join(destination,'bin','fix-qdf')));
+  if(process.platform==='darwin')assert.deepEqual(readdirSync(join(destination,'lib')),['libqpdf.30.dylib']);
+  if(process.platform==='linux'){assert.ok(existsSync(join(destination,'lib/libqpdf.so.30')));assert.ok(!existsSync(join(destination,'lib/libqpdf.so.30.4.2')));}
+  if(windows){assert.ok(!existsSync(join(destination,'lib')));assert.ok(!existsSync(join(destination,'include')));}
   // Repeated preparation must also repair an older destination layout.
   if(!windows) {
    const {symlinkSync,unlinkSync}=await import('node:fs');
@@ -41,6 +46,21 @@ test('QPDF remains executable after its build cache is removed, including an old
   const run=spawnSync(join(destination,'bin',windows?'qpdf.exe':'qpdf'),['--version'],{encoding:'utf8'});
   assert.equal(run.status,0,run.stderr||run.error?.message);
   assert.match(run.stdout,/qpdf version 12\.4\.2/);
+  // A real PDF round trip exercises the loader, parser, compression and writer.
+  const binary=join(destination,'bin',windows?'qpdf.exe':'qpdf');
+  const input=join(dir,'empty.pdf');
+  const objects=['<< /Type /Catalog /Pages 2 0 R >>','<< /Type /Pages /Kids [3 0 R] /Count 1 >>','<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources << >> /Contents 4 0 R >>','<< /Length 0 >>\nstream\nendstream'];
+  let pdf='%PDF-1.4\n';const offsets=[0];
+  for(const [index,object] of objects.entries()){offsets.push(Buffer.byteLength(pdf));pdf+=`${index+1} 0 obj\n${object}\nendobj\n`;}
+  const xref=Buffer.byteLength(pdf);
+  pdf+=`xref\n0 5\n0000000000 65535 f \n${offsets.slice(1).map(n=>String(n).padStart(10,'0')+' 00000 n ').join('\n')}\ntrailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  writeFileSync(input,pdf);
+  const split=join(dir,'split.pdf');
+  execFileSync(binary,['--empty','--pages',input,'1','--',split]);
+  assert.equal(execFileSync(binary,['--show-npages',split],{encoding:'utf8'}).trim(),'1');
+  const encrypted=join(dir,'encrypted.pdf');
+  execFileSync(binary,[input,'--encrypt','test','owner','256','--',encrypted]);
+  execFileSync(binary,['--password=test','--check',encrypted]);
   assert.ok(existsSync(join(destination,'licenses/NOTICE.md')));
  } finally {process.chdir(previous);}
 });
