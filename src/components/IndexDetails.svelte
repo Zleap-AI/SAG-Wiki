@@ -6,11 +6,11 @@
  import IndexHistoryEntry from './IndexHistoryEntry.svelte';
  import {api} from '../lib/api';
  import {subscribeDataChanges} from '../lib/data-changes';
- import {sameIndexStatus,stableRows} from '../lib/stable-snapshot';
+ import {indexTaskKey,sameIndexStatus,stableRows} from '../lib/stable-snapshot';
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
- import {indexErrorHint,indexStages,indexStage} from '../lib/index-stages';
- import type {Root,IndexStatus,IndexHistory} from '../lib/types';
+ import {indexErrorHint,indexPipeline,indexStage,isConversionStage} from '../lib/index-stages';
+ import type {Root,IndexTask,IndexStatus,IndexHistory} from '../lib/types';
  export let roots:Root[]=[];
  export let onClose:()=>void;
  export let onPauseChange:(paused:boolean)=>void;
@@ -85,6 +85,7 @@
  $:working=roots.some(root=>root.status==='pending')||status.tasks.length>0;
  $:finishing=status.paused&&status.tasks.some(task=>task.files.length>0);
  $:activeRoots=roots.filter(root=>root.status==='pending'||status.tasks.some(task=>task.path===root.path));
+ $:activeJobs=activeRoots.flatMap<{root:Root;task:IndexTask|undefined;key:string}>(root=>{const tasks=status.tasks.filter(task=>task.path===root.path);return tasks.length?tasks.map(task=>({root,task,key:indexTaskKey(task)})):[{root,task:undefined,key:`${root.path}:pending`}];});
  $:issueRoots=roots.filter(root=>(root.status==='partial'||root.status==='error')&&!activeRoots.includes(root)&&!history.some(record=>record.path===root.path));
  $:latestHistory=newestByFolder(history);
  $:olderHistory=history.filter(record=>record.id!==latestHistory.find(item=>item.path===record.path)?.id);
@@ -106,19 +107,19 @@
  <div class="dialog-body index-detail-body">
   {#if activeRoots.length}<section class="index-active" aria-label={$t('当前任务')}>
   <div class="index-section-heading"><h3>{$t('当前任务')}</h3></div>
-  {#each activeRoots as root (root.path)}
-   {@const task=status.tasks.find(task=>task.path===root.path)}
+  {#each activeJobs as {root,task,key} (key)}
    <section class="index-root">
-    <div class="index-root-title">{@html icon('folder')}<strong>{root.name}</strong><span>{status.paused?$t(task&&task.files.length?'正在暂停…':'索引已暂停'):task?stageLabel(task.stage):$t('等待处理')}</span></div>
+    <div class="index-root-title">{@html icon('folder')}<strong>{root.name}{#if task?.kind} · {$t(task.kind==='enhancement'?'后台增强':'基础索引')}{/if}</strong><span>{status.paused?$t(task&&task.files.length?'正在暂停…':'索引已暂停'):task?stageLabel(task.stage):$t('等待处理')}</span></div>
     <p class="index-root-path" title={displayPath(root.path)}>{displayPath(root.path)}</p>
     {#if task}
-     {@const step=indexStages.findIndex(item=>item.stage===(task.stage==='retrying_conversion'?'converting':task.stage))}
+     {@const pipeline=indexPipeline(task.stage)}
+     {@const step=pipeline.findIndex(item=>item.stage===(task.stage==='retrying_enhancement'?'enhancing':task.stage==='retrying_conversion'?'converting':task.stage))}
      <ol class="index-pipeline" aria-label={$t('索引流程')}>
-      {#each indexStages as item,index}<li class:current={step===index} class:done={step>index} aria-current={step===index?'step':undefined}><span>{step>index?'✓':index+1}</span>{$t(item.title)}</li>{/each}
+      {#each pipeline as item,index}<li class:current={step===index} class:done={step>index} aria-current={step===index?'step':undefined}><span>{step>index?'✓':index+1}</span>{$t(item.title)}</li>{/each}
      </ol>
      <p class="index-stage-description">{$t(indexStage(task.stage)?.description??'先索引文本，再转换其他格式，最后索引转换结果。')}</p>
      {#if task.total>0}<div class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:task.completed,value1:task.total})}</div><progress aria-label={$t('{value0} 的索引进度',{value0:root.name})} value={task.completed} max={task.total}></progress>{/if}
-     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span class="index-current-file-copy"><span class="index-current-file-path">{displayPath(file)}</span>{#if task.stage==='converting'||task.stage==='retrying_conversion'}{@const conversion=task.conversions?.find(item=>item.path===file)}<span class="index-file-parser">{conversion?.engine?$t('解析方式：{value0}',{value0:conversion.engine}):conversion?.segment?$t('正在处理分段…'):$t('正在准备转换…')}</span>{#if conversion?.segment}<span class="index-file-segment">{$t('当前文档：第 {value0} / {value1} 段',{value0:conversion.segment.current,value1:conversion.segment.total})} · {$t('第 {value0}–{value1} 页',{value0:conversion.segment.start_page,value1:conversion.segment.end_page})}</span>{/if}{/if}</span></li>{/each}</ul>{/if}
+     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span class="index-current-file-copy"><span class="index-current-file-path">{displayPath(file)}</span>{#if isConversionStage(task.stage)}{@const conversion=task.conversions?.find(item=>item.path===file)}<span class="index-file-parser">{conversion?.engine?$t('解析方式：{value0}',{value0:conversion.engine}):conversion?.segment?$t('正在处理分段…'):$t('正在准备转换…')}</span>{#if conversion?.segment}<span class="index-file-segment">{$t('当前文档：第 {value0} / {value1} 段',{value0:conversion.segment.current,value1:conversion.segment.total})} · {$t('第 {value0}–{value1} 页',{value0:conversion.segment.start_page,value1:conversion.segment.end_page})}</span>{/if}{/if}</span></li>{/each}</ul>{/if}
     {/if}
    </section>
   {/each}

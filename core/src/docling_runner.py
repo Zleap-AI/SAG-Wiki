@@ -91,47 +91,50 @@ def run_image_worker(artifacts_path):
     return 0
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("source", nargs="?", type=Path)
-    parser.add_argument("--output-file", type=Path)
-    parser.add_argument("--artifacts-path", required=True, type=Path)
-    parser.add_argument("--pdf-backend", choices=["pypdfium2"])
-    parser.add_argument("--probe", action="store_true")
-    parser.add_argument("--worker", action="store_true")
-    args = parser.parse_args()
-    if args.worker:
-        if args.artifacts_path is None:
-            parser.error("--artifacts-path is required with --worker")
+def run_pdf_worker(convert_one):
+    """A scoped serial PDF session; any failure retires the process."""
+    import contextlib
+    import gc
+    import tempfile
+
+    print(json.dumps({"status": "ready"}), flush=True)
+    for line in sys.stdin:
+        request = None
+        temporary = None
+        code = 1
         try:
-            return run_image_worker(args.artifacts_path)
+            request = json.loads(line)
+            request_id = request["id"]
+            source = Path(request["source"])
+            output = Path(request["output"])
+            if source.suffix.lower() != ".pdf":
+                raise ValueError("PDF session only accepts PDF segments")
+            with tempfile.NamedTemporaryFile(prefix=".sag-pdf-output-", dir=output.parent, delete=False) as file:
+                temporary = Path(file.name)
+            with contextlib.redirect_stdout(sys.stderr):
+                code = convert_one(source, temporary)
+            if code:
+                raise RuntimeError(f"PDF conversion failed (code {code}); see parser diagnostics")
+            code = 1
+            if not temporary.read_text(encoding="utf-8").strip():
+                raise ValueError("PDF conversion produced no document text")
+            # Document results/native backends must not accumulate across segments.
+            gc.collect()
+            os.replace(temporary, output)
+            print(json.dumps({"id": request_id, "status": "ok"}), flush=True)
         except Exception as error:
-            print(json.dumps({"status": "error", "message": str(error)}), flush=True)
+            if isinstance(error, MemoryError):
+                code = 75
+            print(json.dumps({"id": request.get("id") if isinstance(request, dict) else None,
+                              "status": "error", "code": code, "message": str(error)}), flush=True)
             return 1
-    if args.source is None:
-        parser.error("source is required unless --worker is used")
-    if args.output_file is None:
-        parser.error("--output-file is required unless --worker is used")
-    runtime = json.loads(os.environ.get("SAG_CONVERSION_SETTINGS", "{}"))
-    if args.probe:
-        import logging
-        logging.basicConfig(level=logging.INFO)
-        print("Offline probe: loading document conversion libraries", flush=True)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
+    return 0
 
-    if args.source.suffix.lower() in IMAGE_EXTENSIONS:
-        try:
-            text = convert_image(args.source, args.artifacts_path)
-            if text is not None:
-                write_output(args.output_file, text)
-                if args.probe:
-                    lowered = text.lower()
-                    if "sag" not in lowered or "image" not in lowered:
-                        print("Offline image OCR probe did not recognize the probe text", file=sys.stderr)
-                        return 1
-                return 0
-        except Exception as error:
-            print(f"Direct image OCR failed; falling back to Docling: {error}", file=sys.stderr)
 
+def build_document_converter(args, runtime):
     from docling.datamodel.accelerator_options import AcceleratorOptions
     from docling.datamodel.backend_options import ThreadedDoclingParseBackendOptions
     from docling.datamodel.base_models import ConversionStatus, InputFormat, FailureCategory
@@ -139,7 +142,6 @@ def main():
     from docling.document_converter import DocumentConverter, PdfFormatOption, ImageFormatOption
     from docling.backend.docling_parse_backend import ThreadedDoclingParseDocumentBackend
     from docling.backend.pypdfium2_backend import PyPdfiumDocumentBackend
-    from docling_core.types.doc import ImageRefMode
 
     options = PdfPipelineOptions(
         artifacts_path=args.artifacts_path,
@@ -171,9 +173,15 @@ def main():
         InputFormat.PDF: pdf,
         InputFormat.IMAGE: ImageFormatOption(pipeline_options=options),
     })
-    if args.probe:
+    return converter
+
+
+def convert_document(converter, source, output_file, runtime, probe=False):
+    from docling.datamodel.base_models import ConversionStatus, FailureCategory
+    from docling_core.types.doc import ImageRefMode
+    if probe:
         print("Offline probe: converting page with full-page OCR", flush=True)
-    result = converter.convert(args.source, raises_on_error=False,
+    result = converter.convert(source, raises_on_error=False,
                                max_file_size=runtime.get("conversion_input_mib", 512) * 1024 * 1024, max_num_pages=runtime.get("max_document_pages", 10000))
     if result.status != ConversionStatus.SUCCESS:
         errors = "\n".join(str(error) for error in result.errors)
@@ -189,16 +197,65 @@ def main():
         if isinstance(cause, DocumentLoadError) or (cause is None and categories == {FailureCategory.BACKEND_FAILURE}):
             return 76
         return 1
-    result.document.save_as_markdown(args.output_file, image_mode=ImageRefMode.PLACEHOLDER)
-    if not args.output_file.is_file() or not args.output_file.read_text(encoding="utf-8").strip():
+    result.document.save_as_markdown(output_file, image_mode=ImageRefMode.PLACEHOLDER)
+    if not output_file.is_file() or not output_file.read_text(encoding="utf-8").strip():
         print("Docling did not produce document text", file=sys.stderr)
         return 1
-    if args.probe:
-        text = args.output_file.read_text(encoding="utf-8").lower()
+    if probe:
+        text = output_file.read_text(encoding="utf-8").lower()
         if "sag" not in text or "probe" not in text:
             print("Offline OCR probe did not recognize the required text", file=sys.stderr)
             return 1
     return 0
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("source", nargs="?", type=Path)
+    parser.add_argument("--output-file", type=Path)
+    parser.add_argument("--artifacts-path", required=True, type=Path)
+    parser.add_argument("--pdf-backend", choices=["pypdfium2"])
+    parser.add_argument("--probe", action="store_true")
+    workers = parser.add_mutually_exclusive_group()
+    workers.add_argument("--worker", action="store_true")
+    workers.add_argument("--pdf-worker", action="store_true")
+    args = parser.parse_args()
+    if args.worker:
+        if args.artifacts_path is None:
+            parser.error("--artifacts-path is required with --worker")
+        try:
+            return run_image_worker(args.artifacts_path)
+        except Exception as error:
+            print(json.dumps({"status": "error", "message": str(error)}), flush=True)
+            return 1
+    if args.source is None and not args.pdf_worker:
+        parser.error("source is required unless --worker is used")
+    if args.output_file is None and not args.pdf_worker:
+        parser.error("--output-file is required unless --worker is used")
+    runtime = json.loads(os.environ.get("SAG_CONVERSION_SETTINGS", "{}"))
+    if args.probe:
+        import logging
+        logging.basicConfig(level=logging.INFO)
+        print("Offline probe: loading document conversion libraries", flush=True)
+
+    if args.source is not None and args.source.suffix.lower() in IMAGE_EXTENSIONS:
+        try:
+            text = convert_image(args.source, args.artifacts_path)
+            if text is not None:
+                write_output(args.output_file, text)
+                if args.probe:
+                    lowered = text.lower()
+                    if "sag" not in lowered or "image" not in lowered:
+                        print("Offline image OCR probe did not recognize the probe text", file=sys.stderr)
+                        return 1
+                return 0
+        except Exception as error:
+            print(f"Direct image OCR failed; falling back to Docling: {error}", file=sys.stderr)
+
+    converter = build_document_converter(args, runtime)
+    if args.pdf_worker:
+        return run_pdf_worker(lambda source, output: convert_document(converter, source, output, runtime))
+    return convert_document(converter, args.source, args.output_file, runtime, args.probe)
 
 
 if __name__ == "__main__":

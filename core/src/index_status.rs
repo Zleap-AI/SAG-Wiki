@@ -1,6 +1,6 @@
 use anyhow::{bail, Result};
 use sag_protocol::{IndexConversion, IndexFileLog, IndexStatus, IndexTask};
-use std::{collections::{BTreeMap,BTreeSet}, path::Path, sync::{Condvar, Mutex}};
+use std::{collections::{BTreeMap,BTreeSet}, path::Path, sync::{Arc, Condvar, Mutex}};
 
 #[derive(Default)]
 struct State {
@@ -13,102 +13,155 @@ struct State {
     retrying: BTreeSet<(String, String)>,
 }
 
-/// Pause only at file boundaries, without holding the database lock.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum IndexLane {
+    #[default]
+    Primary,
+    Enhancement,
+}
+impl IndexLane {
+    fn kind(self) -> &'static str {
+        match self { Self::Primary => "primary", Self::Enhancement => "enhancement" }
+    }
+    fn key(self, root: &str) -> String { format!("{}:{root}",self.kind()) }
+}
 #[derive(Default)]
-pub struct IndexControl {
+struct Shared {
     state: Mutex<State>,
     resumed: Condvar,
 }
+/// Lane-local tasks share global pause/stop and root cancellation signals.
+#[derive(Clone, Default)]
+pub struct IndexControl {
+    shared: Arc<Shared>,
+    lane: IndexLane,
+}
 impl IndexControl {
+    pub fn for_lane(&self, lane: IndexLane) -> Self { Self { shared: self.shared.clone(), lane } }
+    fn key(&self, root: &str) -> String { self.lane.key(root) }
+    pub fn is_active(&self, root: &str, lane: IndexLane) -> bool {
+        self.shared.state.lock().unwrap().tasks.contains_key(&lane.key(root))
+    }
+    pub fn has_active_source(&self, root: &str, source: &Path, lane: IndexLane) -> bool {
+        let source = source.to_string_lossy();
+        self.shared.state.lock().unwrap().tasks.get(&lane.key(root))
+            .is_some_and(|task| task.files.iter().any(|path|path == source.as_ref()))
+    }
+    pub fn cancel_lane(&self, root: &str, lane: IndexLane) {
+        let mut state = self.shared.state.lock().unwrap();
+        let key = lane.key(root);
+        if state.tasks.contains_key(&key) { state.cancelled.insert(key); }
+        self.shared.resumed.notify_all();
+    }
+
     pub fn status(&self) -> IndexStatus {
-        let state = self.state.lock().unwrap();
+        let state = self.shared.state.lock().unwrap();
         IndexStatus { failed_files: 0, paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
-            if task.stage == "converting" && task.files.iter().any(|file| state.retrying.contains(&(task.path.clone(), file.clone()))) {
-                task.stage = "retrying_conversion".into();
+            if (task.stage == "converting" || task.stage == "enhancing") && task.files.iter().any(|file| state.retrying.contains(&(task.id.clone(), file.clone()))) {
+                task.stage = if task.stage == "enhancing" { "retrying_enhancement" } else { "retrying_conversion" }.into();
             }
             task
-        }).collect() }
+        }).collect(), conversion_states: vec![] }
     }
     pub fn set_paused(&self, paused: bool) -> IndexStatus {
-        self.state.lock().unwrap().paused = paused;
-        if !paused { self.resumed.notify_all(); }
+        self.shared.state.lock().unwrap().paused = paused;
+        if !paused { self.shared.resumed.notify_all(); }
         self.status()
     }
     pub fn stop(&self) {
-        self.state.lock().unwrap().stopped = true;
-        self.resumed.notify_all();
+        self.shared.state.lock().unwrap().stopped = true;
+        self.shared.resumed.notify_all();
     }
-    pub fn stopped(&self) -> bool { self.state.lock().unwrap().stopped }
+    pub fn stopped(&self) -> bool { self.shared.state.lock().unwrap().stopped }
     pub fn cancel_root(&self,root:&str) {
-        let mut state=self.state.lock().unwrap();
-        if state.tasks.contains_key(root) {state.cancelled.insert(root.into());}
-        self.resumed.notify_all();
+        let mut state=self.shared.state.lock().unwrap();
+        let keys: Vec<_> = state.tasks.iter().filter(|(_,task)|task.path==root).map(|(key,_)|key.clone()).collect();
+        state.cancelled.extend(keys);
+        self.shared.resumed.notify_all();
     }
-    pub fn cancelled(&self,root:&str)->bool {let state=self.state.lock().unwrap();state.stopped||state.cancelled.contains(root)}
+    pub fn cancelled(&self,root:&str)->bool {let state=self.shared.state.lock().unwrap();state.stopped||state.cancelled.contains(&self.key(root))}
     pub fn begin(&self, root: &str) {
-        let mut state = self.state.lock().unwrap();
-        state.cancelled.remove(root);
-        state.logs.insert(root.into(), vec![]);
-        state.indexed.insert(root.into(), (0, 0));
-        state.tasks.insert(root.into(), IndexTask {
+        let mut state = self.shared.state.lock().unwrap();
+        self.begin_locked(&mut state, root);
+    }
+    /// Atomically claim background work only while its root has no primary task.
+    /// A primary task may begin afterwards; Store's source lease then protects
+    /// the background input while foreground ingestion handles other files.
+    pub fn try_begin(&self, root: &str) -> bool {
+        let mut state = self.shared.state.lock().unwrap();
+        if state.stopped || self.lane == IndexLane::Enhancement
+            && (state.tasks.contains_key(&IndexLane::Primary.key(root))
+                || state.tasks.contains_key(&self.key(root))) {
+            return false;
+        }
+        self.begin_locked(&mut state, root);
+        true
+    }
+    fn begin_locked(&self, state: &mut State, root: &str) {
+        state.cancelled.remove(&self.key(root));
+        state.logs.insert(self.key(root), vec![]);
+        state.indexed.insert(self.key(root), (0, 0));
+        state.tasks.insert(self.key(root), IndexTask {
+            id: self.key(root), kind: self.lane.kind().into(),
             path: root.into(), stage: "scanning".into(), completed: 0, total: 0, files: vec![], conversions: vec![],
         });
     }
-    pub fn task(&self, root: &str) -> IndexTask { self.state.lock().unwrap().tasks[root].clone() }
-    pub fn log(&self, root: &str) -> Vec<IndexFileLog> { self.state.lock().unwrap().logs[root].clone() }
-    pub fn indexed(&self, root: &str) -> (usize, usize) { self.state.lock().unwrap().indexed[root] }
+    pub fn task(&self, root: &str) -> IndexTask { self.shared.state.lock().unwrap().tasks[&self.key(root)].clone() }
+    pub fn log(&self, root: &str) -> Vec<IndexFileLog> { self.shared.state.lock().unwrap().logs[&self.key(root)].clone() }
+    pub fn indexed(&self, root: &str) -> (usize, usize) { self.shared.state.lock().unwrap().indexed[&self.key(root)] }
     pub(crate) fn record_indexed_progress(&self, root: &str, completed: usize, total: usize) {
-        *self.state.lock().unwrap().indexed.get_mut(root).unwrap() = (completed, total);
+        *self.shared.state.lock().unwrap().indexed.get_mut(&self.key(root)).unwrap() = (completed, total);
     }
     pub fn finish(&self, root: &str) {
-        let mut state = self.state.lock().unwrap();
-        state.cancelled.remove(root);
-        state.tasks.remove(root);
-        state.logs.remove(root);
-        state.indexed.remove(root);
+        let mut state = self.shared.state.lock().unwrap();
+        state.cancelled.remove(&self.key(root));
+        state.tasks.remove(&self.key(root));
+        state.logs.remove(&self.key(root));
+        state.indexed.remove(&self.key(root));
+        state.retrying.retain(|(key,_)|key != &self.key(root));
     }
     pub fn phase(&self, root: &str, stage: &str, total: usize) {
-        let mut state = self.state.lock().unwrap();
-        let task = state.tasks.get_mut(root).unwrap();
+        let mut state = self.shared.state.lock().unwrap();
+        let task = state.tasks.get_mut(&self.key(root)).unwrap();
         task.stage = stage.into(); task.total = total; task.completed = 0;
         task.conversions.clear();
         if stage == "indexing_converted" {
-            let count = state.indexed.get_mut(root).unwrap();
+            let count = state.indexed.get_mut(&self.key(root)).unwrap();
             count.1 = count.0 + total;
-        } else if stage == "indexing" || stage == "indexing_native" {
-            state.indexed.insert(root.into(), (0, total));
+        } else if stage == "indexing" || stage == "indexing_native" || stage == "enhancing" {
+            state.indexed.insert(self.key(root), (0, total));
         }
     }
     pub fn progress(&self, root: &str, completed: usize, total: usize) {
-        let mut state = self.state.lock().unwrap();
-        let task = state.tasks.get_mut(root).unwrap();
+        let mut state = self.shared.state.lock().unwrap();
+        let task = state.tasks.get_mut(&self.key(root)).unwrap();
         task.completed = completed; task.total = total;
         let stage = task.stage.clone();
-        let count = state.indexed.get_mut(root).unwrap();
+        let count = state.indexed.get_mut(&self.key(root)).unwrap();
         if stage == "indexing_converted" {
             count.0 = count.1 - total + completed;
-        } else if stage == "indexing" || stage == "indexing_native" {
+        } else if stage == "indexing" || stage == "indexing_native" || stage == "enhancing" {
             *count = (completed, total);
         }
     }
     pub fn checkpoint_root(&self,root:&str)->Result<()> {
-        let state=self.state.lock().unwrap();
-        let state=self.resumed.wait_while(state,|s|s.paused&&!s.stopped&&!s.cancelled.contains(root)).unwrap();
-        if state.stopped||state.cancelled.contains(root){bail!("文件夹索引已停止");}Ok(())
+        let state=self.shared.state.lock().unwrap();
+        let state=self.shared.resumed.wait_while(state,|s|s.paused&&!s.stopped&&!s.cancelled.contains(&self.key(root))).unwrap();
+        if state.stopped||state.cancelled.contains(&self.key(root)){bail!("文件夹索引已停止");}Ok(())
     }
     pub fn checkpoint(&self) -> Result<()> {
-        let state = self.state.lock().unwrap();
-        let state = self.resumed.wait_while(state, |state| state.paused && !state.stopped).unwrap();
+        let state = self.shared.state.lock().unwrap();
+        let state = self.shared.resumed.wait_while(state, |state| state.paused && !state.stopped).unwrap();
         if state.stopped { bail!("索引已停止") }
         Ok(())
     }
     pub(crate) fn conversion_attempt(&self,root:&str,path:&Path,attempt:crate::conversion::Attempt) {
-        let mut state=self.state.lock().unwrap();
+        let mut state=self.shared.state.lock().unwrap();
         let path=path.to_string_lossy().into_owned();
         // Live parser state is independent of the bounded history and survives
         // cloud phase updates without being inferred from old log rows.
-        if let Some(task) = state.tasks.get_mut(root) {
-            if task.files.contains(&path) && task.stage == "converting" {
+        if let Some(task) = state.tasks.get_mut(&self.key(root)) {
+            if task.files.contains(&path) && (task.stage == "converting" || task.stage == "enhancing") {
                 let segment = attempt.segment.clone().or_else(|| task.conversions.iter()
                     .find(|item| item.path == path).and_then(|item| item.segment.clone()));
                 task.conversions.retain(|item| item.path != path);
@@ -120,7 +173,7 @@ impl IndexControl {
         }
         // Starting only drives live status; retain the existing history format.
         if matches!(attempt.phase.as_deref(), Some("starting" | "segment")) { return; }
-        if let Some(log)=state.logs.get_mut(root) {
+        if let Some(log)=state.logs.get_mut(&self.key(root)) {
             if attempt.phase.is_some() && log.iter().rev().find(|row|row.path==path&&row.engine.as_deref()==Some(&attempt.engine))
                 .is_some_and(|row|row.phase==attempt.phase) {return;}
             // Preserve final engine outcomes when long cloud queues fill the bounded log.
@@ -134,21 +187,22 @@ impl IndexControl {
         self.file_attempt(root, path, false, work)
     }
     pub fn file_attempt<T>(&self, root: &str, path: &Path, retry: bool, work: impl FnOnce() -> Result<T>) -> Result<T> {
-        let state = self.state.lock().unwrap();
-        let mut state = self.resumed.wait_while(state, |state| state.paused && !state.stopped && !state.cancelled.contains(root)).unwrap();
-        if state.stopped || state.cancelled.contains(root) { bail!("索引已停止") }
+        let state = self.shared.state.lock().unwrap();
+        let mut state = self.shared.resumed.wait_while(state, |state| state.paused && !state.stopped && !state.cancelled.contains(&self.key(root))).unwrap();
+        if state.stopped || state.cancelled.contains(&self.key(root)) { bail!("索引已停止") }
         let path = path.to_string_lossy().into_owned();
-        let stage = if retry { "retrying_conversion".into() } else { state.tasks[root].stage.clone() };
-        if retry { state.retrying.insert((root.into(), path.clone())); }
-        state.tasks.get_mut(root).unwrap().files.push(path.clone());
+        let current_stage = &state.tasks[&self.key(root)].stage;
+        let stage = if retry { if current_stage == "enhancing" { "retrying_enhancement" } else { "retrying_conversion" }.into() } else { current_stage.clone() };
+        if retry { state.retrying.insert((self.key(root), path.clone())); }
+        state.tasks.get_mut(&self.key(root)).unwrap().files.push(path.clone());
         drop(state);
         let mut result = work();
-        let mut state = self.state.lock().unwrap();
-        state.retrying.remove(&(root.into(), path.clone()));
-        if state.cancelled.contains(root) {result=Err(anyhow::anyhow!("文件夹已移除，已停止索引"));}
-        state.tasks.get_mut(root).unwrap().files.retain(|file| file != &path);
-        state.tasks.get_mut(root).unwrap().conversions.retain(|item| item.path != path);
-        let log = state.logs.get_mut(root).unwrap();
+        let mut state = self.shared.state.lock().unwrap();
+        state.retrying.remove(&(self.key(root), path.clone()));
+        if state.stopped || state.cancelled.contains(&self.key(root)) {result=Err(anyhow::anyhow!("文件夹已移除，已停止索引"));}
+        state.tasks.get_mut(&self.key(root)).unwrap().files.retain(|file| file != &path);
+        state.tasks.get_mut(&self.key(root)).unwrap().conversions.retain(|item| item.path != path);
+        let log = state.logs.get_mut(&self.key(root)).unwrap();
         if log.len() < 100 {
             log.push(IndexFileLog {
                 time: crate::store::now(), path, stage, phase: None, engine: None, elapsed_ms: None,
@@ -255,7 +309,7 @@ mod parser_status_tests {
     #[test]
     fn active_parser_does_not_depend_on_bounded_history() {
         let control = IndexControl::default(); control.begin("root"); control.phase("root", "converting", 1);
-        control.state.lock().unwrap().logs.insert("root".into(), (0..100).map(|_| IndexFileLog {
+        control.shared.state.lock().unwrap().logs.insert(control.key("root"), (0..100).map(|_| IndexFileLog {
             time:0,path:"old.pdf".into(),stage:"converting".into(),phase:None,engine:None,elapsed_ms:None,status:"completed".into(),error:None,
         }).collect());
         control.file("root", Path::new("a.pdf"), || {
@@ -265,5 +319,112 @@ mod parser_status_tests {
             assert!(control.task("root").conversions.is_empty());
             Ok(())
         }).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod lane_tests {
+    use super::*;
+    #[test]
+    fn same_root_lanes_keep_progress_logs_and_finish_independent() {
+        let primary = IndexControl::default();
+        let background = primary.for_lane(IndexLane::Enhancement);
+        primary.begin("root"); background.begin("root");
+        primary.phase("root", "indexing_native", 3);
+        background.phase("root", "enhancing", 8);
+        primary.progress("root", 2, 3); background.progress("root", 1, 8);
+        primary.file("root",Path::new("new.txt"),|| Ok(())).unwrap();
+        background.file("root",Path::new("old.pdf"),|| Ok(())).unwrap();
+        assert_eq!(primary.indexed("root"),(2,3));
+        assert_eq!(background.indexed("root"),(1,8));
+        assert_eq!(primary.log("root")[0].path,"new.txt");
+        assert_eq!(background.log("root")[0].path,"old.pdf");
+        let tasks = primary.status().tasks;
+        assert_eq!(tasks.len(),2);
+        assert!(tasks.iter().all(|task|task.path=="root"));
+        assert_ne!(tasks[0].id,tasks[1].id);
+        assert_ne!(tasks[0].kind,tasks[1].kind);
+        primary.finish("root");
+        assert_eq!(background.task("root").completed,1);
+        assert_eq!(primary.status().tasks.len(),1);
+    }
+    #[test]
+    fn enhancement_claim_is_atomic_and_defers_to_active_primary() {
+        let primary = IndexControl::default();
+        let background = primary.for_lane(IndexLane::Enhancement);
+        primary.begin("root");
+        assert!(!background.try_begin("root"));
+        assert_eq!(primary.status().tasks.len(),1);
+        primary.finish("root");
+        assert!(background.try_begin("root"));
+        assert!(!background.try_begin("root"));
+        assert!(primary.try_begin("root"));
+        assert_eq!(primary.status().tasks.len(),2);
+        primary.stop(); background.finish("root");
+        assert!(!background.try_begin("other"));
+    }
+    #[test]
+    fn retry_parser_and_lane_cancellation_do_not_leak_to_primary() {
+        let primary = IndexControl::default();
+        let background = primary.for_lane(IndexLane::Enhancement);
+        primary.begin("root"); background.begin("root");
+        primary.phase("root","converting",1); background.phase("root","enhancing",1);
+        background.file_attempt("root",Path::new("same.pdf"),true,|| {
+            primary.file("root",Path::new("same.pdf"),|| {
+                let tasks = primary.status().tasks;
+                assert_eq!(tasks.iter().find(|task|task.kind=="primary").unwrap().stage,"converting");
+                assert_eq!(tasks.iter().find(|task|task.kind=="enhancement").unwrap().stage,"retrying_enhancement");
+                assert!(primary.has_active_source("root",Path::new("same.pdf"),IndexLane::Enhancement));
+                assert!(background.is_active("root",IndexLane::Primary));
+                primary.cancel_lane("root",IndexLane::Enhancement);
+                assert!(!primary.cancelled("root"));
+                assert!(background.cancelled("root"));
+                Ok(())
+            })?;
+            Ok(())
+        }).unwrap_err();
+        assert_eq!(background.log("root")[0].stage,"retrying_enhancement");
+        assert!(!primary.has_active_source("root",Path::new("same.pdf"),IndexLane::Enhancement));
+        assert_eq!(primary.log("root")[0].status,"completed");
+    }
+    #[test]
+    fn readding_primary_does_not_revive_cancelled_background() {
+        let primary = IndexControl::default();
+        let background = primary.for_lane(IndexLane::Enhancement);
+        primary.begin("root"); background.begin("root");
+        background.file("root",Path::new("old.pdf"),|| {
+            primary.cancel_root("root");
+            primary.finish("root"); primary.begin("root");
+            assert!(!primary.cancelled("root"));
+            assert!(background.cancelled("root"));
+            assert!(background.checkpoint_root("root").is_err());
+            Ok(())
+        }).unwrap_err();
+        assert!(background.log("root")[0].error.is_some());
+        background.finish("root");
+        assert!(!primary.cancelled("root"));
+        assert_eq!(primary.status().tasks.len(),1);
+    }
+    #[test]
+    fn pause_and_stop_are_shared_but_root_cancellation_is_local() {
+        let primary = IndexControl::default();
+        let background = primary.for_lane(IndexLane::Enhancement);
+        primary.begin("root"); background.begin("root"); background.begin("other");
+        primary.set_paused(true);
+        assert!(background.status().paused);
+        let (tx,rx) = std::sync::mpsc::channel();
+        let waiting = background.clone();
+        let worker = std::thread::spawn(move||tx.send(waiting.checkpoint_root("root").is_err()).unwrap());
+        primary.cancel_root("root");
+        assert!(rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap());
+        worker.join().unwrap();
+        assert!(!background.cancelled("other"));
+        background.set_paused(false);
+        assert!(!primary.status().paused);
+        assert!(background.checkpoint_root("other").is_ok());
+        background.stop();
+        assert!(primary.stopped());
+        assert!(primary.checkpoint().is_err());
+        assert!(background.checkpoint_root("other").is_err());
     }
 }

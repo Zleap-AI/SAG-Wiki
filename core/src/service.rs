@@ -65,6 +65,7 @@ pub struct Service {
     pub events: broadcast::Sender<(Option<String>, EventEnvelope)>,
     pub stop: CancellationToken,
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
+    enhancement_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub cli: Arc<cli_service::CliService>,
 }
 impl Service {
@@ -1125,12 +1126,16 @@ impl Service {
                 Err(error)=>{emit(&handle,"app-error",error.to_string());continue;}
             };
             for request in indexer::receive_batch_with_runtime(&rx, first, &runtime) {
+                // Legacy internal requests are now consumed by the independent
+                // worker through durable pending state, never on this lane.
+                if matches!(&request, IndexRequest::Enhance { .. }) { continue; }
+                if worker_stop.is_cancelled() { break; }
                 match worker_store.roots().and_then(|roots| worker_watcher.reconcile(&roots)) {
                     Ok(()) => {},
                     Err(err) => emit(&handle, "app-error", format!("文件监听清理失败：{err}")),
                 }
                 let root = match &request {
-                    IndexRequest::SyncWatches => continue,
+                    IndexRequest::SyncWatches | IndexRequest::Enhance { .. } => continue,
                     IndexRequest::ResetWatch { root } => {
                         if let Err(err) = worker_watcher.reset(root) {
                             emit(&handle, "app-error", format!("文件监听重置失败：{root}：{err}"));
@@ -1151,8 +1156,14 @@ impl Service {
                         emit(&handle, "app-error", format!("文件监听失败：{root}：{err}"));
                     }
                 }
+                // Only a full recovery scan that starts after the background
+                // lease ended can clear its deferred flag. A native-only Paths
+                // request, or a scan that skipped an active input, cannot.
+                let completes_deferred = matches!(&request,IndexRequest::Scan { .. })
+                    && worker_store.needs_deferred_refresh(&root)
+                    && !worker_store.indexing.is_active(&root,crate::index_status::IndexLane::Enhancement);
                 let last_update = std::cell::Cell::new(std::time::Instant::now());
-                if let Err(e) = indexer::apply_request(&worker_store, request, |progress| {
+                let result = indexer::apply_foreground_request(&worker_store, request, |progress| {
                     emit(
                         &handle,
                         "index-progress",
@@ -1162,10 +1173,68 @@ impl Service {
                         last_update.set(std::time::Instant::now());
                         emit(&handle, "data-changed", ());
                     }
-                }) {
+                });
+                if let Err(e) = &result {
                     emit(&handle, "app-error", format!("{}：{}", root, e));
                 }
+                if result.is_ok() && completes_deferred { worker_store.complete_deferred_refresh(&root); }
                 emit(&handle, "data-changed", ());
+            }
+        });
+        let enhancement_store = store.fork_for_enhancement();
+        let enhancement_events = event_sink.clone();
+        let enhancement_stop = stop.clone();
+        let deferred_tx = tx.clone();
+        let enhancement_worker = std::thread::spawn(move || {
+            let mut last_root: Option<String> = None;
+            while !enhancement_stop.is_cancelled() {
+                let mut roots = match enhancement_store.pending_enhancement_roots() {
+                    Ok(roots) => roots,
+                    Err(error) => {
+                        emit(&enhancement_events,"app-error",error.to_string());
+                        std::thread::sleep(std::time::Duration::from_millis(100));
+                        continue;
+                    }
+                };
+                if let Some(last)=&last_root {
+                    let split=roots.partition_point(|root|root<=last);
+                    roots.rotate_left(split);
+                }
+                let mut completed_work=false;
+                for root in roots {
+                    if enhancement_stop.is_cancelled() { break; }
+                    if enhancement_store.indexing.is_active(&root,crate::index_status::IndexLane::Primary) { continue; }
+                    let last_update = std::cell::Cell::new(std::time::Instant::now());
+                    let result = enhancement_store.enhance(&root, |progress| {
+                        emit(&enhancement_events,"index-progress",serde_json::json!({
+                            "path":root,"count":progress.count,"total":progress.total,
+                            "stage":enhancement_store.indexing.task(&root).stage,
+                        }));
+                        if progress.count > 0 && last_update.get().elapsed() >= std::time::Duration::from_secs(1) {
+                            last_update.set(std::time::Instant::now());
+                            emit(&enhancement_events,"data-changed",());
+                        }
+                    });
+                    if result.as_ref().is_ok_and(|count|*count>0) {
+                        completed_work=true;
+                        last_root=Some(root.clone());
+                    }
+                    if let Err(error) = result {
+                        let root_exists=enhancement_store.roots().map_or(true,|roots|roots.iter().any(|item|item.path==root));
+                        if !enhancement_stop.is_cancelled() && root_exists && !enhancement_store.needs_deferred_refresh(&root) {
+                            emit(&enhancement_events,"app-error",format!("{root}：{error}"));
+                        }
+                    }
+                    // Source/rule changes invalidate only the background input.
+                    // Retry those through primary ingestion after its lease ends.
+                    if !enhancement_stop.is_cancelled() && enhancement_store.needs_deferred_refresh(&root)
+                        && enhancement_store.roots().is_ok_and(|roots| roots.iter().any(|item|item.path==root)) {
+                        let _ = deferred_tx.send(IndexRequest::Scan { root: root.clone(), verify: false });
+                    }
+                    emit(&enhancement_events,"data-changed",());
+                }
+                // A busy queue must not pay an idle polling delay per file.
+                if !completed_work { std::thread::sleep(std::time::Duration::from_millis(100)); }
             }
         });
         let client = reqwest::Client::builder().build()?;
@@ -1210,23 +1279,27 @@ impl Service {
             stop,
             cli,
             worker: Mutex::new(Some(worker)),
+            enhancement_worker: Mutex::new(Some(enhancement_worker)),
         }))
     }
     pub async fn finish(&self) -> anyhow::Result<()> {
         self.stop.cancel();
-        self.api.shutdown().await?;
         self.store.indexing.stop();
         self.store.docling.cancel();
+        let api_result = self.api.shutdown().await;
         let worker = self.worker.lock().unwrap().take();
-        if let Some(worker) = worker {
-            tokio::task::spawn_blocking(move || {
-                worker
-                    .join()
-                    .map_err(|_| anyhow::anyhow!("索引线程退出失败"))
-            })
-            .await??;
-        }
-        Ok(())
+        let enhancement_worker = self.enhancement_worker.lock().unwrap().take();
+        let joined = tokio::task::spawn_blocking(move || {
+            // Join both even if one panicked, so shutdown never leaves a parser
+            // worker using the store after service teardown.
+            let primary = worker.map(|worker|worker.join());
+            let enhancement = enhancement_worker.map(|worker|worker.join());
+            if primary.is_some_and(|result|result.is_err()) { anyhow::bail!("索引线程退出失败"); }
+            if enhancement.is_some_and(|result|result.is_err()) { anyhow::bail!("增强线程退出失败"); }
+            Ok(())
+        }).await?;
+        api_result?;
+        joined
     }
     pub fn info(&self) -> anyhow::Result<sag_protocol::ServiceInfo> {
         Ok(sag_protocol::ServiceInfo {
@@ -1347,11 +1420,7 @@ impl Service {
             }
             Op::ReindexAll => Out::Roots(reindex_all(self)?),
             Op::RetryFailedIndexes => Out::Roots(retry_failed_indexes(self)?),
-            Op::GetIndexStatus => {
-                let mut status = self.store.indexing.status();
-                status.failed_files = self.store.failed_index_count().map_err(error)?;
-                Out::IndexStatus(status)
-            },
+            Op::GetIndexStatus => Out::IndexStatus(self.store.index_status().map_err(error)?),
             Op::GetIndexHistory => Out::IndexHistory(self.store.index_history().map_err(error)?),
             Op::SetConversionWorkers { workers } => {
                 let mut settings = self.store.settings().map_err(error)?;
@@ -1367,7 +1436,7 @@ impl Service {
                 self.store.clear_index_history().map_err(error)?;
                 Out::Unit
             }
-            Op::SetIndexPaused { paused } => Out::IndexStatus(self.store.indexing.set_paused(paused)),
+            Op::SetIndexPaused { paused } => { self.store.indexing.set_paused(paused); Out::IndexStatus(self.store.index_status().map_err(error)?) },
             Op::RemoveAllRoots => {
                 let store = self.store.clone();
                 tokio::task::spawn_blocking(move || store.remove_all_roots().map_err(error))

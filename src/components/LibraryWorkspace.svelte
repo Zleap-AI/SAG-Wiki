@@ -1,11 +1,12 @@
 <script lang="ts">
  import {displayPath,inside} from '../lib/domain';
- import {indexStage} from '../lib/index-stages';
- import type {IndexTask} from '../lib/types';
+ import {fileIndexState,indexStage} from '../lib/index-stages';
+ import type {ConversionState,IndexTask} from '../lib/types';
  import {Button} from 'bits-ui';
  import ExploreView from './ExploreView.svelte';
  import LibraryStats from './LibraryStats.svelte';
  import Modal from './ui/Modal.svelte';
+ import {indexTaskKey} from '../lib/stable-snapshot';
  import {t} from '../lib/i18n';import {icon} from '../lib/icons';import {basename,indexedSourcePath} from '../lib/domain';
  import type {Entry,FileInfo,Root,NoteSummary} from '../lib/types';import type {LibrarySession} from '../lib/explore';
  import '../styles/explore.css';
@@ -15,9 +16,11 @@
  export let notes:NoteSummary[]=[];
  export let roots:Root[]=[];
  export let indexTasks:IndexTask[]=[];
+ export let conversionStates:ConversionState[]=[];
  export let indexPaused=false;
  $:scopeRoot=scope?roots.filter(root=>inside(scope,displayPath(root.path))).sort((a,b)=>b.path.length-a.path.length)[0]:undefined;
- $:scopeTask=scopeRoot?indexTasks.find(task=>task.path===scopeRoot.path):undefined;
+ $:scopeTasks=scopeRoot?indexTasks.filter(task=>task.path===scopeRoot.path).sort((a,b)=>Number(a.kind==='enhancement')-Number(b.kind==='enhancement')):[];
+ $:scopeTask=scopeTasks[0];
  $:scopeState=indexPaused&&(scopeTask||scopeRoot?.status==='pending')?'索引已暂停':scopeTask?(indexStage(scopeTask.stage)?.progress??'正在扫描文件'):scopeRoot?.status==='pending'||scopeRoot?.status==='indexing'?'等待后台处理':scopeRoot?.status==='error'?'索引失败':scopeRoot?.status==='partial'?'部分文件索引失败':'索引已完成';
  export let onIndexDetails:(()=>void)|undefined=undefined;
  export let onPauseChange:((paused:boolean)=>void)|undefined=undefined;
@@ -42,6 +45,8 @@
  $:promptNeedsOcr=/OCR/.test(promptIssue);
  export let onbrowse:(path:string)=>void;export let onopen:(path:string,terms:string[])=>void;export let onmenu:(event:MouseEvent,path:string,isRoot:boolean,file:boolean)=>void;
  $:indexedPaths=new Set(indexedFiles.flatMap(file=>[file.path,indexedSourcePath(file.path)]));
+ $:indexedByPath=new Map(indexedFiles.flatMap(file=>[[file.path,file],[indexedSourcePath(file.path),file]] as const));
+ $:conversionByPath=new Map(conversionStates.map(state=>[state.source,{index_status:state.status as FileInfo['index_status'],index_error:state.error,searchable:state.searchable}]));
  $:noteByPath=new Map(notes.map(note=>[note.path,note]));
  const attention=(note:NoteSummary)=>note.state==='changed'||note.state==='missing'||note.state==='unverified';
  $:scopeAttention=!!scope&&entries.some(entry=>!entry.directory&&!!noteByPath.get(entry.path)&&attention(noteByPath.get(entry.path)!));
@@ -60,11 +65,12 @@
     {:else if scopeState==='等待后台处理'}<p>{$t(indexTasks.length?'后台正在处理其他文件夹，完成后会继续处理此文件夹。':'文件夹已加入处理队列，即将开始扫描。')}</p>
     {:else if scopeState==='索引已完成'}<p>{$t('已索引 {value0} 个文件',{value0:scopeRoot.count})}</p>{/if}
     {#if scopeTask&&scopeTask.total>0}<progress aria-label={$t('当前阶段进度')} max={scopeTask.total} value={scopeTask.completed}></progress>{/if}
+    {#each scopeTasks.slice(1) as task (indexTaskKey(task))}<div class="folder-extra-task"><p><strong>{$t(indexStage(task.stage)?.progress??'正在扫描文件')}</strong>{#if task.total>0}<span class="folder-index-count">{task.completed} / {task.total}</span>{/if}</p>{#if task.files.length}<p>{$t('正在处理：{value0}',{value0:task.files.map(basename).join('、')})}</p>{/if}{#if task.total>0}<progress aria-label={$t('当前阶段进度')} max={task.total} value={task.completed}></progress>{/if}</div>{/each}
    </div><Button.Root class="outline" onclick={()=>onIndexDetails?.()}>{$t('查看索引详情')}</Button.Root>
   </div>{/if}
   <div class="simple-file-list">
    {#if scope}<Button.Root class="simple-file-row library-parent" aria-label={$t('返回上层')} onclick={()=>onbrowse(parent)}>{@html icon('back')}<span>{$t('返回上层')}</span></Button.Root>{/if}
-   {#each visibleEntries as entry}{@const unindexed=!!scope&&!entry.directory&&!indexedPaths.has(entry.path)}<div class="simple-file-entry" class:unindexed role="presentation" oncontextmenu={(e:MouseEvent)=>{e.preventDefault();onmenu(e,entry.path,!scope,!entry.directory)}}><Button.Root class="simple-file-row" title={unindexed?undefined:displayPath(entry.path)} onclick={()=>{if(unindexed){promptPath=entry.path;conversionPrompt=true}else onbrowse(entry.path)}}>{@html icon(entry.directory?'folder':'file')}<span>{entry.name}</span>{#if !entry.directory&&noteByPath.get(entry.path)}{@const note=noteByPath.get(entry.path)!}<span class="note-badge" data-state={note.state} title={$t(note.state==='intact'?'笔记引用一致':note.state==='moved'?'笔记引用位置已更新':note.state==='changed'?'笔记引用的原文已改':note.state==='missing'?'笔记引用的来源缺失':'笔记未核对')}></span>{:else if entry.directory}{@const count=folderAttention(entry.path)}{#if count}<span class="note-badge-count" title={$t('{value0} 篇笔记需要关注',{value0:count})}>{count}</span>{/if}{/if}{#if entry.directory}{@html icon('chevron')}{/if}</Button.Root></div>{/each}
+   {#each visibleEntries as entry}{@const fileState=entry.directory?undefined:fileIndexState(conversionByPath.get(entry.path)??indexedByPath.get(entry.path))}{@const unindexed=!!scope&&!entry.directory&&!indexedPaths.has(entry.path)}<div class="simple-file-entry" class:unindexed role="presentation" oncontextmenu={(e:MouseEvent)=>{e.preventDefault();onmenu(e,entry.path,!scope,!entry.directory)}}><Button.Root class="simple-file-row" title={unindexed?undefined:displayPath(entry.path)} onclick={()=>{if(unindexed){promptPath=entry.path;conversionPrompt=true}else onbrowse(entry.path)}}>{@html icon(entry.directory?'folder':'file')}<span>{entry.name}</span>{#if fileState}<span class="file-index-state" data-state={indexedByPath.get(entry.path)?.index_status} title={$t(fileState.description)+((conversionByPath.get(entry.path)??indexedByPath.get(entry.path))?.index_error?`\n${(conversionByPath.get(entry.path)??indexedByPath.get(entry.path))?.index_error}`:'')}>{$t(fileState.label)}</span>{/if}{#if !entry.directory&&noteByPath.get(entry.path)}{@const note=noteByPath.get(entry.path)!}<span class="note-badge" data-state={note.state} title={$t(note.state==='intact'?'笔记引用一致':note.state==='moved'?'笔记引用位置已更新':note.state==='changed'?'笔记引用的原文已改':note.state==='missing'?'笔记引用的来源缺失':'笔记未核对')}></span>{:else if entry.directory}{@const count=folderAttention(entry.path)}{#if count}<span class="note-badge-count" title={$t('{value0} 篇笔记需要关注',{value0:count})}>{count}</span>{/if}{/if}{#if entry.directory}{@html icon('chevron')}{/if}</Button.Root></div>{/each}
   </div>
   {#if reading}<div class="empty" role="status">{$t('正在读取文件夹…')}</div>{:else if !entries.length}<div class="empty">{scope?$t('文件夹是空的'):$t('添加文件夹并完成索引后，文件会显示在这里。')}</div>{:else if !visibleEntries.length}<div class="empty">{$t('没有符合条件的文件')}</div>{/if}
  </section>{/if}
@@ -77,8 +83,11 @@
 </Modal>{/if}
 
 <style>
+ .file-index-state{flex:0 1 auto;font-size:11px;padding:2px 7px;border-radius:5px;background:var(--color-panel);color:var(--color-muted)}
+ .file-index-state[data-state="enhancement_failed"]{color:var(--color-ink);border:1px solid var(--color-rule)}
  .folder-index-status{display:flex;align-items:center;gap:20px;border:1px solid var(--color-rule);background:var(--color-panel);border-radius:10px;padding:14px 16px;margin:0 0 20px;font-size:12px}
  .folder-index-status>div{flex:1;min-width:0}.folder-index-status strong{font-weight:500}.folder-index-count{margin-left:12px;color:var(--color-muted);font-variant-numeric:tabular-nums}
+ .folder-extra-task{margin-top:12px;padding-top:6px;border-top:1px solid var(--color-rule)}
  .folder-index-status p{margin:6px 0 0;color:var(--color-muted);line-height:1.6;overflow-wrap:anywhere}
  .folder-index-status progress{display:block;width:100%;height:4px;margin-top:10px;accent-color:var(--color-ink)}
  .folder-index-status :global(button){flex-shrink:0}

@@ -448,6 +448,8 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .simple-file-entry{display:flex;align-items:center;border-bottom:1px solid var(--color-rule)}
 .real-client .simple-file-entry>.simple-file-row{flex:1;min-width:0;border-bottom:0}
 .real-client .simple-file-entry.unindexed>.simple-file-row{opacity:.45}
+/* Pending recognition remains unavailable, but its explanatory status must be readable. */
+.real-client .simple-file-entry.unindexed:has(.file-index-state)>.simple-file-row{opacity:1}
 .real-client .library-parent{color:var(--color-secondary)}
 .real-client .library-mode-back{display:flex;align-items:center;gap:8px;align-self:flex-start;margin:12px 24px 0;padding:8px;color:var(--color-secondary)}
 .real-client .library-mode-back>.icon{width:17px;height:17px}

@@ -14,6 +14,7 @@ use std::{
 #[derive(Debug)]
 pub enum IndexRequest {
     SyncWatches,
+    Enhance { root: String },
     ResetWatch { root: String },
     Scan { root: String, verify: bool },
     Paths { root: String, paths: Vec<PathBuf> },
@@ -93,9 +94,11 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
     let mut sync_watches = false;
     let mut resets = BTreeSet::new();
     let mut retries = BTreeMap::<String, BTreeSet<PathBuf>>::new();
+    let mut enhancements = BTreeSet::new();
     for request in requests {
         match request {
             IndexRequest::SyncWatches => sync_watches = true,
+            IndexRequest::Enhance { root } => { enhancements.insert(root); },
             IndexRequest::ResetWatch { root } => { resets.insert(root); },
             IndexRequest::RetryFailed { root, paths } => { retries.entry(root).or_default().extend(paths); },
             IndexRequest::Scan { root, verify } => {
@@ -133,6 +136,7 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
     if sync_watches { batch.insert(0, IndexRequest::SyncWatches); }
     // Explicit recovery must survive coalescing with watcher events or scans.
     batch.extend(retries.into_iter().map(|(root, paths)| IndexRequest::RetryFailed { root, paths: paths.into_iter().collect() }));
+    batch.extend(enhancements.into_iter().map(|root| IndexRequest::Enhance { root }));
     batch
 }
 
@@ -146,6 +150,11 @@ pub fn receive_batch_with_runtime(
     receiver: &mpsc::Receiver<IndexRequest>, first: IndexRequest,
     runtime: &sag_protocol::runtime::RuntimeSettings,
 ) -> Vec<IndexRequest> {
+    // Internal enhancement turns are already coalesced and must not pay the
+    // watcher debounce once per document.
+    if matches!(&first, IndexRequest::Enhance { .. }) {
+        return coalesce(std::iter::once(first).chain(receiver.try_iter()));
+    }
     let deadline = Instant::now() + Duration::from_millis(runtime.watch_max_delay_ms);
     let mut requests = vec![first];
     loop {
@@ -168,7 +177,7 @@ pub fn apply_request(
 ) -> Result<usize> {
     let root = match &request {
         IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => return Ok(0),
-        IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } | IndexRequest::RetryFailed { root, .. } => root,
+        IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } | IndexRequest::RetryFailed { root, .. } | IndexRequest::Enhance { root } => root,
     };
     if !store
         .roots()?
@@ -185,8 +194,29 @@ pub fn apply_request(
             }
             store.scan(&root, progress)
         }
+        IndexRequest::Enhance { root } => store.enhance(&root, progress),
         IndexRequest::Paths { root, paths } => store.update_paths(&root, &paths, progress),
         IndexRequest::RetryFailed { root, paths } => store.retry_failed_indexes(&root, &paths, progress),
+    }
+}
+
+/// Requeue queued work unchanged and report whether this background turn must yield.
+pub(crate) fn foreground_waiting(receiver: &mpsc::Receiver<IndexRequest>, sender: &mpsc::Sender<IndexRequest>) -> Result<bool> {
+    let queued: Vec<_> = receiver.try_iter().collect();
+    let foreground = queued.iter().any(|request| !matches!(request, IndexRequest::Enhance { .. }));
+    for request in queued { sender.send(request)?; }
+    Ok(foreground)
+}
+
+pub(crate) fn apply_foreground_request(store: &Store, request: IndexRequest, progress: impl Fn(crate::types::IndexProgress)) -> Result<usize> {
+    match request {
+        IndexRequest::Scan { root, verify } => {
+            if verify { store.verify_root(&root)?; }
+            store.scan_basic(&root, progress)
+        }
+        IndexRequest::Paths { root, paths } => store.update_paths_basic(&root,&paths,progress),
+        IndexRequest::RetryFailed { root, paths } => store.retry_failed_indexes_basic(&root, &paths, progress),
+        other => apply_request(store, other, progress),
     }
 }
 
@@ -792,5 +822,27 @@ mod tests {
         sync();
         assert_eq!(store.search_files("restoredwatchtoken", &[], 10).unwrap().len(), 1);
 
+    }
+}
+
+#[cfg(test)]
+mod progressive_queue_tests {
+    use super::*;
+    #[test]
+    fn enhancement_drain_has_no_watcher_delay_and_prioritizes_new_foreground() {
+        let (tx,rx) = mpsc::channel();
+        let mut runtime = sag_protocol::runtime::RuntimeSettings::default();
+        runtime.watch_debounce_ms = 1000; runtime.watch_max_delay_ms = 2000;
+        let started = Instant::now();
+        let batch = receive_batch_with_runtime(&rx,IndexRequest::Enhance {root:"a".into()},&runtime);
+        assert!(started.elapsed()<Duration::from_millis(100));
+        assert_eq!(batch.len(),1);
+        tx.send(IndexRequest::Enhance {root:"b".into()}).unwrap();
+        tx.send(IndexRequest::Scan {root:"c".into(),verify:false}).unwrap();
+        assert!(foreground_waiting(&rx,&tx).unwrap());
+        tx.send(IndexRequest::Enhance {root:"a".into()}).unwrap();
+        let pending = coalesce(rx.try_iter());
+        assert!(matches!(&pending[0],IndexRequest::Scan {root,..} if root=="c"));
+        assert_eq!(pending.len(),3);
     }
 }
