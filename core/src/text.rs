@@ -168,6 +168,49 @@ pub(crate) fn indexable_ranges(source: &str, path: &std::path::Path) -> Vec<(usi
     static SVG_TAG: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?is)<(/?)svg\b[^>]*>").unwrap());
     let bytes = source.as_bytes();
     let mut excluded = vec![];
+    // Keep descriptions and their original source offsets, but never index
+    // image destinations (including opaque hashes and signed URL parameters).
+    static IMAGE: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+        r"!\[((?:\\.|\[[^\]\n]*\]|[^\]\\])*)\]\((?:\\.|[^()\n]|\([^()\n]*\))*\)"
+    ).unwrap());
+    for image in IMAGE.captures_iter(source) {
+        let whole = image.get(0).unwrap();
+        let alt = image.get(1).unwrap();
+        excluded.push((whole.start(), alt.start()));
+        excluded.push((alt.end(), whole.end()));
+    }
+    static REFERENCE_IMAGE: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+        r"!\[([^\]\n]*)\](?:\[([^\]\n]*)\])?"
+    ).unwrap());
+    static DEFINITION: LazyLock<Regex> = LazyLock::new(|| Regex::new(
+        r"(?m)^ {0,3}\[([^\]\n]+)\]:[ \t]*(?:\r?\n[ \t]+)?[^\r\n]*"
+    ).unwrap());
+    let normalize_label = |label: &str| label.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let references: Vec<_> = REFERENCE_IMAGE.captures_iter(source).filter_map(|image| {
+        let whole = image.get(0).unwrap();
+        if source[whole.end()..].starts_with('(') { return None; }
+        let alt = image.get(1).unwrap();
+        let label = image.get(2).filter(|m| !m.as_str().is_empty()).unwrap_or(alt);
+        excluded.push((whole.start(), alt.start()));
+        excluded.push((alt.end(), whole.end()));
+        Some(normalize_label(label.as_str()))
+    }).collect();
+    for definition in DEFINITION.captures_iter(source) {
+        if references.contains(&normalize_label(&definition[1])) {
+            let whole = definition.get(0).unwrap();
+            excluded.push((whole.start(), whole.end()));
+        }
+    }
+    static HTML_IMAGE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?is)<img\b(?:"[^"]*"|'[^']*'|[^'">])*>"#).unwrap());
+    static ALT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"(?is)\balt\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))"#).unwrap());
+    for image in HTML_IMAGE.find_iter(source) {
+        if let Some(alt) = ALT.captures(image.as_str()).and_then(|c| c.get(1).or_else(|| c.get(2)).or_else(|| c.get(3))) {
+            excluded.push((image.start(), image.start() + alt.start()));
+            excluded.push((image.start() + alt.end(), image.end()));
+        } else {
+            excluded.push((image.start(), image.end()));
+        }
+    }
     for resource in RESOURCE_DATA.find_iter(source) {
         let quoted = resource.start() > 0 && matches!(bytes[resource.start() - 1], b'\'' | b'"');
         let base64 = resource.as_str().to_ascii_lowercase().contains(";base64,");
@@ -665,6 +708,34 @@ mod tests {
     }
 
     #[test]
+    fn image_destinations_are_not_indexed_and_descriptions_keep_source_spans() {
+        let source = "正文。\n![光谱响应](images/opaquehash.png)\n图 3 灵敏度。\n<img src='https://example.com/privatehash?signature=secret' alt='曲线说明'>\n[普通链接](https://example.com/reference)";
+        let path = std::path::Path::new("report.pdf.md");
+        let text = indexable_text(source, path);
+        for marker in ["光谱响应", "图 3 灵敏度", "曲线说明", "https://example.com/reference"] {
+            assert!(text.contains(marker), "lost {marker}");
+        }
+        let chunks = chunks_for_file(source, 160, path);
+        for chunk in chunks {
+            for marker in ["opaquehash", "privatehash", "signature", "secret"] {
+                assert!(!chunk.content.contains(marker), "indexed {marker}");
+            }
+            for span in chunk.spans {
+                assert!(chunk.content.contains(&source[span.start_byte..span.end_byte]));
+            }
+        }
+        assert!(indexable_text("sha256 opaquehash", path).contains("opaquehash"));
+        let reference = "![曲线][figure]\n\n[figure]: images/referencehash.png\n\n正文";
+        let indexed = indexable_text(reference, path);
+        assert!(indexed.contains("曲线") && indexed.contains("正文"));
+        assert!(!indexed.contains("referencehash"));
+        let variants = "![curve [red]](images/nestedhash.png)\n<img alt=\"a > b\" src=\"images/htmlhash.png\">\n![figure][f]\n[f]:\n  images/multilinehash.png";
+        let filtered = indexable_text(variants, path);
+        for hash in ["nestedhash", "htmlhash", "multilinehash"] { assert!(!filtered.contains(hash)); }
+        for caption in ["curve", "a > b", "figure"] { assert!(filtered.contains(caption)); }
+    }
+
+    #[test]
     fn bounded_index_does_not_count_decimal_points_and_dot_leaders_as_sentences() {
         let source = "wind-treating therapy......................................................3.14\r\n\r\n".repeat(5000);
         let chunks = chunks_for_index(&source, 512, std::path::Path::new("policy.md"), 16 * 1024 * 1024).unwrap();
@@ -764,10 +835,10 @@ mod tests {
         for extension in ["html", "HTM"] {
             let chunks = chunks_for_file(source, 512, std::path::Path::new(&format!("page.{extension}")));
             let result = chunks.iter().map(|chunk| chunk.content.as_str()).collect::<String>();
-            for marker in ["正文标题", "beforemarker", "图像说明", "aftermarker", "endmarker", "结尾正文", "https://example.com/image.png"] {
+            for marker in ["正文标题", "beforemarker", "图像说明", "aftermarker", "endmarker", "结尾正文"] {
                 assert!(result.contains(marker), "missing {marker}");
             }
-            for payload in ["aW1hZ2VwYXlsb2Fk", "c2Vjb25k", "cGF5bG9hZA", "dGhpcmRwYXlsb2Fk", "%3Csvg%3E"] {
+            for payload in ["aW1hZ2VwYXlsb2Fk", "c2Vjb25k", "cGF5bG9hZA", "dGhpcmRwYXlsb2Fk", "%3Csvg%3E", "https://example.com/image.png"] {
                 assert!(!result.contains(payload), "image payload remained: {payload}");
             }
             for chunk in &chunks {

@@ -1,4 +1,7 @@
 {
+  "尝试重试转换": "Retrying failed conversions",
+  "重试转换": "Retry conversion",
+  "正在重试此前失败的文件，已成功转换的文件继续复用。": "Retrying previously failed files; successful conversions are reused.",
   "解析方式：{value0}": "Parser: {value0}",
   "正在准备转换…": "Preparing conversion…",
   "、": ", ",

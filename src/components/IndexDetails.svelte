@@ -112,7 +112,7 @@
     <div class="index-root-title">{@html icon('folder')}<strong>{root.name}</strong><span>{status.paused?$t(task&&task.files.length?'正在暂停…':'索引已暂停'):task?stageLabel(task.stage):$t('等待处理')}</span></div>
     <p class="index-root-path" title={displayPath(root.path)}>{displayPath(root.path)}</p>
     {#if task}
-     {@const step=indexStages.findIndex(item=>item.stage===task.stage)}
+     {@const step=indexStages.findIndex(item=>item.stage===(task.stage==='retrying_conversion'?'converting':task.stage))}
      <ol class="index-pipeline" aria-label={$t('索引流程')}>
       {#each indexStages as item,index}<li class:current={step===index} class:done={step>index} aria-current={step===index?'step':undefined}><span>{step>index?'✓':index+1}</span>{$t(item.title)}</li>{/each}
      </ol>

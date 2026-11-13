@@ -27,6 +27,8 @@ elif [ -f "$installer_dir/../cli/Cargo.toml" ]; then
     command -v cargo >/dev/null 2>&1 || { echo 'Source installation requires Rust. Use the prebuilt release for installation without Rust.' >&2; exit 1; }
     cargo build --release --locked --manifest-path "$installer_dir/../cli/Cargo.toml"
     binary="$installer_dir/../cli/target/release/sag"
+    command -v node >/dev/null 2>&1 || { echo 'Source installation requires Node.js to prepare QPDF. Use a prebuilt release otherwise.' >&2; exit 1; }
+    (cd "$installer_dir/.."; node scripts/prepare-qpdf.mjs "$installer_dir/../cli/target/release/qpdf")
 else
     echo 'Set SAG_RELEASE_BASE_URL to the published release, or run this installer beside the sag binary.' >&2
     exit 1

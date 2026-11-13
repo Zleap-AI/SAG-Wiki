@@ -17,6 +17,8 @@ sag
 
 The published `@zleap-ai/sag` contains native executables for these two platforms. Rust, source compilation and desktop installation are unnecessary. npm registers the `sag` command. Reuse an existing working `sag` installation.
 
+Standalone CLI and npm packaging place QPDF and its required libraries beside the native `sag` executable; packaged installations need no separate QPDF installation. Source installation also requires Node.js to prepare the helper.
+
 The first interactive run of `sag` guides configuration of the JEV retrieval service. The endpoint and model prompts show their current values; press Enter to keep them. First-time setup requires a key, entered with hidden input. The default endpoint is `https://api.zleap.com/v1`, and the model is `Zev-1`. Create the API key in the [Zleap Open Platform console](https://platform.zleap.com/console). CLI search needs only this retrieval configuration. The answer model is configured separately in desktop.
 
 If no terminal was available during installation, the first terminal invocation of `sag` or `sag "search query"` opens the same setup flow. When started from a search, saving configuration resumes the original query. Existing keys automatically reuse the current configuration. Ctrl+C cancels; nothing is saved until setup finishes. Run `sag config` to configure it again at any time.
