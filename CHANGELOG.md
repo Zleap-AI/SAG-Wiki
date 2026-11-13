@@ -1,5 +1,25 @@
 # 更新日志 / Changelog
 
+## 0.2.11
+
+- **长 PDF 分段转换与恢复**：按最多 50 页分段，每段独立尝试 MinerU、适用的内置解析器和已安装的 Docling。失败只降级当前分段，成功分段缓存复用，全部完成后才合并入库；停止或失败不会发布残缺正文。
+- **减少长文档等待**：使用随包 QPDF 拆页，避免克隆并逐页删除整份 PDF；明确没有文字层的扫描分段尽快交给 OCR。恢复云端任务时从首次提交计算等待期限，避免重试反复等待同一过期任务。
+- **保留 MinerU 文档图片**：ZIP 结果中的图片保存到本地，阅读器通过相对链接显示；检索保留描述和图注，过滤图片资源地址。兼容引用式图片、嵌套或转义的图片描述以及带空格的图片路径。
+- **改善打包与 Windows 兼容性**：桌面端和独立 CLI 携带 QPDF，修复迁移安装目录后依赖失效、npm 包遗漏 QPDF、Windows 临时文件占用和规范化路径处理问题。
+- **区分失败文件重试进度**：索引详情明确显示正在重试失败文件，避免与正常转换进度混淆。
+
+桌面端与随包 CLI 版本统一为 0.2.11。
+
+### English
+
+- **Resumable long-PDF conversion**: process PDFs in parts of at most 50 pages, independently trying MinerU, the applicable built-in parser, and installed Docling. Only failed parts fall back; successful parts are cached. Merge and index the complete document only after every part succeeds, without publishing partial output after failure or cancellation.
+- **Less waiting on long documents**: use bundled QPDF for page selection instead of cloning and deleting pages from the whole PDF. Hand scanned parts with no text layer off to OCR promptly. Resumed cloud tasks keep their original submission deadline instead of restarting the wait for an expired task.
+- **Preserve MinerU document images**: save ZIP result images locally for the reader to display through relative links. Search retains descriptions and captions while filtering image resource addresses. Support reference images, nested or escaped image descriptions, and image paths containing spaces.
+- **Packaging and Windows compatibility**: bundle QPDF with the desktop app and standalone CLI. Fix dependencies that broke after installation relocation, missing QPDF in npm packages, open temporary file handles on Windows, and canonical path handling.
+- **Distinct failed-file retry progress**: index details distinguish retries of failed files from normal conversion progress.
+
+The desktop app and bundled CLI both use 0.2.11.
+
 ## 0.2.10
 
 - **新增 HTTP API**：本机和局域网程序可通过 API 进行快速或深入检索、浏览文件夹，并按完整路径指定一个或多个搜索目录。API 与桌面端、CLI 共用知识库、索引和决策模型配置，结果按原文片段返回。
