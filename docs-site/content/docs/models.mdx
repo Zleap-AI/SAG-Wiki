@@ -45,7 +45,7 @@ description: "配置回答模型、决策模型与 MinerU 文档解析，并验�
 
 问答模型的 **可选模型 · 每行一个** 决定界面里可以切换哪些模型。每行填写一个服务支持的准确模型 ID，不加逗号；去重后保存。连接测试使用列表第一项。
 
-决策模型的 **模型名称** 填写一个决策模型 ID。首次默认使用 Zleap 开放平台的 `Zev-1`，切换到 Zleap 时也会自动填入 `Zev-1`。基础地址为 `https://api.zleap.com/v1`，实际请求 `/v1/systemone`，使用 API Key 鉴权。参见[决策模型文档](https://platform.zleap.com/docs/decision)。切换到其他供应商后，请核对模型名称是否受该服务支持。
+决策模型的 **模型名称** 填写一个决策模型 ID。首次默认使用 Zleap 开放平台的 `Zev-1`，切换到 Zleap 时也会自动填入 `Zev-1`。基础地址为 `https://api.zleap.com/v1`，实际请求 `/v1/systemone`，使用 API Key 鉴权。参见[决策模型文档](https://platform.zleap.com/docs/decision)。切换供应商时，模型名称随之更新：Zleap 为 `Zev-1`，302.AI 和 Typesafe 为 `jev-latest`，其他供应商（包括自定义）留空，需手动填写。仅打开设置不会覆盖已保存的模型名称。
 
 <Callout title="推广">
 [Zleap 开放平台](https://platform.zleap.com)现已提供自研和自部署的决策模型 **Zev-1**，全方位优于 Jev 模型，欢迎大家试用。
