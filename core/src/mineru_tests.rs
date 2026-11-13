@@ -22,16 +22,19 @@ fn default_config()->MineruConfig {MineruConfig{provider:MineruProvider::Ai302,.
 fn real_large_pdf_preparation_with_qpdf() {
     let source = PathBuf::from(std::env::var_os("SAG_TEST_LARGE_PDF").unwrap()).canonicalize().unwrap();
     let started = std::time::Instant::now();
-    let parts = prepare(&source, 200 * MIB, &|| false).unwrap();
+    for page_limit in [PAGE_LIMIT, PDF_SEGMENT_PAGES] {
+    let parts = prepare_with_page_limit(&source, 200 * MIB, page_limit, &RuntimeSettings::default(), &|| false).unwrap();
     let mut next = 1;
     for part in &parts {
         assert_eq!(part.start, next);
-        assert!(part.end - part.start < 200);
+        assert!(part.end - part.start < page_limit);
         assert_eq!(lopdf::Document::load_mem(&part.bytes).unwrap().get_pages().len(), (part.end - part.start + 1) as usize);
         next = part.end + 1;
     }
     assert_eq!(next - 1, lopdf::Document::load(&source).unwrap().get_pages().len() as u32);
     assert!(started.elapsed() < Duration::from_secs(120));
+    println!("real PDF page_limit={page_limit} parts={} elapsed_ms={}", parts.len(), started.elapsed().as_millis());
+    }
 }
 
 #[test]
@@ -1046,6 +1049,176 @@ fn enterprise_response_variants_and_error_codes_are_classified() {
     assert_eq!(find_302_task_id(&json!("A0005")),None);
     assert_eq!(normalize_opensource(json!("A0005")).unwrap()["state"],"failed");
     assert_eq!(normalize_opensource(json!({"data":{"markdown":"# result"}})).unwrap()["markdown"],"# result");
+}
+
+#[tokio::test]
+async fn resumed_expired_task_stops_pending_polling_but_can_recover_completed_result() {
+    for state in ["pending", "running", "converting", "waiting-file", "done"] {
+        let server = Fixture::new(|base| {
+            let mut steps = vec![Step::json(
+                "GET",
+                "/extract-results/batch/old-task",
+                json!({
+                    "code":0,"data":{"extract_result":[{"state":state,"full_zip_url":format!("{base}/result")} ]}
+                }),
+            )];
+            if state == "done" {
+                steps.push(Step {
+                    method: "GET",
+                    path: "/result",
+                    status: 200,
+                    body: archive("# recovered", None),
+                });
+            }
+            steps
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("task.json");
+        write_task(
+            &path,
+            &Task {
+                id: Some("old-task".into()),
+                upload: None,
+                uploaded: true,
+                submitted_at: now() - 60,
+                result: None,
+            },
+        )
+        .unwrap();
+        let config = MineruConfig {
+            provider: MineruProvider::Official,
+            task_timeout_secs: 10,
+            ..Default::default()
+        };
+        let part = Part {
+            bytes: pdf(1),
+            start: 1,
+            end: 1,
+            name: "scan.pdf".into(),
+        };
+        let result = tokio::time::timeout(
+            Duration::from_millis(500),
+            parse_part(
+                &client(5).unwrap(),
+                &server.base,
+                &part,
+                &path,
+                &config,
+                "key",
+                false,
+                &|_| {},
+            ),
+        )
+        .await;
+        assert!(
+            result.is_ok(),
+            "{state}: resumed task restarted its waiting budget"
+        );
+        let result = result.unwrap();
+        if state == "done" {
+            assert!(result.unwrap().contains("recovered"));
+        } else {
+            assert!(result.unwrap_err().to_string().contains("超时"));
+        }
+        assert!(
+            read_task(&path).unwrap().is_some(),
+            "keep journal to avoid duplicate submission"
+        );
+        server.finish(if state == "done" { 2 } else { 1 });
+    }
+}
+
+#[test]
+fn shared_pdf_splitter_uses_fifty_pages_and_preserves_original_ranges() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("long.pdf");
+    std::fs::write(&source, pdf(201)).unwrap();
+    let parts =
+        prepare_pdf_segments(&source, 200 * MIB, &RuntimeSettings::default(), &|| false).unwrap();
+    assert_eq!(
+        parts.iter().map(|p| (p.start, p.end)).collect::<Vec<_>>(),
+        [(1, 50), (51, 100), (101, 150), (151, 200), (201, 201)]
+    );
+    for part in parts {
+        assert_eq!(
+            lopdf::Document::load_mem(&part.bytes)
+                .unwrap()
+                .get_pages()
+                .len(),
+            (part.end - part.start + 1) as usize
+        );
+    }
+}
+
+#[test]
+fn segment_cloud_results_keep_original_page_offsets() {
+    let server = Fixture::new(|base| {
+        vec![
+            Step::json(
+                "POST",
+                "/file-urls/batch",
+                json!({"code":0,"data":{"batch_id":"segment","file_urls":[format!("{base}/storage")]}}),
+            ),
+            Step {
+                method: "PUT",
+                path: "/storage",
+                status: 200,
+                body: vec![],
+            },
+            Step::json(
+                "GET",
+                "/extract-results/batch/segment",
+                json!({"code":0,"data":{"extract_result":[{"state":"done","full_zip_url":format!("{base}/result")} ]}}),
+            ),
+            Step {
+                method: "GET",
+                path: "/result",
+                status: 200,
+                body: archive(
+                    "full",
+                    Some(json!([
+                        {"type":"text","text":"first segment page","page_idx":0},
+                        {"type":"text","text":"second segment page","page_idx":1}
+                    ])),
+                ),
+            },
+        ]
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("segment.pdf");
+    let output = dir.path().join("out.md");
+    std::fs::write(&source, pdf(2)).unwrap();
+    let config = MineruConfig {
+        provider: MineruProvider::Official,
+        ..Default::default()
+    };
+    convert_range_at_with_progress(
+        &source,
+        &output,
+        &config,
+        "key",
+        &|| false,
+        &server.base,
+        &RuntimeSettings::default(),
+        &|_| {},
+        Some(51),
+    )
+    .unwrap();
+    let text = std::fs::read_to_string(output).unwrap();
+    assert!(text.contains("source-page:51"));
+    assert!(text.contains("source-page:52"));
+    assert!(text.contains("id=\"page-51\""));
+    assert!(!text.contains("source-page:1"));
+    server.finish(4);
+}
+
+#[test]
+fn shared_pdf_page_limit_remains_a_resource_failure() {
+    let dir=tempfile::tempdir().unwrap();let source=dir.path().join("long.pdf");
+    std::fs::write(&source,pdf(51)).unwrap();
+    let runtime=RuntimeSettings{max_document_pages:50,..Default::default()};
+    let error=prepare_pdf_segments(&source,200*MIB,&runtime,&||false).unwrap_err();
+    assert!(crate::conversion::resource_failure(&error));
 }
 
 #[test]
