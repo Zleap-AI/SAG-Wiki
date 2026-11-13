@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
-0.2.11 将长 PDF 按 50 页分段转换并支持断点续转，保留 MinerU 文档图片，桌面端与 CLI 随包携带 QPDF；0.2.10 新增 HTTP API、Linux 版 CLI 和 Responses API 支持。详见[更新日志](CHANGELOG.md)与[双语文档站](docs-site/README.md)。下方下载入口指向 GitHub 最新正式版。
+PDF 基础文字入库后即可搜索，OCR 与表格增强在后台继续。本地 Office、RTF 等文档可独立建立基础索引，PDF 分段复用已加载的模型。各版本改动见[更新日志](CHANGELOG.md)，使用方法见[双语文档站](docs-site/README.md)。下方下载入口指向已发布的最新正式版。
 
 ## 目录
 
@@ -56,9 +56,11 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 添加一个文件夹，就能搜索其中的文档、笔记和代码。查找原文、跨文件提问、核对答案出处，也可以让编程 Agent 使用同一份知识库。
 
-- **轻**：安装包仅约 **14 MB**，无需额外安装数据库。
+- **轻**：无需额外安装数据库，可选识别组件按需单独下载。
 - **快**：百万字索引约 **200 ms**，索引和检索不调用 LLM。
 - **准**：原创 **SAG2** 检索技术，检索效果超越 RAG、GraphRAG 等。
+
+上面的索引指标指文字索引，不包含文档转换、OCR 和表格识别，不能作为整份 PDF 的完成耗时。
 
 你还可以编辑 Markdown、阅读 HTML、探索文档关联，或直接在终端搜索。PDF、Office、EPUB 等文档内置转换，直接加入同一知识库；图片识别与音视频转写按需安装组件。
 
@@ -120,7 +122,7 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 
 ### 2. 搜索，查看原文
 
-索引完成后，在“搜索”中输入要查找的内容，点击结果即可查看原文。快速搜索可直接在本地使用；在“设置 → 模型设置”配置决策模型后，可以使用深入语义检索。
+基础文字入库后即可搜索。混合或扫描 PDF 的 OCR 与表格增强在后台继续，文件列表明确标注基础文字是否可搜索、增强等待中、增强中或增强失败。增强失败时已完成的文字仍可搜索；纯扫描件需等识别文字入库后才可搜索。需要完整覆盖时，请等待处理完成并核对原文。快速搜索可直接在本地使用；在“设置 → 模型设置”配置决策模型后，可以使用深入语义检索。
 
 接入兼容 Jev 协议的本地决策模型时，选择“自定义”，填写服务提供的模型名称及基础地址（如 `http://127.0.0.1:8000/v1`），或完整的 `/systemone`、`/decisions` 接口地址。服务不要求 API Key 时，将“决策模型鉴权方式”设为“无需鉴权”；此模式不发送鉴权头，并移除已保存的决策模型密钥。服务需兼容 Jev 的 `state`、`questions` 与 `answers.*.noul` 协议。CLI 可运行 `sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none`；切回需要密钥的服务时使用 `--auth bearer --key-stdin`，并输入该服务的密钥。
 
@@ -187,6 +189,8 @@ sag add
 sag check
 sag "权限在哪里检查？" . -m 5
 ```
+
+对于大文件夹，可使用 `sag add --timeout 3600` 延长等待。等待超时不会移除目录或停止后台索引，可用 `sag list --json` 查看进度。
 
 完整的 Agent 安装流程见 Skill 的 [setup 指南](cli/skills/sag/references/setup.md#first-use-setup)，其他命令见 [CLI 使用说明](docs/zh-CN/CLI与Harness使用说明.md)。
 
