@@ -66,7 +66,20 @@ fn invalid_citations(text: &str, count: usize) -> Vec<String> {
         }
     }
     let code = regex::Regex::new(r"(?s)```.*?(?:```|$)|`[^`]*`").unwrap();
+    // Intervals such as `$x \in [0, 1]$` quoted from sources are math, not labels.
+    // Inline `$` follows the Pandoc rule (no inner edge spaces, no digit right after
+    // the closing `$`) so prices such as `US$5 … US$6` stay prose.
+    let math = regex::Regex::new(r"(?s)\$\$.*?\$\$|\\\(.*?\\\)|\\\[.*?\\\]|\$[^\s$](?:[^$\n]*[^\s$])?\$").unwrap();
     let prose = code.replace_all(text, "");
+    let prose = math.replace_all(&prose, |found: &regex::Captures| {
+        let span = found.get(0).unwrap();
+        let inline = !span.as_str().starts_with(['\\']) && !span.as_str().starts_with("$$");
+        if inline && prose[span.end()..].starts_with(|c: char| c.is_ascii_digit()) {
+            span.as_str().to_owned()
+        } else {
+            String::new()
+        }
+    });
     let labels = regex::Regex::new(r"\[(\d+(?:[ ,，]+\d+)*)\]").unwrap();
     let numbers = regex::Regex::new(r"\d+").unwrap();
     labels
@@ -1550,6 +1563,18 @@ mod tests {
             invalid_citations(r#"{"answer":"fact","sources":[1,2,"3",null]}"#, 1),
             vec!["2", "\"3\"", "null"]
         );
+    }
+
+    #[test]
+    fn grounding_citation_parser_ignores_math_intervals() {
+        assert!(invalid_citations(
+            r"分数 $S_{\text{judge}} \in [0, 1]$ [1]，归一化到 $$[0, 1]$$ 与 \([0,1]\)、\[ [0, 2] \] [2]",
+            2
+        )
+        .is_empty());
+        // Currency signs are not math delimiters: a bad label between prices is still caught.
+        assert_eq!(invalid_citations("costs $5 and [0] then $6", 1), vec!["0"]);
+        assert_eq!(invalid_citations("US$5 [9] vs US$6", 1), vec!["9"]);
     }
     #[tokio::test]
     async fn grounding_does_not_publish_repeated_invalid_citations() {
