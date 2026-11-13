@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
-Version 0.2.11 converts long PDFs in resumable 50-page parts, keeps MinerU document images, and bundles QPDF with the desktop app and CLI. Version 0.2.10 added an HTTP API, a Linux CLI and Responses API support. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below points to the latest stable GitHub Release.
+Version 0.2.12 is being prepared: basic PDF text becomes searchable before background OCR/table enhancement, new local Office/RTF documents can be indexed independently, and PDF segments reuse loaded models. It also adds selective failed-file retry and clearer `sag add --timeout` behavior. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below continues to point to the latest published stable Release; these changes require a build containing 0.2.12.
 
 ## Contents
 
@@ -56,9 +56,11 @@ The installer size excludes optional document conversion components and recognit
 
 Add a folder to make your documents, notes, and code searchable. Find a passage, ask a question across files, open the source behind an answer, or give your coding agent access to the same knowledge base.
 
-- **Light:** just **14 MB** to download, with no separate database to install.
+- **Light:** no separate database to install; optional recognition components download separately.
 - **Fast:** index a million characters in approximately **200 ms**, with no LLM calls for indexing or retrieval.
 - **Precise:** our original **SAG2** retrieval technology outperforms RAG, GraphRAG, and other approaches.
+
+The indexing figure above concerns text indexing, excluding document conversion, OCR and table recognition; it is not a whole-PDF completion-time estimate.
 
 Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. PDF, Office, and EPUB documents convert out of the box; image recognition and audio/video transcription are optional components.
 
@@ -120,7 +122,7 @@ Install and open SAG-Wiki, switch the sidebar to **Folders**, then click **+** b
 
 ### 2. Search your files
 
-Once indexing finishes, use **Search** to find passages and preview the source. Quick search works locally; configure a decision model in **Settings → Models** for in-depth semantic retrieval.
+In builds containing the 0.2.12 changes, use **Search** as soon as basic text is indexed. For mixed or scanned PDFs, OCR and table enhancement continue in the background; file-list states show whether basic text is searchable, enhancement is pending/running, or enhancement failed. Existing text remains searchable after an enhancement failure; image-only scans become searchable only after recognized text is indexed. Wait for completion and check the original for full coverage. Quick search works locally; configure a decision model in **Settings → Models** for in-depth semantic retrieval.
 
 For a local Jev-compatible decision model, select **Custom** and enter its model name and base URL (for example, `http://127.0.0.1:8000/v1`), or its complete `/systemone` or `/decisions` endpoint. Choose **No authentication** under **Decision model authentication** if the service does not require an API key; this omits the authorization header and removes the saved decision model key. The service must implement Jev’s `state`, `questions`, and `answers.*.noul` protocol. For the CLI, run `sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none`. To switch back to a keyed service, use `--auth bearer --key-stdin` and enter that service’s key.
 
@@ -187,6 +189,8 @@ sag add
 sag check
 sag "Where is permission checked?" . -m 5
 ```
+
+For a large folder, builds containing the 0.2.12 changes accept `sag add --timeout 3600`. An expired wait does not remove the folder or stop background indexing; use `sag list --json` to inspect progress.
 
 See the Skill's [setup guide](cli/skills/sag/references/setup.md#first-use-setup) for the complete agent workflow and the [CLI guide](docs/en/cli-and-harness.md) for other commands.
 
