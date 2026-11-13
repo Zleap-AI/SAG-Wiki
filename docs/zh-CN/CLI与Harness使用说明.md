@@ -6,7 +6,7 @@
 
 sag 可以独立运行，不需要安装或启动 SAG Wiki 桌面端。检索命令会自动启动或复用本机服务。
 
-安装 Node.js 18 或以上版本后，在 macOS Apple Silicon 或 Windows x64 上执行：
+安装 Node.js 18 或以上版本后，在 macOS Apple Silicon、Windows x64 或 Linux ARM64 / x86_64 上执行：
 
 ```sh
 npm install -g @zleap-ai/sag
