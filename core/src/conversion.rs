@@ -124,7 +124,7 @@ fn engine_identity(source: &Path, settings: &Settings) -> String {
         "docling-v1"
     };
     let cloud = if cloud_supports(source, &settings.mineru) {
-        settings.mineru.content_identity()
+        format!("{}:local-images-v2", settings.mineru.content_identity())
     } else {
         "local".into()
     };
@@ -223,14 +223,16 @@ fn convert_single(
     engines.push("Docling");
     let parent = output.parent().context("转换输出缺少父目录")?;
     fs::create_dir_all(parent)?;
-    let temporary = tempfile::NamedTempFile::new_in(parent)?;
+    // Parsers atomically replace this path. Close our handle first: Windows
+    // cannot replace a NamedTempFile that is still held open by its caller.
+    let temporary = tempfile::NamedTempFile::new_in(parent)?.into_temp_path();
     let report = std::cell::RefCell::new(report);
     run_engines(
         &engines,
         &cancel,
         |engine| {
             // Every fallback gets a fresh, unpublished result path.
-            fs::write(temporary.path(), b"")?;
+            fs::write(&temporary, b"")?;
             match engine {
                 "MinerU" => {
                     let key = crate::mineru::key(docling.data_directory(), &settings.mineru)?;
@@ -245,7 +247,7 @@ fn convert_single(
                     if let Some(start) = original_start {
                         crate::mineru::convert_pdf_segment_with_runtime(
                             source,
-                            temporary.path(),
+                            &temporary,
                             &settings.mineru,
                             &key,
                             &settings.runtime,
@@ -256,7 +258,7 @@ fn convert_single(
                     } else {
                         crate::mineru::convert_with_runtime(
                             source,
-                            temporary.path(),
+                            &temporary,
                             &settings.mineru,
                             &key,
                             &settings.runtime,
@@ -267,7 +269,7 @@ fn convert_single(
                 }
                 "anydoc" => match anydoc::convert_with_runtime(
                     source,
-                    temporary.path(),
+                    &temporary,
                     &settings.runtime,
                     &cancel,
                 )? {
@@ -284,17 +286,17 @@ fn convert_single(
                 },
                 _ => docling.convert_docling_with_runtime(
                     source,
-                    temporary.path(),
+                    &temporary,
                     &settings.runtime,
                     &cancel,
                 )?,
             }
-            let size = fs::metadata(temporary.path())?.len();
+            let size = fs::metadata(&temporary)?.len();
             if size > settings.runtime.conversion_output_mib as u64 * 1024 * 1024 {
                 return Err(Failure::new(FailureKind::Memory, "转换输出超过配置的大小限制").into());
             }
             anyhow::ensure!(
-                !fs::read_to_string(temporary.path())?.trim().is_empty(),
+                !fs::read_to_string(&temporary)?.trim().is_empty(),
                 "解析器未生成有效正文"
             );
             Ok(())

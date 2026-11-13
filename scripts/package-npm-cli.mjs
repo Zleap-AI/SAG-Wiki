@@ -2,6 +2,7 @@ import {spawnSync} from 'node:child_process';
 import {chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs';
 import {delimiter, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {prepareQpdf} from './prepare-qpdf.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const run = (command, args, cwd = root) => {
@@ -36,11 +37,14 @@ rmSync(packageDir, {recursive: true, force: true});
 mkdirSync(join(packageDir, 'bin'), {recursive: true});
 copyFileSync(join(root, 'npm/sag/bin/sag.cjs'), join(packageDir, 'bin/sag.cjs'));
 chmodSync(join(packageDir, 'bin/sag.cjs'), 0o755);
-const supported = Object.values(targets).filter(item => existsSync(join(nativeCache, `${item.platform}-${item.arch}`, item.file)));
+const supported = Object.entries(targets)
+  .filter(([, item]) => existsSync(join(nativeCache, `${item.platform}-${item.arch}`, item.file)))
+  .map(([target, item]) => ({...item, target}));
 for (const item of supported) {
   const destination = join(packageDir, 'native', `${item.platform}-${item.arch}`);
   mkdirSync(destination, {recursive: true});
   copyFileSync(join(nativeCache, `${item.platform}-${item.arch}`, item.file), join(destination, item.file));
+  await prepareQpdf(join(destination, 'qpdf'), item.target);
   if (item.platform !== 'win32') chmodSync(join(destination, item.file), 0o755);
 }
 const manifest = JSON.parse(readFileSync(join(root, 'npm/sag/package.json'), 'utf8'));

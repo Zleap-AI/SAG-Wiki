@@ -63,6 +63,7 @@
       "licenses/GRAPH-VIEW.txt",
       "licenses/ANYDOC.txt",
       "bin/sag",
+      "bin/qpdf/",
       "licenses/PELE.txt",
       "licenses/TEXTFOLD.txt",
       "clipper/"

@@ -68,11 +68,11 @@ pub(super) fn convert_parts(
             let source = work.path().join(&part.name);
             fs::write(&source, &part.bytes)?;
             // Parsers receive an unpublished path beside the durable cloud journals.
-            let parsed = tempfile::NamedTempFile::new_in(&cache)?;
-            convert(part, &source, parsed.path())
+            let parsed = tempfile::NamedTempFile::new_in(&cache)?.into_temp_path();
+            convert(part, &source, &parsed)
                 .with_context(|| format!("PDF 第 {}–{} 页转换失败", part.start, part.end))?;
             ensure!(!cancel(), "已停止转换，未发布输出");
-            let text = read_cached(parsed.path(), limit)?
+            let text = read_cached(&parsed, limit)?
                 .context("PDF 分段未生成有效正文或超过大小限制")?;
             // Docling prepends a source link. The split PDF is temporary; keep
             // the original document identity instead of publishing a dead link.
@@ -89,6 +89,8 @@ pub(super) fn convert_parts(
             saved.persist(&path).map_err(|e| e.error)?;
             text
         };
+        // MinerU stores assets beside each cached part; merged Markdown lives one directory up.
+        let text = text.replace(".sag-mineru-assets/", ".sag-pdf-parts/.sag-mineru-assets/");
         let marker = format!("\n\n<!-- source-pages:{}-{} -->\n\n", part.start, part.end);
         size = size
             .checked_add(marker.len() as u64)
@@ -122,6 +124,29 @@ mod tests {
             })
             .collect()
     }
+    #[test]
+    fn cached_parts_keep_assets_reachable_and_allow_atomic_parser_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("out.md");
+        let convert = |_: &Part, _: &Path, out: &Path| -> Result<()> {
+            let assets = out.parent().unwrap().join(".sag-mineru-assets/hash/images");
+            fs::create_dir_all(&assets)?;
+            fs::write(assets.join("x.png"), b"image")?;
+            let mut replacement = tempfile::NamedTempFile::new_in(out.parent().unwrap())?;
+            replacement.write_all(b"![curve [red]](.sag-mineru-assets/hash/images/x.png)")?;
+            replacement.persist(out).map_err(|e| e.error)?;
+            Ok(())
+        };
+        convert_parts(&parts()[..1], &output, "v1", 1024, &|| false, convert).unwrap();
+        let first = fs::read_to_string(&output).unwrap();
+        let destination = ".sag-pdf-parts/.sag-mineru-assets/hash/images/x.png";
+        assert!(first.contains(destination));
+        assert_eq!(fs::read(dir.path().join(destination)).unwrap(), b"image");
+        convert_parts(&parts()[..1], &output, "v1", 1024, &|| false,
+            |_, _, _| panic!("cached parts must not invoke parser")).unwrap();
+        assert_eq!(fs::read_to_string(output).unwrap(), first);
+    }
+
     #[test]
     fn retry_reuses_successful_parts_and_never_publishes_partial_output() {
         let dir = tempfile::tempdir().unwrap();
