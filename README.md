@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
-Version 0.2.12 is being prepared: basic PDF text becomes searchable before background OCR/table enhancement, new local Office/RTF documents can be indexed independently, and PDF segments reuse loaded models. It also adds selective failed-file retry and clearer `sag add --timeout` behavior. See the [changelog](CHANGELOG.md) and [bilingual documentation](docs-site/README.md). The download link below continues to point to the latest published stable Release; these changes require a build containing 0.2.12.
+PDF basic text can become searchable before background OCR and table enhancement finish. Independent basic indexing keeps supported local Office/RTF documents moving, while PDF segments reuse loaded models. See the [changelog](CHANGELOG.md) for release-specific changes and the [bilingual documentation](docs-site/README.md) for usage. The download link below points to the latest published stable Release.
 
 ## Contents
 
@@ -122,7 +122,7 @@ Install and open SAG-Wiki, switch the sidebar to **Folders**, then click **+** b
 
 ### 2. Search your files
 
-In builds containing the 0.2.12 changes, use **Search** as soon as basic text is indexed. For mixed or scanned PDFs, OCR and table enhancement continue in the background; file-list states show whether basic text is searchable, enhancement is pending/running, or enhancement failed. Existing text remains searchable after an enhancement failure; image-only scans become searchable only after recognized text is indexed. Wait for completion and check the original for full coverage. Quick search works locally; configure a decision model in **Settings → Models** for in-depth semantic retrieval.
+Use **Search** as soon as basic text is indexed. For mixed or scanned PDFs, OCR and table enhancement continue in the background; file-list states show whether basic text is searchable, enhancement is pending/running, or enhancement failed. Existing text remains searchable after an enhancement failure; image-only scans become searchable only after recognized text is indexed. Wait for completion and check the original for full coverage. Quick search works locally; configure a decision model in **Settings → Models** for in-depth semantic retrieval.
 
 For a local Jev-compatible decision model, select **Custom** and enter its model name and base URL (for example, `http://127.0.0.1:8000/v1`), or its complete `/systemone` or `/decisions` endpoint. Choose **No authentication** under **Decision model authentication** if the service does not require an API key; this omits the authorization header and removes the saved decision model key. The service must implement Jev’s `state`, `questions`, and `answers.*.noul` protocol. For the CLI, run `sag config --url http://127.0.0.1:8000/v1 --model YOUR_MODEL --auth none`. To switch back to a keyed service, use `--auth bearer --key-stdin` and enter that service’s key.
 
@@ -190,7 +190,7 @@ sag check
 sag "Where is permission checked?" . -m 5
 ```
 
-For a large folder, builds containing the 0.2.12 changes accept `sag add --timeout 3600`. An expired wait does not remove the folder or stop background indexing; use `sag list --json` to inspect progress.
+For a large folder, use `sag add --timeout 3600` to increase the wait limit. An expired wait does not remove the folder or stop background indexing; use `sag list --json` to inspect progress.
 
 See the Skill's [setup guide](cli/skills/sag/references/setup.md#first-use-setup) for the complete agent workflow and the [CLI guide](docs/en/cli-and-harness.md) for other commands.
 
