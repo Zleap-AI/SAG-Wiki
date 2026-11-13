@@ -1,0 +1,51 @@
+<!doctype html>
+<!-- UI PROTOTYPE: Three API settings layouts in the existing settings shell.
+     Switch with ?variant=A|B|C. All service and key state is in memory. -->
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>API 设置原型 · SAG Wiki</title>
+  <link rel="stylesheet" href="./prototype.css">
+  <script src="./prototype.js" defer></script>
+</head>
+<body>
+  <div class="workspace" aria-hidden="true">
+    <aside><b>SAG Wiki</b><p>项目资料</p><p>技术文档</p></aside>
+    <main><div class="workspace-tabs">问答　　搜索　　文件</div><h1>搜索你的知识库</h1><div class="fake-search">输入问题或关键词…</div></main>
+  </div>
+  <div class="backdrop" id="backdrop">
+    <section class="settings-window" aria-label="设置">
+      <header class="window-head"><strong>设置</strong><button class="icon-button" data-action="close-settings" aria-label="关闭设置" title="关闭设置"></button></header>
+      <div class="settings-layout">
+        <nav class="settings-nav" aria-label="设置分类" id="settings-nav"></nav>
+        <main class="settings-content" id="content"></main>
+      </div>
+      <footer class="window-footer"><span>更改即时生效</span><button class="primary" data-action="close-settings">完成</button></footer>
+    </section>
+  </div>
+  <button class="reopen primary" id="reopen" data-action="open-settings" hidden>打开 API 设置</button>
+  <div class="prototype-switcher" aria-label="原型方案切换">
+    <span class="prototype-label">交互原型</span>
+    <button data-action="prev-variant" class="icon-button" aria-label="上一个方案">←</button>
+    <button data-action="variant" data-variant="A">A · 分组</button>
+    <button data-action="variant" data-variant="B">B · 分页</button>
+    <button data-action="variant" data-variant="C">C · 双栏</button>
+    <button data-action="next-variant" class="icon-button" aria-label="下一个方案">→</button>
+    <details class="state-inspector"><summary>状态</summary><pre id="prototype-state"></pre></details>
+  </div>
+  <dialog id="key-dialog" aria-labelledby="key-dialog-title">
+    <form id="key-form">
+      <header class="dialog-head"><h2 id="key-dialog-title">创建 API Key</h2><button type="button" class="icon-button" data-action="close-key" aria-label="关闭创建窗口"></button></header>
+      <div id="key-dialog-body"></div>
+      <footer id="key-dialog-footer"></footer>
+    </form>
+  </dialog>
+  <dialog id="revoke-dialog" aria-labelledby="revoke-title">
+    <header class="dialog-head"><h2 id="revoke-title">撤销 API Key</h2><button class="icon-button" data-action="close-revoke" aria-label="关闭撤销窗口"></button></header>
+    <div class="dialog-body"><p id="revoke-description"></p><p class="muted" id="revoke-note"></p></div>
+    <footer><button data-action="close-revoke" class="outline">取消</button><button data-action="confirm-revoke" class="danger">撤销 Key</button></footer>
+  </dialog>
+  <div class="toast" id="toast" role="status" hidden></div>
+</body>
+</html>

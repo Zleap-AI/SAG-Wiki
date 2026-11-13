@@ -143,6 +143,75 @@ async fn local_matching_socket_needs_no_model_and_keeps_access_checks() {
 }
 
 #[tokio::test]
+async fn converted_sources_are_counted_and_matched_within_their_source_scope() {
+    let (dir, service, root) = fixture();
+    let case = root.join("case");
+    fs::create_dir_all(case.join("subdir")).unwrap();
+    fs::create_dir_all(case.join("ignored")).unwrap();
+    fs::create_dir(root.join("case2")).unwrap();
+    fs::write(case.join(".sagignore"), "ignored/\n").unwrap();
+    fs::write(case.join("subdir/example.csv"), "name,value\nindexed-sentinel-7f3c,1\n").unwrap();
+    fs::write(case.join("ignored/example.csv"), "name,value\nindexed-sentinel-7f3c,2\n").unwrap();
+    fs::write(root.join("case2/example.csv"), "name,value\nindexed-sentinel-7f3c,3\n").unwrap();
+    service.store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+    let other = dir.path().join("other");
+    fs::create_dir_all(other.join("case/subdir")).unwrap();
+    fs::write(other.join("case/subdir/example.csv"), "name,value\nindexed-sentinel-7f3c,4\n").unwrap();
+    let other = service.store.add_root(&other.canonicalize().unwrap()).unwrap();
+    service.store.scan(&other, |_| {}).unwrap();
+
+    let count = |path: PathBuf| {
+        let service = service.clone();
+        async move {
+            let Response::Checked(check) = send(&service, &path, Command::Check, None).await else { panic!("check failed") };
+            check.indexed_files
+        }
+    };
+    let search = |path: PathBuf, pattern: &str, mode: MatchMode| {
+        let service = service.clone();
+        let command = Command::Match(MatchRequest {
+            patterns: vec![pattern.into()], mode,
+            max_results: Some(10), content: true, timeout: 3, options: MatchOptions::default(),
+        });
+        async move {
+            match send(&service, &path, command, None).await {
+                Response::Matches(output) => output.results,
+                r => panic!("{r:?}"),
+            }
+        }
+    };
+    let matches = |path: PathBuf| {
+        let found = search(path, "indexed-sentinel-7f3c", MatchMode::Fixed);
+        async move { found.await.into_iter().map(|result| result.path).collect::<Vec<_>>() }
+    };
+    assert_eq!(count(case.clone()).await, 1);
+    assert_eq!(count(case.join("subdir")).await, 1);
+    assert_eq!(count(root.join("case2")).await, 1);
+    assert_eq!(count(root.clone()).await, 3);
+    assert_eq!(matches(case.clone()).await, ["./subdir/example.csv"]);
+    let regex = search(case.clone(), r"indexed-sentinel-[0-9a-f]{4}\b", MatchMode::Regex).await;
+    assert_eq!(regex.len(), 1);
+    assert_eq!(Path::new(&regex[0].absolute_path), root.join(".sag-converted/case/subdir/example.csv.md"));
+    assert_eq!(matches(root.clone()).await, ["./case/subdir/example.csv", "./case2/example.csv"]);
+    let mut settings = service.store.settings().unwrap();
+    settings.show_hidden = true;
+    service.store.save_settings(&settings).unwrap();
+    assert_eq!(matches(root.clone()).await, ["./case/subdir/example.csv", "./case2/example.csv"]);
+    assert_eq!(matches(root.join(".sag-converted/case")).await, ["./subdir/example.csv.md"]);
+
+    service.store.connection().execute(
+        "UPDATE conversions SET valid=0 WHERE source=?",
+        [root.join("case2/example.csv").to_str().unwrap()],
+    ).unwrap();
+    assert_eq!(count(root.join("case2")).await, 0);
+    assert!(matches(root.join("case2")).await.is_empty());
+
+    service.store.remove_path(&case.join("subdir")).unwrap();
+    assert_eq!(count(case.clone()).await, 0);
+    assert!(matches(root.clone()).await.is_empty());
+}
+
+#[tokio::test]
 async fn socket_status_reports_disabled_and_search_uses_automatic_scope() {
     let (dir, service, root) = fixture();
     service.configure(Access { enabled: false }).unwrap();

@@ -1,3 +1,5 @@
+import type {IndexTask} from './types';
+
 export const indexStages=[
  {stage:'indexing_native',title:'文本索引',progress:'正在索引文本',description:'Markdown、文本、代码等直接索引，完成后即可搜索。'},
  {stage:'converting',title:'文件转换',progress:'正在转换文件',description:'其他格式转换为 Markdown，已索引的文件仍可搜索。'},
@@ -24,4 +26,11 @@ export function indexStage(stage:string|undefined){
  if(stage==='scanning')return {stage,title:'文件扫描',progress:'正在扫描文件',description:'正在检查文件夹中的文件及索引范围。'};
  if(stage==='preparing_watch')return {stage,title:'文件监听',progress:'正在准备文件监听',description:'正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。'};
  return indexStages.find(item=>item.stage===stage);
+}
+
+// Only active files in conversion stages contribute to the live parser label.
+export function conversionParsers(tasks:IndexTask[]){
+ const engines=new Set(tasks.filter(task=>task.stage==='converting'||task.stage==='retrying_conversion')
+  .flatMap(task=>(task.conversions??[]).filter(item=>task.files.includes(item.path)).map(item=>item.engine)));
+ return ['MinerU','anydoc','Docling'].filter(engine=>engines.delete(engine)).concat([...engines].sort());
 }

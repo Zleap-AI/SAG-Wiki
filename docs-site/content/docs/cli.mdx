@@ -152,6 +152,14 @@ notes/draft-*.md
 
 独立模式在下次搜索前重新检查索引。桌面端启用自动监听时，创建、修改、删除或重命名规则文件都会重新检查项目：清除新增忽略项的索引，并索引不再被忽略的文件。关闭监听时，可在文件设置中点击重新索引。规则不会删除或隐藏本地文件，SAG 文件树仍可浏览它们；只有手动移除的子目录会从文件树隐藏。
 
+## HTTP API
+
+使用 `sag api start`、`sag api stop` 开启或关闭 HTTP 服务。关闭 API 后，后台索引和普通 CLI 搜索继续运行。`sag api status --json` 查看状态，不自动启动后台。
+
+使用 `sag api key create --name "业务程序A"` 创建 Key，完整值只显示一次。`sag api key list` 查看列表，`sag api key revoke KEY_ID` 撤销指定 Key。创建和列表命令也支持 `--json`。
+
+本机和局域网程序可通过 API 选择快速或深入检索、浏览文件夹，并按服务端完整路径指定多个目录。CLI 原有搜索用法保持不变。开启与自启操作见 [API 说明](/zh/docs/api-guide)，接口参数见 [API 文档](/zh/docs/api)。
+
 ## 安装位置与升级
 
 | 对象 | 用户级位置 |

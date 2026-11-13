@@ -1,5 +1,39 @@
 # 更新日志 / Changelog
 
+## 0.2.10
+
+- **新增 HTTP API**：本机和局域网程序可通过 API 进行快速或深入检索、浏览文件夹，并按完整路径指定一个或多个搜索目录。API 与桌面端、CLI 共用知识库、索引和决策模型配置，结果按原文片段返回。
+- **API 服务设置与 CLI 命令**：桌面端新增 **设置 → API 服务**，可开关服务、查看本机与局域网地址、管理 Key 和开机自启；独立 CLI 新增 `sag api start/stop/status`、`sag api key create/list/revoke` 和 `sag api autostart` 命令。
+- **独立 CLI 支持 Linux**：npm 包新增 Linux ARM64 / x86_64，已在 Ubuntu 24.04 和 Debian 12 上验证，无需桌面端即可运行搜索和 API 服务。
+- **支持 Responses API**：问答模型地址填写完整的 `/v1/responses` 接口即可启用 Responses 流式回答，支持多轮工具调用携带推理状态与调用标识，思考强度使用 `reasoning.effort`。仅填写 `/v1` 仍使用原来的 Chat Completions 接口。
+- **超长 PDF 不再因页眉页脚转换失败**：超过 200 页的 PDF 拆分解析后，MinerU 返回的页眉、页脚和页码会被过滤，代码块保留语言、标题和脚注，图表保留说明和脚注；遇到无法识别的内容会提示类型和原始页码，而不是笼统失败。
+- **索引时显示当前使用的解析方式**：转换过程中，索引状态栏和索引详情会显示 MinerU、anydoc 或 Docling。
+- **改善长对话的摘要重试**：上下文压缩时，摘要请求在流式响应中断或超时后按配置重试，必要时缩小当前分块；已完成的摘要分块保留，界面显示重试进度。
+- **修复转换文档的 CLI 检索**：PDF、CSV 等转换后的文档此前不计入原文目录的 `sag check` 结果，`-F` / `-E` 也搜不到；现在按源目录正确计数和匹配。
+- **修复 Windows 匹配结果路径**：命令行匹配结果统一使用 `/` 分隔符，不再显示反斜杠。
+- **Jev 更名为决策模型**：设置页与文档统一使用“决策模型”名称；切换到 Zleap 时自动填入 `Zev-1`。
+- **检索结果按相关性排序**：深入检索在本地按相关性分数排序返回，不再进行 DPP 多样性重排。
+- **改善符号链接目录的索引**：知识库根目录变为符号链接后，仍按原有路径识别已索引内容，已移除的目录会明确提示重新添加。
+
+桌面端与随包 CLI 版本统一为 0.2.10。
+
+### English
+
+- **HTTP API**: programs on this computer or the local network can run fast or deep searches, browse folders and limit a search to one or more folders by full path. The API shares the knowledge base, index and decision-model settings with the desktop app and CLI, and returns source passages.
+- **API service settings and CLI commands**: the desktop app adds **Settings → API service** to turn the service on or off, show local and LAN addresses, and manage keys and launch at startup. The standalone CLI adds `sag api start/stop/status`, `sag api key create/list/revoke` and `sag api autostart`.
+- **Standalone CLI on Linux**: the npm package adds Linux ARM64 and x86_64, verified on Ubuntu 24.04 and Debian 12, so search and the API service run without the desktop app.
+- **Responses API support**: entering a complete `/v1/responses` endpoint for an answer model enables streamed Responses answers, including reasoning state and call identifiers across tool rounds, with effort set through `reasoning.effort`. A plain `/v1` address keeps using Chat Completions.
+- **Long PDFs no longer fail on running headers and footers**: after split parts are merged, MinerU's headers, footers and page numbers are dropped, code blocks keep their language, caption and footnote, and charts keep their description and footnote. Unrecognised content now names its type and original page instead of failing generically.
+- **Active parser shown during conversion**: the index status bar and index details show MinerU, anydoc or Docling while files convert.
+- **Reliable summary retries in long conversations**: when a summary request is interrupted mid-stream or times out, context compaction retries within the configured limits and shrinks the current chunk if needed, keeping chunks already summarised and showing retry progress.
+- **CLI search over converted documents**: documents converted from PDF, CSV and similar formats were missing from `sag check` counts and `-F` / `-E` results under their source folder; they are now counted and matched there.
+- **Windows match paths**: command-line match results use `/` separators instead of backslashes.
+- **Jev renamed to decision model**: Settings and the documentation use "decision model" throughout; switching to Zleap fills in `Zev-1` automatically.
+- **Results ordered by relevance**: deep search returns results sorted by local relevance score, without DPP diversity reranking.
+- **Indexing symlinked folders**: when a knowledge-base root becomes a symbolic link, indexed content is still recognized under its original path, and removed folders ask to be added again.
+
+The desktop app and bundled CLI both use 0.2.10.
+
 ## 0.2.9
 
 - **修复 Windows 快捷搜索崩溃**：Windows 版此前未创建快捷搜索窗口，通过全局快捷键、托盘菜单或快捷键设置打开快捷搜索会导致应用退出；现已修复，缺少窗口时报错而不再崩溃。

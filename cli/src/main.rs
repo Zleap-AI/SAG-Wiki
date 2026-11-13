@@ -1,5 +1,6 @@
 use sag_protocol as cli_protocol;
 mod install;
+mod api;
 use anyhow::{bail, Context, Result};
 use clap::{CommandFactory, FromArgMatches, Parser, Subcommand};
 use sag_protocol::types::{ModelAuthMode, ModelConfig};
@@ -104,6 +105,8 @@ struct MatchingArgs {
 }
 #[derive(Subcommand)]
 enum CliCommand {
+    /// 管理 HTTP API 服务、Key 和自动启动。
+    Api { #[command(subcommand)] action: api::ApiCommand },
     Install {
         #[arg(value_parser = ["cli", "claude-code", "codex", "opencode"])]
         target: String,
@@ -146,7 +149,7 @@ enum CliCommand {
     },
 }
 #[derive(Subcommand)]
-enum ServiceCommand { Status, Stop, Restart, #[command(hide=true)] Serve }
+enum ServiceCommand { Status, Stop, Restart, #[command(hide=true)] Serve { #[arg(long)] data_dir: Option<PathBuf> } }
 #[derive(clap::Args, Default)]
 struct ConfigOptions {
     /// 重新启用曾关闭的 CLI 接入。
@@ -243,6 +246,10 @@ fn main() {
     }
     let matches = Args::command().get_matches();
     let mut args = Args::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    if let Some(CliCommand::Api { action }) = &args.command {
+        if let Err(error)=api::run(action) { eprintln!("{error:#}");std::process::exit(1); }
+        return;
+    }
     if let Some(CliCommand::Service { action }) = &args.command {
         let result=run_service(action);
         if let Err(error)=result {eprintln!("{error:#}");std::process::exit(1);}
@@ -367,7 +374,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         Some(patterns)
     } else { None };
     let (command, path, json, timeout) = match args.command {
-        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..}) => unreachable!(),
+        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..} | CliCommand::Api{..}) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
         Some(CliCommand::List { json }) => (Command::List, cwd.clone(), json, 10),
         Some(CliCommand::Check { directory, json }) => (
@@ -596,8 +603,8 @@ fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Inter
 }
 fn run_service(action:&ServiceCommand)->Result<()> {
     let runtime=tokio::runtime::Runtime::new()?;
-    let data=data_dir()?;
-    if matches!(action,ServiceCommand::Serve) {
+    let data=match action { ServiceCommand::Serve{data_dir:Some(data)}=>data.clone(),_=>data_dir()? };
+    if matches!(action,ServiceCommand::Serve{..}) {
         let stop=tokio_util::sync::CancellationToken::new();
         let signal=stop.clone();
         ctrlc::set_handler(move||signal.cancel())?;

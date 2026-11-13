@@ -56,6 +56,12 @@ fn run_engines(
         if cancel() {
             bail!("已停止转换，未发布输出")
         }
+        report(Attempt {
+            phase: Some("starting".into()),
+            engine: (*engine).into(),
+            elapsed_ms: 0,
+            error: None,
+        });
         let started = Instant::now();
         let result = convert(engine);
         let message = result.as_ref().err().map(|error| format!("{error:#}"));
@@ -249,6 +255,7 @@ mod tests {
         .unwrap();
         assert_eq!(seen, ["MinerU", "anydoc", "Docling"]);
         assert_eq!(chosen, "Docling");
+        let reports: Vec<_> = reports.iter().filter(|attempt| attempt.phase.is_none()).collect();
         assert_eq!(reports.len(), 3);
         assert!(reports[0].error.is_some());
         assert!(reports[2].error.is_none());
@@ -299,6 +306,7 @@ mod tests {
         assert_eq!(
             attempts
                 .iter()
+                .filter(|attempt| attempt.phase.is_none())
                 .map(|attempt| attempt.engine.as_str())
                 .collect::<Vec<_>>(),
             ["anydoc"]
@@ -331,5 +339,25 @@ mod tests {
         .unwrap_err()
         .to_string();
         assert!(error.contains("MinerU failed") && error.contains("anydoc failed"));
+    }
+}
+
+#[cfg(test)]
+mod parser_start_tests {
+    use super::*;
+    #[test]
+    fn reports_each_parser_before_work_including_fallback() {
+        let active = std::cell::RefCell::new(String::new());
+        let seen = std::cell::RefCell::new(Vec::new());
+        run_engines(&["MinerU", "anydoc", "Docling"], &|| false, |engine| {
+            assert_eq!(*active.borrow(), engine, "parser must be visible before work starts");
+            seen.borrow_mut().push(engine.to_string());
+            if engine == "Docling" { Ok(()) } else { bail!("fallback") }
+        }, |attempt| {
+            if attempt.phase.as_deref() == Some("starting") { *active.borrow_mut() = attempt.engine; }
+            else if attempt.phase.is_none() { active.borrow_mut().clear(); }
+        }).unwrap();
+        assert_eq!(*seen.borrow(), ["MinerU", "anydoc", "Docling"]);
+        assert!(active.borrow().is_empty());
     }
 }

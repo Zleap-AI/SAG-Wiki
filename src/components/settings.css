@@ -182,3 +182,5 @@
 .settings-window .model-settings-card[data-model=jev]{background:#fafcff;border-color:#e0e5eb}
 [data-theme=dark] .settings-window .model-settings-card[data-model=answer]{background:#272422;border-color:#403b37}
 [data-theme=dark] .settings-window .model-settings-card[data-model=jev]{background:#24272c;border-color:#393e46}
+
+.settings-window .api-settings-footer{justify-content:space-between}

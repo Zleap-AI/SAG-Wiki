@@ -1,0 +1,53 @@
+name: Linux CLI and HTTP API
+
+# Linux CLI and HTTP API coverage runs after a push to main or on demand.
+# Pull requests are gated only by the two native E2E checks in pr-e2e.yml.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['core/**', 'client/**', 'protocol/**', 'cli/**', 'npm/**', 'scripts/package-npm-cli.mjs', 'tests/http-api-e2e.py', 'tests/local-jev-e2e.py', '.github/workflows/cli-linux.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: ${{ matrix.distro }} ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {distro: Debian-12, image: 'debian:bookworm', runner: ubuntu-24.04, arch: x86_64}
+          - {distro: Debian-12, image: 'debian:bookworm', runner: ubuntu-24.04-arm, arch: ARM64}
+          - {distro: Ubuntu-24.04, image: 'ubuntu:24.04', runner: ubuntu-24.04, arch: x86_64}
+          - {distro: Ubuntu-24.04, image: 'ubuntu:24.04', runner: ubuntu-24.04-arm, arch: ARM64}
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.image }}
+    timeout-minutes: 60
+    steps:
+      - name: Install build and test prerequisites
+        run: apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git build-essential pkg-config libssl-dev python3
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
+        with:
+          toolchain: '1.98.1'
+      - name: Test HTTP cancellation, authentication, deadlines and shared capacity
+        run: cargo test --locked --manifest-path core/Cargo.toml http_api::tests
+      - name: Build the native npm package
+        run: node scripts/package-npm-cli.mjs
+      - name: Install npm package and exercise the real CLI-managed service
+        shell: bash
+        run: |
+          npm install --global --prefix "$RUNNER_TEMP/sag-cli" releases/npm/*.tgz
+          python3 tests/http-api-e2e.py --binary "$RUNNER_TEMP/sag-cli/bin/sag"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cli-${{ matrix.distro }}-${{ matrix.arch }}
+          path: releases/npm/*.tgz
+          if-no-files-found: error

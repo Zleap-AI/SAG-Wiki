@@ -1,0 +1,113 @@
+---
+title: "API overview"
+description: "Start the search service and connect local or LAN applications."
+---
+
+## How it works
+
+The server only needs the standalone CLI. Desktop installation is optional. The API shares the knowledge base, index and decision-model configuration with desktop and CLI. Enabling it allows both local and LAN access.
+
+The API provides search, folder browsing and service status. Search returns source passages without generating answers or summaries. See the [API reference](/en/docs/api) for parameters, responses and errors.
+
+## Start the service
+
+The API service can run on macOS, Windows or Linux, serving local and LAN applications.
+
+If the desktop app is installed, create a key and enable the service in **Settings → API service**.
+
+To start it through the standalone CLI, install Node.js/npm, then run the commands below. Command examples on this page use macOS/Linux shell syntax. Replace directories with absolute paths on the computer running the service. On Windows, run the same `sag` commands in PowerShell with Windows absolute paths.
+
+```sh
+npm install -g @zleap-ai/sag
+
+sag config
+sag add "/data/documents"
+sag api key create --name "Application A"
+sag api start
+```
+
+Linux supports ARM64 and x86_64. Validation environments are Ubuntu 24.04 and Debian 12.
+
+`sag config` configures the decision model used by deep search. `sag api key create` creates credentials for applications calling the HTTP API. These keys are managed separately. Fast search needs no model configuration.
+
+An API key is shown in full only when created. Save it in the calling application's private configuration. Multiple keys share the entire knowledge base, remain valid until revoked and can be revoked individually.
+
+## Run a search
+
+Replace the address with the server's address and the key with the value saved at creation. The default port is `24681`; use the actual address printed by the CLI or shown in **Settings → API service**.
+
+```sh
+export SAG_API_URL='http://192.168.1.10:24681'
+export SAG_API_KEY='<API_KEY>'
+
+curl --fail-with-body --max-time 65 \
+  -H "Authorization: Bearer $SAG_API_KEY" \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"How is the project deployed?","mode":"deep","limit":10}' \
+  "$SAG_API_URL/v1/search"
+```
+
+| Mode | Purpose | Whole-request deadline |
+| --- | --- | --- |
+| `deep`, default | Retrieve relevant evidence for a complete question; requires a decision model | 60 seconds |
+| `fast` | Find keywords in the local index; no model required | 30 seconds |
+
+Calls wait synchronously for results. Deadlines include queueing and execution. A slightly longer client timeout allows for network transfer. Deep-search failures return an explicit error and retain the requested mode.
+
+## Select directories
+
+Call `GET /v1/folders` to list all imported root folders. Supplying `path` lists that directory's immediate subfolders for browsing one level at a time.
+
+```sh
+curl --fail-with-body \
+  -H "Authorization: Bearer $SAG_API_KEY" \
+  "$SAG_API_URL/v1/folders"
+
+curl --fail-with-body --get \
+  -H "Authorization: Bearer $SAG_API_KEY" \
+  --data-urlencode 'path=/data/documents' \
+  "$SAG_API_URL/v1/folders"
+```
+
+Use the returned absolute paths in the search request's `paths` array to select one or more roots or subdirectories. Omitting `paths`, or supplying an empty array, searches the entire knowledge base. Paths refer to the server. Identically named folders are distinguished by their absolute paths.
+
+```json
+{
+  "query": "How is the project deployed?",
+  "mode": "deep",
+  "paths": ["/data/project-notes", "/data/technical-docs/deployment"],
+  "limit": 10
+}
+```
+
+## Manage the service and keys
+
+| Command | Purpose |
+| --- | --- |
+| `sag api start` | Start the API and save its enabled state |
+| `sag api start --host HOST --port PORT` | Start with a specified IP address and port |
+| `sag api status --json` | Print status as JSON without starting the backend |
+| `sag api stop` | Close the API and cancel API searches while retaining the shared backend |
+| `sag api status` | Show the actual API status and addresses |
+| `sag api key create --name NAME` | Create a named key and show its full value once |
+| `sag api key list` | List key names, IDs and partial identifiers |
+| `sag api key revoke KEY_ID` | Revoke a key and cancel its searches |
+| `sag api autostart enable` | Enable the platform's automatic startup mechanism |
+| `sag api autostart disable` | Disable automatic startup |
+| `sag api autostart status` | Inspect automatic-startup registration |
+
+With no valid key, the API keeps listening and HTTP requests return `401 Unauthorized`. Revoking the last key does not stop the API. Management happens through the local CLI or desktop settings, with no management endpoints over HTTP.
+
+## Background operation and desktop settings
+
+Closing the terminal leaves the service running. **Settings → API service** uses a network icon and vertically grouped controls for the service switch, local and LAN addresses, connection configuration, keys and automatic startup. A green status dot indicates that the service is running. **API documentation**, next to the page title, opens the reference page.
+
+![API service settings](/images/product-api-settings-en.png)
+
+Connection configuration and the request example are collapsed initially. Stop the API before changing its listening address or port. Service, key and automatic-startup actions take effect immediately.
+
+Opening desktop restores the saved API enabled state. An API stopped manually remains off when desktop next opens. Automatic startup is off by default and requires an explicit action. Linux can run after reboot without login; macOS and Windows start after the user logs in.
+
+API searches share the existing 20 expensive-task slots with desktop and CLI, waiting when full. Indexed content remains searchable while indexing continues. Browser cross-origin access is off by default; normal local and LAN application calls are unaffected.
+
+Continue to the [API reference](/en/docs/api) for the complete endpoint contract.

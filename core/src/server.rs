@@ -28,6 +28,7 @@ pub async fn run_until(data: PathBuf, shutdown: CancellationToken) -> Result<()>
     let _instance = cli_service::lock_instance(&data)?;
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
     let service = Service::open(data.clone())?;
+    service.api.restore(&service).await;
     let token = format!(
         "{}{}",
         uuid::Uuid::new_v4().simple(),
@@ -60,7 +61,7 @@ pub async fn run_until(data: PathBuf, shutdown: CancellationToken) -> Result<()>
             cleanup.map(|_| "成功".to_owned()).unwrap_or_else(|e| format!("失败：{e}"))
         ));
     }
-    let requests = Arc::new(Semaphore::new(20));
+    let requests = service.requests.clone();
     let connections = Arc::new(Semaphore::new(64));
     let mut clients = JoinSet::new();
     loop {
@@ -237,4 +238,4 @@ async fn serve(
 
 #[cfg(windows)]
 #[path = "server_windows_permissions.rs"]
-mod windows_permissions;
+pub(crate) mod windows_permissions;
