@@ -17,6 +17,7 @@ pub enum IndexRequest {
     ResetWatch { root: String },
     Scan { root: String, verify: bool },
     Paths { root: String, paths: Vec<PathBuf> },
+    RetryFailed { root: String, paths: Vec<PathBuf> },
 }
 
 pub fn queue_scan(store: &Store, scan: &mpsc::Sender<IndexRequest>, root: String) -> Result<()> {
@@ -91,10 +92,12 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
     let mut roots = BTreeMap::<String, (Option<bool>, BTreeSet<PathBuf>)>::new();
     let mut sync_watches = false;
     let mut resets = BTreeSet::new();
+    let mut retries = BTreeMap::<String, BTreeSet<PathBuf>>::new();
     for request in requests {
         match request {
             IndexRequest::SyncWatches => sync_watches = true,
             IndexRequest::ResetWatch { root } => { resets.insert(root); },
+            IndexRequest::RetryFailed { root, paths } => { retries.entry(root).or_default().extend(paths); },
             IndexRequest::Scan { root, verify } => {
                 let state = roots.entry(root).or_default();
                 state.0 = Some(state.0.unwrap_or(false) || verify);
@@ -128,6 +131,8 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
         .collect();
     batch.splice(0..0, resets.into_iter().map(|root| IndexRequest::ResetWatch { root }));
     if sync_watches { batch.insert(0, IndexRequest::SyncWatches); }
+    // Explicit recovery must survive coalescing with watcher events or scans.
+    batch.extend(retries.into_iter().map(|(root, paths)| IndexRequest::RetryFailed { root, paths: paths.into_iter().collect() }));
     batch
 }
 
@@ -163,7 +168,7 @@ pub fn apply_request(
 ) -> Result<usize> {
     let root = match &request {
         IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => return Ok(0),
-        IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } => root,
+        IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } | IndexRequest::RetryFailed { root, .. } => root,
     };
     if !store
         .roots()?
@@ -181,6 +186,7 @@ pub fn apply_request(
             store.scan(&root, progress)
         }
         IndexRequest::Paths { root, paths } => store.update_paths(&root, &paths, progress),
+        IndexRequest::RetryFailed { root, paths } => store.retry_failed_indexes(&root, &paths, progress),
     }
 }
 
@@ -283,6 +289,18 @@ mod tests {
         watcher.prepare(&store, &root, || {}).unwrap();
         watcher.prepare(&store, &root, || panic!("already watched")).unwrap();
         assert_eq!(watcher.watcher.mounts, 3);
+    }
+
+    #[test]
+    fn retry_failed_survives_coalescing_with_scans_and_deduplicates_targets() {
+        let target = PathBuf::from("/notes/broken.pdf");
+        let batch = coalesce([
+            IndexRequest::RetryFailed { root: "/notes".into(), paths: vec![target.clone(), target.clone()] },
+            IndexRequest::Scan { root: "/notes".into(), verify: false },
+            IndexRequest::Paths { root: "/notes".into(), paths: vec![PathBuf::from("/notes/healthy.md")] },
+        ]);
+        assert_eq!(batch.len(), 2);
+        assert!(matches!(&batch[1], IndexRequest::RetryFailed { paths, .. } if paths == &vec![target]));
     }
 
     #[test]

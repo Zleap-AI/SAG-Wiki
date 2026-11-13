@@ -646,7 +646,12 @@ pub fn run(
                     None => FailureKind::Signal,
                     Some(code)
                         if code == 75
-                            || matches!(code as u32, 0xc0000017 | 0xc000009a | 0xc000012d) =>
+                            || matches!(
+                                code as u32,
+                                // Rust's allocator aborts with 0xc0000409 when a
+                                // job object memory limit rejects an allocation.
+                                0xc0000017 | 0xc000009a | 0xc000012d | 0xc0000409
+                            ) =>
                     {
                         FailureKind::Memory
                     }

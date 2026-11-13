@@ -37,7 +37,7 @@ export type DoclingStatus={installed:boolean;running:boolean;stage:string;messag
 
 export type ConversionSegment={current:number;total:number;start_page:number;end_page:number};
 export type IndexTask={path:string;stage:string;completed:number;total:number;files:string[];conversions?:{path:string;engine:string;segment?:ConversionSegment}[]};
-export type IndexStatus={paused:boolean;tasks:IndexTask[]};
+export type IndexStatus={paused:boolean;tasks:IndexTask[];failed_files?:number};
 export type FolderIndexOptions={extensions?:string[]|null;file_types:FileTypes;convert_other_formats:boolean;conversion_formats?:string[]|null};
 export type IndexHistory={id:number;path:string;name:string;started_at:number;finished_at:number;completed:number;total:number;status:string;error:string|null};
 export type IndexFileLog={phase?:string;engine?:string;elapsed_ms?:number;time:number;path:string;stage:string;status:string;error:string|null};

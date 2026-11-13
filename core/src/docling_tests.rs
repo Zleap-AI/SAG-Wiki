@@ -18,6 +18,19 @@ fn audio_video_catalog_is_restored_without_implicitly_installing_it() {
     assert!(!converter.home.exists());
 }
 
+#[test]
+fn install_memory_limit_clears_the_downloader_peak_without_unbounding_installs() {
+    const GIB: u64 = 1024 * 1024 * 1024;
+    // The former 2 GiB cap aborted the document model download with an
+    // allocation failure: importing torch and the downloader commits about
+    // 2.1 GiB before the last shard is written.
+    assert_eq!(install_memory_limit(2 * GIB), 4 * GIB);
+    assert_eq!(install_memory_limit(5 * GIB), 5 * GIB);
+    // Large machines keep installs bounded instead of granting the whole
+    // conversion reservation.
+    assert_eq!(install_memory_limit(34 * GIB), 8 * GIB);
+}
+
 #[cfg(unix)]
 fn fake_media_uv(converter: &Docling) {
     fake_online_uv(converter);

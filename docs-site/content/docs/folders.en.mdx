@@ -67,7 +67,7 @@ Text and documents is one setting, enabled by default. TXT and RST are read dire
 
 Other formats lists scanned PDFs, images, audio, video, email, Apple iWork and some document templates. With MinerU disabled, text-based PDFs use the built-in parser. Choose Select and pick the formats you need. With MinerU enabled, its supported image formats can be applied without installing Docling. If other local support is missing, choose Install and apply, confirm installation, then apply the selection. Document and media components are installed separately according to the selected formats. Scanning files never downloads components automatically.
 
-With MinerU disabled, an installed Docling handles PDFs requiring OCR or content unsupported by the built-in parser. With MinerU enabled, use the [MinerU-first flow](/en/docs/models#mineru-document-parsing). If Docling is absent, indexing details explain the required action; those files are not parsed again until the component is installed or the file changes, so install it and reindex. Damaged and encrypted documents report parsing errors.
+With MinerU disabled, an installed Docling handles PDFs requiring OCR or content unsupported by the built-in parser. With MinerU enabled, use the [MinerU-first flow](/en/docs/models#mineru-document-parsing). If Docling is absent, indexing details explain the required action; those files are not parsed again until the component is installed or the file changes, so install it and reindex. Damaged and encrypted documents report parsing errors. A failed conversion records its reason and is not parsed again on every scan until the file, the parsing engine or component, or the conversion budgets change; changing a conversion budget in file settings, or choosing Reindex, retries it.
 
 Long PDFs are converted sequentially in parts of at most 50 pages. Each part independently tries the applicable parsers, and successful parts are cached for retries. Scanned PDFs that can be identified as having no text layer are handed off immediately to an installed OCR component, avoiding unnecessary text-conversion waits. The complete document is merged and indexed only after every part succeeds; failures never publish partial text. See [Document parsing](/en/docs/models#mineru-document-parsing).
 
@@ -110,6 +110,10 @@ The remaining steps still need network access. If those addresses are also unrea
 
 Dependencies are checked against pinned hashes, so a mirror serving different files fails the installation instead of installing altered files. If the computer is fully offline, use a complete offline component instead.
 
+Environment variables only affect newly started processes. The installation runs in the background service, and the app reuses a service that is already running, so quitting and reopening the app alone does not apply them; after setting the variables run `sag service restart` from a new terminal, or confirm the restart with `sag service status`.
+
+While the recognition models download and the runtime is unpacked, the installer commits about 2.5 GiB of memory; when memory is tight the installation stops and the error shows a message such as `memory allocation ... failed`. Close memory-hungry programs and retry; if it keeps failing, open **Open install log** for the last lines, or switch to a complete offline component.
+
 Obtain a complete folder matching your system, architecture and component version from your administrator or maintainer. Extract archives before selecting the folder. Current official Releases do not distribute a separate complete offline component; the application installer is not a component package. The import entry is available in application builds containing this feature, not the official 0.2.7 package.
 
 ![Offline document component import after a download failure](/images/product-offline-component-en.png)
@@ -141,6 +145,12 @@ Enter one name per line. Defaults include `.git`, `node_modules`, `dist`, `targe
 Use `.sagignore` for more precise path or file patterns, directory rules and `!` negation. These combine with global exclusions and type selections to determine coverage.
 
 ### Reindex and history
+
+**Rebuild failed files only:** when there are file-level failures, the indexing status card in the lower-left corner shows the failed-file count and a **Rebuild index** button. Click it to immediately retry current failed files across all added folders, without opening a list or confirming. Successful indexes and converted files are kept; this action does not scan the entire folder. Click the status text above the button to inspect failure details.
+
+The card shows progress while rebuilding and prevents duplicate submissions. Both native and converted files count toward the rebuild history. Resume paused indexing before starting. Recovered files are removed from the current failures; unresolved component, file or permission problems remain visible. Stale failure records are removed for deleted or excluded files and files replaced by same-named directories; existing indexes inside those directories are preserved. If only a folder-reading or watcher error remains and there are no retryable files, the button is hidden; inspect the details and use folder-level or global reindexing.
+
+![Rebuild failed files from the lower-left status card](/images/product-index-retry-en.png)
 
 Global **Reindex** checks all registered directories using saved types and exclusions, updating changed indexes. Save relevant changes before running it.
 

@@ -228,3 +228,36 @@ fn mock_service_endpoint_identifies_the_process_that_owns_its_listener() {
     assert!(sag_client::process_alive(endpoint.pid));
     server.join().unwrap();
 }
+
+#[test]
+fn add_reports_background_indexing_when_the_wait_times_out() {
+    use std::fs;
+    let data = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(data.path().to_path_buf());
+    let cwd = data.path().join("等待索引");
+    fs::create_dir_all(&cwd).unwrap();
+    let cwd = cwd.canonicalize().unwrap();
+    let server_cwd = cwd.clone();
+    let server = support::serve(data.path(), 1, move |request| {
+        assert_eq!(request["command"]["command"], "add");
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        serde_json::json!({"type":"added","data":{
+            "path":server_cwd.join(""),
+            "index_status":"indexing",
+            "cli_authorized":true,
+        }})
+    });
+    let result = Command::new(env!("CARGO_BIN_EXE_sag"))
+        .current_dir(&cwd)
+        .env("SAG_DATA_DIR", data.path())
+        .args(["add", "--timeout", "1"])
+        .output()
+        .unwrap();
+    assert_eq!(result.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&result.stderr);
+    assert!(stderr.contains("等待索引超时"), "{stderr}");
+    assert!(stderr.contains("目录已加入知识库"), "{stderr}");
+    assert!(stderr.contains("后台索引仍在继续"), "{stderr}");
+    assert!(stderr.contains("--timeout"), "{stderr}");
+    server.join().unwrap();
+}
