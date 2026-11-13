@@ -1,5 +1,27 @@
 # 更新日志 / Changelog
 
+## 0.2.12
+
+- **基础文字先可搜索**：PDF 先发布可提取的文字，混合或扫描 PDF 在后台继续 OCR 和表格增强；文件列表明确显示可搜索范围及增强状态。纯文字 PDF 保持快速完成。
+- **大 PDF 不再挡住新文件**：基础索引和增强使用独立工作线程，本地内置解析支持的 Office、RTF 等文件可先完成文字索引；云解析沿用原配置顺序。增强失败保留已有可用文字，并支持只重试失败文件。
+- **减少 PDF 重复加载模型**：同一 PDF 的多个分段复用 Docling 进程和模型，文档完成、失败或取消后释放；保持现有 CPU 线程策略、OCR 和表格识别配置。修复并行扫描误删或覆盖新增强结果的问题。
+- **更可靠的索引进度与恢复**：分别显示基础索引、后台增强和 PDF 分段进度，减少状态闪动；未变化的失败文件复用失败记录，文件、组件或相关预算变化后重新尝试。
+- **改善 CLI 与问答兼容性**：`sag add` 支持用 `--timeout` 调整等待时间，超时明确提示后台仍在索引；决策模型批次因问题条数超限被拒绝时自动拆批重试。修复数学区间被误判为引用、金额内容被数学表达式过滤的问题；切换决策模型提供商时重置模型选择。
+- **改善组件安装与分发**：调整文档组件安装内存限制，保留失败诊断；继续精简 QPDF 分发内容。
+
+桌面端与随包 CLI 版本统一为 0.2.12。基础文字可搜索不代表扫描内容和复杂表格已全部完成，请以界面状态及原文核对完整性。
+
+### English
+
+- **Search basic text sooner**: publish usable PDF text before background OCR and table enhancement for mixed or scanned PDFs. File-list states identify search availability and enhancement progress. Text-only PDFs retain fast completion.
+- **Keep new files moving**: independent basic-indexing and enhancement workers let supported local Office, RTF and other built-in formats become searchable while a large PDF is enhanced. Cloud parsing retains its configured order. Enhancement failures retain usable text, with selective failed-file retry.
+- **Reuse PDF models**: share one Docling process and its models across a PDF's segments, releasing resources on completion, failure or cancellation. Keep CPU thread policy and OCR/table settings unchanged. Fix concurrent scans deleting or overwriting newly enhanced indexes.
+- **Clearer progress and recovery**: show separate basic, enhancement and PDF-segment progress with more stable updates. Reuse unchanged failure records and retry when files, components or relevant budgets change.
+- **CLI and answer compatibility**: `sag add --timeout` controls the wait and explains when indexing continues after timeout. Split decision-model batches rejected for exceeding question-count limits. Avoid treating mathematical intervals as citations or stripping prices as mathematical expressions, and reset the model selection when switching decision-model providers.
+- **Component installation and distribution**: adjust document-component installation memory limits while retaining diagnostics, and further reduce the QPDF distribution payload.
+
+The desktop app and bundled CLI both use 0.2.12. Searchable basic text does not imply complete scanned-content or complex-table coverage; check the displayed state and original document.
+
 ## 0.2.11
 
 - **长 PDF 分段转换与恢复**：按最多 50 页分段，每段独立尝试 MinerU、适用的内置解析器和已安装的 Docling。失败只降级当前分段，成功分段缓存复用，全部完成后才合并入库；停止或失败不会发布残缺正文。
