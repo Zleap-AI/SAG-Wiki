@@ -97,7 +97,7 @@ fn run_engines(
     .into())
 }
 
-fn cloud_supports(source:&Path, config:&sag_protocol::mineru::MineruConfig)->bool {
+pub(crate) fn cloud_supports(source:&Path, config:&sag_protocol::mineru::MineruConfig)->bool {
     config.enabled && crate::mineru::supports(source) && (config.provider != sag_protocol::mineru::MineruProvider::Ai302 || source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")))
 }
 pub(crate) fn local_formats(formats:&Option<Vec<String>>,config:&sag_protocol::mineru::MineruConfig)->Option<Vec<String>> {
@@ -171,7 +171,30 @@ pub fn convert(
     docling: &Docling,
     settings: &Settings,
     cancel: impl Fn() -> bool + Sync,
+    report: impl FnMut(Attempt),
+) -> Result<()> {
+    convert_mode(source, output, docling, settings, cancel, report, false)
+}
+
+pub fn convert_enhanced(
+    source: &Path,
+    output: &Path,
+    docling: &Docling,
+    settings: &Settings,
+    cancel: impl Fn() -> bool + Sync,
+    report: impl FnMut(Attempt),
+) -> Result<()> {
+    convert_mode(source, output, docling, settings, cancel, report, true)
+}
+
+fn convert_mode(
+    source: &Path,
+    output: &Path,
+    docling: &Docling,
+    settings: &Settings,
+    cancel: impl Fn() -> bool + Sync,
     mut report: impl FnMut(Attempt),
+    enhanced: bool,
 ) -> Result<()> {
     if cancel() {
         bail!("已停止转换，未发布输出")
@@ -194,37 +217,42 @@ pub fn convert(
                 // Docling's alternate backend can repair PDFs rejected by lopdf.
                 // Preparation incompatibility must not bypass the parser chain.
                 Err(error) if error.chain().any(|cause| cause.is::<lopdf::Error>()) => {
-                    return convert_single(source, output, docling, settings, cancel, report, None);
+                    return convert_single(source, output, docling, settings, cancel, report, None, enhanced, None);
                 }
                 Err(error) => return Err(error),
             };
         if parts.len() > 1 {
             let report = std::cell::RefCell::new(&mut report);
+            let session = (!cloud_supports(source, &settings.mineru)).then(|| docling.pdf_session(&settings.runtime));
+            let cancelled = &cancel;
+            let reporter = &report;
             return pdf_segments::convert_parts(
                 &parts,
                 output,
-                &identity(source, settings),
+                &format!("{}:enhanced={enhanced}", identity(source, settings)),
                 settings.runtime.conversion_output_mib as u64 * 1024 * 1024,
                 &cancel,
                 |part, current, total| report.borrow_mut()(Attempt {
                     segment: Some(sag_protocol::ConversionSegment { current, total, start_page: part.start, end_page: part.end }),
                     phase: Some("segment".into()), engine: String::new(), elapsed_ms: 0, error: None,
                 }),
-                |part, input, result| {
+                move |part, input, result| {
                     convert_single(
                         input,
                         result,
                         docling,
                         settings,
-                        &cancel,
-                        |attempt| report.borrow_mut()(attempt),
+                        cancelled,
+                        |attempt| reporter.borrow_mut()(attempt),
                         Some(part.start),
+                        enhanced,
+                        session.as_ref(),
                     )
                 },
             );
         }
     }
-    convert_single(source, output, docling, settings, cancel, report, None)
+    convert_single(source, output, docling, settings, cancel, report, None, enhanced, None)
 }
 
 fn convert_single(
@@ -235,6 +263,8 @@ fn convert_single(
     cancel: impl Fn() -> bool + Sync,
     report: impl FnMut(Attempt),
     original_start: Option<u32>,
+    enhanced: bool,
+    session: Option<&crate::docling::PdfSession<'_>>,
 ) -> Result<()> {
     if cancel() {
         bail!("已停止转换，未发布输出")
@@ -246,7 +276,7 @@ fn convert_single(
     if cloud_supports(source, &settings.mineru) {
         engines.push("MinerU")
     }
-    if anydoc::handles(source) {
+    if !enhanced && anydoc::handles(source) {
         engines.push("anydoc")
     }
     engines.push("Docling");
@@ -314,12 +344,10 @@ fn convert_single(
                     }
                     anydoc::Outcome::NeedsOcr(detail) => bail!("内置解析需要 OCR：{detail}"),
                 },
-                _ => docling.convert_docling_with_runtime(
-                    source,
-                    &temporary,
-                    &settings.runtime,
-                    &cancel,
-                )?,
+                _ => match session {
+                    Some(session) => session.convert(source, &temporary, &cancel)?,
+                    None => docling.convert_docling_with_runtime(source, &temporary, &settings.runtime, &cancel)?,
+                },
             }
             let size = fs::metadata(&temporary)?.len();
             if size > settings.runtime.conversion_output_mib as u64 * 1024 * 1024 {

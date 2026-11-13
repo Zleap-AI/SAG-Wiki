@@ -2,6 +2,8 @@
 mod notes_index;
 #[path = "store_retry.rs"]
 mod retry_index;
+#[path = "store_progressive.rs"]
+mod progressive;
 use crate::{ignore_rules, text, types::*};
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
@@ -87,15 +89,34 @@ struct PreparedFile {
     /// verified inside the same transaction that indexes the new content.
     note_body: Option<String>,
 }
+// Content hash, modification time and size identify an accepted document generation.
+type IndexedVersion = (String, i64, i64);
+struct DirectoryScan {
+    files: Vec<PathBuf>,
+    indexed: HashMap<String, Option<IndexedVersion>>,
+}
+struct EnhancementLease {
+    sources: Arc<Mutex<HashMap<String,Vec<(String,String,String)>>>>,
+    root: String,
+    control: Option<crate::index_status::IndexControl>,
+}
+impl Drop for EnhancementLease {
+    fn drop(&mut self) {
+        self.sources.lock().unwrap().remove(&self.root);
+        if let Some(control)=&self.control { control.finish(&self.root); }
+    }
+}
 pub struct Store {
     pub indexing: crate::index_status::IndexControl,
     pub(crate) docling: Arc<crate::docling::Docling>,
-    db: Mutex<Connection>,
-    query_readers: Vec<Mutex<Option<Connection>>>,
+    db: Arc<Mutex<Connection>>,
+    query_readers: Arc<Vec<Mutex<Option<Connection>>>>,
     query_path: PathBuf,
-    runtime: RwLock<sag_protocol::runtime::RuntimeSettings>,
-    query_cache: Mutex<QueryCache>,
+    runtime: Arc<RwLock<sag_protocol::runtime::RuntimeSettings>>,
+    query_cache: Arc<Mutex<QueryCache>>,
     text_preparation: Arc<PreparationBudget>,
+    enhancement_sources: Arc<Mutex<HashMap<String, Vec<(String, String, String)>>>>,
+    deferred_refresh: Arc<Mutex<HashSet<String>>>,
 }
 #[cfg(test)]
 const QUERY_CACHE_ENTRIES: usize = 256;
@@ -288,6 +309,9 @@ impl Store {
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS index_history(id INTEGER PRIMARY KEY AUTOINCREMENT,path TEXT NOT NULL,name TEXT NOT NULL,started_at INTEGER NOT NULL,finished_at INTEGER NOT NULL,completed INTEGER NOT NULL,total INTEGER NOT NULL,status TEXT NOT NULL,error TEXT);
  CREATE TABLE IF NOT EXISTS conversions(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,output TEXT NOT NULL,output_hash TEXT NOT NULL,valid INTEGER NOT NULL DEFAULT 1);
+ CREATE TABLE IF NOT EXISTS conversion_states(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,status TEXT NOT NULL,error TEXT);
+ CREATE INDEX IF NOT EXISTS conversion_states_root ON conversion_states(root);
+ CREATE INDEX IF NOT EXISTS conversion_states_pending ON conversion_states(root,source) WHERE status IN ('basic','enhancing','awaiting_ocr','awaiting_conversion');
  CREATE TABLE IF NOT EXISTS conversion_failures(source TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,source_hash TEXT NOT NULL,error TEXT NOT NULL,mtime INTEGER,size INTEGER);
  CREATE INDEX IF NOT EXISTS conversion_failures_root ON conversion_failures(root);
  CREATE INDEX IF NOT EXISTS conversions_output ON conversions(output);
@@ -385,17 +409,19 @@ impl Store {
             db.pragma_update(None, "user_version", 10)?;
         }
         // Slots are cheap; open read connections only when a configured worker is used.
-        let query_readers = (0..64).map(|_| Mutex::new(None)).collect();
+        let query_readers = Arc::new((0..64).map(|_| Mutex::new(None)).collect());
         let saved: Option<String> = db.query_row("SELECT value FROM preferences WHERE id=1", [], |r| r.get(0)).optional()?;
         let store = Self {
             indexing: crate::index_status::IndexControl::default(),
             docling: Arc::new(crate::docling::Docling::new(path.parent().context("数据库缺少父目录")?)),
-            db: Mutex::new(db),
+            db: Arc::new(Mutex::new(db)),
             query_readers,
             query_path: path.to_path_buf(),
-            runtime: RwLock::new(Default::default()),
-            query_cache: Mutex::new(QueryCache::default()),
+            runtime: Arc::new(RwLock::new(Default::default())),
+            query_cache: Arc::new(Mutex::new(QueryCache::default())),
             text_preparation: PreparationBudget::new(TEXT_PREPARATION_BUDGET),
+            enhancement_sources: Arc::new(Mutex::new(HashMap::new())),
+            deferred_refresh: Arc::new(Mutex::new(HashSet::new())),
         };
         if let Some(saved) = saved {
             let previous: Settings = serde_json::from_str(&saved)?;
@@ -409,6 +435,21 @@ impl Store {
         }
         *store.runtime.write().expect("runtime settings poisoned") = store.settings()?.runtime;
         Ok(store)
+    }
+    /// A separate progress lane over the same database, parser pool and budgets.
+    pub(crate) fn fork_for_enhancement(&self) -> Self {
+        Self {
+            indexing: self.indexing.for_lane(crate::index_status::IndexLane::Enhancement),
+            docling: self.docling.clone(),
+            db: self.db.clone(),
+            query_readers: self.query_readers.clone(),
+            query_path: self.query_path.clone(),
+            runtime: self.runtime.clone(),
+            query_cache: self.query_cache.clone(),
+            text_preparation: self.text_preparation.clone(),
+            enhancement_sources: self.enhancement_sources.clone(),
+            deferred_refresh: self.deferred_refresh.clone(),
+        }
     }
     fn query_reader(&self, index: usize) -> Result<MutexGuard<'_, Option<Connection>>> {
         let mut slot = self.query_readers[index].lock().expect("query reader mutex poisoned");
@@ -571,7 +612,7 @@ impl Store {
         let mut db = self.connection();
         let tx = db.transaction()?;
         let status: String = tx.query_row("SELECT status FROM roots WHERE path=?", [&root], |row| row.get(0))?;
-        if status == "pending" || status == "indexing" { bail!("此文件夹正在索引，请完成后再修改索引设置") }
+        if status == "pending" || status == "indexing" || self.indexing.status().tasks.iter().any(|task|task.path==root) { bail!("此文件夹正在索引，请完成后再修改索引设置") }
         crate::folder_index::write(&path, options)?;
         if rebuild {
             Self::remove_indexed_under_tx(&tx, &root, &path)?;
@@ -587,7 +628,7 @@ impl Store {
             "SELECT EXISTS(SELECT 1 FROM roots WHERE status IN ('pending','indexing'))",
             [], |row| row.get(0),
         )?;
-        if busy { bail!("正在索引，请等待当前任务完成") }
+        if busy || !self.indexing.status().tasks.is_empty() { bail!("正在索引，请等待当前任务完成") }
         let roots = {
             let mut query = tx.prepare("SELECT path FROM roots ORDER BY rowid")?;
             let rows = query.query_map([], |row| row.get(0))?.collect::<rusqlite::Result<Vec<String>>>()?;
@@ -617,7 +658,7 @@ impl Store {
             "SELECT EXISTS(SELECT 1 FROM roots WHERE status IN ('pending','indexing'))",
             [], |row| row.get(0),
         )?;
-        if busy { bail!("正在索引，请等待当前任务完成后再移除所有文件夹") }
+        if busy || !self.indexing.status().tasks.is_empty() { bail!("正在索引，请等待当前任务完成后再移除所有文件夹") }
         tx.execute_batch("DELETE FROM chunk_fts;
             DELETE FROM documents;
             DELETE FROM index_issues;
@@ -634,7 +675,7 @@ impl Store {
             "SELECT EXISTS(SELECT 1 FROM roots WHERE status IN ('pending','indexing'))",
             [], |row| row.get(0),
         )?;
-        if busy { bail!("正在索引，请等待当前任务完成后再清除所有数据") }
+        if busy || !self.indexing.status().tasks.is_empty() { bail!("正在索引，请等待当前任务完成后再清除所有数据") }
         tx.execute_batch("DELETE FROM conversations;
             DELETE FROM index_history;
             DELETE FROM drafts;
@@ -772,6 +813,12 @@ impl Store {
         let prefix = format!("{}{}", value.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
         tx.execute("DELETE FROM root_exclusions WHERE instr(path,?1)=1", [&prefix])?;
         tx.execute("INSERT INTO root_exclusions(path,root) VALUES(?,?)", params![value,root.path])?;
+        if let Some(sources)=self.enhancement_sources.lock().unwrap().get(&root.path).cloned() {
+            if sources.iter().any(|(source,_,_)|Path::new(source).starts_with(path)) {
+                self.indexing.cancel_lane(&root.path,crate::index_status::IndexLane::Enhancement);
+                self.deferred_refresh.lock().unwrap().insert(root.path.clone());
+            }
+        }
         Self::remove_indexed_under_tx(&tx, &root.path, path)?;
         tx.execute("UPDATE metadata SET version=version+1", [])?;
         tx.commit()?;
@@ -790,6 +837,11 @@ impl Store {
         if !exists {
             bail!("只能移除已添加的顶层文件夹")
         };
+        self.indexing.cancel_root(path);
+        // Snapshot the latest completed/basic ownership under the writer lock
+        // before cascading mappings. Intermediate enhancement turns deliberately
+        // avoid rewriting the whole journal for every document.
+        Self::save_conversion_ownership_from(&tx, path)?;
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?)",[path])?;
         tx.execute("DELETE FROM documents WHERE root=?", [path])?;
         tx.execute("DELETE FROM roots WHERE path=?", [path])?;
@@ -863,13 +915,15 @@ impl Store {
     }
     pub fn files(&self) -> Result<Vec<FileInfo>> {
         let c = self.connection();
-        let mut q = c.prepare("SELECT id,path,name FROM documents ORDER BY name,path")?;
+        let mut q = c.prepare("SELECT d.id,d.path,d.name,COALESCE(s.status,'complete'),s.error FROM documents d LEFT JOIN conversions c ON c.output=d.path LEFT JOIN conversion_states s ON s.source=c.source WHERE c.source IS NULL OR c.valid=1 ORDER BY d.name,d.path")?;
         let rows = q
             .query_map([], |r| {
                 Ok(FileInfo {
                     id: r.get(0)?,
                     path: r.get(1)?,
                     name: r.get(2)?,
+                    index_status: Some(r.get(3)?),
+                    index_error: r.get(4)?,
                 })
             })?
             .collect::<rusqlite::Result<_>>()?;
@@ -972,6 +1026,14 @@ impl Store {
         Ok(())
     }
     fn finish_indexing(&self, root: &str) -> Result<()> {
+        // A failed primary scan (unmounted root or invalid rules) remains an
+        // error even if another lane finishes successfully. A new primary
+        // attempt explicitly clears it in begin_indexing before retrying.
+        let failed:bool=self.connection().query_row("SELECT EXISTS(SELECT 1 FROM roots WHERE path=? AND status='error')",[root],|row|row.get(0))?;
+        if failed { return Ok(()); }
+        if self.indexing.status().tasks.iter().filter(|task|task.path==root).count()>1 {
+            return self.root_status(root,"indexing",None);
+        }
         let issues = {
             let db = self.connection();
             let mut query = db.prepare("SELECT path,error FROM index_issues WHERE root=? ORDER BY path")?;
@@ -982,7 +1044,9 @@ impl Store {
         let watch_error: Option<String> = self.connection().query_row(
             "SELECT error FROM root_watch_errors WHERE root=?", [root], |row| row.get(0),
         ).optional()?;
-        if issues.is_empty() && watch_error.is_none() {
+        if issues.is_empty() && watch_error.is_none() && self.has_pending_enhancement(root)? {
+            self.root_status(root, "pending", None)
+        } else if issues.is_empty() && watch_error.is_none() {
             self.root_status(root, "ready", None)
         } else {
             let mut details = if issues.is_empty() { String::new() } else { format!("未能索引 {} 个文件\n\n{}", issues.len(), issues.into_iter()
@@ -994,11 +1058,116 @@ impl Store {
             self.root_status(root, "partial", Some(&details))
         }
     }
+    pub fn scan_basic(&self, root: &str, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        self.scan_with_mode(root, false, progress)
+    }
+    /// Complete a bounded batch using the configured conversion worker count.
+    /// Service runs this through a shared Store
+    /// handle with its own control lane, so primary ingestion remains available.
+    pub fn enhance(&self, root: &str, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        if !Path::new(root).is_dir() {
+            self.root_status(root,"error",Some("文件夹不可用，请检查磁盘或重新添加"))?;
+            bail!("文件夹不可用，请检查磁盘或重新添加");
+        }
+        let settings = self.settings()?;
+        let candidates:Vec<String> = {
+            let db=self.connection();
+            let mut query=db.prepare("SELECT source FROM conversion_states WHERE root=?1 AND status IN ('basic','enhancing','awaiting_ocr','awaiting_conversion') ORDER BY source LIMIT ?2")?;
+            let rows=query.query_map(params![root,settings.conversion_workers as i64],|row|row.get(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        let mut sources=Vec::new();
+        let mut snapshots=Vec::new();
+        for source in candidates {
+            let path = Path::new(&source);
+            let eligible = path.is_file() && self.authorize(path).is_ok()
+                && fs::symlink_metadata(path).is_ok_and(|meta| !meta.file_type().is_symlink())
+                && crate::docling::should_convert(path, crate::folder_index::Rules::new(Path::new(root), &settings)?.file(path)?)
+                && !ignore_rules::is_ignored(&mut ignore_rules::matcher(Path::new(root)), path, false)?;
+            if !eligible {
+                self.connection().execute("DELETE FROM conversion_states WHERE source=?", [&source])?;
+                self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
+                self.remove_indexed(&path_text(&crate::docling::output_path(Path::new(root),path)?)?)?;
+                continue;
+            }
+            snapshots.push((source.clone(),crate::docling::fingerprint(path)?,crate::conversion::identity(path,&settings)));
+            sources.push(PathBuf::from(source));
+        }
+        if sources.is_empty() { self.reconcile_finished_root(root)?; return Ok(0); }
+        self.enhancement_sources.lock().unwrap().insert(root.into(),snapshots);
+        let mut _lease = EnhancementLease {sources:self.enhancement_sources.clone(),root:root.into(),control:None};
+        if !self.indexing.try_begin(root) { return Ok(0); }
+        _lease.control=Some(self.indexing.clone());
+        if !self.begin_indexing(root)? { self.indexing.finish(root); return Ok(0); }
+        let started_at = now();
+        let result = (|| -> Result<usize> {
+            self.indexing.checkpoint_root(root)?;
+            let issues = self.convert_sources_mode(root, Path::new(root), &sources, &settings, false, &|p| { self.indexing.progress(root,p.count,p.total); progress(p); }, 1)?;
+            for (path,error) in issues { self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![path,root,error])?; }
+            Ok(sources.len())
+        })();
+        match &result {
+            Ok(_) => self.finish_indexing(root)?,
+            Err(error) if !self.indexing.cancelled(root) => self.root_status(root,"error",Some(&error.to_string()))?,
+            Err(_) => {},
+        }
+        let saved = self.record_index_history(root, started_at);
+        self.indexing.finish(root);
+        self.reconcile_finished_root(root)?;
+        saved?;
+        result
+    }
+    pub(crate) fn pending_enhancement_roots(&self) -> Result<Vec<String>> {
+        let db=self.connection();
+        let mut query=db.prepare("SELECT r.path FROM roots r WHERE r.status!='error' AND EXISTS(SELECT 1 FROM conversion_states s WHERE s.root=r.path AND s.status IN ('basic','enhancing','awaiting_ocr','awaiting_conversion') LIMIT 1) ORDER BY r.path")?;
+        let roots=query.query_map([],|row|row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+        let deferred=self.deferred_refresh.lock().unwrap();
+        Ok(roots.into_iter().filter(|root| !deferred.contains(root)).collect())
+    }
+    pub(crate) fn needs_deferred_refresh(&self,root:&str)->bool { self.deferred_refresh.lock().unwrap().contains(root) }
+    pub(crate) fn complete_deferred_refresh(&self,root:&str) {
+        if !self.indexing.is_active(root,crate::index_status::IndexLane::Enhancement) { self.deferred_refresh.lock().unwrap().remove(root); }
+    }
+    fn reconcile_finished_root(&self,root:&str)->Result<()> {
+        if !self.indexing.status().tasks.iter().any(|task|task.path==root)
+            && self.roots()?.iter().any(|registered|registered.path==root) { self.finish_indexing(root)?; }
+        Ok(())
+    }
+    fn cancel_enhancement_source(&self,root:&str,source:&str) {
+        if self.enhancement_sources.lock().unwrap().get(root).is_some_and(|active|active.iter().any(|item|item.0==source))
+            && self.indexing.is_active(root,crate::index_status::IndexLane::Enhancement) {
+            self.deferred_refresh.lock().unwrap().insert(root.into());
+            self.indexing.cancel_lane(root,crate::index_status::IndexLane::Enhancement);
+        }
+    }
+    pub(super) fn defer_active_enhancement(&self,root:&str,source:&Path,settings:&Settings)->Result<bool> {
+        let active=self.enhancement_sources.lock().unwrap().get(root).cloned()
+            .and_then(|inputs|inputs.into_iter().find(|item|Path::new(&item.0)==source));
+        let Some((active_source,input_hash,identity))=active else { return Ok(false) };
+        if Path::new(&active_source)!=source || !self.indexing.is_active(root,crate::index_status::IndexLane::Enhancement) { return Ok(false); }
+        self.connection().execute("INSERT OR IGNORE INTO conversion_states(source,root,status,error) SELECT source,root,'basic',NULL FROM conversions WHERE source=? AND source_hash LIKE 'basic-%'",[&active_source])?;
+        let changed=crate::docling::fingerprint(source).map_or(true,|hash|hash!=input_hash);
+        let cancelled=self.indexing.for_lane(crate::index_status::IndexLane::Enhancement).cancelled(root);
+        if changed || cancelled || crate::conversion::identity(source,settings)!=identity {
+            self.cancel_enhancement_source(root,&active_source);
+            if changed {
+                let current:Option<String>=self.connection().query_row("SELECT source_hash FROM conversions WHERE source=?",[&active_source],|row|row.get(0)).optional()?;
+                if current.as_deref().and_then(|hash|hash.rsplit(':').next())==Some(input_hash.as_str()) {
+                    self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?",[&active_source])?;
+                    self.remove_indexed(&path_text(&crate::docling::output_path(Path::new(root),source)?)?)?;
+                }
+            }
+        }
+        Ok(true)
+    }
     pub fn scan(&self, root: &str, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        self.scan_with_mode(root, true, progress)
+    }
+    fn scan_with_mode(&self, root: &str, enhance: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
-        let result = self.indexing.checkpoint_root(root).and_then(|_| self.scan_inner(root, Path::new(root), false, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
+        let result = self.indexing.checkpoint_root(root).and_then(|_| self.scan_inner_mode(root, Path::new(root), false, enhance, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
             Err(e) if !self.indexing.cancelled(root) => self.root_status(root, "error", Some(&e.to_string()))?,
@@ -1006,14 +1175,21 @@ impl Store {
         };
         let saved = self.record_index_history(root, started_at);
         self.indexing.finish(root);
+        self.reconcile_finished_root(root)?;
         saved?;
         result
     }
+    pub fn update_paths_basic(&self, root: &str, paths: &[PathBuf], progress: impl Fn(IndexProgress)) -> Result<usize> {
+        self.update_paths_mode(root,paths,false,progress)
+    }
     pub fn update_paths(&self, root: &str, paths: &[PathBuf], progress: impl Fn(IndexProgress)) -> Result<usize> {
+        self.update_paths_mode(root,paths,true,progress)
+    }
+    fn update_paths_mode(&self, root: &str, paths: &[PathBuf], enhance: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
-        let result = self.indexing.checkpoint_root(root).and_then(|_| self.update_paths_inner(root, paths, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
+        let result = self.indexing.checkpoint_root(root).and_then(|_| self.update_paths_inner(root, paths, enhance, |p| { self.indexing.progress(root, p.count, p.total); progress(p) }));
         match &result {
             Ok(_) => self.finish_indexing(root)?,
             Err(error) if !self.indexing.cancelled(root) => self.root_status(root, "error", Some(&error.to_string()))?,
@@ -1021,6 +1197,7 @@ impl Store {
         }
         let saved = self.record_index_history(root, started_at);
         self.indexing.finish(root);
+        self.reconcile_finished_root(root)?;
         saved?;
         result
     }
@@ -1031,7 +1208,10 @@ impl Store {
             "SELECT name,status,error FROM roots WHERE path=?", [&task.path],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )?;
-        let status = if self.indexing.cancelled(root) { "stopped" } else { &status };
+        let concurrent_status = if status=="indexing" {
+            if db.query_row("SELECT EXISTS(SELECT 1 FROM index_issues WHERE root=?)",[root],|row|row.get::<_,bool>(0))? { "partial" } else { "ready" }
+        } else { &status };
+        let status = if self.indexing.cancelled(root) { "stopped" } else { concurrent_status };
         let mut files = self.indexing.log(root);
         let mut source_query = db.prepare("SELECT source FROM conversions WHERE output=?")?;
         for file in &mut files {
@@ -1082,14 +1262,14 @@ impl Store {
             [root],
         )? > 0)
     }
-    fn update_paths_inner(&self, root: &str, paths: &[PathBuf], progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn update_paths_inner(&self, root: &str, paths: &[PathBuf], enhance: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let settings = self.settings()?;
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         }
         if paths.iter().any(|path| path.starts_with(root) && ignore_rules::is_rule_file(path)) {
             let directory = if paths.len() == 1 { paths[0].parent().unwrap() } else { Path::new(root) };
-            return self.scan_inner(root, directory, true, progress);
+            return self.scan_inner_mode(root, directory, true, enhance, progress);
         }
         let mut rules = crate::folder_index::Rules::new(Path::new(root), &settings)?;
         let excluded = self.excluded_directories()?;
@@ -1103,12 +1283,12 @@ impl Store {
             let new_documents = path.is_dir()
                 && !self.conversion_files(Path::new(root), path, &settings, &excluded)?.0.is_empty();
             if crate::docling::should_convert(path, options) || converted_descendants || new_documents {
-                return self.scan_inner(root, Path::new(root), true, progress);
+                return self.scan_inner_mode(root, Path::new(root), true, enhance, progress);
             }
 
         }
         let mut ignore = ignore_rules::matcher(Path::new(root));
-        enum Work { Directory(PathBuf, Vec<PathBuf>), File(PathBuf), Remove(PathBuf) }
+        enum Work { Directory(DirectoryScan), File(PathBuf), Remove(PathBuf) }
         let mut work = Vec::new();
         let mut total = 0;
         for path in paths {
@@ -1136,8 +1316,8 @@ impl Store {
                 total += 1;
             } else if metadata.is_dir() {
                 let files = self.index_files(Path::new(root), path, &settings, &excluded, None)?;
-                total += files.len().max(1);
-                work.push(Work::Directory(path.clone(), files));
+                total += files.files.len().max(1);
+                work.push(Work::Directory(files));
             } else if metadata.is_file() && Self::indexable_path(path, rules.file(path)?)
                 && (!crate::docling::in_output(path) || self.conversion_outputs()?.contains(&path_text(path)?)) {
                 work.push(Work::File(path.clone()));
@@ -1154,9 +1334,9 @@ impl Store {
         for item in work {
             self.indexing.checkpoint_root(root)?;
             match item {
-                Work::Directory(path, files) => {
-                    count += self.scan_directory(root, &path, &files, &settings, true, None, |p| progress(IndexProgress { count: completed + p.count, total }))?;
-                    completed += files.len().max(1);
+                Work::Directory(files) => {
+                    count += self.scan_directory(root, &files, &settings, true, None, |p| progress(IndexProgress { count: completed + p.count, total }))?;
+                    completed += files.files.len().max(1);
                 }
                 Work::File(path) => {
                     let result = self.indexing.file(root, &path, || self.prepare_file_with_runtime(root, &path, settings.retrieval.chunk_chars, true, &settings.runtime));
@@ -1201,22 +1381,27 @@ impl Store {
         let removed = tx.execute("DELETE FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
         tx.execute("DELETE FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1)", params![root,path,prefix])?;
         tx.execute("DELETE FROM conversion_failures WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)", params![root,path,prefix])?;
+        tx.execute("DELETE FROM conversion_states WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)", params![root,path,prefix])?;
         Self::mark_note_sources_removed_tx(tx, &path, true)?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
         Ok(removed)
     }
-    fn scan_inner(&self, root: &str, directory: &Path, verify: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn scan_inner_mode(&self, root: &str, directory: &Path, verify: bool, enhance: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let settings = self.settings()?;
         if !Path::new(root).is_dir() {
             bail!("文件夹不可用，请检查磁盘或重新添加")
         };
         let excluded = self.excluded_directories()?;
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(false))?;
-        let count = self.scan_directory(root, directory, &files, &settings, verify, Some(false), &progress)?;
+        let count = self.scan_directory(root, &files, &settings, verify, Some(false), &progress)?;
         let (sources, convert) = self.conversion_files(Path::new(root), directory, &settings, &excluded)?;
-        let issues = if convert { self.convert_sources(root, directory, &sources, &settings, true, &progress)? } else { vec![] };
+        if convert {
+            self.convert_sources_mode(root, directory, &sources, &settings, true, &progress, 2)?;
+            self.publish_basic_sources(root, &sources, &settings, &progress)?;
+        }
+        let issues = if convert && enhance { self.convert_sources(root, directory, &sources, &settings, true, &progress)? } else { vec![] };
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(true))?;
-        let converted_count = self.scan_directory(root, directory, &files, &settings, false, Some(true), progress)?;
+        let converted_count = self.scan_directory(root, &files, &settings, false, Some(true), progress)?;
         for (path, error) in issues {
             self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![path,root,error])?;
         }
@@ -1267,13 +1452,27 @@ impl Store {
         let convert = rules.converts_files() || !files.is_empty();
         Ok((files, convert))
     }
+    fn conversion_tools(&self, profile: sag_protocol::DoclingProfile) -> String {
+        let component = if !self.docling.has_profile(profile) { "missing" } else {
+            match profile {
+                sag_protocol::DoclingProfile::Documents => crate::docling_component::VERSION,
+                sag_protocol::DoclingProfile::Media => crate::docling_component::MEDIA_VERSION,
+            }
+        };
+        let splitter = if crate::mineru::splitter_path().is_file() { "qpdf" } else { "missing" };
+        format!("component={component}:splitter={splitter}")
+    }
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, prune: bool, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
+        self.convert_sources_mode(root, directory, sources, settings, prune, progress, 0)
+    }
+    fn convert_sources_mode(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, prune: bool, progress: &impl Fn(IndexProgress), mode: u8) -> Result<Vec<(String,String)>> {
         /// The stored source hash for a content hash (or a previously stored
         /// hash, whose last segment is the content hash) under this identity.
         fn hash_for_identity(hash: &str, identity: &str) -> String {
             let content = hash.rsplit(':').next().unwrap_or(hash);
             if identity.is_empty() { content.into() } else { format!("{identity}:{content}") }
         }
+        let one = mode == 1;
         let workers = settings.conversion_workers;
         let mut issues = vec![];
         let mut rules = crate::folder_index::Rules::new(Path::new(root), settings)?;
@@ -1284,6 +1483,7 @@ impl Store {
         if metadata_path.symlink_metadata().is_ok_and(|metadata| metadata.file_type().is_symlink()) {
             bail!(".sag-converted 转换记录不能是符号链接")
         }
+        if !one {
         if metadata_path.is_file() {
             let records: std::collections::BTreeMap<String,(String,String)> = serde_json::from_slice(&fs::read(&metadata_path)?)
                 .context("无法读取 .sag-converted 转换记录")?;
@@ -1297,67 +1497,69 @@ impl Store {
                     params![path_text(&source)?,root,source_hash,path_text(&output)?,output_hash])?;
             }
         }
-        // A retry list is deliberately incomplete: never prune healthy derivatives
-        // or other failure records merely because they are absent from that list.
+        let sources_set: HashSet<_> = sources.iter().map(|path| path_text(path)).collect::<Result<_>>()?;
         if prune {
-            let sources_set: HashSet<_> = sources.iter().map(|path| path_text(path)).collect::<Result<_>>()?;
-            let previous = {
-                let db = self.connection();
-                let scope = path_text(directory)?;
-                let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-                let mut query = db.prepare("SELECT source,output,output_hash FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
-                let rows = query.query_map(params![root,scope,prefix], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?)))?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                rows
-            };
-            for (source, output, output_hash) in previous {
-                self.indexing.checkpoint_root(root)?;
-                let options = rules.file(Path::new(&source))?;
-                if sources_set.contains(&source) || !crate::docling::should_convert(Path::new(&source), options) { continue; }
-                let path = Path::new(&output);
-                // Delete only our unchanged derivative; user-edited Markdown is preserved.
-                if path.is_file() && crate::docling::fingerprint(path)? == output_hash {
-                    fs::remove_file(path)?;
-                }
-                self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
-                self.remove_indexed(&output)?;
+        let previous = {
+            let db = self.connection();
+            let scope = path_text(directory)?;
+            let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+            let mut query = db.prepare("SELECT source,output,output_hash FROM conversions WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+            let rows = query.query_map(params![root,scope,prefix], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?,row.get::<_, String>(2)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for (source, output, output_hash) in previous {
+            self.indexing.checkpoint_root(root)?;
+            let options = rules.file(Path::new(&source))?;
+            if sources_set.contains(&source) { continue; }
+            self.cancel_enhancement_source(root,&source);
+            if !crate::docling::should_convert(Path::new(&source), options) { continue; }
+            let path = Path::new(&output);
+            // Delete only our unchanged derivative; user-edited Markdown is preserved.
+            if path.is_file() && crate::docling::fingerprint(path)? == output_hash {
+                fs::remove_file(path)?;
             }
-            let stale_failures: Vec<String> = {
-                let db = self.connection();
-                let scope = path_text(directory)?;
-                let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-                let mut query = db.prepare("SELECT source FROM conversion_failures WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
-                let rows = query.query_map(params![root,scope,prefix], |row| row.get::<_, String>(0))?
-                    .filter(|row| row.as_ref().is_ok_and(|source| !sources_set.contains(source)))
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
-                rows
-            };
-            for source in stale_failures {
-                self.connection().execute("DELETE FROM conversion_failures WHERE source=?", [&source])?;
-            }
+            self.connection().execute("DELETE FROM conversion_states WHERE source=?", [&source])?;
+            self.connection().execute("DELETE FROM conversions WHERE source=?", [&source])?;
+            self.remove_indexed(&output)?;
         }
+        let stale_failures: Vec<String> = {
+            let db = self.connection();
+            let scope = path_text(directory)?;
+            let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+            let mut query = db.prepare("SELECT source FROM conversion_failures WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+            let rows = query.query_map(params![root,scope,prefix], |row| row.get::<_, String>(0))?
+                .filter(|row| row.as_ref().is_ok_and(|source| !sources_set.contains(source)))
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for source in stale_failures {
+            self.connection().execute("DELETE FROM conversion_failures WHERE source=?", [&source])?;
+        }
+        }
+        if prune {
+        let stale_states: Vec<String> = {
+            let db = self.connection();
+            let scope = path_text(directory)?;
+            let prefix = format!("{}{}", scope.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+            let mut query = db.prepare("SELECT source FROM conversion_states WHERE root=?1 AND (source=?2 OR instr(source,?3)=1)")?;
+            let rows = query.query_map(params![root,scope,prefix], |row| row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            rows
+        };
+        for source in stale_states {
+            if !sources_set.contains(&source) { self.connection().execute("DELETE FROM conversion_states WHERE source=?", [&source])?; }
+        }
+        }
+        }
+        if mode == 2 { return Ok(issues); }
         if !sources.is_empty() {
-            self.indexing.phase(root, "converting", sources.len());
+            self.indexing.phase(root, if one { "enhancing" } else { "converting" }, sources.len());
             progress(IndexProgress { count: 0, total: sources.len() });
         }
         // Installed tools decide whether a remembered failure can still reproduce,
         // so resolve them once per scan instead of per source.
-        let component_version = |profile: sag_protocol::DoclingProfile| -> String {
-            if !self.docling.has_profile(profile) { return "missing".into(); }
-            match profile {
-                sag_protocol::DoclingProfile::Media => crate::docling_component::MEDIA_VERSION,
-                sag_protocol::DoclingProfile::Documents => crate::docling_component::VERSION,
-            }
-            .to_owned()
-        };
-        let document_component = component_version(sag_protocol::DoclingProfile::Documents);
-        let media_component = component_version(sag_protocol::DoclingProfile::Media);
-        let splitter = if crate::mineru::splitter_path().is_file() { "qpdf" } else { "missing" };
-        // Workers borrow the resolved tools instead of re-reading them per source.
-        let (document_tools, media_tools) = (
-            format!("component={document_component}:splitter={splitter}"),
-            format!("component={media_component}:splitter={splitter}"),
-        );
+        let document_tools = self.conversion_tools(sag_protocol::DoclingProfile::Documents);
+        let media_tools = self.conversion_tools(sag_protocol::DoclingProfile::Media);
         let (document_tools, media_tools) = (document_tools.as_str(), media_tools.as_str());
         let next = std::sync::atomic::AtomicUsize::new(0);
         thread::scope(|scope| -> Result<()> {
@@ -1379,6 +1581,7 @@ impl Store {
                         let mut unchanged_previous = None;
                         let mut failure_hash = None;
                         let mut stat = None;
+                        let mut expected_record = None;
                         let result = (|| -> Result<bool> {
                             let output = crate::docling::output_path(Path::new(root), source)?;
                             let metadata = fs::metadata(source)?;
@@ -1392,6 +1595,7 @@ impl Store {
                             let previous: Option<(String,String,bool,Option<i64>,Option<i64>)> = self.connection().query_row(
                                 "SELECT source_hash,output_hash,valid,mtime,size FROM conversions WHERE source=?", [&source_text],
                                 |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?,row.get(3)?,row.get(4)?))).optional()?;
+                            expected_record=previous.as_ref().map(|(hash,_,_,_,_)|hash.clone());
                             // Like text files, an unchanged mtime and size stand in for the
                             // content hash so a routine scan does not read every source again.
                             if let Some((previous_source, _, true, Some(previous_mtime), Some(previous_size))) = &previous {
@@ -1409,6 +1613,15 @@ impl Store {
                             // repeating an expensive conversion on every scan; the key changes
                             // after an upgrade, an install, a settings change or a new file.
                             // A still valid earlier conversion of the same content stays indexed.
+                            // Cached failures can return before normal source/output checks.
+                            // Initialize preservation for any owned previous result; the
+                            // post-attempt source fingerprint check still gates its reuse.
+                            if let Some((previous_source, previous_output, true, _, _)) = &previous {
+                                if output.is_file() {
+                                    unchanged_previous = Some(previous_source.rsplit(':').next().unwrap_or(previous_source).to_owned());
+                                    previous_usable = crate::docling::fingerprint(&output)? == *previous_output;
+                                }
+                            }
                             let remembered = |hash: Option<&str>| -> Result<Option<String>> {
                                 Ok(match hash {
                                     Some(hash) => self.connection().query_row(
@@ -1455,7 +1668,16 @@ impl Store {
                             let staged = tempfile::Builder::new().prefix(".sag-pending-").suffix(".md")
                                 .tempfile_in(output.parent().unwrap())?.into_temp_path();
                             let retry: bool = self.connection().query_row("SELECT EXISTS(SELECT 1 FROM index_issues WHERE path=?)", [&source_text], |row| row.get(0))?;
-                            self.indexing.file_attempt(root, source, retry, || crate::conversion::convert(source, &staged, &self.docling, settings, || self.indexing.cancelled(root), |attempt| self.indexing.conversion_attempt(root,source,attempt)))?;
+                            let enhanced = source.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
+                                && (previous.as_ref().is_some_and(|(hash,_,_,_,_)| hash.starts_with("basic-v1:"))
+                                    || self.connection().query_row("SELECT EXISTS(SELECT 1 FROM conversion_states WHERE source=? AND status='awaiting_ocr')", [&source_text], |row| row.get::<_,bool>(0))?);
+                            self.conversion_state(&source_text, root, "enhancing", None)?;
+                            self.indexing.file_attempt(root, source, retry, || {
+                                let cancel = || self.indexing.cancelled(root);
+                                let report = |attempt| self.indexing.conversion_attempt(root,source,attempt);
+                                if enhanced { crate::conversion::convert_enhanced(source, &staged, &self.docling, settings, cancel, report).map_err(|error| { let message = format!("PDF OCR/表格增强失败：{error:#}"); error.context(message) }) }
+                                else { crate::conversion::convert(source, &staged, &self.docling, settings, cancel, report) }
+                            })?;
                             converted = true;
                             // Pause between conversion and acceptance without retaining an
                             // "active file" entry or a database lock.
@@ -1470,19 +1692,33 @@ impl Store {
                         })();
                         let source_unchanged = unchanged_previous.as_ref().is_some_and(|hash|
                             crate::docling::fingerprint(source).is_ok_and(|current| &current == hash));
-                        let preserve_previous = remembered_previous || source_unchanged || previous_usable && result.as_ref().err().is_some_and(crate::conversion::resource_failure) || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>());
-                        tx.send((source_text, result, preserve_previous, stat, failure_hash))?;
+                        let source_changed = result.is_err() && source.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("pdf")) && failure_hash.as_ref().or(unchanged_previous.as_ref()).is_some_and(|hash| crate::docling::fingerprint(source).is_ok_and(|current| Some(current.as_str()) != hash.rsplit(':').next()));
+                        let preserve_previous = !source_changed && (remembered_previous || source_unchanged || previous_usable && result.as_ref().err().is_some_and(crate::conversion::resource_failure) || converted || result.as_ref().err().is_some_and(|error| error.is::<std::io::Error>()));
+                        tx.send((source_text, result, preserve_previous, stat, failure_hash, expected_record))?;
                     }
                     Ok(())
                 }));
             }
             drop(tx);
-            for (index, (source, result, preserve_previous, stat, failure_hash)) in rx.into_iter().enumerate() {
+            for (index, (source, result, preserve_previous, stat, failure_hash, expected_record)) in rx.into_iter().enumerate() {
                 if let Err(error) = result {
+                    let current:Option<String>=self.connection().query_row("SELECT source_hash FROM conversions WHERE source=?",[&source],|row|row.get(0)).optional()?;
+                    if current.is_some() && current!=expected_record { continue; }
+                    if !Path::new(&source).is_file() || self.is_excluded(Path::new(&source))? { continue; }
+                    let current_settings=self.settings()?;
+                    let mut current_rules=crate::folder_index::Rules::new(Path::new(root),&current_settings)?;
+                    if !crate::docling::should_convert(Path::new(&source),current_rules.file(Path::new(&source))?)
+                        || ignore_rules::is_ignored(&mut ignore_rules::matcher(Path::new(root)),Path::new(&source),false)? {
+                        self.connection().execute("DELETE FROM conversion_states WHERE source=?",[&source])?;
+                        continue;
+                    }
+                    self.conversion_state(&source, root, "enhancement_failed", Some(&error.to_string()))?;
                     if preserve_previous && error.is::<rusqlite::Error>() { return Err(error); }
                     if !preserve_previous {
                         // Backend failure still invalidates evidence for the changed source.
                         self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
+                        let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
+                        self.remove_indexed(&path_text(&output)?)?;
                     }
                     // Remember every failure under the identity that produced it, so a
                     // later scan reports it without parsing the source again. Cancelled
@@ -1496,7 +1732,9 @@ impl Store {
                             params![&source, root, source_hash, error.to_string(), mtime, size])?;
                     }
                     issues.push((source, error.to_string()));
-                } else if result.unwrap() {
+                } else {
+                    self.conversion_state(&source, root, "complete", None)?;
+                    if result.unwrap() {
                     let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
                     if let Some(file) = self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false, &settings.runtime)? {
                         let mut db = self.connection();
@@ -1519,26 +1757,23 @@ impl Store {
                         )?;
                     }
                 }
+                }
                 progress(IndexProgress { count: index + 1, total: sources.len() });
             }
             for handle in handles { handle.join().expect("conversion worker panicked")?; }
             Ok(())
         })?;
-        if metadata_path.parent().unwrap().is_dir() {
-            let db = self.connection();
-            let mut query = db.prepare("SELECT source,source_hash,output_hash FROM conversions WHERE root=?")?;
-            let records = query.query_map([root], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?)))?
-                .collect::<rusqlite::Result<Vec<_>>>()?.into_iter().map(|(source, source_hash, output_hash)| {
-                    Ok((Path::new(&source).strip_prefix(root)?.to_string_lossy().into_owned(), (source_hash, output_hash)))
-                }).collect::<Result<std::collections::BTreeMap<_,_>>>()?;
-            let mut file = tempfile::NamedTempFile::new_in(metadata_path.parent().unwrap())?;
-            serde_json::to_writer(file.as_file_mut(), &records)?;
-            file.persist(&metadata_path).map_err(|error| error.error)?;
-        }
+        if !one || !self.has_pending_enhancement(root)? { self.save_conversion_ownership(root)?; }
         Ok(issues)
     }
     fn publish_converted_file(&self, root: &str, source: &Path, source_hash: &str, source_content_hash: &str, source_stat: (i64, i64), output: &Path,
         staged: tempfile::TempPath, previous_hash: Option<&str>, max_chars: usize, runtime: &sag_protocol::runtime::RuntimeSettings) -> Result<()> {
+        let current_settings=self.settings()?;
+        let mut current_rules=crate::folder_index::Rules::new(Path::new(root),&current_settings)?;
+        anyhow::ensure!(self.authorize(source).is_ok()
+            && crate::docling::should_convert(source,current_rules.file(source)?)
+            && !ignore_rules::is_ignored(&mut ignore_rules::matcher(Path::new(root)),source,false)?,
+            "原文件已移出当前索引范围，未发布转换输出");
         let reserved = preparation_reservation_with_runtime(&staged, &runtime);
         let permit = self.text_preparation.reserve_with_limit(reserved, runtime.text_preparation_mib * 1024 * 1024, || self.indexing.cancelled(root))?;
         let mut prepared = self.prepare_file_at_with_runtime(root, output, &staged, max_chars, true, reserved, &runtime)?
@@ -1563,6 +1798,7 @@ impl Store {
         let outcome = (|| -> Result<()> {
             let mut db = self.connection();
             let tx = db.transaction()?;
+            anyhow::ensure!(!Self::path_excluded(&tx, &path_text(source)?)?, "原文件已从知识库移除，未发布转换输出");
             Self::write_prepared(&tx, root, prepared)?;
             tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash,mtime,size) VALUES(?,?,?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1,mtime=excluded.mtime,size=excluded.size",
                 params![path_text(source)?,root,source_hash,path_text(output)?,output_hash,source_stat.0,source_stat.1])?;
@@ -1616,7 +1852,24 @@ impl Store {
         )?;
         Ok(None)
     }
-    fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<Vec<PathBuf>> {
+    fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<DirectoryScan> {
+        // Cleanup and converted writes may only act on the generation this scan saw.
+        let indexed = {
+            let c = self.connection();
+            let directory = path_text(directory)?;
+            let prefix = format!("{}{}", directory.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+            let converted_directory = crate::docling::output_path(Path::new(root), &Path::new(&directory).join(".scope"))?.parent().unwrap().to_path_buf();
+            let converted_prefix = format!("{}{}", converted_directory.display(), std::path::MAIN_SEPARATOR);
+            let mut q = c.prepare("SELECT snapshot.path,d.hash,d.mtime,d.size FROM (SELECT path FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1) UNION SELECT path FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1)) snapshot LEFT JOIN documents d ON d.path=snapshot.path")?;
+            let rows = q
+                .query_map(params![path_text(root)?,directory,prefix,converted_prefix], |r| {
+                    let hash: Option<String> = r.get(1)?;
+                    let version = hash.map(|hash| Ok::<_,rusqlite::Error>((hash,r.get(2)?,r.get(3)?))).transpose()?;
+                    Ok((r.get::<_,String>(0)?,version))
+                })?
+                .collect::<rusqlite::Result<HashMap<_,_>>>()?;
+            rows
+        };
         let converted = if converted_only == Some(false) { HashSet::new() } else { self.conversion_outputs()? };
         let mut rules = crate::folder_index::Rules::new(root, settings)?;
         let converted_target = crate::docling::output_path(root, &directory.join(".scope"))?.parent().unwrap().to_path_buf();
@@ -1648,9 +1901,11 @@ impl Store {
                 files.push(entry.into_path());
             }
         }
-        Ok(files)
+        Ok(DirectoryScan {files,indexed})
     }
-    fn scan_directory(&self, root: &str, directory: &Path, files: &[PathBuf], settings: &Settings, verify: bool, converted_only: Option<bool>, progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn scan_directory(&self, root: &str, scan: &DirectoryScan, settings: &Settings, verify: bool, converted_only: Option<bool>, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        let files = &scan.files;
+        let indexed = &scan.indexed;
         let mut seen = HashSet::new();
         let mut count = 0;
         let total = files.len();
@@ -1690,7 +1945,11 @@ impl Store {
                     if let Some(file) = prepared {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
-                        Self::write_prepared(&tx, root, file)?;
+                        let unchanged = if crate::docling::in_output(Path::new(&file.path)) {
+                            let current: Option<IndexedVersion> = tx.query_row("SELECT hash,mtime,size FROM documents WHERE path=?", [&file.path], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
+                            current.as_ref() == indexed.get(&file.path).and_then(Option::as_ref)
+                        } else { true };
+                        if unchanged { Self::write_prepared(&tx, root, file)?; }
                         tx.commit()?;
                     }
                     count += 1;
@@ -1699,26 +1958,14 @@ impl Store {
                 Ok(())
             })?;
         }
-        let indexed = {
-            let c = self.connection();
-            let directory = path_text(directory)?;
-            let prefix = format!("{}{}", directory.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-            let converted_directory = crate::docling::output_path(Path::new(root), &Path::new(&directory).join(".scope"))?.parent().unwrap().to_path_buf();
-            let converted_prefix = format!("{}{}", converted_directory.display(), std::path::MAIN_SEPARATOR);
-            let mut q = c.prepare("SELECT path FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1) UNION SELECT path FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1)")?;
-            let rows = q
-                .query_map(params![root,directory,prefix,converted_prefix], |r| r.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows
-        };
-        for p in indexed {
+        for (p, version) in indexed {
             self.indexing.checkpoint_root(root)?;
             if converted_only.is_some_and(|converted| converted != crate::docling::in_output(Path::new(&p))) { continue; }
             // An issue recorded for a directory the walk could not enter stays until the
             // directory becomes readable again or disappears.
             if Path::new(&p).is_dir() && fs::read_dir(&p).is_err() { continue; }
-            if !seen.contains(&p) {
-                self.remove_indexed(&p)?
+            if !seen.contains(p) {
+                self.remove_indexed_if_unchanged(p, version.as_ref())?
             }
         }
         if report { progress(IndexProgress { count, total }); }
@@ -1963,14 +2210,27 @@ impl Store {
         Ok(())
     }
     pub fn remove_indexed(&self, path: &str) -> Result<()> {
-        let mut c = self.connection();
-        let tx = c.transaction()?;
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        Self::remove_indexed_tx(&tx, path)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn remove_indexed_if_unchanged(&self, path: &str, expected: Option<&IndexedVersion>) -> Result<()> {
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        let current: Option<IndexedVersion> = tx.query_row("SELECT hash,mtime,size FROM documents WHERE path=?", [path], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
+        if current.as_ref() != expected { return Ok(()); }
+        Self::remove_indexed_tx(&tx, path)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn remove_indexed_tx(tx: &rusqlite::Transaction<'_>, path: &str) -> Result<()> {
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.path=?)",[path])?;
         let removed = tx.execute("DELETE FROM documents WHERE path=?", [path])?;
         tx.execute("DELETE FROM index_issues WHERE path=?", [path])?;
-        Self::mark_note_sources_removed_tx(&tx, path, false)?;
+        Self::mark_note_sources_removed_tx(tx, path, false)?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
-        tx.commit()?;
         Ok(())
     }
     pub fn search_files(
@@ -3073,7 +3333,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
             assert_eq!(fs::metadata(&output).unwrap().modified().unwrap(), modified);
             assert_eq!(fs::read_to_string(&output).unwrap(), body);
             assert_eq!(fs::read(&image).unwrap(), b"image fixture");
-            assert_eq!(reopened.search_files("cachedcaption", &[], 5).unwrap().len(), 1);
+            assert_eq!(reopened.search_files("cachedcaption", &[], 5).unwrap().len(), 1, "files={:?}; status={:?}; roots={:?}", reopened.files().unwrap(), reopened.index_status().unwrap(), reopened.roots().unwrap());
         }
     }
 

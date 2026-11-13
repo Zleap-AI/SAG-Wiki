@@ -509,8 +509,8 @@ it('recovers changed stages and completion when progress events are missed',asyn
  task=null;rootState='ready';await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')).toBeNull(),{timeout:2500});
 });
 
-it('shows concurrent actual parsers, updates parser-only changes and clears them outside conversion',async()=>{
- let task={path:'/notes',stage:'converting',completed:1,total:4,files:['/notes/a.pdf','/notes/b.docx'],conversions:[{path:'/notes/a.pdf',engine:'MinerU'},{path:'/notes/b.docx',engine:'anydoc'}]};
+it.each(['converting','enhancing','retrying_enhancement'])('%s shows concurrent actual parsers, updates parser-only changes and clears them outside conversion',async(stage)=>{
+ let task={path:'/notes',stage,completed:1,total:4,files:['/notes/a.pdf','/notes/b.docx'],conversions:[{path:'/notes/a.pdf',engine:'MinerU'},{path:'/notes/b.docx',engine:'anydoc'}]};
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
   if(command==='get_index_status')return {paused:false,tasks:[structuredClone(task)]};
@@ -688,4 +688,24 @@ it('暂停时保留失败重建入口但禁止启动',async()=>{
  await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.index-retry-button')?.disabled).toBe(true));
  document.querySelector<HTMLButtonElement>('.index-retry-button')!.click();
  expect(invoke.mock.calls.some(([command])=>command==='retry_failed_indexes')).toBe(false);
+});
+
+it.each([true,false])('keeps same-root primary and enhancement jobs with independent counts and parsers (ids: %s)',async(withIds)=>{
+ const tasks=[{id:withIds?'primary:/notes':undefined,kind:'primary',path:'/notes',stage:'indexing_native',completed:2,total:5,files:['/notes/new.md']},{id:withIds?'enhancement:/notes':undefined,kind:'enhancement',path:'/notes',stage:'enhancing',completed:0,total:1,files:['/notes/scan.pdf'],conversions:[{path:'/notes/scan.pdf',engine:'Docling'}]}];
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_index_status')return {paused:false,tasks:structuredClone(tasks)};
+  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'indexing',count:2,error:null}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')?.textContent).toBe('解析方式：Docling'));
+ document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.index-active .index-root')).toHaveLength(2));
+ expect(document.querySelector('.index-active')?.textContent).toContain('已处理 2 / 5 个文件');
+ expect(document.querySelector('.index-active')?.textContent).toContain('已处理 0 / 1 个文件');
+ expect(document.querySelector('.index-active')?.textContent).toContain('解析方式：Docling');
+ tasks[1].completed=1;listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-active')?.textContent).toContain('已处理 1 / 1 个文件'));
+ expect(document.querySelector('.index-active')?.textContent).toContain('已处理 2 / 5 个文件');
 });

@@ -131,6 +131,16 @@ pub struct IndexStatus {
     pub tasks: Vec<IndexTask>,
     #[serde(default)]
     pub failed_files: usize,
+    #[serde(default)]
+    pub conversion_states: Vec<ConversionState>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ConversionState {
+    pub source: String,
+    pub root: String,
+    pub status: String,
+    pub searchable: bool,
+    pub error: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConversionSegment {
@@ -148,6 +158,11 @@ pub struct IndexConversion {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexTask {
+    /// Stable identity of this root's primary or enhancement lane.
+    #[serde(default)]
+    pub id: String,
+    #[serde(default = "primary_index_task_kind")]
+    pub kind: String,
     pub path: String,
     pub stage: String,
     pub completed: usize,
@@ -156,6 +171,8 @@ pub struct IndexTask {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conversions: Vec<IndexConversion>,
 }
+fn primary_index_task_kind() -> String { "primary".into() }
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexHistory {
     pub id: i64,

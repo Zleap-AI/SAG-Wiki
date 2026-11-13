@@ -39,3 +39,4 @@ browser-extension/build/
 dist-bench/
 
 /dist-docs/
+/qa/

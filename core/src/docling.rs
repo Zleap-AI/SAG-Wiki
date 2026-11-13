@@ -14,6 +14,10 @@ use std::{
     time::Duration,
 };
 
+#[path = "docling_pdf_session.rs"]
+mod pdf_session;
+pub(crate) use pdf_session::PdfSession;
+
 pub const OUTPUT_DIRECTORY: &str = ".sag-converted";
 const VERSION: &str = "2.140.0";
 const UV_VERSION: &str = "0.12.1";
@@ -1292,6 +1296,9 @@ impl Docling {
             }
         }
     }
+    pub(crate) fn pdf_session(&self, runtime: &sag_protocol::runtime::RuntimeSettings) -> PdfSession<'_> {
+        PdfSession::new(self, runtime)
+    }
     pub fn convert_cancellable(
         &self,
         source: &Path,
@@ -1323,18 +1330,19 @@ impl Docling {
                 Err(error) => return Err(error),
             }
         }
-        self.convert_docling_runtime(source, output, runtime, cancel, handoff)
+        self.convert_docling_runtime(source, output, runtime, cancel, handoff, None)
     }
     pub(crate) fn data_directory(&self) -> &Path { self.home.parent().expect("Docling directory has a parent") }
     pub fn convert_docling_with_runtime(
         &self, source: &Path, output: &Path, runtime: &sag_protocol::runtime::RuntimeSettings,
         cancel: impl Fn() -> bool + Sync,
-    ) -> Result<()> { self.convert_docling_runtime(source, output, runtime, cancel, None) }
+    ) -> Result<()> { self.convert_docling_runtime(source, output, runtime, cancel, None, None) }
     fn convert_docling_runtime(
         &self, source: &Path, output: &Path, runtime: &sag_protocol::runtime::RuntimeSettings,
         cancel: impl Fn() -> bool + Sync, handoff: Option<String>,
+        session: Option<&PdfSession<'_>>,
     ) -> Result<()> {
-        let _usage = self.usage.read().unwrap();
+        let _usage = session.is_none().then(|| self.usage.read().unwrap());
         let profile = required_profile(source);
         if !self.has_profile(profile) {
             let message = if profile == DoclingProfile::Media {
@@ -1400,6 +1408,14 @@ impl Docling {
             Ok(content)
         };
         let convert = |backend: Option<&str>| -> Result<String> {
+            if backend.is_none() {
+                if let Some(session) = session {
+                    match session.convert_raw(source, &temporary, deadline, &cancelled)? {
+                        crate::docling_worker::ImageOutcome::Converted => return read_temporary(),
+                        crate::docling_worker::ImageOutcome::Fallback => {}
+                    }
+                }
+            }
             if backend.is_none() && profile == DoclingProfile::Documents && is_image(source) {
                 match self.convert_image_with_worker(source, &temporary, runtime, &cancelled)? {
                     crate::docling_worker::ImageOutcome::Converted => return read_temporary(),

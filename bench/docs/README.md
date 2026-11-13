@@ -44,3 +44,7 @@ a separate fixture server (default 1437).
 `node bench/docs/offline-component.cjs` captures the bilingual offline document
 component import entry after a simulated download failure. It checks the real
 dialog at 1280 and 720 pixels; it does not install a component or run OCR.
+
+`node bench/docs/progressive-index.cjs` captures the bilingual basic-text and
+background-enhancement labels in the real file-list component. These synthetic
+states demonstrate availability and failure retention, not measured parser results.
