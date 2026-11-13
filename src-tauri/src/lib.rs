@@ -297,6 +297,7 @@ remote!(remove_root(path:String) => RemoveRoot);
 remote!(list_removed_directories() => RemovedDirectories);
 remote!(refresh_root(path:String) => RefreshRoot);
 remote!(reindex_all() => ReindexAll);
+remote!(retry_failed_indexes() => RetryFailedIndexes);
 remote!(get_index_status() => GetIndexStatus);
 remote!(get_index_history() => GetIndexHistory);
 remote!(get_index_history_log(id:i64) => GetIndexHistoryLog);
@@ -643,6 +644,7 @@ pub fn run() {
             list_removed_directories,
             refresh_root,
             reindex_all,
+            retry_failed_indexes,
             get_index_status,
             get_index_history,
             get_index_history_log,

@@ -473,7 +473,8 @@ input,select,textarea{font-size:var(--text-ui)}
 
 /* Index progress reads as a small card above the settings bar. */
 .real-client .index-status:not(:empty){padding:0;margin-top:8px}
-.real-client .index-status-row{padding:8px 6px 8px 12px;border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper)}
+.real-client .index-status-card{border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper);overflow:hidden}
+.real-client .index-status-row{padding:8px 6px 8px 12px}
 .real-client .index-status-link{min-height:0;padding:2px 0}
 .real-client .index-status-link:hover{text-decoration:none}
 .real-client .index-status-link:hover .index-status-primary{color:var(--color-ink)}
@@ -564,3 +565,14 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .index-status-segment>span{white-space:nowrap}
 .real-client .index-status-pages{opacity:.8}
 .real-client .index-file-segment{display:block;font-size:var(--text-caption);color:var(--color-secondary);line-height:1.5;font-variant-numeric:tabular-nums}
+
+.real-client .index-retry-action{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 10px;padding:8px 0 10px;border-top:1px solid var(--color-rule)}
+.real-client .index-retry-hint{min-width:0;font-size:var(--text-caption);line-height:1.4;color:var(--color-secondary)}
+.real-client .index-retry-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex-shrink:0;min-height:30px;padding:4px 8px;border:1px solid var(--color-rule);border-radius:6px;background:var(--color-paper);color:var(--color-ink);font-size:var(--text-caption);font-weight:500;white-space:nowrap;transition:background .15s ease,border-color .15s ease}
+.real-client .index-retry-button>span{display:inline-flex}
+.real-client .index-retry-button .icon{width:13px;height:13px}
+.real-client .index-retry-button:hover:not(:disabled){background:var(--color-selected)}
+.real-client .index-retry-button:focus-visible{outline:2px solid var(--color-ink);outline-offset:2px}
+.real-client .index-retry-button:disabled{opacity:.55;cursor:default}
+.real-client .index-retry-error{margin:0;padding:0 12px 10px;color:var(--color-ink);font-size:var(--text-caption);line-height:1.5;overflow-wrap:anywhere}
+@media(prefers-reduced-motion:no-preference){.real-client .index-retry-button .retry-spinning{animation:search-progress-spin 1s linear infinite}}

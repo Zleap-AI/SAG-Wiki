@@ -22,7 +22,7 @@ pub struct IndexControl {
 impl IndexControl {
     pub fn status(&self) -> IndexStatus {
         let state = self.state.lock().unwrap();
-        IndexStatus { paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
+        IndexStatus { failed_files: 0, paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
             if task.stage == "converting" && task.files.iter().any(|file| state.retrying.contains(&(task.path.clone(), file.clone()))) {
                 task.stage = "retrying_conversion".into();
             }
@@ -57,6 +57,9 @@ impl IndexControl {
     pub fn task(&self, root: &str) -> IndexTask { self.state.lock().unwrap().tasks[root].clone() }
     pub fn log(&self, root: &str) -> Vec<IndexFileLog> { self.state.lock().unwrap().logs[root].clone() }
     pub fn indexed(&self, root: &str) -> (usize, usize) { self.state.lock().unwrap().indexed[root] }
+    pub(crate) fn record_indexed_progress(&self, root: &str, completed: usize, total: usize) {
+        *self.state.lock().unwrap().indexed.get_mut(root).unwrap() = (completed, total);
+    }
     pub fn finish(&self, root: &str) {
         let mut state = self.state.lock().unwrap();
         state.cancelled.remove(root);

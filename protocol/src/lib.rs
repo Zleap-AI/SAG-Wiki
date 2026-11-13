@@ -129,6 +129,8 @@ pub struct IndexEvent {
 pub struct IndexStatus {
     pub paused: bool,
     pub tasks: Vec<IndexTask>,
+    #[serde(default)]
+    pub failed_files: usize,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConversionSegment {
@@ -270,6 +272,7 @@ pub enum Operation {
         path: String,
     },
     ReindexAll,
+    RetryFailedIndexes,
     GetIndexStatus,
     GetIndexHistory,
     GetIndexHistoryLog {
