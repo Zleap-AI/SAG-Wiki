@@ -70,6 +70,8 @@ jobs:
           key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
           restore-keys: |
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
+      - name: Verify relocatable QPDF runtime package
+        run: node --test scripts/qpdf-packaging.node-test.mjs
       # Only compile the CLI needed by E2E, without Tauri or installers.
       - name: Prepare E2E executable
         run: cargo build --locked --manifest-path cli/Cargo.toml
@@ -78,3 +80,14 @@ jobs:
 
       - name: Exercise CLI-managed HTTP API and persisted state
         run: python tests/http-api-e2e.py --binary "${{ matrix.binary }}"
+
+  qpdf-linux:
+    name: QPDF package Linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify relocatable QPDF runtime package
+        run: node --test scripts/qpdf-packaging.node-test.mjs

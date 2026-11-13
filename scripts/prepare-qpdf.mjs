@@ -28,6 +28,26 @@ export async function prepareQpdf(destination, target=process.env.TAURI_ENV_TARG
   }else copyFileSync(source,target);
  };
  copyFiles(root,destination);
+ // SAG invokes only qpdf. Keep the original runtime libraries and notices,
+ // but omit standalone tools that are never called by conversion.
+ for(const name of ['fix-qdf','fix-qdf.exe','zlib-flate','zlib-flate.exe'])
+  rmSync(join(destination,'bin',name),{force:true});
+ // Official POSIX archives expose the same shared library under its ABI name and its
+ // fully versioned name. qpdf loads the ABI name; npm needs it as a real file.
+ // Remove the extra copy only after verifying the pinned archive's bytes match.
+ if(!windows){
+  const abi=join(destination,mac?'lib/libqpdf.30.dylib':'lib/libqpdf.so.30');
+  const full=join(destination,mac?'lib/libqpdf.30.4.2.dylib':'lib/libqpdf.so.30.4.2');
+  if(!existsSync(abi)||!existsSync(full)||!readFileSync(abi).equals(readFileSync(full)))
+   throw Error('Unexpected QPDF runtime library layout');
+  rmSync(full);
+ }
+ // Windows loads DLLs from bin; lib and include contain SDK/link-time files only.
+ // Retain upstream documentation/notices in share unchanged.
+ if(windows){
+  rmSync(join(destination,'lib'),{recursive:true,force:true});
+  rmSync(join(destination,'include'),{recursive:true,force:true});
+ }
  cpSync(resolve('third-party/qpdf'),join(destination,'licenses'),{recursive:true});
  if(!windows)chmodSync(join(destination,'bin/qpdf'),0o755);
 }
