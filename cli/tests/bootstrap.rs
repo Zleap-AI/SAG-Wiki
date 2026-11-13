@@ -92,6 +92,48 @@ fn desktop_bootstrap_updates_an_owned_binary_when_commands_are_added() {
 }
 
 #[test]
+fn desktop_bootstrap_backs_up_a_modified_older_managed_cli() {
+    let home = tempfile::tempdir().unwrap();
+    let source = home.path().join("bundled-cli");
+    let bin = home.path().join(".local/bin");
+    let target = bin.join("sag");
+    let bootstrap = || {
+        let result = Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "desktop_bootstrap_updates_a_renamed_command_and_respects_uninstall"])
+            .env_clear().env("HOME", home.path()).env("SHELL", "/bin/zsh")
+            .env("PATH", "/usr/bin:/bin").env("SAG_DATA_DIR", home.path().join("data"))
+            .env("SAG_BOOTSTRAP_CHILD", "1").env("SAG_BOOTSTRAP_SOURCE", &source).output().unwrap();
+        assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stdout));
+    };
+    fs::write(&source, "first release").unwrap();
+    bootstrap();
+    let record = target.with_extension("sag-install.json");
+    let mut value: serde_json::Value = serde_json::from_slice(&fs::read(&record).unwrap()).unwrap();
+    value["version"] = "0.0.9".into();
+    value["build_id"] = "older-build".into();
+    fs::write(&record, serde_json::to_vec(&value).unwrap()).unwrap();
+    fs::write(&target, "modified old command").unwrap();
+    fs::write(&source, "new desktop CLI").unwrap();
+    bootstrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "new desktop CLI");
+    assert_eq!(serde_json::from_slice::<serde_json::Value>(&fs::read(&record).unwrap()).unwrap()["version"], env!("CARGO_PKG_VERSION"));
+    let backups = || fs::read_dir(&bin).unwrap().map(|entry| entry.unwrap().path())
+        .filter(|path| path.file_name().unwrap().to_string_lossy().starts_with("sag.backup-"))
+        .collect::<Vec<_>>();
+    assert_eq!(backups().len(), 1);
+    assert_eq!(fs::read_to_string(&backups()[0]).unwrap(), "modified old command");
+    bootstrap();
+    assert_eq!(backups().len(), 1);
+
+    // Without a SAG receipt, a replacement belongs to a separate installation.
+    fs::remove_file(record).unwrap();
+    fs::write(&target, "unmanaged command").unwrap();
+    bootstrap();
+    assert_eq!(fs::read_to_string(&target).unwrap(), "unmanaged command");
+    assert_eq!(backups().len(), 1);
+}
+
+#[test]
 fn desktop_bootstrap_repairs_missing_and_outdated_references() {
     let home = tempfile::tempdir().unwrap();
     let source = home.path().join("bundled-cli");

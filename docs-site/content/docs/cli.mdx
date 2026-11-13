@@ -154,11 +154,11 @@ notes/draft-*.md
 
 ## HTTP API
 
-使用 `sag api start`、`sag api stop` 开启或关闭 HTTP 服务。关闭 API 后，后台索引和普通 CLI 搜索继续运行。`sag api status --json` 查看状态，不自动启动后台。
+使用 `sag api start`、`sag api stop` 开启或关闭 HTTP 服务。关闭 API 后，后台索引和普通 CLI 搜索继续运行。`sag api status` 显示 API 和 MCP 地址，不输出密钥，也不自动启动后台；加 `--json` 可输出 JSON。
 
-使用 `sag api key create --name "业务程序A"` 创建 Key，完整值只显示一次。`sag api key list` 查看列表，`sag api key revoke KEY_ID` 撤销指定 Key。创建和列表命令也支持 `--json`。
+使用 `sag api key create --name "业务程序A"` 创建并显示 Key。`sag api key list` 查看列表，`sag api key revoke KEY_ID` 撤销指定 Key。创建和列表命令也支持 `--json`。用 `sag api mcp config` 导出客户端配置，地址和 Key 选项见 [MCP 说明](/zh/docs/mcp-guide)。
 
-本机和局域网程序可通过 API 选择快速或深入检索、浏览文件夹，并按服务端完整路径指定多个目录。CLI 原有搜索用法保持不变。开启与自启操作见 [API 说明](/zh/docs/api-guide)，接口参数见 [API 文档](/zh/docs/api)。
+本机和局域网程序可通过 API 选择快速或深入检索、浏览文件夹，并按服务端完整路径指定多个目录。CLI 原有搜索用法保持不变。开启与自启操作见 [API 说明](/zh/docs/api-guide#开启服务)，接口参数见 [API 文档](/zh/docs/api)。
 
 ## 安装位置与升级
 
@@ -174,7 +174,7 @@ npm 安装的 CLI 用 `npm install -g @zleap-ai/sag` 更新，用 `npm uninstall
 
 `sag install` 重复安装可更新 SAG 自有文件。安装记录保存文件校验值、版本和实际 CLI 安装位置；后续 PATH 顺序变化不会影响安装位置；卸载按记录清理。检测到外部文件、用户修改或被改写的 SAG 终端配置区段时停止并提示。卸载只删除经校验的 SAG 文件，保留同目录的其他内容。
 
-CLI 命令为 `sag`。客户端启动时会更新受管理的 CLI 和未被用户修改过的 SAG Skill；明确卸载的 CLI 不会自动恢复。`.sagignore` 文件名和已有知识库保持不变。
+CLI 命令为 `sag`。桌面端升级后首次启动时，会更新由它管理的 CLI。默认安装位置的旧版 CLI 如果与 SAG 安装记录的校验值不一致，会先在同一目录备份原文件，再安装随包版本。已卸载的 CLI 不会自动恢复；npm 安装的 CLI 通过 npm 更新。
 
 Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默认不需要管理员权限安装 CLI。Windows 打包入口为 `npm run package:windows`。可用平台以发布包实际包含的原生程序为准。
 

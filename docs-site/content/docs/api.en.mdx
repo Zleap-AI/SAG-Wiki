@@ -3,7 +3,7 @@ title: "API reference"
 description: "Parameters, responses and errors for search, folders and service status."
 ---
 
-Start with the [API overview](/en/docs/api-guide) to enable the service and configure a key.
+Follow [Start the API service](/en/docs/api-guide#start-the-service) to enable the service and configure a key.
 
 ## Authentication
 
@@ -216,4 +216,6 @@ The JSON request body is limited to 32 KiB and must arrive within 30 seconds. Se
 | 504 | `search_timeout` | Whole search request timed out |
 | 500 | `internal_error` | Source changed during retrieval or another internal failure |
 
-An upstream model authentication failure is distinct from an unauthorized calling API key. Failures return explicit errors rather than empty results. See the [API overview](/en/docs/api-guide) for installation and service management.
+An upstream model authentication failure is distinct from an unauthorized calling API key. Failures return explicit errors rather than empty results. See the [API overview](/en/docs/api-guide#start-the-service) for installation and service management.
+
+To connect through an MCP client, see the [MCP guide](/en/docs/mcp-guide).

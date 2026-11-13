@@ -1,4 +1,4 @@
-import {listen} from '@tauri-apps/api/event';
+import {listen} from './app-events';
 
 // App and the history dialog share one native subscription; each owns its cleanup.
 const subscribers = new Set<() => void>();

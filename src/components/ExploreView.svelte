@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {requestId as newRequestId} from "../lib/web-connection";
  import {onDestroy} from 'svelte';
  import {Button} from 'bits-ui';
  import Input from './ui/Input.svelte';
@@ -25,7 +26,7 @@
  async function cancel(){const id=requestId;requestId='';if(id)await api('cancel_query',{id})}
  async function refresh(){
   const request=++sequence;await cancel();if(!active||request!==sequence)return;
-  loading=true;error='';closeEvidence();requestId=crypto.randomUUID();
+  loading=true;error='';closeEvidence();requestId=newRequestId();
   try{
    const [status,result]=await Promise.all([
     api<ExploreOverview>('explore_overview',{scope,query:'',visible:[]}),

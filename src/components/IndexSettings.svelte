@@ -1,6 +1,6 @@
 <script lang="ts">
  import {onMount} from 'svelte';
- import {listen} from '@tauri-apps/api/event';
+ import {listen} from '../lib/app-events';
  import {Button} from 'bits-ui';
  import {api} from '../lib/api';
  import {t} from '../lib/i18n';

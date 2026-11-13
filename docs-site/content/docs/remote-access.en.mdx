@@ -1,0 +1,32 @@
+---
+title: "Remote access"
+description: "Use SAG Wiki in a browser on this device or your local network."
+---
+
+## Web app
+
+1. In the desktop app, open **Settings → Remote services** and enable **Web service**.
+2. Click the open button next to the local address, or open the displayed LAN address on another device on the same network.
+3. Click **Copy access code** and paste it into the browser sign-in page. The same browser reconnects automatically when you reopen the same address. Click **Sign out** to clear the remembered code.
+
+Click **Change access code** and confirm to invalidate the old code immediately. Signed-in browsers must enter the new code. The web service stays on and API keys are unaffected. Turning off the web service also invalidates the old code.
+
+![Web address and access code in Remote services settings](/images/product-remote-services-en.png)
+
+In **Connection configuration** below **API and MCP**, choose **This device only** to limit access to the host. Choose **This device and local network** to allow other devices on the same network to connect. If the connection settings are unavailable, stop the running remote services first.
+
+## What you can do in the browser
+
+Use the browser to browse files, create and edit Markdown, search, ask questions, save notes and check indexing progress. The browser and desktop share the same files, index and conversation history. Add server folders, configure models and manage services on the computer running SAG Wiki.
+
+If the web app reports a missing model, contact the administrator to configure it on the host. Quick search works without a model.
+
+Anyone with the access code can view the library and edit files. Use a trusted LAN because the built-in HTTP connection is unencrypted. Keep the host computer and background service running; you can close the desktop window.
+
+## Start from the CLI
+
+The standalone CLI with `sag api web` can run the web service on **Windows x64, macOS on Apple Silicon, and Linux**. Supported Linux distributions are Ubuntu 24.04 and Debian 12 (x86_64 or ARM64).
+
+In a terminal on the computer running the CLI, run `sag add` with the local folder path to add and index it. Use `sag list` to check indexing status, or run `sag remove` with the folder path to remove it from the knowledge base while keeping the original files. See [CLI commands](/en/docs/cli#commands) for details.
+
+Run `sag api web start` to start the web service, `sag api web code` to view the access code, and `sag api status` to check addresses. If LAN access is enabled, open the displayed address on another device on the same network and enter the code. Run `sag api web stop` to turn off the web service.

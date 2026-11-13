@@ -1,6 +1,8 @@
 <script lang="ts">
+ import {requestId} from "../lib/web-connection";
  import {onDestroy,tick} from 'svelte';
- import {listen,type UnlistenFn} from '@tauri-apps/api/event';
+ import {listen} from '../lib/app-events';
+ import type {UnlistenFn} from '@tauri-apps/api/event';
  import {api} from '../lib/api';
  import {t,language} from '../lib/i18n';
  import {icon} from '../lib/icons';
@@ -23,7 +25,7 @@
   if(source?.html===current.html&&result){active=true;return;}
   source=current;result=null;error='';busy=true;percent=1;stage='preparing';
   if(!source.document.sections.some(s=>s.units.length||s.tables.length)){error=$t('文档没有可折叠的正文');busy=false;return;}
-  const id=crypto.randomUUID();job=id;
+  const id=requestId();job=id;
   progressSubscription={id,timer:setInterval(()=>{
    if(percent<90)percent=Math.min(90,percent+(percent<30?1:percent<60?.5:.2));
   },2000)};

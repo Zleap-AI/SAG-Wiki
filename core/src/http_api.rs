@@ -5,7 +5,7 @@ use crate::{
     store::{self, Store},
 };
 use anyhow::{bail, Context, Result};
-use http_body_util::{BodyExt, Full, Limited};
+use http_body_util::{combinators::BoxBody, BodyExt, Full, Limited};
 use hyper::{
     body::{Bytes, Incoming},
     Request, Response, StatusCode,
@@ -17,7 +17,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     io::Write,
-    net::IpAddr,
+    net::{IpAddr, SocketAddr},
     path::{Path, PathBuf},
     sync::{Arc, Mutex, Weak},
     time::Duration,
@@ -31,6 +31,9 @@ use tokio::{
 };
 use tokio_util::sync::CancellationToken;
 
+mod mcp;
+mod web;
+
 #[derive(Clone, Serialize, Deserialize)]
 struct Key {
     id: String,
@@ -38,12 +41,20 @@ struct Key {
     prefix: String,
     created_at: i64,
     digest: Vec<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    secret: Option<String>,
     #[serde(skip)]
     cancel: CancellationToken,
 }
 #[derive(Clone, Serialize, Deserialize)]
 struct Config {
     enabled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    web_code: Option<String>,
+    #[serde(skip)]
+    api_cancel: CancellationToken,
+    #[serde(skip)]
+    web_cancel: CancellationToken,
     host: String,
     port: u16,
     keys: Vec<Key>,
@@ -52,6 +63,9 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             enabled: false,
+            web_code: None,
+            api_cancel: CancellationToken::new(),
+            web_cancel: CancellationToken::new(),
             host: "0.0.0.0".into(),
             port: 24681,
             keys: vec![],
@@ -149,7 +163,7 @@ fn status_value(
     lan.sort();
     lan.dedup();
     Ok(
-        json!({"enabled":c.enabled,"running":running,"host":c.host,"port":c.port,"local_url":format!("http://{local}:{}",c.port),"lan_urls":lan,"key_count":c.keys.len(),"autostart":autostart,"last_error":last_error}),
+        json!({"enabled":c.enabled,"running":c.enabled&&running,"web_enabled":c.web_code.is_some(),"web_running":c.web_code.is_some()&&running,"host":c.host,"port":c.port,"local_url":format!("http://{local}:{}",c.port),"lan_urls":lan,"key_count":c.keys.len(),"autostart":autostart,"last_error":last_error}),
     )
 }
 impl ApiService {
@@ -187,64 +201,65 @@ impl ApiService {
         )
     }
     pub async fn restore(self: &Arc<Self>, service: &Arc<Service>) {
-        if self.config.lock().unwrap().enabled {
-            if let Err(e) = self.start(service, None, None).await {
+        let config = self.config.lock().unwrap().clone();
+        if config.enabled || config.web_code.is_some() {
+            if let Err(e) = self.start(service, config).await {
                 *self.last_error.lock().unwrap() = Some(e.to_string());
                 eprintln!("API 恢复失败：{e:#}");
             }
         }
     }
-    async fn start(
-        self: &Arc<Self>,
-        service: &Arc<Service>,
-        host: Option<String>,
-        port: Option<u16>,
-    ) -> Result<()> {
-        let mut config = self.config.lock().unwrap().clone();
-        config.host = host.unwrap_or(config.host);
-        config.port = port.unwrap_or(config.port);
-        validate_address(&config.host, config.port)?;
-        if let Some(r) = self
-            .running
-            .lock()
-            .unwrap()
-            .as_ref()
-            .filter(|r| !r.task.is_finished())
-        {
-            if r.host != config.host || r.port != config.port {
-                bail!("请先关闭 API，再修改监听地址或端口")
+    fn start<'a>(
+        self: &'a Arc<Self>,
+        service: &'a Arc<Service>,
+        config: Config,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<()>> + Send + 'a>> {
+        Box::pin(async move {
+            validate_address(&config.host, config.port)?;
+            if config.web_code.is_some() && !web::available() {
+                bail!("当前构建未包含网页资源")
             }
-            return Ok(());
-        }
-        let listener = TcpListener::bind((config.host.as_str(), config.port))
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "无法监听 API 地址和端口 {}:{}：{e}",
-                    config.host,
-                    config.port
-                )
-            })?;
-        config.enabled = true;
-        self.save(config.clone())?;
-        let cancel = service.stop.child_token();
-        let weak = Arc::downgrade(service);
-        let api = self.clone();
-        let stop = cancel.clone();
-        let task = tokio::spawn(async move {
-            if let Err(e) = listen(listener, weak, api.clone(), stop).await {
-                *api.last_error.lock().unwrap() = Some(e.to_string());
-                eprintln!("API 监听失败：{e:#}");
+            if let Some(r) = self
+                .running
+                .lock()
+                .unwrap()
+                .as_ref()
+                .filter(|r| !r.task.is_finished())
+            {
+                if r.host != config.host || r.port != config.port {
+                    bail!("请先关闭网页服务和 API，再修改监听地址或端口")
+                }
+                return self.save(config);
             }
-        });
-        *self.running.lock().unwrap() = Some(Running {
-            host: config.host,
-            port: config.port,
-            cancel,
-            task,
-        });
-        *self.last_error.lock().unwrap() = None;
-        Ok(())
+            let listener = TcpListener::bind((config.host.as_str(), config.port))
+                .await
+                .map_err(|e| {
+                    anyhow::anyhow!(
+                        "无法监听 API 地址和端口 {}:{}：{e}",
+                        config.host,
+                        config.port
+                    )
+                })?;
+            self.save(config.clone())?;
+            let cancel = service.stop.child_token();
+            let weak = Arc::downgrade(service);
+            let api = self.clone();
+            let stop = cancel.clone();
+            let task = tokio::spawn(async move {
+                if let Err(e) = listen(listener, weak, api.clone(), stop).await {
+                    *api.last_error.lock().unwrap() = Some(e.to_string());
+                    eprintln!("API 监听失败：{e:#}");
+                }
+            });
+            *self.running.lock().unwrap() = Some(Running {
+                host: config.host,
+                port: config.port,
+                cancel,
+                task,
+            });
+            *self.last_error.lock().unwrap() = None;
+            Ok(())
+        })
     }
     pub(crate) async fn reset(&self) -> Result<()> {
         let _gate = self.gate.lock().await;
@@ -277,18 +292,48 @@ impl ApiService {
         service: &Arc<Service>,
     ) -> Result<Value> {
         let _gate = self.gate.lock().await;
+        let web_action = matches!(action, ApiAction::WebStart { .. } | ApiAction::WebStop);
         match action {
             ApiAction::Status => self.status(),
-            ApiAction::Start { host, port } => {
-                self.start(service, host, port).await?;
+            ApiAction::Start { host, port } | ApiAction::WebStart { host, port } => {
+                let mut c = self.config.lock().unwrap().clone();
+                c.host = host.unwrap_or(c.host);
+                c.port = port.unwrap_or(c.port);
+                if web_action {
+                    c.web_code.get_or_insert_with(|| uuid::Uuid::new_v4().simple().to_string());
+                } else {
+                    c.enabled = true;
+                }
+                self.start(service, c).await?;
                 self.status()
             }
-            ApiAction::Stop => {
+            ApiAction::Stop | ApiAction::WebStop => {
                 let mut c = self.config.lock().unwrap().clone();
-                c.enabled = false;
+                let cancel = if web_action {
+                    c.web_code = None;
+                    std::mem::take(&mut c.web_cancel)
+                } else {
+                    c.enabled = false;
+                    std::mem::take(&mut c.api_cancel)
+                };
+                let idle = !c.enabled && c.web_code.is_none();
                 self.save(c)?;
-                self.shutdown().await?;
+                cancel.cancel();
+                if idle { self.shutdown().await?; }
                 *self.last_error.lock().unwrap() = None;
+                self.status()
+            }
+            ApiAction::WebCode => {
+                let c = self.config.lock().unwrap();
+                Ok(json!({"code":c.web_code.as_deref().context("请先启用网页服务")?}))
+            }
+            ApiAction::WebRotateCode => {
+                let mut c = self.config.lock().unwrap().clone();
+                anyhow::ensure!(c.web_code.is_some(), "请先启用网页服务");
+                c.web_code = Some(uuid::Uuid::new_v4().simple().to_string());
+                let cancel = std::mem::take(&mut c.web_cancel);
+                self.save(c)?;
+                cancel.cancel();
                 self.status()
             }
             ApiAction::Configure { host, port } => {
@@ -300,7 +345,7 @@ impl ApiService {
                     .as_ref()
                     .is_some_and(|r| !r.task.is_finished())
                 {
-                    bail!("请先关闭 API，再修改监听地址或端口")
+                    bail!("请先关闭网页服务和 API，再修改监听地址或端口")
                 }
                 let mut c = self.config.lock().unwrap().clone();
                 c.host = host;
@@ -317,6 +362,15 @@ impl ApiService {
                     .map(key_metadata)
                     .collect(),
             )),
+            ApiAction::CopyKey { id } => {
+                let config = self.config.lock().unwrap();
+                let secret = match id {
+                    Some(id) => config.keys.iter().find(|key| key.id == id)
+                        .context("API Key 不存在")?.secret.as_ref(),
+                    None => config.keys.iter().rev().find_map(|key| key.secret.as_ref()),
+                }.context("请先创建 API Key")?;
+                Ok(json!({"key":secret}))
+            }
             ApiAction::CreateKey { name } => {
                 if name.trim().is_empty() || name.chars().count() > 100 {
                     bail!("Key 名称需为 1–100 个字符")
@@ -332,6 +386,7 @@ impl ApiService {
                     prefix: format!("{}…{}", &secret[..12], &secret[secret.len() - 4..]),
                     created_at: store::now(),
                     digest: Sha256::digest(secret.as_bytes()).to_vec(),
+                    secret: Some(secret.clone()),
                     cancel: CancellationToken::new(),
                 };
                 let mut result = key_metadata(&key);
@@ -367,7 +422,7 @@ impl ApiService {
             }
         }
     }
-    fn authenticate(&self, request: &Request<Incoming>) -> Option<CancellationToken> {
+    fn authenticate(&self, request: &Request<Incoming>) -> Option<(CancellationToken, CancellationToken)> {
         let header = request
             .headers()
             .get(hyper::header::AUTHORIZATION)?
@@ -378,17 +433,17 @@ impl ApiService {
             return None;
         }
         let digest = Sha256::digest(secret.as_bytes());
-        self.config
-            .lock()
-            .unwrap()
+        let c = self.config.lock().unwrap();
+        if !c.enabled { return None; }
+        c
             .keys
             .iter()
             .find(|k| bool::from(k.digest.ct_eq(digest.as_slice())))
-            .map(|k| k.cancel.clone())
+            .map(|k| (k.cancel.clone(), c.api_cancel.clone()))
     }
 }
 fn key_metadata(k: &Key) -> Value {
-    json!({"id":k.id,"name":k.name,"prefix":k.prefix,"created_at":k.created_at})
+    json!({"id":k.id,"name":k.name,"prefix":k.prefix,"created_at":k.created_at,"copyable":k.secret.is_some()})
 }
 fn validate_address(host: &str, port: u16) -> Result<()> {
     let _: IpAddr = host.parse().context("请输入有效的监听 IP 地址")?;
@@ -398,13 +453,13 @@ fn validate_address(host: &str, port: u16) -> Result<()> {
     Ok(())
 }
 
-type HttpResponse = Response<Full<Bytes>>;
+type HttpResponse = Response<BoxBody<Bytes, std::convert::Infallible>>;
 fn response(status: StatusCode, value: Value) -> HttpResponse {
     Response::builder()
         .status(status)
         .header("content-type", "application/json; charset=utf-8")
         .header("cache-control", "no-store")
-        .body(Full::new(Bytes::from(serde_json::to_vec(&value).unwrap())))
+        .body(Full::new(Bytes::from(serde_json::to_vec(&value).unwrap())).boxed())
         .unwrap()
 }
 #[derive(Debug)]
@@ -455,6 +510,7 @@ async fn listen(
             accepted=listener.accept()=>{
                 let (stream,_)=accepted?;
                 let Ok(permit)=connections.clone().try_acquire_owned() else {continue};
+                let local=stream.local_addr()?;
                 let service=service.clone();let api=api.clone();let stop=stop.clone();
                 jobs.spawn(async move {
                     let _permit=permit;
@@ -462,7 +518,7 @@ async fn listen(
                     let disconnect=disconnected.clone();let shutdown=stop.clone();
                     let handler=hyper::service::service_fn(move|request|{
                         let service=service.clone();let api=api.clone();let stop=stop.clone();let disconnected=disconnected.clone();
-                        async move {Ok::<_,std::convert::Infallible>(handle_http(request,service,api,stop,disconnected).await)}
+                        async move {Ok::<_,std::convert::Infallible>(handle_http(request,service,api,stop,disconnected,local).await)}
                     });
                     let mut builder=hyper::server::conn::http1::Builder::new();
                     builder.timer(TokioTimer::new()).header_read_timeout(Duration::from_secs(10));
@@ -485,32 +541,49 @@ async fn listen(
     Ok(())
 }
 async fn handle_http(
-    request: Request<Incoming>,
+    mut request: Request<Incoming>,
     service: Weak<Service>,
     api: Arc<ApiService>,
     stop: CancellationToken,
     disconnected: CancellationToken,
+    local: SocketAddr,
 ) -> HttpResponse {
     let started = Instant::now();
     let id = uuid::Uuid::new_v4().to_string();
-    let Some(key) = api.authenticate(&request) else {
-        return ApiError::unauthorized().response(&id);
+    if web::owns(request.uri().path()) {
+        return web::handle(request, service, &api, stop, disconnected, local, &id).await;
+    }
+    let is_mcp = request.uri().path() == "/mcp";
+    let Some((key, api_enabled)) = api.authenticate(&request) else {
+        let mut response = ApiError::unauthorized().response(&id);
+        if is_mcp {
+            response.headers_mut().insert(hyper::header::WWW_AUTHENTICATE, hyper::header::HeaderValue::from_static("Bearer"));
+        }
+        return response;
     };
     let Some(service) = service.upgrade() else {
         return ApiError::stopped().response(&id);
     };
     let cancel = CancellationToken::new();
     let _guard = cancel.clone().drop_guard();
-    let operation = dispatch(request, service, cancel.clone(), started, &id);
+    let operation = async {
+        if is_mcp {
+            request.headers_mut().remove(hyper::header::AUTHORIZATION);
+            mcp::handle(request, service, cancel.clone(), started, &id, local).await
+        } else {
+            dispatch(request, service, cancel.clone(), started, &id).await.map(|value| response(StatusCode::OK, value))
+        }
+    };
     let result = tokio::select! {
         biased;
         _=key.cancelled()=>Err(ApiError::unauthorized()),
+        _=api_enabled.cancelled()=>Err(ApiError::stopped()),
         _=stop.cancelled()=>Err(ApiError::stopped()),
         _=disconnected.cancelled()=>Err(ApiError::new(StatusCode::REQUEST_TIMEOUT,"request_cancelled","调用方已断开")),
         result=operation=>result,
     };
     match result {
-        Ok(value) => response(StatusCode::OK, value),
+        Ok(response) => response,
         Err(e) => e.response(&id),
     }
 }
@@ -625,38 +698,37 @@ async fn dispatch(
                 })?
                 .to_bytes();
             let input: SearchRequest = serde_json::from_slice(&bytes).map_err(ApiError::bad)?;
-            if input.query.trim().is_empty()
-                || input.query.chars().count() > 2000
-                || !(1..=100).contains(&input.limit)
-                || !matches!(input.mode.as_str(), "deep" | "fast")
-            {
-                return Err(ApiError::bad(
-                    "query 需为 1–2000 个字符，mode 为 deep 或 fast，limit 范围 1–100",
-                ));
-            }
-            let deadline =
-                started + Duration::from_secs(if input.mode == "fast" { 30 } else { 60 });
-            let id = id.to_owned();
-            let operation = async {
-                let permit = tokio::select! {_=cancel.cancelled()=>return Err(ApiError::stopped()),permit=service.requests.clone().acquire_owned()=>permit.map_err(ApiError::internal)?};
-                let work = tokio::spawn(async move {
-                    let _permit = permit;
-                    search(service, input, cancel, started, id).await
-                });
-                work.await.map_err(ApiError::internal)?
-            };
-            tokio::time::timeout_at(deadline, operation)
-                .await
-                .map_err(|_| {
-                    ApiError::new(
-                        StatusCode::GATEWAY_TIMEOUT,
-                        "search_timeout",
-                        "搜索请求超时",
-                    )
-                })?
+            run_search(service, input, cancel, started, id.to_owned()).await
         }
         _ => unreachable!(),
     }
+}
+async fn run_search(
+    service: Arc<Service>,
+    input: SearchRequest,
+    cancel: CancellationToken,
+    started: Instant,
+    id: String,
+) -> std::result::Result<Value, ApiError> {
+    if input.query.trim().is_empty()
+        || input.query.chars().count() > 2000
+        || !(1..=100).contains(&input.limit)
+        || !matches!(input.mode.as_str(), "deep" | "fast")
+    {
+        return Err(ApiError::bad("query 需为 1–2000 个字符，mode 为 deep 或 fast，limit 范围 1–100"));
+    }
+    let deadline = started + Duration::from_secs(if input.mode == "fast" { 30 } else { 60 });
+    let operation = async {
+        let permit = tokio::select! {_=cancel.cancelled()=>return Err(ApiError::stopped()),permit=service.requests.clone().acquire_owned()=>permit.map_err(ApiError::internal)?};
+        let work = tokio::spawn(async move {
+            let _permit = permit;
+            search(service, input, cancel, started, id).await
+        });
+        work.await.map_err(ApiError::internal)?
+    };
+    tokio::time::timeout_at(deadline, operation).await.map_err(|_| {
+        ApiError::new(StatusCode::GATEWAY_TIMEOUT, "search_timeout", "搜索请求超时")
+    })?
 }
 fn directory(store: &Store, value: &str) -> std::result::Result<PathBuf, ApiError> {
     let path = Path::new(value);

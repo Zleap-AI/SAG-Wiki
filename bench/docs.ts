@@ -37,8 +37,10 @@ const docling={installed:false,running:false,stage:'idle',message:'',downloaded:
 const graphDocs=docs.map(({body,...d})=>({...d,file_type:'md'}));
 const graphEdges=[{source:1,target:2,source_hash:'demo-0',target_hash:'demo-1',score:.76,terms:[text('发布','release')],snapshot:'demo'},{source:1,target:3,source_hash:'demo-0',target_hash:'demo-2',score:.64,terms:[text('测试','tests')],snapshot:'demo'}];
 const callbacks=new Map<number,(value:any)=>void>(),listeners=new Map<number,{event:string;handler:number}>();let nextCallback=0;
+const apiDemoKey={id:'demo-key',name:text('知识库助手','Knowledge assistant'),prefix:'sag_demo…0001',created_at:now,copyable:true};
 function fixtureEvent(event:string,payload:unknown){for(const [id,listener] of listeners)if(listener.event===event)callbacks.get(listener.handler)!({event,id,payload});}
 const handlers:Record<string,(a:any)=>any>={
+ manage_api:({action})=>action.action==='list_keys'?[apiDemoKey]:action.action==='copy_key'?{key:'sag_demo_not_a_real_key'}:action.action==='web_code'?{code:'demo-web-access-code'}:{enabled:true,running:true,web_enabled:params.has('web-service'),web_running:params.has('web-service'),host:'0.0.0.0',port:24681,local_url:'http://127.0.0.1:24681',lan_urls:['http://192.168.1.10:24681'],key_count:1,autostart:false,last_error:null},
  fold_document:async a=>{
   fixtureEvent('document-fold-progress',{id:a.id,stage:'preparing',percent:0});
   if(params.has('fold-loading'))await new Promise(()=>{});

@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {requestId} from "../lib/web-connection";
  import {onMount,tick} from 'svelte';
  import {Button} from 'bits-ui';
  import {t} from '../lib/i18n';
@@ -7,7 +8,7 @@
  let layout:HTMLDivElement,scroller:HTMLDivElement;
  let headings:{element:HTMLElement;text:string;level:number}[]=[];
  let active=0,wide=false,outlineWidth=232,manualExpanded:boolean|null=null;
- const navigationId='document-outline-'+crypto.randomUUID();
+ const navigationId='document-outline-'+requestId();
  $:expanded=manualExpanded??wide;
  $:baseLevel=headings.length?Math.min(...headings.map(heading=>heading.level)):1;
 

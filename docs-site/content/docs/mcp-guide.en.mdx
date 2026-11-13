@@ -1,0 +1,87 @@
+---
+title: "MCP guide"
+description: "Connect to SAG Wiki over Streamable HTTP to search source passages and browse folders."
+---
+
+| Client setting | Value |
+| --- | --- |
+| Transport | **Streamable HTTP** |
+| Local address | `http://127.0.0.1:24681/mcp` (default) |
+| LAN address | `http://192.168.1.10:24681/mcp` (example) |
+| Authentication | `Authorization: Bearer <API_KEY>`. Use the full API key. |
+
+## Connect an MCP client
+
+1. Add the folders you want to search on the computer running SAG Wiki. Open **Settings → Remote services**, create an API key, and enable the API. You can also start the service with the standalone CLI; see [Start the service](/en/docs/api-guide#start-the-service).
+2. Choose **Local MCP** on the same computer or **LAN MCP** on another computer on the network. Click the copy icon beside that address and import the full configuration, including the selected address and API key, into your client.
+3. Save and confirm that the client lists `search` and `folders`. Try asking: “Use SAG Wiki to list the indexed folders, then quickly search Project Notes for ‘deployment steps’ and tell me where the matching passages are.”
+
+### Export configuration with the CLI
+
+On the computer running SAG Wiki, run `sag api status` to see the local and available LAN MCP addresses. Both text and `--json` status show only the key count.
+
+```sh
+sag api mcp config
+sag api mcp config --address http://192.168.1.10:24681/mcp --key-id KEY_ID
+```
+
+The first command uses the local address and the most recently created copyable key. For the second command, use an address from the status output and an ID from `sag api key list`. Import the resulting JSON into your client. Keep the configuration private because it contains the full key. If the backend is stopped, run `sag api start` first.
+
+If your client imports `mcpServers` JSON, use this format. If you already have other servers, add `sag-wiki` to your existing `mcpServers` object.
+
+```json
+{
+  "mcpServers": {
+    "sag-wiki": {
+      "type": "http",
+      "url": "http://127.0.0.1:24681/mcp",
+      "headers": {
+        "Authorization": "Bearer <API_KEY>"
+      }
+    }
+  }
+}
+```
+
+## Available tools
+
+### `search`: Search source passages
+
+| Parameter | Description |
+| --- | --- |
+| `query` | Required. A keyword or full question, 1–2,000 characters. |
+| `mode` | `fast` matches keywords without a model. `deep` finds evidence for a full question and requires a decision model configured in SAG Wiki. Defaults to `deep`. |
+| `paths` | Optional. One or more absolute directory paths on the server. Omit it or pass `[]` to search the entire knowledge base. |
+| `limit` | Optional. Maximum number of source passages, 1–100. Defaults to 10. |
+
+Example arguments for a quick search in Project Notes:
+
+```json
+{
+  "query": "deployment steps",
+  "mode": "fast",
+  "paths": ["/data/project-notes"],
+  "limit": 5
+}
+```
+
+Each entry in `results` includes the file `path`, `heading`, `start_line`, `end_line`, and passage `content`. No matches return an empty array.
+
+### `folders`: Browse folders
+
+Pass `{}` to list the roots added to the knowledge base. Pass `path` to list the immediate subfolders of a directory, for example:
+
+```json
+{"path": "/data/project-notes"}
+```
+
+The returned `folders` array contains each folder's `name` and absolute `path`. Use those paths in `search` to narrow its scope. Both tools are read-only: they cannot add folders or change files.
+
+## Troubleshooting
+
+| Symptom | What to check |
+| --- | --- |
+| Cannot connect or see the tools | Confirm the API is running, the client supports Streamable HTTP, and the URL ends in `/mcp`. For another computer, check the LAN address and port. |
+| `401` response | Check that the header contains the full key and the `Bearer ` prefix, and that the key has not been revoked. |
+| Decision model is not configured | Set a decision model in SAG Wiki, or specify `mode: "fast"`. |
+| Path denied or no matches | Use `folders` to confirm the server's directory path, then check that the files are indexed. |

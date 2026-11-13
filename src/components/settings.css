@@ -50,7 +50,6 @@
 .settings-window .settings-field-grid .field-label{font-size:var(--text-ui)}
 .settings-window .settings-inline-field{padding:15px 0 0;margin-top:15px;border-top:1px solid var(--color-rule)}
 .settings-window .settings-help{font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary);margin:0}
-.settings-window .settings-privacy-note{padding:0 3px}
 .settings-window .settings-section-actions{display:flex;justify-content:flex-end}
 .settings-window .settings-limits{font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary);margin-top:21px;padding-top:16px;border-top:1px solid var(--color-rule)}
 .settings-window .settings-limits summary{cursor:pointer;font-size:var(--text-ui);color:var(--color-ink)}

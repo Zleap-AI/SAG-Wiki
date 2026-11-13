@@ -40,7 +40,7 @@ jobs:
       - name: Test HTTP cancellation, authentication, deadlines and shared capacity
         run: cargo test --locked --manifest-path core/Cargo.toml http_api::tests
       - name: Build the native npm package
-        run: node scripts/package-npm-cli.mjs
+        run: npm ci && node scripts/package-npm-cli.mjs
       - name: Install npm package and exercise the real CLI-managed service
         shell: bash
         run: |

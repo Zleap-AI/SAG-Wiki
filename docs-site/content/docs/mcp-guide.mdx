@@ -1,0 +1,87 @@
+---
+title: "MCP 说明"
+description: "通过 Streamable HTTP 连接 SAG Wiki，搜索原文并浏览文件夹。"
+---
+
+| 客户端设置 | 填写内容 |
+| --- | --- |
+| 传输方式 | **Streamable HTTP** |
+| 本机地址 | `http://127.0.0.1:24681/mcp`（默认） |
+| 局域网地址 | `http://192.168.1.10:24681/mcp`（示例） |
+| 鉴权 | `Authorization: Bearer <API_KEY>`，替换为完整的 API Key |
+
+## 连接 MCP 客户端
+
+1. 在运行 SAG Wiki 的电脑上添加要搜索的文件夹。打开 **设置 → 远程服务**，创建一个 API Key，然后开启 API。也可以用独立 CLI 启动，见 [开启服务](/zh/docs/api-guide#开启服务)。
+2. 同一台电脑选择 **本机 MCP**，局域网内的其他电脑选择 **局域网 MCP**。点击对应地址右侧的复制图标，将包含该地址和 API Key 的完整配置导入客户端。
+3. 保存后，在客户端确认能看到 `search` 和 `folders`。可以先问：“用 SAG Wiki 列出已接入的文件夹，再在项目资料里快速搜索‘部署流程’，并给出原文位置。”
+
+### 用 CLI 导出配置
+
+在运行 SAG Wiki 的电脑上执行 `sag api status`，查看本机和可用的局域网 MCP 地址。普通状态和 `--json` 都只显示 Key 数量。
+
+```sh
+sag api mcp config
+sag api mcp config --address http://192.168.1.10:24681/mcp --key-id KEY_ID
+```
+
+第一条命令使用本机地址和最近创建的可复制 Key。第二条命令中的地址请替换为状态中列出的地址，Key ID 可用 `sag api key list` 查看。将输出的 JSON 导入客户端。配置包含完整 Key，请妥善保管。后台未运行时，先执行 `sag api start`。
+
+如果客户端支持导入 `mcpServers` JSON，可以使用以下格式。已有其他服务时，把 `sag-wiki` 加到现有的 `mcpServers` 中。
+
+```json
+{
+  "mcpServers": {
+    "sag-wiki": {
+      "type": "http",
+      "url": "http://127.0.0.1:24681/mcp",
+      "headers": {
+        "Authorization": "Bearer <API_KEY>"
+      }
+    }
+  }
+}
+```
+
+## 可用工具
+
+### `search`：搜索原文
+
+| 参数 | 说明 |
+| --- | --- |
+| `query` | 必填。关键词或完整问题，1–2000 个字符。 |
+| `mode` | `fast` 快速搜索关键词，无需模型；`deep` 按完整问题查找相关证据，需要在 SAG Wiki 配置决策模型。默认 `deep`。 |
+| `paths` | 可选。一个或多个服务端目录的完整路径。省略或传 `[]` 时搜索全部知识库。 |
+| `limit` | 可选。最多返回的原文片段数，1–100，默认 10。 |
+
+参数示例：快速搜索项目资料中的“部署流程”。
+
+```json
+{
+  "query": "部署流程",
+  "mode": "fast",
+  "paths": ["/data/项目资料"],
+  "limit": 5
+}
+```
+
+`results` 中每条结果包含文件路径 `path`、标题 `heading`、起止行号 `start_line` 和 `end_line`，以及原文片段 `content`。没有匹配时返回空数组。
+
+### `folders`：浏览文件夹
+
+传入 `{}` 列出已加入知识库的根文件夹。传入 `path` 列出该目录的直接子文件夹，例如：
+
+```json
+{"path": "/data/项目资料"}
+```
+
+返回的 `folders` 列表包含每个文件夹的名称 `name` 和完整路径 `path`。可以把返回的路径填入 `search` 的 `paths` 来缩小搜索范围。两个工具都只读取知识库，不能添加目录或修改文件。
+
+## 常见问题
+
+| 现象 | 检查方法 |
+| --- | --- |
+| 无法连接或看不到工具 | 确认 API 正在运行、客户端支持 Streamable HTTP，并检查地址末尾是否为 `/mcp`。跨电脑连接时检查局域网地址和端口。 |
+| 返回 `401` | 检查是否填入完整 Key，是否保留 `Bearer ` 前缀，以及 Key 是否已撤销。 |
+| 提示未配置决策模型 | 在 SAG Wiki 的模型设置中配置决策模型，或指定 `mode: "fast"`。 |
+| 路径不允许或没有结果 | 先用 `folders` 确认服务端目录，再检查文件是否已经索引。 |
