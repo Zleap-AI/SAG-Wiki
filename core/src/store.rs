@@ -20,6 +20,8 @@ use std::{
 // This is an application allocation budget, not a promise about exact OS RSS.
 // Leave room for source/decoded strings, chunk metadata, tokenization and vocabulary.
 const TEXT_PREPARATION_BUDGET: usize = 512 * 1024 * 1024;
+// Persisted by walk_entry so file-only recovery can distinguish directory errors.
+const DIRECTORY_READ_ERROR_PREFIX: &str = "无法读取目录：";
 const MIN_TEXT_PREPARATION_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(test)]
 const MAX_TEXT_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -1610,7 +1612,7 @@ impl Store {
         eprintln!("跳过无法读取的目录：{}：{io}", path.display());
         self.connection().execute(
             "INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error",
-            params![path_text(&path)?, path_text(root)?, format!("无法读取目录：{io}")],
+            params![path_text(&path)?, path_text(root)?, format!("{DIRECTORY_READ_ERROR_PREFIX}{io}")],
         )?;
         Ok(None)
     }
@@ -2654,6 +2656,67 @@ cat "$source" > "$output"
     #[cfg(unix)]
     fn conversion_calls(calls: &Path) -> usize {
         fs::read_to_string(calls).map_or(0, |text| text.lines().count())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retry_failed_regression_history_counts_converted_and_mixed_targets() {
+        for include_native in [false, true] {
+            let (_dir, store, root) = converted_text_fixture();
+            let source = root.join("recovered.eml");
+            let native = root.join("recovered.txt");
+            fs::write(&source, "original converted evidence").unwrap();
+            if include_native { fs::write(&native, "original native evidence").unwrap(); }
+            store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+            fs::write(&source, "recovered converted evidence with new content").unwrap();
+            let mut targets = vec![source];
+            if include_native { targets.push(native); }
+            for target in &targets {
+                store.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?)", params![path_text(target).unwrap(),path_text(&root).unwrap(),"previous failure"]).unwrap();
+            }
+            store.root_status(root.to_str().unwrap(), "partial", Some("previous failures")).unwrap();
+            for (root, paths) in store.prepare_failed_reindex().unwrap() { store.retry_failed_indexes(&root, &paths, |_| {}).unwrap(); }
+            assert_eq!(store.failed_index_count().unwrap(), 0);
+            let history = store.index_history().unwrap();
+            let expected = if include_native { 2 } else { 1 };
+            assert_eq!((history[0].completed, history[0].total), (expected, expected), "converted retries must be included (mixed={include_native})");
+        }
+    }
+
+    #[test]
+    fn retry_failed_regression_retires_replaced_file_without_touching_children_or_directory_issues() {
+        for directory_issue in [false, true] {
+            let (_dir, store, root) = setup();
+            let source = root.join("broken.txt");
+            fs::write(&source, [0xff,0xfe,0xff]).unwrap();
+            store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+            assert_eq!(store.failed_index_count().unwrap(), 1);
+            fs::remove_file(&source).unwrap();
+            fs::create_dir(&source).unwrap();
+            let child = source.join("healthy.md");
+            fs::write(&child, "healthy child must remain searchable").unwrap();
+            store.index_file(root.to_str().unwrap(), &child, 512).unwrap();
+            let before: String = store.connection().query_row("SELECT hash FROM documents WHERE path=?", [path_text(&child).unwrap()], |row| row.get(0)).unwrap();
+            let directory = root.join("unreadable-directory");
+            if directory_issue {
+                fs::create_dir(&directory).unwrap();
+                store.walk_entry(&root, Err(ignore::Error::WithPath {
+                    path: directory.clone(),
+                    err: Box::new(ignore::Error::Io(std::io::Error::from(std::io::ErrorKind::PermissionDenied))),
+                })).unwrap();
+            }
+            assert_eq!(store.failed_index_count().unwrap(), 1, "the replaced file remains a cleanup target; genuine directory failures do not");
+            let work = store.prepare_failed_reindex().unwrap();
+            assert_eq!(work, vec![(path_text(&root).unwrap(), vec![source.clone()])]);
+            for (root, paths) in work { store.retry_failed_indexes(&root, &paths, |_| {}).unwrap(); }
+            let db = store.connection();
+            assert!(!db.query_row("SELECT EXISTS(SELECT 1 FROM index_issues WHERE path=?)", [path_text(&source).unwrap()], |row| row.get::<_, bool>(0)).unwrap());
+            assert_eq!(db.query_row("SELECT hash FROM documents WHERE path=?", [path_text(&child).unwrap()], |row| row.get::<_, String>(0)).unwrap(), before);
+            assert_eq!(db.query_row("SELECT EXISTS(SELECT 1 FROM index_issues WHERE path=?)", [path_text(&directory).unwrap()], |row| row.get::<_, bool>(0)).unwrap(), directory_issue);
+            drop(db);
+            assert_eq!(store.failed_index_count().unwrap(), 0);
+            assert_eq!(store.roots().unwrap()[0].status, if directory_issue { "partial" } else { "ready" });
+        }
     }
 
     #[cfg(unix)]

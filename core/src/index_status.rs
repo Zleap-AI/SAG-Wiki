@@ -57,6 +57,9 @@ impl IndexControl {
     pub fn task(&self, root: &str) -> IndexTask { self.state.lock().unwrap().tasks[root].clone() }
     pub fn log(&self, root: &str) -> Vec<IndexFileLog> { self.state.lock().unwrap().logs[root].clone() }
     pub fn indexed(&self, root: &str) -> (usize, usize) { self.state.lock().unwrap().indexed[root] }
+    pub(crate) fn record_indexed_progress(&self, root: &str, completed: usize, total: usize) {
+        *self.state.lock().unwrap().indexed.get_mut(root).unwrap() = (completed, total);
+    }
     pub fn finish(&self, root: &str) {
         let mut state = self.state.lock().unwrap();
         state.cancelled.remove(root);

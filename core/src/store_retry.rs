@@ -7,21 +7,19 @@ fn failed_files(db: &Connection) -> Result<Vec<(String, Vec<PathBuf>)>> {
         "SELECT i.root,COALESCE(c.source,i.path) FROM index_issues i
          JOIN roots r ON r.path=i.root
          LEFT JOIN conversions c ON c.root=i.root AND c.output=i.path
-         WHERE r.status IN ('partial','error') ORDER BY i.root,i.path",
+         WHERE r.status IN ('partial','error') AND i.error NOT LIKE ?1 ORDER BY i.root,i.path",
     )?;
-    let rows = query.query_map([], |row| {
+    let rows = query.query_map([format!("{DIRECTORY_READ_ERROR_PREFIX}%")], |row| {
         Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
     })?;
     let mut groups = BTreeMap::<String, BTreeSet<PathBuf>>::new();
     for row in rows {
         let (root, file) = row?;
         let path = PathBuf::from(file);
-        // Directory/watcher failures require directory-level recovery. Missing
-        // files remain targets so their stale issue can be retired explicitly.
-        if path != Path::new(&root)
-            && path.starts_with(&root)
-            && !path.is_dir()
-            && !ignore_rules::is_rule_file(&path)
+        // walk_entry's persisted prefix excludes genuine directory failures.
+        // Keep file-origin failures even if the path is now a directory, so
+        // exact-file cleanup can retire the old issue without touching children.
+        if path != Path::new(&root) && path.starts_with(&root) && !ignore_rules::is_rule_file(&path)
         {
             groups.entry(root).or_default().insert(path);
         }
@@ -190,8 +188,25 @@ impl Store {
             });
         }
         if !sources.is_empty() {
-            let issues =
-                self.convert_sources(root, Path::new(root), &sources, &settings, false, &progress)?;
+            let conversion_progress = |p: IndexProgress| {
+                // Selective conversion accepts output in place, without a
+                // subsequent full scan. Record it while preserving the live
+                // converting stage and any partially completed retry history.
+                self.indexing.record_indexed_progress(
+                    root,
+                    native.len() + p.count,
+                    native.len() + p.total,
+                );
+                progress(p);
+            };
+            let issues = self.convert_sources(
+                root,
+                Path::new(root),
+                &sources,
+                &settings,
+                false,
+                &conversion_progress,
+            )?;
             for (path, error) in issues {
                 self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![path,root,error])?;
             }
