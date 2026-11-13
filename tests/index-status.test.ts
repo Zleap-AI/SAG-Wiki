@@ -604,3 +604,20 @@ it('ignores a ready snapshot that predates a newer index progress event',async()
  expect(document.querySelector('.index-status-row')).toBe(card);
  expect(document.querySelector('.index-status-meta')?.textContent).toContain('1 / 3');
 });
+
+
+it('does not mix another root PDF parts with the displayed root file progress',async()=>{
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test'}};
+  if(command==='get_index_status')return {paused:false,tasks:[
+   {path:'/text',stage:'indexing_native',completed:1,total:5,files:['/text/a.md']},
+   {path:'/pdf',stage:'converting',completed:2,total:3,files:['/pdf/long.pdf'],conversions:[{path:'/pdf/long.pdf',engine:'MinerU',segment:{current:8,total:20,start_page:351,end_page:400}}]}
+  ]};
+  if(command==='list_roots')return [{path:'/text',name:'Text',status:'indexing',count:1,error:null},{path:'/pdf',name:'PDF',status:'indexing',count:2,error:null}];
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在索引文本'));
+ expect(document.querySelector('.index-status-meta')?.textContent).toContain('1 / 5');
+ expect(document.querySelector('.index-status-segment')).toBeNull();
+});

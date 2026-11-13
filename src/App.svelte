@@ -92,7 +92,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  $:indexStatusText=indexPaused?$t("SAG 索引已暂停"):indexing?!indexTasks.length&&!indexProgress?$t("SAG 等待后台处理"):indexStage?$t("SAG {value0}{value1}{value2}",{value0:$t(indexStage.progress),value1:indexPercent===null?'':`（${indexPercent}%）`,value2:''}):(indexPercent===null?$t("SAG 正在索引…"):$t("SAG 正在索引（{value0}%）",{value0:indexPercent})):$t("SAG · 索引已结束");
  $:indexParserTask=indexTasks.find(task=>task.path===indexProgress?.path);
  $:indexParsers=conversionParsers(indexTasks);
- $:indexSegment=conversionSegment(indexTasks);
+ $:indexSegment=conversionSegment(indexTasks.filter(task=>task.path===indexProgress?.path));
  $:indexParserText=(indexProgress?.stage??indexParserTask?.stage)==='converting'||(indexProgress?.stage??indexParserTask?.stage)==='retrying_conversion'
   ?indexParsers.length?$t('解析方式：{value0}',{value0:indexParsers.join($t('、'))}):indexPaused?'':indexSegment?$t('正在处理分段…'):$t('正在准备转换…'):'';
  $:indexStatusCount=indexProgress?$t("已处理 {value0} / {value1} 个文件",{value0:indexProgress.count,value1:indexProgress.total}):$t("已索引 {value0} 个文件",{value0:roots.reduce((count,root)=>count+root.count,0)});
