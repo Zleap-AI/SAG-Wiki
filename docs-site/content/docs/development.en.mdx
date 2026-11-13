@@ -95,3 +95,7 @@ Keep development artifacts, temporary output, logs, screenshots and local data o
 Run `npm run build:clipper` for Chrome / Edge packages in `src-tauri/clipper/`. On macOS with full Xcode, run `npm run build:clipper:safari` for the local Safari test app in `browser-extension/build/`. Test builds use the separate `com.sag.webclipper.development` identifier so they do not interfere with the installed release.
 
 To prepare the production Safari app, run `node browser-extension/build.mjs --safari --release`, then sign and notarize both the app and its DMG. macOS desktop builds use the notarized installer at `src-tauri/clipper/sag-web-clipper-safari.dmg`, or the path supplied through `SAG_CLIPPER_SAFARI_DMG`, and stop if verification fails. Desktop builds do not overwrite release installers with unsigned test packages.
+
+## Next release preparation
+
+See the [changelog](https://github.com/Zleap-AI/SAG-Wiki/blob/main/CHANGELOG.md) for the planned `0.2.12` changes. Preparation does not mean publication; download links continue to use the latest published Release. Before release, frontend, documentation and macOS/Windows builds must pass on the same commit. Verify installation/upgrades, existing-index preservation, progressive states and failed-file retry. The tag, desktop and CLI versions must agree.

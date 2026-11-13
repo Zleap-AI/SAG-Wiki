@@ -95,3 +95,7 @@ SAG_DATA_DIR=/path/to/dev-data ./src-tauri/bin/development/sag service status
 运行 `npm run build:clipper` 构建 Chrome / Edge 扩展包，产物位于 `src-tauri/clipper/`。macOS 安装完整 Xcode 后，可运行 `npm run build:clipper:safari` 构建 Safari 本地测试应用，产物位于 `browser-extension/build/`。测试版使用独立的 `com.sag.webclipper.development` 标识，避免干扰已安装的正式扩展。
 
 准备正式 Safari 应用时，运行 `node browser-extension/build.mjs --safari --release`，再完成应用和 DMG 的签名、公证。macOS 桌面端构建使用 `src-tauri/clipper/sag-web-clipper-safari.dmg` 中已公证的安装包，也可通过 `SAG_CLIPPER_SAFARI_DMG` 指定路径；校验未通过时停止构建。桌面端构建不会用未签名测试包覆盖正式包。
+
+## 下一版发布准备
+
+`0.2.12` 的改动说明见 [更新日志](https://github.com/Zleap-AI/SAG-Wiki/blob/main/CHANGELOG.md)。准备中的版本不代表已发布，下载链接仍以最新正式 Release 为准。发布前须在同一提交上通过前端、文档及 macOS/Windows 构建，并核对安装升级、已有索引保留、分阶段状态和失败重试；标签与桌面端、CLI 版本必须一致。
