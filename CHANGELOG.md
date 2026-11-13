@@ -7,7 +7,7 @@
 - **减少 PDF 重复加载模型**：同一 PDF 的多个分段复用 Docling 进程和模型，文档完成、失败或取消后释放；保持现有 CPU 线程策略、OCR 和表格识别配置。修复并行扫描误删或覆盖新增强结果的问题。
 - **更可靠的索引进度与恢复**：分别显示基础索引、后台增强和 PDF 分段进度，减少状态闪动；未变化的失败文件复用失败记录，文件、组件或相关预算变化后重新尝试。
 - **改善 CLI 与问答兼容性**：`sag add` 支持用 `--timeout` 调整等待时间，超时明确提示后台仍在索引；决策模型批次因问题条数超限被拒绝时自动拆批重试。修复数学区间被误判为引用、金额内容被数学表达式过滤的问题；切换决策模型提供商时重置模型选择。
-- **改善组件安装与分发**：调整文档组件安装内存限制，保留失败诊断；继续精简 QPDF 分发内容。
+- **改善组件安装与分发**：调整文档组件安装内存限制，保留失败诊断，正确识别 Windows 解析进程在启动阶段超过内存上限的情况；继续精简 QPDF 分发内容。
 
 桌面端与随包 CLI 版本统一为 0.2.12。基础文字可搜索不代表扫描内容和复杂表格已全部完成，请以界面状态及原文核对完整性。
 
@@ -18,7 +18,7 @@
 - **Reuse PDF models**: share one Docling process and its models across a PDF's segments, releasing resources on completion, failure or cancellation. Keep CPU thread policy and OCR/table settings unchanged. Fix concurrent scans deleting or overwriting newly enhanced indexes.
 - **Clearer progress and recovery**: show separate basic, enhancement and PDF-segment progress with more stable updates. Reuse unchanged failure records and retry when files, components or relevant budgets change.
 - **CLI and answer compatibility**: `sag add --timeout` controls the wait and explains when indexing continues after timeout. Split decision-model batches rejected for exceeding question-count limits. Avoid treating mathematical intervals as citations or stripping prices as mathematical expressions, and reset the model selection when switching decision-model providers.
-- **Component installation and distribution**: adjust document-component installation memory limits while retaining diagnostics, and further reduce the QPDF distribution payload.
+- **Component installation and distribution**: adjust document-component installation memory limits while retaining diagnostics, correctly report Windows parser memory-limit failures during startup, and further reduce the QPDF distribution payload.
 
 The desktop app and bundled CLI both use 0.2.12. Searchable basic text does not imply complete scanned-content or complex-table coverage; check the displayed state and original document.
 
