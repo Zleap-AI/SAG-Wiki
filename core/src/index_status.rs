@@ -10,6 +10,7 @@ struct State {
     tasks: BTreeMap<String, IndexTask>,
     logs: BTreeMap<String, Vec<IndexFileLog>>,
     indexed: BTreeMap<String, (usize, usize)>,
+    retrying: BTreeSet<(String, String)>,
 }
 
 /// Pause only at file boundaries, without holding the database lock.
@@ -21,7 +22,12 @@ pub struct IndexControl {
 impl IndexControl {
     pub fn status(&self) -> IndexStatus {
         let state = self.state.lock().unwrap();
-        IndexStatus { paused: state.paused, tasks: state.tasks.values().cloned().collect() }
+        IndexStatus { paused: state.paused, tasks: state.tasks.values().cloned().map(|mut task| {
+            if task.stage == "converting" && task.files.iter().any(|file| state.retrying.contains(&(task.path.clone(), file.clone()))) {
+                task.stage = "retrying_conversion".into();
+            }
+            task
+        }).collect() }
     }
     pub fn set_paused(&self, paused: bool) -> IndexStatus {
         self.state.lock().unwrap().paused = paused;
@@ -120,15 +126,20 @@ impl IndexControl {
         }
     }
     pub fn file<T>(&self, root: &str, path: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
+        self.file_attempt(root, path, false, work)
+    }
+    pub fn file_attempt<T>(&self, root: &str, path: &Path, retry: bool, work: impl FnOnce() -> Result<T>) -> Result<T> {
         let state = self.state.lock().unwrap();
         let mut state = self.resumed.wait_while(state, |state| state.paused && !state.stopped && !state.cancelled.contains(root)).unwrap();
         if state.stopped || state.cancelled.contains(root) { bail!("索引已停止") }
         let path = path.to_string_lossy().into_owned();
-        let stage = state.tasks[root].stage.clone();
+        let stage = if retry { "retrying_conversion".into() } else { state.tasks[root].stage.clone() };
+        if retry { state.retrying.insert((root.into(), path.clone())); }
         state.tasks.get_mut(root).unwrap().files.push(path.clone());
         drop(state);
         let mut result = work();
         let mut state = self.state.lock().unwrap();
+        state.retrying.remove(&(root.into(), path.clone()));
         if state.cancelled.contains(root) {result=Err(anyhow::anyhow!("文件夹已移除，已停止索引"));}
         state.tasks.get_mut(root).unwrap().files.retain(|file| file != &path);
         state.tasks.get_mut(root).unwrap().conversions.retain(|item| item.path != path);
@@ -147,6 +158,21 @@ impl IndexControl {
 #[cfg(test)]
 mod cancellation_tests {
     use super::*;
+    #[test]
+    fn retry_label_only_applies_while_failed_file_is_running() {
+        let control = IndexControl::default();
+        control.begin("root"); control.phase("root", "converting", 2);
+        control.file_attempt("root", Path::new("failed.pdf"), true, || {
+            assert_eq!(control.status().tasks[0].stage, "retrying_conversion");
+            assert_eq!(control.status().tasks[0].total, 2);
+            Ok(())
+        }).unwrap();
+        control.file("root", Path::new("new.pdf"), || {
+            assert_eq!(control.status().tasks[0].stage, "converting");
+            Ok(())
+        }).unwrap();
+        assert_eq!(control.log("root")[0].stage, "retrying_conversion");
+    }
     #[test]
     fn removing_one_root_cancels_its_work_without_stopping_other_roots() {
         let control=IndexControl::default();control.begin("old");control.begin("new");

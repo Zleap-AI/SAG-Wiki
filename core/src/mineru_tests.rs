@@ -1,6 +1,38 @@
 use super::*;
 use sag_protocol::mineru::{MineruConfig, MineruProvider};
+#[test]
+fn windows_conversion_destination_is_not_held_open() {
+    let dir = tempfile::tempdir().unwrap();
+    #[cfg(windows)]
+    {
+        let held = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+        let result = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+        assert_eq!(result.persist(held.path()).unwrap_err().error.raw_os_error(), Some(5));
+    }
+    let destination = tempfile::NamedTempFile::new_in(dir.path()).unwrap().into_temp_path();
+    let mut result = tempfile::NamedTempFile::new_in(dir.path()).unwrap();
+    result.write_all(b"![figure](images/x.png)").unwrap();
+    result.persist(&destination).unwrap();
+    assert!(std::fs::read_to_string(&destination).unwrap().contains("![figure]"));
+}
 fn default_config()->MineruConfig {MineruConfig{provider:MineruProvider::Ai302,..Default::default()}}
+
+#[test]
+#[ignore = "set SAG_TEST_LARGE_PDF to a local large PDF; no upload"]
+fn real_large_pdf_preparation_with_qpdf() {
+    let source = PathBuf::from(std::env::var_os("SAG_TEST_LARGE_PDF").unwrap()).canonicalize().unwrap();
+    let started = std::time::Instant::now();
+    let parts = prepare(&source, 200 * MIB, &|| false).unwrap();
+    let mut next = 1;
+    for part in &parts {
+        assert_eq!(part.start, next);
+        assert!(part.end - part.start < 200);
+        assert_eq!(lopdf::Document::load_mem(&part.bytes).unwrap().get_pages().len(), (part.end - part.start + 1) as usize);
+        next = part.end + 1;
+    }
+    assert_eq!(next - 1, lopdf::Document::load(&source).unwrap().get_pages().len() as u32);
+    assert!(started.elapsed() < Duration::from_secs(120));
+}
 
 #[test]
 fn settings_default_disabled_and_provider_keys_are_separate() {
@@ -30,7 +62,7 @@ fn unsupported_formats_stay_local_and_invalid_settings_fail() {
 }
 
 #[test]
-fn archive_markdown_rewrites_relative_images_without_extracting_paths() {
+fn archive_markdown_preserves_relative_images() {
     use std::io::Write;
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
     zip.start_file("full.md", zip::write::SimpleFileOptions::default())
@@ -40,8 +72,41 @@ fn archive_markdown_rewrites_relative_images_without_extracting_paths() {
     let archive = zip.finish().unwrap().into_inner();
     let parsed = markdown(archive).unwrap();
     assert!(parsed.contains("# Result"));
-    assert!(!parsed.contains("images/x.png"));
+    assert!(parsed.contains("images/x.png"));
     assert!(parsed.contains("[web](https://example.com)"));
+}
+
+#[test]
+fn archive_assets_survive_markdown_rename_and_isolate_segments() {
+    let dir = tempfile::tempdir().unwrap();
+    let make = |bytes: &[u8]| {
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, data) in [("full.md", b"# Result\n![caption](images/x.png)\n![title](./images/x.png \"title\")\n![](<images/x.png>)\n<img src='images/x.png'>\n![reference][f]\n[f]: images/x.png".as_slice()), ("images/x.png", bytes)] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            zip.write_all(data).unwrap();
+        }
+        zip.start_file("doc_content_list.json", zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(br#"[{"type":"image","img_path":"images/x.png","image_caption":["Caption"],"page_idx":0}]"#).unwrap();
+        zip.finish().unwrap().into_inner()
+    };
+    let first = archive_content_with_assets(make(b"first"), 0, 0, false, MIB, Some(dir.path())).unwrap();
+    let second = archive_content_with_assets(make(b"second"), 0, 0, false, MIB, Some(dir.path())).unwrap();
+    assert_ne!(first, second);
+    for (text, expected) in [(&first, b"first".as_slice()), (&second, b"second".as_slice())] {
+        let link = text.split("](").nth(1).unwrap().split(')').next().unwrap();
+        assert_eq!(std::fs::read(dir.path().join(link)).unwrap(), expected);
+        assert!(dir.path().join(link).parent().unwrap().parent().unwrap().join("full.md").exists());
+        assert!(!text.contains("](./images/") && !text.contains("](images/"));
+        assert_eq!(text.matches(".sag-mineru-assets/").count(), 5);
+    }
+    let staged = dir.path().join("pending.md");
+    std::fs::write(&staged, &first).unwrap();
+    std::fs::rename(staged, dir.path().join("report.pdf.md")).unwrap();
+    assert_eq!(archive_content_with_assets(make(b"first"), 0, 0, false, MIB, Some(dir.path())).unwrap(), first);
+    let split = archive_content_with_assets(make(b"first"), 201, 202, true, MIB, Some(dir.path())).unwrap();
+    assert!(split.contains("source-page:201"));
+    assert!(split.contains("Caption"));
+    assert!(split.contains("![](.sag-mineru-assets/"));
 }
 
 #[test]
@@ -256,6 +321,7 @@ fn large_pdf_splits_at_provider_page_limit_and_keeps_original_ranges() {
     let dir = tempfile::tempdir().unwrap();
     let source = dir.path().join("large.pdf");
     std::fs::write(&source, pdf(201)).unwrap();
+    let source = source.canonicalize().unwrap();
     let parts = prepare(&source, 50 * MIB, &|| false).unwrap();
     assert_eq!(
         parts
@@ -980,4 +1046,30 @@ fn enterprise_response_variants_and_error_codes_are_classified() {
     assert_eq!(find_302_task_id(&json!("A0005")),None);
     assert_eq!(normalize_opensource(json!("A0005")).unwrap()["state"],"failed");
     assert_eq!(normalize_opensource(json!({"data":{"markdown":"# result"}})).unwrap()["markdown"],"# result");
+}
+
+#[test]
+fn archive_assets_rewrite_nested_alt_and_space_destinations() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    zip.start_file("full.md", zip::write::SimpleFileOptions::default())
+        .unwrap();
+    zip.write_all(b"# Result\n![curve [red]](images/x.png)\n![escaped \\] bracket](images/x.png)\n![](<images/my image.png>)").unwrap();
+    for name in ["images/x.png", "images/my image.png"] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"image").unwrap();
+    }
+    let output = archive_content_with_assets(
+        zip.finish().unwrap().into_inner(),
+        0,
+        0,
+        false,
+        MIB,
+        Some(dir.path()),
+    )
+    .unwrap();
+    assert_eq!(output.matches(".sag-mineru-assets/").count(), 3, "{output}");
+    assert!(output.contains("curve [red]") && output.contains("escaped \\] bracket"));
+    assert!(!output.contains("](images/") && !output.contains("](<images/"));
 }

@@ -175,11 +175,11 @@ fn normalize_opensource(value:Value)->Result<Value> {
     for key in ["data","result","task"] {if let Some(v)=value.get(key){return normalize_opensource(v.clone());}}
     Ok(json!({"state":"pending"}))
 }
-async fn finish_302(client:&Client,result:&Value,part:&Part,require_pages:bool,limit:u64)->Result<String> {
+async fn finish_302(client:&Client,result:&Value,part:&Part,require_pages:bool,limit:u64,parent:Option<&Path>)->Result<String> {
     if let Some(md)=result.get("markdown").and_then(Value::as_str){ensure!(!require_pages,"MinerU 分段结果缺少页码映射，尝试本地解析");ensure!(md.len() as u64<=limit,"MinerU 正文超过配置上限");return Ok(md.into());}
     let response=client.get(safe_url(field(result,"full_zip_url")?)?).send().await?;
     let content=bytes(response,ZIP_LIMIT).await?;
-    if content.starts_with(b"PK\x03\x04"){return archive_content_with_limit(content,part.start,part.end,require_pages,limit);}
+    if content.starts_with(b"PK\x03\x04"){return archive_content_with_assets(content,part.start,part.end,require_pages,limit,parent);}
     let payload=unwrap_payload(serde_json::from_slice(&content).unwrap_or_else(|_|json!(String::from_utf8_lossy(&content))));
     let result=normalize_opensource(payload)?;
     if let Some(md)=result.get("markdown").and_then(Value::as_str){ensure!(!require_pages,"MinerU 分段结果缺少页码映射，尝试本地解析");ensure!(md.len() as u64<=limit,"MinerU 正文超过配置上限");return Ok(md.into());}
@@ -352,18 +352,33 @@ fn prepare_with_runtime(
         ranges.push_back((start, end));
         start = end + 1;
     }
+    let qpdf = std::env::var_os("SAG_QPDF").map(PathBuf::from).unwrap_or_else(|| {
+        #[cfg(test)]
+        { return Path::new(env!("CARGO_MANIFEST_DIR")).join("../src-tauri/bin/qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" }); }
+        #[cfg(not(test))]
+        std::env::current_exe().unwrap_or_default().parent().unwrap_or(Path::new(".")).join("qpdf/bin").join(if cfg!(windows) { "qpdf.exe" } else { "qpdf" })
+    });
+    ensure!(qpdf.is_file(), "缺少 QPDF 拆页程序，请重新安装完整安装包");
+    let temporary = tempfile::tempdir()?;
+    // QPDF's Windows path parser does not accept verbatim (\\?\) paths.
+    // Use a short local snapshot, also keeping all segments on the same bytes
+    // if the original file changes while preparation is running.
+    let qpdf_source = temporary.path().join("input.pdf");
+    std::fs::write(&qpdf_source, &content)?;
+    let split_started = std::time::Instant::now();
     let mut parts = Vec::new();
     while let Some((start, end)) = ranges.pop_front() {
         ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
-        let mut split = document.clone();
-        let remove = (1..=count)
-            .filter(|page| *page < start || *page > end)
-            .collect::<Vec<_>>();
-        split.delete_pages(&remove);
-        split.prune_objects();
-        split.compress();
-        let mut bytes = Vec::new();
-        split.save_to(&mut bytes)?;
+        let destination = temporary.path().join(format!("pages-{start}-{end}.pdf"));
+        let remaining = Duration::from_secs(120).saturating_sub(split_started.elapsed());
+        ensure!(!remaining.is_zero(), "QPDF 拆页超时");
+        let mut command = std::process::Command::new(&qpdf);
+        command.arg("--warning-exit-0").arg("--deterministic-id").arg("--empty").arg("--pages").arg(&qpdf_source)
+            .arg(format!("{start}-{end}")).arg("--").arg(&destination);
+        crate::process_supervisor::run(&mut command,
+            crate::process_supervisor::Limits { timeout: remaining, memory_bytes: None },
+            cancel, |_| {}).context("QPDF 拆页失败")?;
+        let bytes = std::fs::read(&destination)?;
         if bytes.len() as u64 > limit {
             ensure!(start < end, "PDF 单页超过所选 MinerU 服务商上传限制");
             let middle = start + (end - start) / 2;
@@ -443,7 +458,7 @@ fn read_task(path: &Path) -> Result<Option<Task>> {
 }
 
 fn inline_images(text: &str) -> String {
-    // Result assets expire remotely; use explicit image placeholders rather than broken relative links.
+    // Only for checking whether OCR returned usable text; output keeps images.
     static IMAGES: LazyLock<regex::Regex> = LazyLock::new(|| {
         regex::Regex::new(r"!\[([^\]]*)\]\([^\n]*?\)|(?is:<img\b[^>]*>)").unwrap()
     });
@@ -469,7 +484,7 @@ fn effective_markdown(text: &str) -> Result<String> {
         content.chars().any(char::is_alphanumeric),
         "MinerU 未提取到有效正文，尝试下一解析器"
     );
-    Ok(output)
+    Ok(text.to_owned())
 }
 
 #[cfg(test)]
@@ -482,6 +497,7 @@ fn archive_content(archive: Vec<u8>, start: u32, end: u32, require_pages: bool) 
         RuntimeSettings::default().conversion_output_mib as u64 * MIB,
     )
 }
+#[cfg(test)]
 fn archive_content_with_limit(
     archive: Vec<u8>,
     start: u32,
@@ -489,6 +505,20 @@ fn archive_content_with_limit(
     require_pages: bool,
     output_limit: u64,
 ) -> Result<String> {
+    archive_content_with_assets(archive, start, end, require_pages, output_limit, None)
+}
+
+// Immutable result packages survive the staged Markdown renames performed by
+// conversion and Store. Failed/replaced conversions cannot break older readers.
+fn archive_content_with_assets(
+    archive: Vec<u8>, start: u32, end: u32, require_pages: bool,
+    output_limit: u64, parent: Option<&Path>,
+) -> Result<String> {
+    let package = format!(".sag-mineru-assets/{:x}", Sha256::digest(&archive));
+    let staging = parent.map(tempfile::tempdir_in).transpose()?;
+    let mut image_paths = Vec::new();
+    let mut full_path = PathBuf::from("full.md");
+    let mut total = 0u64;
     let mut zip =
         zip::ZipArchive::new(std::io::Cursor::new(archive)).context("MinerU 结果不是有效 ZIP")?;
     let mut full = None;
@@ -504,6 +534,22 @@ fn archive_content_with_limit(
         let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
             continue;
         };
+        let image = path.extension().and_then(|ext| ext.to_str()).is_some_and(|ext|
+            ["png", "jpg", "jpeg", "gif", "webp", "svg"].contains(&ext.to_ascii_lowercase().as_str()));
+        if image {
+            total = total.checked_add(entry.size()).context("MinerU 图片大小无效")?;
+            ensure!(entry.size() <= 20 * MIB && total <= ZIP_LIMIT, "MinerU 图片超过大小限制");
+            if let Some(dir) = &staging {
+                let target = dir.path().join(&path);
+                std::fs::create_dir_all(target.parent().context("图片路径无效")?)?;
+                let mut bytes = Vec::new();
+                entry.take(20 * MIB + 1).read_to_end(&mut bytes)?;
+                ensure!(bytes.len() as u64 <= 20 * MIB, "MinerU 图片超过大小限制");
+                std::fs::write(target, bytes)?;
+            }
+            image_paths.push(path);
+            continue;
+        }
         if name != "full.md" && !name.ends_with("_content_list.json") {
             continue;
         }
@@ -511,17 +557,56 @@ fn archive_content_with_limit(
         let mut text = String::new();
         entry.take(output_limit + 1).read_to_string(&mut text)?;
         ensure!(text.len() as u64 <= output_limit, "MinerU 正文超过大小限制");
+        if let Some(dir) = &staging {
+            let target = dir.path().join(&path);
+            std::fs::create_dir_all(target.parent().context("结果路径无效")?)?;
+            std::fs::write(target, &text)?;
+        }
         if name == "full.md" {
+            full_path = path;
             full = Some(text);
         } else {
             content_list = Some(text);
         }
     }
+    let publish = |text: String| -> Result<String> {
+        let Some(parent) = parent else { return Ok(text); };
+        let mut text = text;
+        for path in &image_paths {
+            let relative = path.strip_prefix(full_path.parent().unwrap_or(Path::new(""))).unwrap_or(path);
+            let source = relative.to_string_lossy().replace('\\', "/");
+            let target = format!("{package}/{}", path.to_string_lossy().replace('\\', "/"));
+            static DESTINATIONS: LazyLock<regex::Regex> = LazyLock::new(|| regex::Regex::new(
+                r#"!\[(?:\\.|\[[^\]\n]*\]|[^\]\\\n])*\]\(\s*(?:<([^<>\r\n]*)>|([^\s<>]+?))(?:\s+['"][^\n]*?['"])?\s*\)|(?i:<img\b[^>]*?\bsrc\s*=\s*["']([^"']*)["'][^>]*>)"#
+            ).unwrap());
+            text = DESTINATIONS.replace_all(&text, |captures: &regex::Captures| {
+                let whole = captures.get(0).unwrap();
+                let destination = captures.get(1).or_else(|| captures.get(2)).or_else(|| captures.get(3)).unwrap();
+                if destination.as_str().trim_start_matches("./") != source { return whole.as_str().to_owned(); }
+                let start = destination.start() - whole.start();
+                let end = destination.end() - whole.start();
+                format!("{}{}{}", &whole.as_str()[..start], target, &whole.as_str()[end..])
+            }).into_owned();
+            let definition = regex::Regex::new(&format!(
+                r#"(?m)(^\s*\[[^\]\n]+\]:\s*<?){}(?P<tail>[^\r\n]*)"#,
+                regex::escape(&source)
+            )).unwrap();
+            text = definition.replace_all(&text, format!("${{1}}{target}$tail")).into_owned();
+        }
+        let destination = parent.join(&package);
+        std::fs::create_dir_all(destination.parent().context("资源路径无效")?)?;
+        if !destination.exists() {
+            if let Err(error) = std::fs::rename(staging.as_ref().unwrap().path(), &destination) {
+                if !destination.is_dir() { return Err(error.into()); }
+            }
+        }
+        Ok(text)
+    };
     // Full Markdown preserves every supported construct for ordinary files.
     if !require_pages {
         let full = full.context("MinerU 结果中缺少 full.md")?;
         ensure!(!full.trim().is_empty(), "MinerU 未返回有效正文");
-        return effective_markdown(&full);
+        return publish(effective_markdown(&full)?);
     }
     if let Some(list) = content_list {
         let list: Value = serde_json::from_str(&list).context("MinerU 页码映射无效")?;
@@ -596,7 +681,11 @@ fn archive_content_with_limit(
                 // add retrieval noise; full.md leaves them out for single-part files.
                 "header" | "footer" | "page_number" => continue,
                 "image" => {
-                    body.push_str(&format!("[图片：{}]", strings("image_caption")?));
+                    if let Some(path) = row["img_path"].as_str() {
+                        body.push_str(&format!("![]({path})\n\n"));
+                    }
+                    body.push_str(&strings("image_caption")?);
+                    body.push_str("\n\n");
                     body.push_str(&strings("image_footnote")?);
                 }
                 "chart" => {
@@ -717,7 +806,7 @@ fn archive_content_with_limit(
             output.push_str("\n\n");
         }
         ensure!(body_bytes > 0, "MinerU 未返回有效正文");
-        return effective_markdown(&output);
+        return publish(effective_markdown(&output)?);
     }
     bail!("MinerU 分段结果缺少页码映射，尝试下一解析器")
 }
@@ -855,7 +944,7 @@ async fn parse_part_with_limit(
         task.upload = None;
         write_task(path, &task)?;
     }
-    if let Some(result)=&task.result {progress("downloading");return finish_302(client,result,part,require_pages,output_limit).await;}
+    if let Some(result)=&task.result {progress("downloading");return finish_302(client,result,part,require_pages,output_limit,path.parent().and_then(Path::parent)).await;}
     progress("queued");
     let poll = endpoint(
         base,
@@ -874,9 +963,9 @@ async fn parse_part_with_limit(
             "done" => {
                 progress("downloading");
                 if config.provider==MineruProvider::Ai302 {
-                    return finish_302(client,result,part,require_pages,output_limit).await;
+                    return finish_302(client,result,part,require_pages,output_limit,path.parent().and_then(Path::parent)).await;
                 }
-                return archive_content_with_limit(
+                return archive_content_with_assets(
                     bytes(
                         client
                             .get(safe_url(field(result, "full_zip_url")?)?)
@@ -889,6 +978,7 @@ async fn parse_part_with_limit(
                     part.end,
                     require_pages,
                     output_limit,
+                    path.parent().and_then(Path::parent),
                 );
             }
             "failed" => {

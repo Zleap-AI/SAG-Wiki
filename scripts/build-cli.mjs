@@ -2,6 +2,7 @@ import {spawnSync} from 'node:child_process';
 import {copyFileSync, mkdirSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
+import {prepareQpdf} from './prepare-qpdf.mjs';
 
 // Cargo resolves an explicit target directory relative to the invocation cwd.
 // Keep the existing standalone CLI location when no shared directory is set.
@@ -43,5 +44,6 @@ export function buildCli({debug = false, env = process.env, platform = process.p
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  await prepareQpdf(resolve('src-tauri/bin',process.argv.includes('--debug')?'development/qpdf':'qpdf'));
   process.exitCode = buildCli({debug: process.argv.includes('--debug')});
 }

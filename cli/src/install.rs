@@ -327,6 +327,21 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     if let Some(bytes) = bytes {
         write_owned(&target, &bytes)?;
     }
+    // Keep the helper beside the installed CLI, which can run independently
+    // from the desktop bundle. Preserve its libraries and license files.
+    fn install_helper(source: &Path, target: &Path) -> Result<()> {
+        fs::create_dir_all(target)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let destination = target.join(entry.file_name());
+            if entry.file_type()?.is_dir() { install_helper(&entry.path(), &destination)?; }
+            else { fs::copy(entry.path(), destination)?; }
+        }
+        Ok(())
+    }
+    let helper = source.parent().unwrap().join("qpdf");
+    let installed_helper = target.parent().unwrap().join("qpdf");
+    if helper.is_dir() && helper != installed_helper { install_helper(&helper, &installed_helper)?; }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

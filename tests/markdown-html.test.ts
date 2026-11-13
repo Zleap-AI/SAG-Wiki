@@ -5,6 +5,12 @@ import {invoke} from '@tauri-apps/api/core';
 
 vi.mock('@tauri-apps/api/core',()=>({invoke:vi.fn(async()=> 'data:image/svg+xml;base64,PHN2Zy8+')}));
 afterEach(()=>vi.clearAllMocks());
+it('loads MinerU images from Windows canonical document paths',async()=>{
+ const host=document.createElement('div');
+ host.innerHTML=renderMarkdown('![figure](.sag-mineru-assets/hash/images/a.jpg)');
+ await hydrateImages(host,String.raw`\\?\F:\资料\.sag-converted\report.pdf.md`);
+ expect(invoke).toHaveBeenCalledExactlyOnceWith('load_image',{path:'F:/资料/.sag-converted/.sag-mineru-assets/hash/images/a.jpg'});
+});
 const header='<p align="center">\n  <img src="assets/logo.svg" alt="Zleap AI" width="180" />\n</p>\n\n<h1 align="center">SAG2</h1>\n\n<p align="center">\n  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="../README-CN.md">项目首页</a>\n</p>';
 
 it('渲染 README 的居中标题、带尺寸的本地图片和链接，并保留编辑源码',()=>{
