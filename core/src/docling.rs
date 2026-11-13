@@ -20,6 +20,16 @@ const UV_VERSION: &str = "0.12.1";
 const UV_EXECUTABLE: &str = if cfg!(windows) { "uv.exe" } else { "uv" };
 const PYTHON_VERSION: &str = "3.12.13";
 const DIAGNOSTIC_LIMIT: u64 = 8 * 1024 * 1024;
+// Installing a component commits far more than a conversion job: importing
+// torch and the OCR runtime takes most of a GiB, and the model downloader
+// buffers shards while it writes them. A 2 GiB supervisor limit turned that
+// peak into a bare allocation failure in the middle of the model download, so
+// the limit is only a guard against runaway growth now.
+const INSTALL_MEMORY_FLOOR: u64 = 4 * 1024 * 1024 * 1024;
+const INSTALL_MEMORY_CEILING: u64 = 8 * 1024 * 1024 * 1024;
+fn install_memory_limit(reserved: u64) -> u64 {
+    reserved.clamp(INSTALL_MEMORY_FLOOR, INSTALL_MEMORY_CEILING)
+}
 const MEDIA_EXTENSIONS: &[&str] = &[
     "wav", "mp3", "m4a", "aac", "ogg", "flac", "mp4", "avi", "mov", "mkv", "webm",
 ];
@@ -653,7 +663,14 @@ impl Docling {
                 ])
                 .arg(&models);
         }
-        self.run_model_download(&mut command, Duration::from_secs(1800))?;
+        self.run_model_download(&mut command, Duration::from_secs(1800))
+            .map_err(|error| {
+                self.with_hint(error, |error| {
+                    anyhow!(
+                        "无法下载文档识别模型：{error:#}。请检查网络、磁盘和内存占用后重试；如果一直失败，可导入离线文档组件。"
+                    )
+                })
+            })?;
         crate::docling_component::write_manifest_for(
             staging.path(),
             &python,
@@ -748,7 +765,7 @@ impl Docling {
             command,
             crate::process_supervisor::Limits {
                 timeout,
-                memory_bytes: Some(bytes.min(2 * 1024 * 1024 * 1024)),
+                memory_bytes: Some(install_memory_limit(bytes)),
             },
             &cancel,
             |line| {
