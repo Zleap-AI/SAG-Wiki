@@ -35,7 +35,8 @@ export type CliAccess={enabled:boolean};
 export type DoclingProfile='documents'|'media';
 export type DoclingStatus={installed:boolean;running:boolean;stage:string;message:string;downloaded:number;total:number|null;percent?:number|null;packages_done?:number;packages_total?:number;error:string|null;formats:[string,string[]][];builtin_formats?:[string,string[]][];profiles?:{id:DoclingProfile;installed:boolean;extensions:string[]}[];requested_profiles?:DoclingProfile[]};
 
-export type IndexTask={path:string;stage:string;completed:number;total:number;files:string[];conversions?:{path:string;engine:string}[]};
+export type ConversionSegment={current:number;total:number;start_page:number;end_page:number};
+export type IndexTask={path:string;stage:string;completed:number;total:number;files:string[];conversions?:{path:string;engine:string;segment?:ConversionSegment}[]};
 export type IndexStatus={paused:boolean;tasks:IndexTask[]};
 export type FolderIndexOptions={extensions?:string[]|null;file_types:FileTypes;convert_other_formats:boolean;conversion_formats?:string[]|null};
 export type IndexHistory={id:number;path:string;name:string;started_at:number;finished_at:number;completed:number;total:number;status:string;error:string|null};

@@ -558,3 +558,9 @@ input,select,textarea{font-size:var(--text-ui)}
 
 /* Keep parser information separate from the stage, count and dismiss action. */
 .real-client .index-status-parser{font-size:var(--text-caption);color:var(--color-secondary);line-height:1.5;overflow-wrap:anywhere}
+
+/* Segment progress supplements file counts without a competing progress bar. */
+.real-client .index-status-segment{display:flex;flex-wrap:wrap;gap:0 8px;font-size:var(--text-caption);line-height:1.5;color:var(--color-secondary);font-variant-numeric:tabular-nums}
+.real-client .index-status-segment>span{white-space:nowrap}
+.real-client .index-status-pages{opacity:.8}
+.real-client .index-file-segment{display:block;font-size:var(--text-caption);color:var(--color-secondary);line-height:1.5;font-variant-numeric:tabular-nums}

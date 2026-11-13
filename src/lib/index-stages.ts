@@ -31,6 +31,14 @@ export function indexStage(stage:string|undefined){
 // Only active files in conversion stages contribute to the live parser label.
 export function conversionParsers(tasks:IndexTask[]){
  const engines=new Set(tasks.filter(task=>task.stage==='converting'||task.stage==='retrying_conversion')
-  .flatMap(task=>(task.conversions??[]).filter(item=>task.files.includes(item.path)).map(item=>item.engine)));
+  .flatMap(task=>(task.conversions??[]).filter(item=>task.files.includes(item.path)).map(item=>item.engine).filter(Boolean)));
  return ['MinerU','anydoc','Docling'].filter(engine=>engines.delete(engine)).concat([...engines].sort());
+}
+
+// One compact document summary; details retain progress for every concurrent file.
+export function conversionSegment(tasks:IndexTask[]){
+ const item=tasks.filter(task=>task.stage==='converting'||task.stage==='retrying_conversion')
+  .flatMap(task=>(task.conversions??[]).filter(item=>task.files.includes(item.path)))
+  .find(item=>item.segment);
+ return item?.segment?{...item.segment,path:item.path}:undefined;
 }

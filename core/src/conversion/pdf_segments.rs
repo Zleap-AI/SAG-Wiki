@@ -37,6 +37,7 @@ pub(super) fn convert_parts(
     identity: &str,
     limit: u64,
     cancel: &impl Fn() -> bool,
+    mut progress: impl FnMut(&Part, usize, usize),
     mut convert: impl FnMut(&Part, &Path, &Path) -> Result<()>,
 ) -> Result<()> {
     let parent = output.parent().context("转换输出缺少父目录")?;
@@ -54,8 +55,9 @@ pub(super) fn convert_parts(
         .tempdir_in(parent)?;
     let mut merged = tempfile::NamedTempFile::new_in(parent)?;
     let mut size = 0u64;
-    for part in parts {
+    for (index, part) in parts.iter().enumerate() {
         ensure!(!cancel(), "已停止转换，未发布输出");
+        progress(part, index + 1, parts.len());
         let mut hash = Sha256::new();
         hash.update(identity);
         hash.update(part.start.to_le_bytes());
@@ -140,7 +142,7 @@ mod tests {
             replacement.persist(out).map_err(|e| e.error)?;
             Ok(())
         };
-        convert_parts(&parts()[..1], &output, "v1", 1024, &|| false, convert).unwrap();
+        convert_parts(&parts()[..1], &output, "v1", 1024, &|| false, |_, _, _| {}, convert).unwrap();
         let first = fs::read_to_string(&output).unwrap();
         let destination = ".sag-pdf-parts/.sag-mineru-assets/hash/images/x.png";
         assert!(first.contains(destination));
@@ -148,7 +150,7 @@ mod tests {
         assert!(first.contains("https://host/.sag-mineru-assets/x.png"));
         assert!(first.contains("plain .sag-mineru-assets/ text"));
         assert_eq!(fs::read(dir.path().join(destination)).unwrap(), b"image");
-        convert_parts(&parts()[..1], &output, "v1", 1024, &|| false,
+        convert_parts(&parts()[..1], &output, "v1", 1024, &|| false, |_, _, _| {},
             |_, _, _| panic!("cached parts must not invoke parser")).unwrap();
         assert_eq!(fs::read_to_string(output).unwrap(), first);
     }
@@ -164,7 +166,7 @@ mod tests {
             &output,
             "version-1",
             1024,
-            &|| false,
+            &|| false, |_, _, _| {},
             |part, _, out| {
                 visited.push(part.start);
                 if part.start == 51 {
@@ -186,7 +188,7 @@ mod tests {
             &output,
             "version-1",
             1024,
-            &|| false,
+            &|| false, |_, _, _| {},
             |part, _, out| {
                 visited.push(part.start);
                 fs::write(out, format!("body {}", part.start))?;
@@ -198,22 +200,24 @@ mod tests {
         let merged = fs::read_to_string(&output).unwrap();
         assert!(merged.find("body 1").unwrap() < merged.find("body 51").unwrap());
         assert!(merged.contains("source-pages:101-101"));
+        let mut observed=vec![];
         convert_parts(
             &parts(),
             &output,
             "version-1",
             1024,
-            &|| false,
+            &|| false, |part,current,total| observed.push((current,total,part.start,part.end)),
             |_, _, _| panic!("all parts cached"),
         )
         .unwrap();
+        assert_eq!(observed,[(1,3,1,50),(2,3,51,100),(3,3,101,101)]);
         let mut count = 0;
         convert_parts(
             &parts(),
             &output,
             "version-2",
             1024,
-            &|| false,
+            &|| false, |_, _, _| {},
             |_, _, out| {
                 count += 1;
                 fs::write(out, "new version")?;
@@ -235,6 +239,7 @@ mod tests {
             "v1",
             1024,
             &|| stopped.get(),
+            |_, _, _| {},
             |_, _, out| {
                 fs::write(out, "body")?;
                 stopped.set(true);
@@ -243,7 +248,7 @@ mod tests {
         );
         assert!(result.is_err());
         assert_eq!(fs::read_to_string(&output).unwrap(), "previous");
-        let result = convert_parts(&parts(), &output, "v1", 50, &|| false, |_, _, out| {
+        let result = convert_parts(&parts(), &output, "v1", 50, &|| false, |_, _, _| {}, |_, _, out| {
             fs::write(out, "body")?;
             Ok(())
         });
@@ -260,7 +265,7 @@ mod tests {
             &output,
             "v1",
             1024,
-            &|| false,
+            &|| false, |_, _, _| {},
             |part, input, out| {
                 fs::write(
                     out,
@@ -280,7 +285,7 @@ mod tests {
             .unwrap();
         fs::write(entry.path(), [0xff]).unwrap();
         let mut count = 0;
-        convert_parts(&parts[..1], &output, "v1", 1024, &|| false, |_, _, out| {
+        convert_parts(&parts[..1], &output, "v1", 1024, &|| false, |_, _, _| {}, |_, _, out| {
             count += 1;
             fs::write(out, "rebuilt")?;
             Ok(())
@@ -420,7 +425,7 @@ fn real_pdf_conversion_indexing_and_cached_retry() {
         &docling,
         &settings,
         || false,
-        |_| panic!("cached retry must not invoke any parser"),
+        |attempt| assert_eq!(attempt.phase.as_deref(), Some("segment"), "cached retry must not invoke a parser"),
     )
     .unwrap();
     assert_eq!(fs::read_to_string(&output).unwrap(), text);

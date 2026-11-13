@@ -150,6 +150,10 @@ Exceptionally long table rows are indexed in smaller passages without editing th
 
 The bottom of the sidebar shows the current stage, progress and partial failures. During file conversion, a separate **Parser** line identifies the parser actually in use, such as MinerU, anydoc or Docling. When concurrent files use different parsers, their names appear together. The label updates when a failed attempt falls back to another parser. Before a parser starts, it shows “Preparing conversion…”; the line disappears outside conversion stages. Index details also identify the parser for each active file. After pausing, a file that is still finishing continues to show its parser until that work ends.
 
+During long-PDF conversion, the sidebar also shows the current document’s part number, total parts, and original page range. Parts do not count as separate files; cached parts also advance the indicator. The status card stays visible between parts and during parser fallback, showing “Processing document parts…” while waiting for the next parser. Index details show part progress for each document.
+
+![PDF part progress alongside file counts](/images/product-pdf-part-progress-en.png)
+
 Longer text wraps while keeping the close button available. Click the status to inspect current tasks and failed files.
 
 After you dismiss a failure notice, the app remembers the current failure details and keeps that notice hidden when you reopen the interface. New indexing runs still show progress, and changed failure details trigger a new notice. You can still inspect dismissed failures through the index status card on the Files page or **Index history → View**.
