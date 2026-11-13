@@ -149,6 +149,19 @@ pub(crate) fn context_limit_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// A batch the server rejected for carrying more items than one request may
+/// hold can be retried as smaller batches, exactly like an oversized context.
+pub(crate) fn batch_limit_error(error: &anyhow::Error) -> bool {
+    context_limit_error(error)
+        || error.downcast_ref::<RequestError>().is_some_and(|error| {
+            if !matches!(error.status, 400 | 413 | 422) { return false; }
+            let detail = error.detail.to_ascii_lowercase();
+            detail.contains("question")
+                && ["at most", "too many", "max_questions", "batch size", "too many items"]
+                    .iter().any(|phrase| detail.contains(phrase))
+        })
+}
+
 async fn request(
     client: &Client,
     url: &str,
@@ -338,9 +351,7 @@ async fn score_batch(
         let response = match request_with_runtime(client, url, key, &payload, timeout, runtime, cancel).await {
             Ok(response) => response,
             Err(error) => {
-                if items.len() == 1 || !error.downcast_ref::<RequestError>().is_some_and(|error| {
-                    error.status == 400 && error.detail.contains("max_tokens_exceeded")
-                }) {
+                if items.len() == 1 || !batch_limit_error(&error) {
                     return Err(error);
                 }
                 let right = items.split_off(items.len() / 2);
@@ -1144,6 +1155,59 @@ mod tests {
         assert!(headers.starts_with("post /v1/systemone http/1.1"), "{headers}");
         assert!(!headers.contains("authorization:"), "{headers}");
     }
+    #[tokio::test]
+    async fn a_batch_rejected_for_too_many_questions_is_split_and_scored() {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}/v1/systemone", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let mut asked = vec![];
+            // 4 candidates, at most 2 questions per request: one rejection,
+            // then two accepted batches.
+            for _ in 0..3 {
+                let (mut socket, _) = listener.accept().unwrap();
+                socket.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut bytes = vec![];
+                let mut part = [0; 8192];
+                loop {
+                    let count = socket.read(&mut part).unwrap();
+                    assert!(count > 0);
+                    bytes.extend_from_slice(&part[..count]);
+                    if let Some(end) = bytes.windows(4).position(|p| p == b"\r\n\r\n") {
+                        let headers = String::from_utf8_lossy(&bytes[..end]).to_ascii_lowercase();
+                        let length = headers.lines().find_map(|line| line.strip_prefix("content-length: ").and_then(|n| n.trim().parse::<usize>().ok())).unwrap();
+                        if bytes.len() >= end + 4 + length {
+                            let payload: Value = serde_json::from_slice(&bytes[end + 4..end + 4 + length]).unwrap();
+                            let questions = payload["questions"].as_object().unwrap().clone();
+                            asked.push(questions.len());
+                            if questions.len() > 2 {
+                                let body = r#"{"error":{"message":"field `questions` must contain at most 2 questions"}}"#;
+                                write!(socket, "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                            } else {
+                                let answers = questions.keys().map(|id| (id.clone(), json!({"type": "noul", "noul": 0.5}))).collect::<serde_json::Map<_, _>>();
+                                let body = json!({"answers": answers}).to_string();
+                                write!(socket, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+                            }
+                            break;
+                        }
+                    }
+                }
+            }
+            asked
+        });
+        let config: ModelConfig = serde_json::from_value(json!({"url": url, "model": "local-jev", "auth_mode": "none"})).unwrap();
+        let candidates = (1..=4).map(|id| candidate(id, format!("片段 {id}"))).collect::<Vec<_>>();
+        let scored = score(&Client::new(), &config, "", "问题", candidates, &[], 5, &CancellationToken::new())
+            .await
+            .unwrap();
+        assert_eq!(scored.len(), 4);
+        let mut ids = scored.iter().map(|c| c.id).collect::<Vec<_>>();
+        ids.sort();
+        assert_eq!(ids, vec![1, 2, 3, 4]);
+        assert!(scored.iter().all(|c| c.score == 0.5));
+        assert_eq!(server.join().unwrap(), vec![4, 2, 2]);
+    }
+
     #[test]
     fn v10_rejects_oversized_evidence_without_truncation() {
         let evidence = (1..=20).map(|id| candidate(id, "历史内容 alpha beta gamma\n".repeat(400))).collect::<Vec<_>>();
