@@ -89,6 +89,12 @@ struct PreparedFile {
     /// verified inside the same transaction that indexes the new content.
     note_body: Option<String>,
 }
+// Content hash, modification time and size identify an accepted document generation.
+type IndexedVersion = (String, i64, i64);
+struct DirectoryScan {
+    files: Vec<PathBuf>,
+    indexed: HashMap<String, Option<IndexedVersion>>,
+}
 struct EnhancementLease {
     sources: Arc<Mutex<HashMap<String,Vec<(String,String,String)>>>>,
     root: String,
@@ -1282,7 +1288,7 @@ impl Store {
 
         }
         let mut ignore = ignore_rules::matcher(Path::new(root));
-        enum Work { Directory(PathBuf, Vec<PathBuf>), File(PathBuf), Remove(PathBuf) }
+        enum Work { Directory(DirectoryScan), File(PathBuf), Remove(PathBuf) }
         let mut work = Vec::new();
         let mut total = 0;
         for path in paths {
@@ -1310,8 +1316,8 @@ impl Store {
                 total += 1;
             } else if metadata.is_dir() {
                 let files = self.index_files(Path::new(root), path, &settings, &excluded, None)?;
-                total += files.len().max(1);
-                work.push(Work::Directory(path.clone(), files));
+                total += files.files.len().max(1);
+                work.push(Work::Directory(files));
             } else if metadata.is_file() && Self::indexable_path(path, rules.file(path)?)
                 && (!crate::docling::in_output(path) || self.conversion_outputs()?.contains(&path_text(path)?)) {
                 work.push(Work::File(path.clone()));
@@ -1328,9 +1334,9 @@ impl Store {
         for item in work {
             self.indexing.checkpoint_root(root)?;
             match item {
-                Work::Directory(path, files) => {
-                    count += self.scan_directory(root, &path, &files, &settings, true, None, |p| progress(IndexProgress { count: completed + p.count, total }))?;
-                    completed += files.len().max(1);
+                Work::Directory(files) => {
+                    count += self.scan_directory(root, &files, &settings, true, None, |p| progress(IndexProgress { count: completed + p.count, total }))?;
+                    completed += files.files.len().max(1);
                 }
                 Work::File(path) => {
                     let result = self.indexing.file(root, &path, || self.prepare_file_with_runtime(root, &path, settings.retrieval.chunk_chars, true, &settings.runtime));
@@ -1387,7 +1393,7 @@ impl Store {
         };
         let excluded = self.excluded_directories()?;
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(false))?;
-        let count = self.scan_directory(root, directory, &files, &settings, verify, Some(false), &progress)?;
+        let count = self.scan_directory(root, &files, &settings, verify, Some(false), &progress)?;
         let (sources, convert) = self.conversion_files(Path::new(root), directory, &settings, &excluded)?;
         if convert {
             self.convert_sources_mode(root, directory, &sources, &settings, true, &progress, 2)?;
@@ -1395,7 +1401,7 @@ impl Store {
         }
         let issues = if convert && enhance { self.convert_sources(root, directory, &sources, &settings, true, &progress)? } else { vec![] };
         let files = self.index_files(Path::new(root), directory, &settings, &excluded, Some(true))?;
-        let converted_count = self.scan_directory(root, directory, &files, &settings, false, Some(true), progress)?;
+        let converted_count = self.scan_directory(root, &files, &settings, false, Some(true), progress)?;
         for (path, error) in issues {
             self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![path,root,error])?;
         }
@@ -1445,6 +1451,16 @@ impl Store {
         }
         let convert = rules.converts_files() || !files.is_empty();
         Ok((files, convert))
+    }
+    fn conversion_tools(&self, profile: sag_protocol::DoclingProfile) -> String {
+        let component = if !self.docling.has_profile(profile) { "missing" } else {
+            match profile {
+                sag_protocol::DoclingProfile::Documents => crate::docling_component::VERSION,
+                sag_protocol::DoclingProfile::Media => crate::docling_component::MEDIA_VERSION,
+            }
+        };
+        let splitter = if crate::mineru::splitter_path().is_file() { "qpdf" } else { "missing" };
+        format!("component={component}:splitter={splitter}")
     }
     fn convert_sources(&self, root: &str, directory: &Path, sources: &[PathBuf], settings: &Settings, prune: bool, progress: &impl Fn(IndexProgress)) -> Result<Vec<(String,String)>> {
         self.convert_sources_mode(root, directory, sources, settings, prune, progress, 0)
@@ -1542,22 +1558,8 @@ impl Store {
         }
         // Installed tools decide whether a remembered failure can still reproduce,
         // so resolve them once per scan instead of per source.
-        let component_version = |profile: sag_protocol::DoclingProfile| -> String {
-            if !self.docling.has_profile(profile) { return "missing".into(); }
-            match profile {
-                sag_protocol::DoclingProfile::Media => crate::docling_component::MEDIA_VERSION,
-                sag_protocol::DoclingProfile::Documents => crate::docling_component::VERSION,
-            }
-            .to_owned()
-        };
-        let document_component = component_version(sag_protocol::DoclingProfile::Documents);
-        let media_component = component_version(sag_protocol::DoclingProfile::Media);
-        let splitter = if crate::mineru::splitter_path().is_file() { "qpdf" } else { "missing" };
-        // Workers borrow the resolved tools instead of re-reading them per source.
-        let (document_tools, media_tools) = (
-            format!("component={document_component}:splitter={splitter}"),
-            format!("component={media_component}:splitter={splitter}"),
-        );
+        let document_tools = self.conversion_tools(sag_protocol::DoclingProfile::Documents);
+        let media_tools = self.conversion_tools(sag_protocol::DoclingProfile::Media);
         let (document_tools, media_tools) = (document_tools.as_str(), media_tools.as_str());
         let next = std::sync::atomic::AtomicUsize::new(0);
         thread::scope(|scope| -> Result<()> {
@@ -1850,7 +1852,24 @@ impl Store {
         )?;
         Ok(None)
     }
-    fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<Vec<PathBuf>> {
+    fn index_files(&self, root: &Path, directory: &Path, settings: &Settings, excluded: &[String], converted_only: Option<bool>) -> Result<DirectoryScan> {
+        // Cleanup and converted writes may only act on the generation this scan saw.
+        let indexed = {
+            let c = self.connection();
+            let directory = path_text(directory)?;
+            let prefix = format!("{}{}", directory.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+            let converted_directory = crate::docling::output_path(Path::new(root), &Path::new(&directory).join(".scope"))?.parent().unwrap().to_path_buf();
+            let converted_prefix = format!("{}{}", converted_directory.display(), std::path::MAIN_SEPARATOR);
+            let mut q = c.prepare("SELECT snapshot.path,d.hash,d.mtime,d.size FROM (SELECT path FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1) UNION SELECT path FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1)) snapshot LEFT JOIN documents d ON d.path=snapshot.path")?;
+            let rows = q
+                .query_map(params![path_text(root)?,directory,prefix,converted_prefix], |r| {
+                    let hash: Option<String> = r.get(1)?;
+                    let version = hash.map(|hash| Ok::<_,rusqlite::Error>((hash,r.get(2)?,r.get(3)?))).transpose()?;
+                    Ok((r.get::<_,String>(0)?,version))
+                })?
+                .collect::<rusqlite::Result<HashMap<_,_>>>()?;
+            rows
+        };
         let converted = if converted_only == Some(false) { HashSet::new() } else { self.conversion_outputs()? };
         let mut rules = crate::folder_index::Rules::new(root, settings)?;
         let converted_target = crate::docling::output_path(root, &directory.join(".scope"))?.parent().unwrap().to_path_buf();
@@ -1882,9 +1901,11 @@ impl Store {
                 files.push(entry.into_path());
             }
         }
-        Ok(files)
+        Ok(DirectoryScan {files,indexed})
     }
-    fn scan_directory(&self, root: &str, directory: &Path, files: &[PathBuf], settings: &Settings, verify: bool, converted_only: Option<bool>, progress: impl Fn(IndexProgress)) -> Result<usize> {
+    fn scan_directory(&self, root: &str, scan: &DirectoryScan, settings: &Settings, verify: bool, converted_only: Option<bool>, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        let files = &scan.files;
+        let indexed = &scan.indexed;
         let mut seen = HashSet::new();
         let mut count = 0;
         let total = files.len();
@@ -1924,7 +1945,11 @@ impl Store {
                     if let Some(file) = prepared {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
-                        Self::write_prepared(&tx, root, file)?;
+                        let unchanged = if crate::docling::in_output(Path::new(&file.path)) {
+                            let current: Option<IndexedVersion> = tx.query_row("SELECT hash,mtime,size FROM documents WHERE path=?", [&file.path], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
+                            current.as_ref() == indexed.get(&file.path).and_then(Option::as_ref)
+                        } else { true };
+                        if unchanged { Self::write_prepared(&tx, root, file)?; }
                         tx.commit()?;
                     }
                     count += 1;
@@ -1933,26 +1958,14 @@ impl Store {
                 Ok(())
             })?;
         }
-        let indexed = {
-            let c = self.connection();
-            let directory = path_text(directory)?;
-            let prefix = format!("{}{}", directory.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-            let converted_directory = crate::docling::output_path(Path::new(root), &Path::new(&directory).join(".scope"))?.parent().unwrap().to_path_buf();
-            let converted_prefix = format!("{}{}", converted_directory.display(), std::path::MAIN_SEPARATOR);
-            let mut q = c.prepare("SELECT path FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1) UNION SELECT path FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1)")?;
-            let rows = q
-                .query_map(params![root,directory,prefix,converted_prefix], |r| r.get::<_, String>(0))?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
-            rows
-        };
-        for p in indexed {
+        for (p, version) in indexed {
             self.indexing.checkpoint_root(root)?;
             if converted_only.is_some_and(|converted| converted != crate::docling::in_output(Path::new(&p))) { continue; }
             // An issue recorded for a directory the walk could not enter stays until the
             // directory becomes readable again or disappears.
             if Path::new(&p).is_dir() && fs::read_dir(&p).is_err() { continue; }
-            if !seen.contains(&p) {
-                self.remove_indexed(&p)?
+            if !seen.contains(p) {
+                self.remove_indexed_if_unchanged(p, version.as_ref())?
             }
         }
         if report { progress(IndexProgress { count, total }); }
@@ -2197,14 +2210,27 @@ impl Store {
         Ok(())
     }
     pub fn remove_indexed(&self, path: &str) -> Result<()> {
-        let mut c = self.connection();
-        let tx = c.transaction()?;
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        Self::remove_indexed_tx(&tx, path)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn remove_indexed_if_unchanged(&self, path: &str, expected: Option<&IndexedVersion>) -> Result<()> {
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        let current: Option<IndexedVersion> = tx.query_row("SELECT hash,mtime,size FROM documents WHERE path=?", [path], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
+        if current.as_ref() != expected { return Ok(()); }
+        Self::remove_indexed_tx(&tx, path)?;
+        tx.commit()?;
+        Ok(())
+    }
+    fn remove_indexed_tx(tx: &rusqlite::Transaction<'_>, path: &str) -> Result<()> {
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.path=?)",[path])?;
         let removed = tx.execute("DELETE FROM documents WHERE path=?", [path])?;
         tx.execute("DELETE FROM index_issues WHERE path=?", [path])?;
-        Self::mark_note_sources_removed_tx(&tx, path, false)?;
+        Self::mark_note_sources_removed_tx(tx, path, false)?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
-        tx.commit()?;
         Ok(())
     }
     pub fn search_files(

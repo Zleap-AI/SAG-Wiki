@@ -25,6 +25,8 @@ PDFs first attempt to extract their basic text layer. Mixed text/scanned PDFs an
 | Awaiting OCR | Scanned content confirmed to lack a usable text layer must wait for OCR |
 | Recognition failed · Not searchable | No completed basic text is available; check indexing details and retry |
 
+With local built-in parsing, supported non-PDF documents such as Word, RTF and spreadsheets also extract text on the basic-indexing worker, without waiting for a large PDF to finish enhancement. Files that fail built-in parsing or need additional components enter the background parsing queue. Formats configured for cloud parsing retain their existing parser order.
+
 The basic stage may omit scanned images, complex tables or final source positioning. Wait for enhancement and check the original before relying on complete coverage. Image-only scans are not marked searchable simply because they are queued. Pausing background processing preserves access to completed basic indexes.
 
 ![Progressive indexing with basic-text and background enhancement statuses](/images/product-progressive-index-en.png)

@@ -97,7 +97,7 @@ fn run_engines(
     .into())
 }
 
-fn cloud_supports(source:&Path, config:&sag_protocol::mineru::MineruConfig)->bool {
+pub(crate) fn cloud_supports(source:&Path, config:&sag_protocol::mineru::MineruConfig)->bool {
     config.enabled && crate::mineru::supports(source) && (config.provider != sag_protocol::mineru::MineruProvider::Ai302 || source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")))
 }
 pub(crate) fn local_formats(formats:&Option<Vec<String>>,config:&sag_protocol::mineru::MineruConfig)->Option<Vec<String>> {

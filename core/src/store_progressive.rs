@@ -80,6 +80,67 @@ impl Store {
         self.connection().execute("INSERT INTO conversion_states(source,root,status,error) SELECT ?1,path,?3,?4 FROM roots WHERE path=?2 AND NOT EXISTS(SELECT 1 FROM root_exclusions e WHERE e.path=?1 OR instr(?1,e.path || ?5)=1) ON CONFLICT(source) DO UPDATE SET root=excluded.root,status=excluded.status,error=excluded.error", params![source, root, status, error, std::path::MAIN_SEPARATOR.to_string()])?;
         Ok(())
     }
+    /// Finish local built-in formats without queueing behind OCR/table work.
+    /// Cloud-selected formats retain their configured parser order.
+    fn publish_builtin_source(
+        &self,
+        root: &str,
+        source: &Path,
+        settings: &Settings,
+    ) -> Result<bool> {
+        if !crate::anydoc::handles(source)
+            || crate::conversion::cloud_supports(source, &settings.mineru)
+        {
+            return Ok(false);
+        }
+        let metadata = fs::metadata(source)?;
+        let stat = (
+            metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64,
+            metadata.len() as i64,
+        );
+        let fingerprint = crate::docling::fingerprint(source)?;
+        let output = crate::docling::output_path(Path::new(root), source)?;
+        let previous: Option<String> = self
+            .connection()
+            .query_row(
+                "SELECT output_hash FROM conversions WHERE source=?",
+                [path_text(source)?],
+                |row| row.get(0),
+            )
+            .optional()?;
+        fs::create_dir_all(output.parent().unwrap())?;
+        let staged = tempfile::Builder::new()
+            .prefix(".sag-basic-")
+            .suffix(".md")
+            .tempfile_in(output.parent().unwrap())?
+            .into_temp_path();
+        match crate::anydoc::convert_with_runtime(source, &staged, &settings.runtime, || {
+            self.indexing.cancelled(root)
+        })? {
+            crate::anydoc::Outcome::NeedsOcr(_) => return Ok(false),
+            crate::anydoc::Outcome::Converted => {}
+        }
+        let identity = crate::conversion::identity(source, settings);
+        let hash = if identity.is_empty() {
+            fingerprint.clone()
+        } else {
+            format!("{identity}:{fingerprint}")
+        };
+        self.publish_converted_file(
+            root,
+            source,
+            &hash,
+            &fingerprint,
+            stat,
+            &output,
+            staged,
+            previous.as_deref(),
+            settings.retrieval.chunk_chars,
+            &settings.runtime,
+        )?;
+        self.conversion_state(&path_text(source)?, root, "complete", None)?;
+        Ok(true)
+    }
     pub(super) fn publish_basic_sources(
         &self,
         root: &str,
@@ -100,6 +161,23 @@ impl Store {
             if self.defer_active_enhancement(root, source, settings)? {
                 continue;
             }
+            let metadata = fs::metadata(source)?;
+            let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
+            let remembered: Option<(String, String)> = self.connection().query_row(
+                "SELECT source_hash,error FROM conversion_failures WHERE source=?1 AND mtime=?2 AND size=?3",
+                params![path_text(source)?,mtime,metadata.len() as i64],
+                |row| Ok((row.get(0)?,row.get(1)?)),
+            ).optional()?;
+            if let Some((hash, error)) = remembered {
+                let tools = self.conversion_tools(crate::docling::required_profile(source));
+                let identity = crate::conversion::failure_identity(source, settings, &tools);
+                if hash == format!("{identity}:{}", hash.rsplit(':').next().unwrap_or(&hash)) {
+                    let source = path_text(source)?;
+                    self.conversion_state(&source, root, "enhancement_failed", Some(&error))?;
+                    self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![source,root,error])?;
+                    continue;
+                }
+            }
             if !source
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))
@@ -118,7 +196,25 @@ impl Store {
                     hash == expected && Path::new(&output).is_file()
                 });
                 if !current {
-                    self.conversion_state(&path_text(source)?, root, "awaiting_conversion", None)?;
+                    let result = self.indexing.file(root, source, || {
+                        self.publish_builtin_source(root, source, settings)
+                    });
+                    match result {
+                        Ok(true) => {}
+                        Ok(false) => self.conversion_state(
+                            &path_text(source)?,
+                            root,
+                            "awaiting_conversion",
+                            None,
+                        )?,
+                        Err(error) if self.indexing.cancelled(root) => return Err(error),
+                        Err(error) => self.conversion_state(
+                            &path_text(source)?,
+                            root,
+                            "awaiting_conversion",
+                            Some(&format!("{error:#}")),
+                        )?,
+                    }
                 }
                 continue;
             }

@@ -1425,3 +1425,98 @@ printf 'enhancedtoken\n' > "$output"
         "manual OCR retries must run in the background lane so newly added text can be indexed"
     );
 }
+
+// Keep this deterministic: publish through the real enhancement path exactly
+// after the primary scan takes its converted-file snapshot.
+#[test]
+#[cfg(unix)]
+fn converted_scan_keeps_results_published_after_its_snapshot() {
+    let (dir, store, root, key) = setup();
+    pdf(&root.join("a-scan.pdf"), false, true);
+    pdf(&root.join("b-text.pdf"), true, true);
+    store.scan_basic(&key, |_| {}).unwrap();
+    fake_docling(
+        dir.path(),
+        r#"#!/bin/sh
+set -eu
+shift
+output=''
+while [ "$#" -gt 0 ]; do
+ if [ "$1" = '--output-file' ]; then shift; output="$1"; fi
+ shift
+done
+printf 'concurrentenhancedtoken\n' > "$output"
+"#,
+    );
+    // Separate controls allow this synchronous probe to model an already-running
+    // service enhancement completing while the primary lane is scanning.
+    let background = Store::open(&dir.path().join("index.sqlite")).unwrap();
+    let published = std::cell::Cell::new(false);
+    store
+        .scan_basic(&key, |progress| {
+            if store.indexing.task(&key).stage == "indexing_converted"
+                && progress.count == 0
+                && !published.replace(true)
+            {
+                background.enhance(&key, |_| {}).unwrap();
+                assert_eq!(
+                    store
+                        .search_files("concurrentenhancedtoken", &[], 10)
+                        .unwrap()
+                        .len(),
+                    1
+                );
+            }
+        })
+        .unwrap();
+    assert!(published.get());
+    assert_eq!(
+        store
+            .search_files("concurrentenhancedtoken", &[], 10)
+            .unwrap()
+            .len(),
+        1,
+        "an old scan must not remove a newly published enhancement"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[cfg(unix)]
+async fn new_rtf_is_searchable_while_pdf_enhancement_is_blocked() {
+    let (_dir, service, sink, key, marker, release) = background_service_fixture();
+    let started = await_marker(&marker).await;
+    let mut settings = service.store.settings().unwrap();
+    settings.conversion_formats = Some(vec!["pdf".into(), "rtf".into()]);
+    service.store.save_settings(&settings).unwrap();
+    fs::write(
+        std::path::Path::new(&key).join("new.rtf"),
+        r"{\rtf1\ansi newrtfsearchtoken}",
+    )
+    .unwrap();
+    let refreshed = service
+        .handle(
+            sag_protocol::Operation::RefreshRoot { path: key.clone() },
+            &sink,
+        )
+        .await;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut searchable = false;
+    while std::time::Instant::now() < deadline {
+        searchable = !service
+            .store
+            .search_files("newrtfsearchtoken", &[], 10)
+            .unwrap()
+            .is_empty();
+        if searchable {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let before_release = !release.is_file();
+    fs::write(&release, "").unwrap();
+    service.finish().await.unwrap();
+    assert!(
+        started && refreshed.is_ok() && before_release && searchable,
+        "built-in RTF parsing must not wait behind PDF OCR"
+    );
+}
