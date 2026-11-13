@@ -756,6 +756,7 @@ pub(crate) mod windows_job {
             information: Handle,
             length: u32,
         ) -> i32;
+        fn QueryInformationJobObject(job: Handle, class: i32, information: Handle, length: u32, returned: *mut u32) -> i32;
         fn AssignProcessToJobObject(job: Handle, process: Handle) -> i32;
         fn CloseHandle(handle: Handle) -> i32;
         fn TerminateJobObject(job: Handle, exit: u32) -> i32;
@@ -941,6 +942,18 @@ pub(crate) mod windows_job {
                     return Err(Failure::new(FailureKind::Spawn, "无法恢复受监督的转换进程"));
                 }
                 Ok(job)
+            }
+        }
+        // Kernel accounting survives early process exit, unlike a PID RSS sample.
+        pub fn peak_memory_bytes(&self) -> Result<u64, Failure> {
+            unsafe {
+                let mut info: Extended = std::mem::zeroed();
+                if QueryInformationJobObject(self.0, 9, (&mut info as *mut Extended).cast(),
+                    std::mem::size_of::<Extended>() as u32, std::ptr::null_mut()) == 0 {
+                    return Err(Failure::new(FailureKind::Monitoring,
+                        format!("无法读取转换进程组内存：{}", std::io::Error::last_os_error())));
+                }
+                Ok(info.peak_job as u64)
             }
         }
         pub fn terminate(&self) {

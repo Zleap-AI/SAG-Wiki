@@ -231,11 +231,13 @@ impl Worker {
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
+                    self.check_memory()?;
                     self.terminate();
                     bail!("文档解析 Worker 在就绪前退出{}", self.stderr_suffix());
                 }
             }
             if let Some(status) = self.child.try_wait()? {
+                self.check_memory()?;
                 bail!(
                     "文档解析 Worker 在就绪前退出（{status}）{}",
                     self.stderr_suffix()
@@ -308,6 +310,7 @@ impl Worker {
                 }
                 Err(RecvTimeoutError::Timeout) => {}
                 Err(RecvTimeoutError::Disconnected) => {
+                    self.check_memory()?;
                     self.terminate();
                     bail!("文档解析 Worker 意外退出{}", self.stderr_suffix());
                 }
@@ -333,6 +336,11 @@ impl Worker {
     }
 
     fn check_memory(&mut self) -> Result<()> {
+        #[cfg(windows)]
+        if self.job.peak_memory_bytes()? > self.permit.bytes {
+            bail!(Failure::new(FailureKind::Memory,
+                format!("文档解析 Worker 内存超过 {} MiB 限制", self.permit.bytes / 1024 / 1024)));
+        }
         match process_supervisor::process_bytes(self.child.id()) {
             Ok(bytes) if bytes > self.permit.bytes => {
                 bail!(Failure::new(
@@ -682,8 +690,9 @@ for line in sys.stdin:
         .err()
         .expect("Python exceeds a 1 MiB budget");
         assert_eq!(
-            error.downcast_ref::<Failure>().unwrap().kind,
-            FailureKind::Memory
+            error.downcast_ref::<Failure>().map(|failure| failure.kind),
+            Some(FailureKind::Memory),
+            "{error:#}"
         );
     }
 
