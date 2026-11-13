@@ -45,7 +45,7 @@ The service must implement the decision model API. For the CLI, use `sag config 
 
 **Available models · one per line** controls the answer models shown in the UI. Enter an exact supported model ID on each line, without commas. Duplicates are removed on save. Connection testing uses the first entry.
 
-For the decision model, enter one model ID in **Model name**. New installations use `Zev-1` on the Zleap Open Platform; switching to Zleap also automatically fills in `Zev-1`. The base URL is `https://api.zleap.com/v1`, requesting `/v1/systemone` with API key authentication. See the [decision model documentation](https://platform.zleap.com/docs/decision). When switching to another provider, check that the model name is supported.
+For the decision model, enter one model ID in **Model name**. New installations use `Zev-1` on the Zleap Open Platform; switching to Zleap also automatically fills in `Zev-1`. The base URL is `https://api.zleap.com/v1`, requesting `/v1/systemone` with API key authentication. See the [decision model documentation](https://platform.zleap.com/docs/decision). Switching providers also updates the model name: `Zev-1` for Zleap, `jev-latest` for 302.AI and Typesafe, and an empty field for other providers (including Custom) that must be filled manually. Opening Settings preserves the saved model name.
 
 <Callout title="Promotion">
 [Zleap Open Platform](https://platform.zleap.com) now offers **Zev-1**, a decision model developed and deployed in-house. It outperforms Jev models across the board. Everyone is welcome to try it.

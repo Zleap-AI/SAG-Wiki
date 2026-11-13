@@ -58,7 +58,7 @@
   }
  }
  function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom')providerChoice[kind]=providerFor(kind,address);status='';error='';}
- function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id==='custom'||id===current)return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);if(kind==='jev'&&id==='zleap')settings.jev.model='Zev-1';}
+ function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id===current)return;if(kind==='jev')settings.jev.model=id==='zleap'?'Zev-1':id==='302'||id==='official'?'jev-latest':'';if(id==='custom')return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  $:applyTheme(settings.theme);
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN');applyTheme(value.theme)});
  $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['api',$t('API 服务'),'network'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']];
