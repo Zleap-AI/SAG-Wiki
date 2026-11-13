@@ -6,6 +6,7 @@
 - **减少长文档等待**：使用随包 QPDF 拆页，避免克隆并逐页删除整份 PDF；明确没有文字层的扫描分段尽快交给 OCR。恢复云端任务时从首次提交计算等待期限，避免重试反复等待同一过期任务。
 - **保留 MinerU 文档图片**：ZIP 结果中的图片保存到本地，阅读器通过相对链接显示；检索保留描述和图注，过滤图片资源地址。兼容引用式图片、嵌套或转义的图片描述以及带空格的图片路径。
 - **改善打包与 Windows 兼容性**：桌面端和独立 CLI 携带 QPDF，修复迁移安装目录后依赖失效、npm 包遗漏 QPDF、Windows 临时文件占用和规范化路径处理问题。
+- **精简 QPDF 打包内容**：移除重复动态库、未使用工具和 Windows 开发文件，保留运行所需依赖与许可证，减少桌面端和独立 CLI 的分发体积。
 - **区分失败文件重试进度**：索引详情明确显示正在重试失败文件，避免与正常转换进度混淆。
 
 桌面端与随包 CLI 版本统一为 0.2.11。
@@ -16,6 +17,7 @@
 - **Less waiting on long documents**: use bundled QPDF for page selection instead of cloning and deleting pages from the whole PDF. Hand scanned parts with no text layer off to OCR promptly. Resumed cloud tasks keep their original submission deadline instead of restarting the wait for an expired task.
 - **Preserve MinerU document images**: save ZIP result images locally for the reader to display through relative links. Search retains descriptions and captions while filtering image resource addresses. Support reference images, nested or escaped image descriptions, and image paths containing spaces.
 - **Packaging and Windows compatibility**: bundle QPDF with the desktop app and standalone CLI. Fix dependencies that broke after installation relocation, missing QPDF in npm packages, open temporary file handles on Windows, and canonical path handling.
+- **Smaller QPDF payload**: remove duplicate shared libraries, unused utilities, and Windows development files while retaining runtime dependencies and licenses, reducing distribution size for the desktop app and standalone CLI.
 - **Distinct failed-file retry progress**: index details distinguish retries of failed files from normal conversion progress.
 
 The desktop app and bundled CLI both use 0.2.11.
