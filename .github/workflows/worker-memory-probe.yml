@@ -1,0 +1,44 @@
+name: Worker memory diagnostic
+on:
+  push:
+    branches: [feat/desktop-worker-memory-fix]
+permissions:
+  contents: read
+jobs:
+  probe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13.9'
+      - name: Inspect Windows Job memory exits
+        shell: python
+        run: |
+          import ctypes as c, subprocess, sys
+          from ctypes import wintypes as w
+          class Basic(c.Structure):
+              _fields_=[('process_time',c.c_int64),('job_time',c.c_int64),('flags',w.DWORD),('min_ws',c.c_size_t),('max_ws',c.c_size_t),('active',w.DWORD),('affinity',c.c_size_t),('priority',w.DWORD),('scheduling',w.DWORD)]
+          class IO(c.Structure):
+              _fields_=[(x,c.c_uint64) for x in ['read_ops','write_ops','other_ops','read_bytes','write_bytes','other_bytes']]
+          class Extended(c.Structure):
+              _fields_=[('basic',Basic),('io',IO),('process_memory',c.c_size_t),('job_memory',c.c_size_t),('peak_process',c.c_size_t),('peak_job',c.c_size_t)]
+          k=c.WinDLL('kernel32',use_last_error=True)
+          k.CreateJobObjectW.restype=w.HANDLE
+          k.AssignProcessToJobObject.argtypes=[w.HANDLE,w.HANDLE]
+          k.SetInformationJobObject.argtypes=[w.HANDLE,c.c_int,c.c_void_p,w.DWORD]
+          k.QueryInformationJobObject.argtypes=[w.HANDLE,c.c_int,c.c_void_p,w.DWORD,c.c_void_p]
+          k.CloseHandle.argtypes=[w.HANDLE]
+          nt=c.WinDLL('ntdll');nt.NtResumeProcess.argtypes=[w.HANDLE]
+          for mib in [1,128]:
+              job=k.CreateJobObjectW(None,None)
+              limits=Extended();limits.basic.flags=0x2200;limits.job_memory=mib*1024*1024
+              assert k.SetInformationJobObject(job,9,c.byref(limits),c.sizeof(limits))
+              child=subprocess.Popen([sys.executable,'-u','-c',"import json; print(json.dumps({'status':'ready'}),flush=True)"],stdout=subprocess.PIPE,stderr=subprocess.PIPE,creationflags=0x08000004)
+              assigned=k.AssignProcessToJobObject(job,w.HANDLE(child._handle))
+              print('budget',mib,'assigned',assigned,'last_error',c.get_last_error(),flush=True)
+              assert assigned
+              assert nt.NtResumeProcess(w.HANDLE(child._handle))==0
+              out,err=child.communicate(timeout=15)
+              k.QueryInformationJobObject(job,9,c.byref(limits),c.sizeof(limits),None)
+              print('exit',hex(child.returncode & 0xffffffff),'stdout',repr(out),'stderr',repr(err),'peak_commit',limits.peak_job,flush=True)
+              k.CloseHandle(job)
