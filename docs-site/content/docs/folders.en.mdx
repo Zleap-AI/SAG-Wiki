@@ -110,6 +110,10 @@ The remaining steps still need network access. If those addresses are also unrea
 
 Dependencies are checked against pinned hashes, so a mirror serving different files fails the installation instead of installing altered files. If the computer is fully offline, use a complete offline component instead.
 
+Environment variables only affect newly started processes. The installation runs in the background service, and the app reuses a service that is already running, so quitting and reopening the app alone does not apply them; after setting the variables run `sag service restart` from a new terminal, or confirm the restart with `sag service status`.
+
+While the recognition models download and the runtime is unpacked, the installer commits about 2.5 GiB of memory; when memory is tight the installation stops and the error shows a message such as `memory allocation ... failed`. Close memory-hungry programs and retry; if it keeps failing, open **Open install log** for the last lines, or switch to a complete offline component.
+
 Obtain a complete folder matching your system, architecture and component version from your administrator or maintainer. Extract archives before selecting the folder. Current official Releases do not distribute a separate complete offline component; the application installer is not a component package. The import entry is available in application builds containing this feature, not the official 0.2.7 package.
 
 ![Offline document component import after a download failure](/images/product-offline-component-en.png)
