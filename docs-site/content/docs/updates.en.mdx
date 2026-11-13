@@ -5,11 +5,28 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.2.11
+
+- **Resumable long-PDF conversion**: process PDFs in parts of at most 50 pages, independently trying MinerU, the applicable built-in parser, and installed Docling. Only failed parts fall back; successful parts are cached. Merge and index the complete document only after every part succeeds, without publishing partial output after failure or cancellation.
+- **Less waiting on long documents**: use bundled QPDF for page selection instead of cloning and deleting pages from the whole PDF. Hand scanned parts with no text layer off to OCR promptly. Resumed cloud tasks keep their original submission deadline instead of restarting the wait for an expired task.
+- **Preserve MinerU document images**: save ZIP result images locally for the reader to display through relative links. Search retains descriptions and captions while filtering image resource addresses. Support reference images, nested or escaped image descriptions, and image paths containing spaces.
+- **Packaging and Windows compatibility**: bundle QPDF with the desktop app and standalone CLI. Fix dependencies that broke after installation relocation, missing QPDF in npm packages, open temporary file handles on Windows, and canonical path handling.
+- **Smaller QPDF payload**: remove duplicate shared libraries, unused utilities, and Windows development files while retaining runtime dependencies and licenses, reducing distribution size for the desktop app and standalone CLI.
+- **Distinct failed-file retry progress**: index details distinguish retries of failed files from normal conversion progress.
+
+The desktop app and bundled CLI both use 0.2.11.
+
 ## 0.2.10
 
 - **HTTP API**: programs on this computer or the local network can run fast or deep searches, browse folders and limit a search to one or more folders by full path. The API shares the knowledge base, index and decision-model settings with the desktop app and CLI, and returns source passages.
 - **API service settings and CLI commands**: the desktop app adds **Settings → API service** to turn the service on or off, show local and LAN addresses, and manage keys and launch at startup. The standalone CLI adds `sag api start/stop/status`, `sag api key create/list/revoke` and `sag api autostart`.
 - **Standalone CLI on Linux**: the npm package adds Linux ARM64 and x86_64, verified on Ubuntu 24.04 and Debian 12, so search and the API service run without the desktop app.
+- **Responses API support**: entering a complete `/v1/responses` endpoint for an answer model enables streamed Responses answers, including reasoning state and call identifiers across tool rounds, with effort set through `reasoning.effort`. A plain `/v1` address keeps using Chat Completions.
+- **Long PDFs no longer fail on running headers and footers**: after split parts are merged, MinerU's headers, footers and page numbers are dropped, code blocks keep their language, caption and footnote, and charts keep their description and footnote. Unrecognised content now names its type and original page instead of failing generically.
+- **Active parser shown during conversion**: the index status bar and index details show MinerU, anydoc or Docling while files convert.
+- **Reliable summary retries in long conversations**: when a summary request is interrupted mid-stream or times out, context compaction retries within the configured limits and shrinks the current chunk if needed, keeping chunks already summarised and showing retry progress.
+- **CLI search over converted documents**: documents converted from PDF, CSV and similar formats were missing from `sag check` counts and `-F` / `-E` results under their source folder; they are now counted and matched there.
+- **Windows match paths**: command-line match results use `/` separators instead of backslashes.
 - **Jev renamed to decision model**: Settings and the documentation use "decision model" throughout; switching to Zleap fills in `Zev-1` automatically.
 - **Results ordered by relevance**: deep search returns results sorted by local relevance score, without DPP diversity reranking.
 - **Indexing symlinked folders**: when a knowledge-base root becomes a symbolic link, indexed content is still recognized under its original path, and removed folders ask to be added again.

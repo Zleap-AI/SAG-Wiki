@@ -11,6 +11,7 @@ use std::{fs, path::Path, time::Instant};
 mod pdf_segments;
 
 pub struct Attempt {
+    pub segment: Option<sag_protocol::ConversionSegment>,
     pub phase: Option<String>,
     pub engine: String,
     pub elapsed_ms: u64,
@@ -59,6 +60,7 @@ fn run_engines(
             bail!("已停止转换，未发布输出")
         }
         report(Attempt {
+            segment: None,
             phase: Some("starting".into()),
             engine: (*engine).into(),
             elapsed_ms: 0,
@@ -68,6 +70,7 @@ fn run_engines(
         let result = convert(engine);
         let message = result.as_ref().err().map(|error| format!("{error:#}"));
         report(Attempt {
+            segment: None,
             phase: None,
             engine: (*engine).into(),
             elapsed_ms: started.elapsed().as_millis() as u64,
@@ -196,12 +199,17 @@ pub fn convert(
                 Err(error) => return Err(error),
             };
         if parts.len() > 1 {
+            let report = std::cell::RefCell::new(&mut report);
             return pdf_segments::convert_parts(
                 &parts,
                 output,
                 &identity(source, settings),
                 settings.runtime.conversion_output_mib as u64 * 1024 * 1024,
                 &cancel,
+                |part, current, total| report.borrow_mut()(Attempt {
+                    segment: Some(sag_protocol::ConversionSegment { current, total, start_page: part.start, end_page: part.end }),
+                    phase: Some("segment".into()), engine: String::new(), elapsed_ms: 0, error: None,
+                }),
                 |part, input, result| {
                     convert_single(
                         input,
@@ -209,7 +217,7 @@ pub fn convert(
                         docling,
                         settings,
                         &cancel,
-                        &mut report,
+                        |attempt| report.borrow_mut()(attempt),
                         Some(part.start),
                     )
                 },
@@ -259,6 +267,7 @@ fn convert_single(
                     let key = crate::mineru::key(docling.data_directory(), &settings.mineru)?;
                     let progress = |phase: &str| {
                         report.borrow_mut()(Attempt {
+                            segment: None,
                             phase: Some(phase.into()),
                             engine: "MinerU".into(),
                             elapsed_ms: 0,
@@ -458,7 +467,7 @@ mod tests {
             &Docling::new(dir.path()),
             &settings,
             || false,
-            |_| panic!("successful parts should be cached"),
+            |attempt| assert_eq!(attempt.phase.as_deref(), Some("segment"), "cached parts must only report progress"),
         )
         .unwrap();
         assert_eq!(fs::read(output).unwrap(), first);
