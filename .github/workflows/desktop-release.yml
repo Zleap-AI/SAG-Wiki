@@ -37,8 +37,6 @@ jobs:
     outputs:
       version: ${{ steps.source.outputs.version }}
       commit: ${{ steps.source.outputs.commit }}
-      reuse: ${{ steps.cache.outputs.reuse }}
-      source_run: ${{ steps.cache.outputs.source_run }}
     steps:
       - name: Check out the event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -56,18 +54,12 @@ jobs:
       - name: Test release validation and signing
         run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs
 
-      - name: Find a verified main build for this exact commit
-        id: cache
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-build-cache.mjs resolve
 
   documentation:
     name: Build bilingual documentation
     needs: validate
-    if: needs.validate.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,15 +69,29 @@ jobs:
           node-version: '24.13.0'
           cache: npm
           cache-dependency-path: docs-site/package-lock.json
+      - name: Reuse a verified documentation checkpoint or wait for its running producer
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-build-cache.mjs reuse documentation
       - run: npm --prefix docs-site ci
+        if: steps.reuse.outputs.reuse != 'true'
       - run: npm --prefix docs-site run build
+        if: steps.reuse.outputs.reuse != 'true'
+
+      - name: Record the verified checkpoint producer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: checkpoint-documentation-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-checkpoints/documentation.json
+          if-no-files-found: error
+          retention-days: 14
 
   frontend:
     name: Test frontend
     needs: validate
-    if: needs.validate.outputs.reuse != 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -95,26 +101,58 @@ jobs:
         with:
           node-version: '24.13.0'
           cache: npm
+      - name: Reuse a verified frontend checkpoint or wait for its running producer
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-build-cache.mjs reuse frontend
       - run: npm ci
+        if: steps.reuse.outputs.reuse != 'true'
       - name: Run platform-independent frontend tests once
+        if: steps.reuse.outputs.reuse != 'true'
         run: npm test
 
-  build:
-    name: Build and test ${{ matrix.platform }}
+      - name: Record the verified checkpoint producer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: checkpoint-frontend-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-checkpoints/frontend.json
+          if-no-files-found: error
+          retention-days: 14
+
+  native:
+    name: ${{ matrix.job_name }}
     needs: validate
-    if: needs.validate.outputs.reuse != 'true'
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos
+            kind: test
+            component: rust-macos
+            job_name: Test Rust macos
             runner: macos-15
             target: aarch64-apple-darwin
           - platform: windows
+            kind: test
+            component: rust-windows
+            job_name: Test Rust windows
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+          - platform: macos
+            kind: build
+            component: build-macos
+            job_name: Build macos
+            runner: macos-15
+            target: aarch64-apple-darwin
+          - platform: windows
+            kind: build
+            component: build-windows
+            job_name: Build windows
             runner: windows-2025
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 90
+    timeout-minutes: 190
     env:
       TARGET_TRIPLE: ${{ matrix.target }}
       RELEASE_PLATFORM: ${{ matrix.platform }}
@@ -130,11 +168,18 @@ jobs:
         with:
           node-version: '24.13.0'
           cache: npm
+      - name: Reuse this checkpoint or wait for its running main or tag producer
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-build-cache.mjs reuse "${{ matrix.component }}"
       - name: Set up Python
+        if: steps.reuse.outputs.reuse != 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13.9'
       - name: Set up Rust
+        if: steps.reuse.outputs.reuse != 'true'
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: '1.98.1'
@@ -142,6 +187,7 @@ jobs:
       # Cache dependency libraries/build metadata, not app or integration-test binaries.
       # Stable keys avoid a multi-GiB snapshot for every main commit.
       - name: Restore Rust debug cache
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
         id: rust-debug
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -167,11 +213,13 @@ jobs:
           restore-keys: |
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Install locked JavaScript dependencies
+        if: steps.reuse.outputs.reuse != 'true'
         run: npm ci
       - name: Regress release assembly, signatures and artifact transfer on this platform
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
         run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
       - name: Test Safari native saving and build development installer
-        if: matrix.platform == 'macos'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
         run: |
           swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/ClipFileStoreTests.swift -o "$RUNNER_TEMP/clip-file-tests"
           "$RUNNER_TEMP/clip-file-tests"
@@ -181,14 +229,15 @@ jobs:
           node --test scripts/clipper-build.node-test.mjs
           npm run build:clipper:safari
       - name: Upload Safari development installer for acceptance
-        if: matrix.platform == 'macos'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: safari-development-${{ github.sha }}
+          name: safari-development-${{ github.sha }}-${{ github.run_attempt }}
           path: browser-extension/build/sag-web-clipper-safari-development.dmg
           if-no-files-found: error
           retention-days: 3
       - name: Run native tests with locked dependencies
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
         run: |
           node scripts/prepare-qpdf.mjs
           node --test scripts/qpdf-packaging.node-test.mjs
@@ -205,7 +254,7 @@ jobs:
             cargo test --locked --manifest-path src-tauri/Cargo.toml
           fi
       - name: Save trusted main Rust debug cache
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-debug.outputs.cache-hit != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-debug.outputs.cache-hit != 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -227,16 +276,17 @@ jobs:
             !src-tauri/target/debug/deps/libsag_*
             !src-tauri/target/debug/deps/sag_*
           key: ${{ steps.rust-debug.outputs.cache-primary-key }}
-      # Ordinary bundles have no updater signing enabled. The release job signs
-      # the exact artifacts produced and tested here, without rebuilding them.
-      - name: Free debug test outputs before production compilation
-        run: |
-          node --input-type=module -e "import {rmSync} from 'node:fs'; for (const path of ['src-tauri/target/debug']) rmSync(path, {recursive:true, force:true});"
+      # Test and production profiles run on independent runners. Ordinary bundles
+      # have no signing credentials; the protected job finalizes these exact bytes.
       - name: Restore Rust release cache
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         id: rust-release
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             src-tauri/target/release/.fingerprint/*
             src-tauri/target/release/build/*
             src-tauri/target/release/deps/*.rlib
@@ -265,10 +315,11 @@ jobs:
             !src-tauri/target/${{ matrix.target }}/release/build/sag-*
             !src-tauri/target/${{ matrix.target }}/release/deps/libsag_*
             !src-tauri/target/${{ matrix.target }}/release/deps/sag_*
-          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
+          key: rust-v3-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
           restore-keys: |
-            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
+            rust-v3-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
       - name: Build unsigned desktop installers
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         run: |
           config_args=()
           if [[ "$RELEASE_PLATFORM" == windows ]]; then
@@ -276,40 +327,45 @@ jobs:
           fi
           npm run tauri -- build --ci --target "$TARGET_TRIPLE" "${config_args[@]}" -- --locked
       - name: Verify the actual macOS application bundle
-        if: matrix.platform == 'macos'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'macos')
         run: |
           export SAG_DESKTOP_BUNDLE="$PWD/src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app"
           python -m unittest discover -s tests -p desktop_bundle_test.py
       - name: Exercise local Jev through the actual macOS bundle CLI
-        if: matrix.platform == 'macos'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'macos')
         run: python tests/local-jev-e2e.py --binary "src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app/Contents/Resources/bin/sag"
       - name: Stage artifacts and record their source and digests
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         run: node scripts/release.mjs stage --platform "$RELEASE_PLATFORM" --target "$TARGET_TRIPLE"
       - name: Install and exercise the Windows package
         id: windows-smoke
-        if: matrix.platform == 'windows'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'windows')
         shell: pwsh
         run: |
           & ./scripts/smoke-windows.ps1 -Installer "release-artifacts/windows/SAG-Wiki-$env:RELEASE_VERSION-Windows-x64-setup.exe" -Version $env:RELEASE_VERSION
       - name: Exercise local Jev through the installed Windows package CLI
-        if: matrix.platform == 'windows'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'windows')
         env:
           INSTALLED_CLI: ${{ steps.windows-smoke.outputs.cli }}
         run: python tests/local-jev-e2e.py --binary "$INSTALLED_CLI"
       - name: Upload only staged public artifacts
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: desktop-${{ matrix.platform }}-${{ github.sha }}
+          name: desktop-${{ matrix.platform }}-${{ github.sha }}-${{ github.run_attempt }}
           path: release-artifacts/${{ matrix.platform }}/
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
 
       - name: Save trusted main Rust release cache
-        if: github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-release.outputs.cache-hit != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-release.outputs.cache-hit != 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
             src-tauri/target/release/.fingerprint/*
             src-tauri/target/release/build/*
             src-tauri/target/release/deps/*.rlib
@@ -340,69 +396,22 @@ jobs:
             !src-tauri/target/${{ matrix.target }}/release/deps/sag_*
           key: ${{ steps.rust-release.outputs.cache-primary-key }}
 
-  macos-sign:
-    name: Sign and notarize macOS
-    needs: [validate, build, documentation, frontend]
-    if: >-
-      always() && !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
-      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
-      (needs.validate.outputs.reuse == 'true' ||
-      (needs.build.result == 'success' && needs.documentation.result == 'success' && needs.frontend.result == 'success'))
-    runs-on: macos-15
-    timeout-minutes: 90
-    environment:
-      name: release
-    steps:
-      - name: Check out the validated release commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ needs.validate.outputs.commit }}
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.13.0'
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: '3.13.9'
-      - name: Verify protected release environment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release.mjs verify-environment
-      - name: Download digest-verified tested platform artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ needs.validate.outputs.source_run }}
-        run: node scripts/release-build-cache.mjs download
-      # Finalize the tested app without rebuilding. Apple secrets are scoped to
-      # this protected tag-only step, never ordinary main/PR build jobs.
-      - name: Sign, notarize and test the final macOS installer and updater
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node scripts/sign-macos-release.mjs --input release-artifacts --output signed-release-artifacts
-      - name: Upload verified signed macOS artifacts
+      - name: Record the verified checkpoint producer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: desktop-macos-signed-${{ github.sha }}
-          path: signed-release-artifacts/macos/
+          name: checkpoint-${{ matrix.component }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: release-checkpoints/${{ matrix.component }}.json
           if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
+          retention-days: 14
 
   release:
     name: Sign and create a draft release
-    needs: [validate, macos-sign]
+    needs: validate
     if: >-
-      always() && !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
-      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
-      needs.macos-sign.result == 'success'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
+      !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
+      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success'
+    runs-on: macos-15
+    timeout-minutes: 360
     environment:
       name: release
     permissions:
@@ -421,10 +430,12 @@ jobs:
           ref: ${{ needs.validate.outputs.commit }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Set up Node.js
-        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.13.0'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13.9'
       - name: Require protected release environment and an unpublished tag
         env:
           GH_TOKEN: ${{ github.token }}
@@ -435,17 +446,36 @@ jobs:
             echo 'An existing release must be inspected and removed explicitly before retrying.' >&2
             exit 1
           fi
+      - name: Wait only for verified macOS build and tests and download its input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-build-cache.mjs wait macos
+      # Windows compilation and tests continue while Apple signs and notarizes.
+      # Secrets are scoped to the protected signing steps, never main jobs.
+      - name: Sign, notarize and test the final macOS installer and updater
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/sign-macos-release.mjs --input release-artifacts --output signed-release-artifacts
+      - name: Upload verified signed macOS artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-macos-signed-${{ github.sha }}-${{ github.run_attempt }}
+          path: signed-release-artifacts/macos/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+      - name: Require all final checkpoints and download verified Windows input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-build-cache.mjs wait all
       - name: Install locked signing tools before granting access to the key
         run: npm ci --ignore-scripts
-      - name: Revalidate source and download digest-verified platform artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-          SOURCE_RUN: ${{ needs.validate.outputs.source_run }}
-        run: node scripts/release-build-cache.mjs download
-      - name: Require digest-verified notarized macOS artifacts from this run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-build-cache.mjs download-signed
       - name: Verify artifacts, sign updates and assemble the release
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

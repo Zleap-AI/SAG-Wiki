@@ -99,3 +99,9 @@ SAG_DATA_DIR=/path/to/dev-data ./src-tauri/bin/development/sag service status
 ## 下一版发布准备
 
 `0.2.12` 的改动说明见 [更新日志](https://github.com/Zleap-AI/SAG-Wiki/blob/main/CHANGELOG.md)。准备中的版本不代表已发布，下载链接仍以最新正式 Release 为准。发布前须在同一提交上通过前端、文档及 macOS/Windows 构建，并核对安装升级、已有索引保留、分阶段状态和失败重试；标签与桌面端、CLI 版本必须一致。
+
+## 自动构建与发布
+
+推送 main 后，Rust 原生测试与正式安装包构建在独立运行器上并行。版本标签发布可按平台和检查阶段复用同一提交的有效结果，失败后优先重新运行失败任务；仍在执行的来源采用有界等待。macOS 检查通过即可签名、公证，不等待 Windows。一次受保护环境审批覆盖签名至草稿创建，最终仍要求两平台测试、安装包检查、前端和文档全部通过。流程只创建 Release 草稿，不自动正式发布。
+
+操作与故障恢复见[应用内更新发布说明](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/zh-CN/应用内更新发布.md)。

@@ -36,4 +36,4 @@ jobs:
           relation=$(gh api "repos/$GITHUB_REPOSITORY/compare/$target...main" --jq .status)
           [[ "$relation" == ahead || "$relation" == identical ]] || { echo 'Tag must belong to main'; exit 1; }
           gh workflow run desktop-release.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
-          echo "Requested $RELEASE_TAG ($target). Approve the release environment after both platform checks pass." >> "$GITHUB_STEP_SUMMARY"
+          echo "Requested $RELEASE_TAG ($target). Approve the single release deployment; macOS signing starts after its checks, and the draft waits for every final check." >> "$GITHUB_STEP_SUMMARY"

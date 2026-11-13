@@ -99,3 +99,9 @@ To prepare the production Safari app, run `node browser-extension/build.mjs --sa
 ## Next release preparation
 
 See the [changelog](https://github.com/Zleap-AI/SAG-Wiki/blob/main/CHANGELOG.md) for the planned `0.2.12` changes. Preparation does not mean publication; download links continue to use the latest published Release. Before release, frontend, documentation and macOS/Windows builds must pass on the same commit. Verify installation/upgrades, existing-index preservation, progressive states and failed-file retry. The tag, desktop and CLI versions must agree.
+
+## Automated builds and releases
+
+On main, Rust native tests and production installer builds run on separate runners in parallel. Version-tag releases can reuse valid results for the same commit by platform and check stage; prefer rerunning failed jobs after a failure. Existing source jobs are awaited with a bounded timeout. macOS signing and notarization can start once its checks pass, without waiting for Windows. One protected-environment approval covers signing through draft creation. Both platforms’ tests and installer checks, frontend tests and documentation must still pass before a draft is created. The workflow does not publish the release automatically.
+
+See the [release and recovery guide](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/zh-CN/应用内更新发布.md) for operator instructions.
