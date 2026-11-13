@@ -90,7 +90,10 @@ pub(super) fn convert_parts(
             text
         };
         // MinerU stores assets beside each cached part; merged Markdown lives one directory up.
-        let text = text.replace(".sag-mineru-assets/", ".sag-pdf-parts/.sag-mineru-assets/");
+        static ASSET_DESTINATIONS: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+            regex::Regex::new(r#"(?P<prefix>\]\(\s*<?|(?i:\bsrc\s*=\s*["'])|(?m:^\s*\[[^\]\n]+\]:\s*<?))\.sag-mineru-assets/"#).unwrap()
+        });
+        let text = ASSET_DESTINATIONS.replace_all(&text, "${prefix}.sag-pdf-parts/.sag-mineru-assets/");
         let marker = format!("\n\n<!-- source-pages:{}-{} -->\n\n", part.start, part.end);
         size = size
             .checked_add(marker.len() as u64)
@@ -133,7 +136,7 @@ mod tests {
             fs::create_dir_all(&assets)?;
             fs::write(assets.join("x.png"), b"image")?;
             let mut replacement = tempfile::NamedTempFile::new_in(out.parent().unwrap())?;
-            replacement.write_all(b"![curve [red]](.sag-mineru-assets/hash/images/x.png)")?;
+            replacement.write_all(b"![curve [red]](.sag-mineru-assets/hash/images/x.png)\n<img src=\".sag-mineru-assets/hash/images/x.png\">\n[ref]: .sag-mineru-assets/hash/images/x.png\n![remote](https://host/.sag-mineru-assets/x.png)\nplain .sag-mineru-assets/ text")?;
             replacement.persist(out).map_err(|e| e.error)?;
             Ok(())
         };
@@ -141,6 +144,9 @@ mod tests {
         let first = fs::read_to_string(&output).unwrap();
         let destination = ".sag-pdf-parts/.sag-mineru-assets/hash/images/x.png";
         assert!(first.contains(destination));
+        assert_eq!(first.matches(destination).count(), 3);
+        assert!(first.contains("https://host/.sag-mineru-assets/x.png"));
+        assert!(first.contains("plain .sag-mineru-assets/ text"));
         assert_eq!(fs::read(dir.path().join(destination)).unwrap(), b"image");
         convert_parts(&parts()[..1], &output, "v1", 1024, &|| false,
             |_, _, _| panic!("cached parts must not invoke parser")).unwrap();

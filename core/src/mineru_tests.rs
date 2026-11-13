@@ -22,16 +22,19 @@ fn default_config()->MineruConfig {MineruConfig{provider:MineruProvider::Ai302,.
 fn real_large_pdf_preparation_with_qpdf() {
     let source = PathBuf::from(std::env::var_os("SAG_TEST_LARGE_PDF").unwrap()).canonicalize().unwrap();
     let started = std::time::Instant::now();
-    let parts = prepare(&source, 200 * MIB, &|| false).unwrap();
+    for page_limit in [PAGE_LIMIT, PDF_SEGMENT_PAGES] {
+    let parts = prepare_with_page_limit(&source, 200 * MIB, page_limit, &RuntimeSettings::default(), &|| false).unwrap();
     let mut next = 1;
     for part in &parts {
         assert_eq!(part.start, next);
-        assert!(part.end - part.start < 200);
+        assert!(part.end - part.start < page_limit);
         assert_eq!(lopdf::Document::load_mem(&part.bytes).unwrap().get_pages().len(), (part.end - part.start + 1) as usize);
         next = part.end + 1;
     }
     assert_eq!(next - 1, lopdf::Document::load(&source).unwrap().get_pages().len() as u32);
     assert!(started.elapsed() < Duration::from_secs(120));
+    println!("real PDF page_limit={page_limit} parts={} elapsed_ms={}", parts.len(), started.elapsed().as_millis());
+    }
 }
 
 #[test]
