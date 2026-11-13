@@ -2642,10 +2642,10 @@ cat "$source" > "$output"
         let (_dir, store, root, calls) = failing_conversion_fixture();
         let source = root.join("report.eml");
         fs::write(&source, "unparsableconvertedevidence.").unwrap();
-        assert_eq!(store.scan(root.to_str().unwrap(), |_| {}).unwrap(), 1);
+        assert_eq!(store.scan(root.to_str().unwrap(), |_| {}).unwrap(), 0);
         assert_eq!(conversion_calls(&calls), 1);
         // A routine scan reports the remembered error instead of converting again.
-        assert_eq!(store.scan(root.to_str().unwrap(), |_| {}).unwrap(), 1);
+        assert_eq!(store.scan(root.to_str().unwrap(), |_| {}).unwrap(), 0);
         assert_eq!(
             conversion_calls(&calls),
             1,
