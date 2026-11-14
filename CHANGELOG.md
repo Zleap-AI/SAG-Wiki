@@ -2,6 +2,20 @@
 
 ## 0.2.17
 
+- **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答。
+- **问答模型与搜索总结**：支持从服务商获取模型列表、选择多个问答模型，并接入 OpenAI Decisions。搜索总结可单独选择模型并查看用量。
+- **文档解析**：Docling 组件可从资源站安装，MinerU 可配置自定义接口。文件转换默认并行数提高到 4，已保存的设置继续保留。
+- **系统代理**：Windows 和 macOS 上的模型请求可使用手动配置的系统代理，修改后无需重启。
+
+### English
+
+- **Narrow layouts**: Improve the sidebar, settings, search, and chat on mobile browsers and in narrow desktop windows.
+- **Chat models and search summaries**: Fetch model lists from providers, select multiple chat models, and use OpenAI Decisions. Choose a separate model for search summaries and view its usage.
+- **Document parsing**: Install Docling from the resource site and configure a custom MinerU endpoint. File conversion defaults to four concurrent tasks and preserves saved settings.
+- **System proxy**: Model requests on Windows and macOS support manually configured system proxies. Changes take effect without restarting.
+
+## 0.2.16
+
 - **数学公式**：问答和文档阅读支持显示 TeX 公式，离线也可用。
 - **搜索排除**：CLI、MCP 和 HTTP API 支持按相对路径排除文件和目录。
 - **PDF 索引**：修复部分 PDF 无法读取页数时的索引失败，可重新索引受影响文件。
@@ -11,20 +25,6 @@
 - **Math formulas**: Render TeX formulas in answers and document reading views, including offline.
 - **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
 - **PDF indexing**: Fix indexing for PDFs whose page count could not be read. Reindex affected files to retry.
-
-## 0.2.14
-
-- **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答布局。
-- **模型与搜索总结**：可获取并多选问答模型，支持 OpenAI Decisions，并可为搜索总结单独选择模型、查看用量。
-- **系统代理**：Windows 和 macOS 上的模型请求支持手动配置的系统代理，切换后无需重启。
-- **文档解析设置**：Docling 文档组件可从资源站下载安装，保留手动导入入口；MinerU 支持自定义接口地址。
-
-### English
-
-- **Narrow layouts**: Improve the sidebar, settings, search and chat on mobile browsers and in narrow desktop windows.
-- **Models and search summaries**: Fetch and select chat models, use OpenAI Decisions, and choose a separate model for search summaries with usage shown.
-- **System proxy**: Model requests use manually configured system proxies on Windows and macOS. Changes apply without restarting.
-- **Document parsing settings**: Install the Docling document component from the resource site or import it manually. Set a custom endpoint for MinerU.
 
 ## 0.2.13
 
