@@ -6,7 +6,7 @@ import {dirname, join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
 import {changedPaths, compareVersions, createPreparedCommit, gitAt, hasProductChanges, isProductPath, latestPublished,
-  nextVersion, hasNewerPreparedSource, preparedContents, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
+  nextVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
 import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-release-environment.mjs';
 import {validateVersions} from './release.mjs';
 
@@ -194,6 +194,20 @@ test('draft recovery never deletes a public, foreign or differently targeted rel
     {target_commitish: 'main'}, {target_commitish: 'b'.repeat(40)}, {tag_name: 'v0.2.15'}]) {
     assert.throws(() => validateReplaceableDraft({...draft, ...patch}, context));
   }
+});
+
+test('publication finds a draft through its listed release ID when tag lookup is unavailable', () => {
+  const draft = {id: 42, tag_name: 'v0.2.16', draft: true};
+  const calls = [];
+  const list = path => { calls.push(path); return [{id: 41, tag_name: 'v0.2.15'}, draft]; };
+  const read = path => {
+    calls.push(path);
+    if (path !== 'releases/42') throw new Error('Not Found (HTTP 404)');
+    return {...draft, assets: [{name: 'verified-package'}]};
+  };
+  assert.deepEqual(releaseForTag('v0.2.16', list, read), {...draft, assets: [{name: 'verified-package'}]});
+  assert.deepEqual(calls, ['releases', 'releases/42']);
+  assert.throws(() => releaseForTag('v0.2.99', list, read), /not found/i);
 });
 
 test('publication verifies every uploaded asset against the exact successful assembly job checksum output', () => {
