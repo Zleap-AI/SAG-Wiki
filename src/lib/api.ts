@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import {web,webRequest} from './web-connection';
+import aboutLinks from '../../protocol/src/about-links.json';
 
 export function api<T>(command:string,args?:Record<string,unknown>):Promise<T>{
   if(!web)return invoke<T>(command,args);
@@ -7,12 +8,10 @@ export function api<T>(command:string,args?:Record<string,unknown>):Promise<T>{
 }
 async function callWeb<T>(command:string,args?:Record<string,unknown>):Promise<T>{
   if(command==='open_external_link'||command==='open_about_link'){
-    const about:Record<string,string>={
-      project:'https://github.com/Zleap-AI/SAG-Wiki',company:'https://zleap.com',
-      docling:'https://docling.ai/', 'zleap-console':'https://platform.zleap.com/console',
-      '302-api-keys':'https://302.ai/api-keys/list'
-    };
-    const url=new URL(String(command==='open_external_link'?args?.url:about[String(args?.target)]));
+    const target=String(args?.target);
+    const aboutUrl=Object.hasOwn(aboutLinks,target)?aboutLinks[target as keyof typeof aboutLinks]:undefined;
+    if(command==='open_about_link'&&!aboutUrl)throw new Error('未知的关于页面链接');
+    const url=new URL(String(command==='open_external_link'?args?.url:aboutUrl));
     if(!['http:','https:','mailto:'].includes(url.protocol))throw new Error('不支持此链接地址');
     window.open(url.href,'_blank','noopener,noreferrer');return undefined as T;
   }

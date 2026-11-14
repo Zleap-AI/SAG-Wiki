@@ -153,13 +153,16 @@ it('英文界面显示 API 控件、英文文档链接与已有 Key 的创建日
  expect(document.querySelector('.api-key-table tbody td:nth-child(3)')?.textContent).toBe('11/13/2026');
 });
 
-it('端口为空时不以旧端口启动服务',async()=>{
+it.each([
+ ['API 和 MCP','start',''],['API 和 MCP','start','0'],['API 和 MCP','start','65536'],['API 和 MCP','start','12.5'],
+ ['网页服务','web_start',''],['网页服务','web_start','0'],['网页服务','web_start','65536'],['网页服务','web_start','12.5'],
+])('%s 拒绝无效端口 %s/%s',async(label,action,value)=>{
  app=mount(ApiSettings,{target:document.body});await ready();
- const port=document.querySelector<HTMLInputElement>('[aria-label="端口"]')!;port.value='';port.dispatchEvent(new Event('input',{bubbles:true}));await tick();
- document.querySelector<HTMLButtonElement>('[aria-label="API 和 MCP"]')!.click();
+ const port=document.querySelector<HTMLInputElement>('[aria-label="端口"]')!;port.value=value;port.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!.click();
  await vi.waitFor(()=>expect(document.querySelector('[role=alert]')?.textContent).toContain('有效端口'));
- expect(invoke.mock.calls.some(([,args])=>args?.action?.action==='start')).toBe(false);
- expect(document.querySelector('[aria-label="API 和 MCP"]')?.getAttribute('data-state')).toBe('unchecked');
+ expect(invoke.mock.calls.some(([,args])=>args?.action?.action===action)).toBe(false);
+ expect(document.querySelector(`[aria-label="${label}"]`)?.getAttribute('data-state')).toBe('unchecked');
 });
 
 it.each([

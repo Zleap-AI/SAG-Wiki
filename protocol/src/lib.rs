@@ -1,3 +1,4 @@
+pub mod about_links;
 pub mod runtime;
 pub mod mineru;
 mod build;
