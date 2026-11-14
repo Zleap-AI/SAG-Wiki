@@ -274,6 +274,26 @@ async fn mcp_reuses_api_authentication_search_scope_and_lifecycle() {
     f.finish().await;
 }
 #[tokio::test]
+async fn fast_search_reads_external_conversion_within_the_original_scope() {
+    let f = Fixture::new().await;
+    let source = f.a.join("sub/scan.rtf");
+    std::fs::write(&source, br"{\rtf1\ansi externalconversionneedle}").unwrap();
+    f.service.store.scan(f.a.to_str().unwrap(), |_| {}).unwrap();
+    let key = f.key("conversion search").await;
+    let token = key["key"].as_str().unwrap();
+    for exclude in [json!([]), json!(["not-a-match/**"])] {
+        let response = f.search(token, json!({"query":"externalconversionneedle","mode":"fast","paths":[f.a.join("sub")],"exclude":exclude})).await;
+        let status = response.status();
+        let result: Value = response.json().await.unwrap();
+        assert_eq!(status, StatusCode::OK, "{result}");
+        let matches = result["results"].as_array().unwrap();
+        assert_eq!(matches.len(), 1);
+        assert!(matches[0]["content"].as_str().unwrap().contains("externalconversionneedle"));
+    }
+    f.finish().await;
+}
+
+#[tokio::test]
 async fn fast_search_uses_multiple_scopes_and_browses_one_folder_level() {
     let f = Fixture::new().await;
     let key = f.key("caller").await;

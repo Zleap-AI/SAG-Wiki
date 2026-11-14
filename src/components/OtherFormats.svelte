@@ -7,11 +7,14 @@
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
  import {api} from '../lib/api';
- import type {DoclingStatus,Settings} from '../lib/types';
+ import type {DoclingStatus,MineruConfig,Settings} from '../lib/types';
  export let enabled=false;
  export let remoteParsing:boolean|undefined=undefined;
+ export let remoteProvider:MineruConfig['provider']|undefined=undefined;
  let savedRemoteParsing=false;
+ let savedRemoteProvider:MineruConfig['provider']|undefined;
  $:usingRemote=remoteParsing??savedRemoteParsing;
+ $:pdfOnly=(remoteProvider??savedRemoteProvider)==='302';
  const remoteFormats=new Set(['pdf','png','jpg','jpeg','jp2','webp','gif','bmp','doc','docx','ppt','pptx','xls','xlsx']);
  export let formats:string[]|null|undefined=undefined;
  export let disabled=false;
@@ -20,7 +23,7 @@
  let selected:string[]=[];
  let legacyAll=false,selectionChanged=false;
  let revokeInstall=()=>{},selectionVersion=0,disposed=false;
- let details=false,error='',loading=true,confirmUninstall=false,uninstalling=false,uninstallError='';
+ let details=false,configuringDocling=false,error='',loading=true,confirmUninstall=false,uninstalling=false,uninstallError='';
  let status:DoclingStatus={installed:false,running:false,stage:'',message:'',downloaded:0,total:null,error:null,formats:[]};
  $:if($doclingStatus){
   status=$doclingStatus;loading=false;error='';
@@ -31,10 +34,11 @@
  function invalidateInstall(){selectionVersion++;revokeInstall();}
  function changeSelection(next:string[]){selectionVersion++;revokeInstall();selectionChanged=true;selected=next;}
  $:preserveLegacyAll=legacyAll&&!selectionChanged;
- $:requiredProfiles=[...new Set(selected.filter(extension=>!usingRemote||!remoteFormats.has(extension)).map(extension=>profileForExtension(status,extension)).filter(profile=>profile!==undefined))];
+ $:requiredProfiles=[...new Set(selected.filter(extension=>!usingRemote||!(pdfOnly?extension==='pdf':remoteFormats.has(extension))).map(extension=>profileForExtension(status,extension)).filter(profile=>profile!==undefined))];
  $:missingProfiles=requiredProfiles.filter(profile=>!profileInstalled(status,profile));
  $:needsInstall=!preserveLegacyAll&&missingProfiles.length>0;
- async function showDetails(){
+ export async function showDetails(configure=false){
+  configuringDocling=configure;
   selectionVersion++;revokeInstall();legacyAll=enabled&&formats==null;selectionChanged=false;
   // Nothing is preselected: a ticked component format would install gigabytes on one click.
   // A legacy "all formats" preference stays in force until the user changes the selection.
@@ -42,7 +46,7 @@
   selectionError='';draftWorkers=workers??defaultConversionWorkers;savedWorkers=draftWorkers;workersReady=workers!==undefined;details=true;
   if(workers===undefined||remoteParsing===undefined){
    workersLoading=true;
-   try{const settings=await api<Settings>('get_settings');if(workers===undefined){draftWorkers=settings.conversion_workers??defaultConversionWorkers;savedWorkers=draftWorkers;}savedRemoteParsing=settings.mineru?.enabled??false;workersReady=true;}
+   try{const settings=await api<Settings>('get_settings');if(workers===undefined){draftWorkers=settings.conversion_workers??defaultConversionWorkers;savedWorkers=draftWorkers;}savedRemoteParsing=settings.mineru?.enabled??false;savedRemoteProvider=settings.mineru?.provider;workersReady=true;}
    catch(e){selectionError=String(e);}
    finally{workersLoading=false;}
   }
@@ -55,7 +59,7 @@
   uninstalling=true;uninstallError='';
   try{
    const next=await api<DoclingStatus>('uninstall_docling');
-   updateDoclingStatus(next);enabled=false;confirmUninstall=false;await showDetails();
+   updateDoclingStatus(next);enabled=false;confirmUninstall=false;await showDetails(configuringDocling);
   }catch(e){uninstallError=String(e);}finally{uninstalling=false;}
  }
  async function applyFormats(){
@@ -95,11 +99,11 @@
   <p>{$t('扫描 PDF、图片、音视频等可按需安装 Docling，普通文档无需下载。')}</p>
   {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
  </div>
- <div class="other-formats-actions"><Button.Root type="button" class="outline other-formats-action" aria-label={$t('选择其他格式')} disabled={loading||disabled} onclick={showDetails}>{$t('选择')}</Button.Root></div>
+ <div class="other-formats-actions"><Button.Root type="button" class="outline other-formats-action" aria-label={$t('选择其他格式')} disabled={loading||disabled} onclick={()=>showDetails()}>{$t('选择')}</Button.Root></div>
 </div>
 
-{#if details}<Modal label={$t(status.installed?'选择其他格式':'全部支持格式')} onClose={()=>{if(!uninstalling&&!applying)closeDetails()}} class="docling-dialog docling-formats-dialog">
- <div class="dialog-head"><h2>{$t(status.installed?'选择其他格式':'全部支持格式')}</h2><Button.Root type="button" class="icon-button" disabled={uninstalling||applying} aria-label={$t('关闭格式选择')} onclick={closeDetails}>{@html icon('close')}</Button.Root></div>
+{#if details}{@const title=$t(configuringDocling?'配置 Docling':status.installed?'选择其他格式':'全部支持格式')}<Modal label={title} onClose={()=>{if(!uninstalling&&!applying)closeDetails()}} class="docling-dialog docling-formats-dialog">
+ <div class="dialog-head"><h2>{title}</h2><Button.Root type="button" class="icon-button" disabled={uninstalling||applying} aria-label={$t('关闭格式选择')} onclick={closeDetails}>{@html icon('close')}</Button.Root></div>
  <div class="dialog-body formats-list">
   <div class="docling-component">
    <a href="https://docling.ai/" target="_blank" rel="noreferrer" on:click={openDocling}>Docling {@html icon('externalLink')}</a>
@@ -147,11 +151,6 @@
    <label for="conversion-workers"><strong>{$t('转换并行数')}</strong><p>{$t('默认 {value0}，可设为 1–16。受共享资源预算限制，下次索引生效。',{value0:defaultConversionWorkers})}</p></label>
    <Input id="conversion-workers" aria-label={$t('转换并行数')} type="number" min="1" max="16" required disabled={workersLoading||applying} oninput={invalidateInstall} bind:value={draftWorkers}/>
   </div>
-  <section class="conversion-info" aria-label={$t('保存位置')}>
-   <h3>{$t('保存位置')}</h3>
-   <p>{$t('输出保存在已添加文件夹根目录的 .sag-converted 中，保留子目录，原文件不变。')}</p>
-   <code>{$t('资料/报告.pdf → .sag-converted/资料/报告.pdf.md')}</code>
-  </section>
  </div>
  {#if selectionError||uninstallError&&!confirmUninstall}<p class="format-dialog-error form-error" role="alert">{$t(selectionError||uninstallError)}</p>{/if}
  <div class="dialog-footer formats-footer">
@@ -170,7 +169,7 @@
 
 {#if confirmUninstall}<Modal label={$t('卸载 Docling 相关组件')} class="docling-uninstall-dialog" onClose={()=>{if(!uninstalling)confirmUninstall=false}}>
  <div class="dialog-head"><h2>{$t('卸载 Docling 相关组件')}</h2></div>
- <div class="dialog-body"><p>{$t('将删除 SAG Wiki 安装的文档与音视频组件、运行环境、模型、FFmpeg 和下载缓存。原文件、.sag-converted 中的转换文件及已有索引都会保留。')}</p><p>{$t('卸载后普通文档仍可解析；扫描 PDF 和其他格式需要重新安装 Docling。')}</p>{#if uninstallError}<p class="form-error" role="alert">{$t(uninstallError)}</p>{/if}</div>
+ <div class="dialog-body"><p>{$t('将删除 SAG Wiki 安装的文档与音视频组件、运行环境、模型、FFmpeg 和下载缓存。原文件、转换文件及已有索引都会保留。')}</p><p>{$t('卸载后普通文档仍可解析；扫描 PDF 和其他格式需要重新安装 Docling。')}</p>{#if uninstallError}<p class="form-error" role="alert">{$t(uninstallError)}</p>{/if}</div>
  <div class="dialog-footer"><Button.Root type="button" disabled={uninstalling} onclick={()=>confirmUninstall=false}>{$t('取消')}</Button.Root><Button.Root type="button" class="primary" aria-label={$t('确认卸载 Docling')} disabled={uninstalling} onclick={uninstall}>{$t(uninstalling?'正在卸载…':'卸载')}</Button.Root></div>
 </Modal>{/if}
 
@@ -188,11 +187,11 @@
  .docling-component-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:62%}
  .docling-component-actions :global(button){min-height:32px;font-size:13px;padding:4px 12px}
  :global(.uninstall-docling){font-size:12px;white-space:nowrap;padding:6px 10px}
- .builtin-formats,.optional-formats,.conversion-workers,.conversion-info{padding:12px 0;border-bottom:1px solid var(--color-rule)}
+ .builtin-formats,.optional-formats,.conversion-workers{padding:12px 0;border-bottom:1px solid var(--color-rule)}
  .formats-heading{display:flex;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:4px}
- .formats-heading h3,.conversion-info h3,.conversion-workers strong{margin:0;color:var(--color-ink);font-size:14px;line-height:20px;font-weight:600}
+ .formats-heading h3,.conversion-workers strong{margin:0;color:var(--color-ink);font-size:14px;line-height:20px;font-weight:600}
  .builtin-note{color:var(--color-secondary);font-size:12px;line-height:16px}
- .builtin-formats p,.optional-formats>p,.conversion-info p,.conversion-workers p{font-size:12px;line-height:20px;color:var(--color-secondary);margin:4px 0 0;overflow-wrap:anywhere}
+ .builtin-formats p,.optional-formats>p,.conversion-workers p{font-size:12px;line-height:20px;color:var(--color-secondary);margin:4px 0 0;overflow-wrap:anywhere}
  .format-selection-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
  .format-selection-actions :global(button){min-height:28px;font-size:12px;padding:4px 8px;white-space:nowrap}
  .format-group{padding:8px 0;border-top:1px solid var(--color-rule)}
@@ -204,8 +203,6 @@
  .conversion-workers{display:flex;align-items:center;justify-content:space-between;gap:12px}
  .conversion-workers>label{min-width:0;margin:0}
  .conversion-workers :global(input){width:68px;min-height:32px;flex-shrink:0;font-variant-numeric:tabular-nums}
- .conversion-info{border-bottom:0;padding-bottom:0}
- .conversion-info code{display:block;color:var(--color-secondary);font:12px/20px var(--font-mono);overflow-wrap:anywhere;margin-top:4px}
  .format-dialog-error{flex-shrink:0;margin:0;padding:8px 24px}
  .formats-footer{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:8px 16px;padding:8px 24px}
  .format-install-options,.formats-footer-actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}

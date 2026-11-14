@@ -13,6 +13,9 @@ fn setup() -> (tempfile::TempDir, Store, PathBuf, String, PathBuf) {
     let root = root.canonicalize().unwrap();
     let db = temp.path().join("data/index.sqlite");
     let store = Store::open(&db).unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.conversion_storage = sag_protocol::types::ConversionStorage::Library;
+    store.save_settings(&settings).unwrap();
     let registered = store.add_root(&root).unwrap();
     (temp, store, root, registered, db)
 }

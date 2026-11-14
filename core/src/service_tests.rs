@@ -1187,6 +1187,7 @@ async fn changing_only_conversion_formats_rescans_cached_selected_sources() {
     std::fs::write(home.join("ready"), "2.140.0").unwrap();
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     settings.convert_other_formats = true;
+    settings.conversion_storage = sag_protocol::types::ConversionStorage::Library;
     settings.conversion_formats = Some(vec![]);
     settings.watch = false;
     call(&client, Operation::SaveSettings { mineru_key:String::new(), settings: settings.clone(), answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
@@ -1287,7 +1288,7 @@ async fn save_note_writes_an_anchored_file_and_tracks_source_changes() {
     let body = String::from_utf8(raw.clone()).unwrap();
     let start = body.find(passage).unwrap();
     let candidate = Candidate {
-        id: 1, document_id: 1, path: source.canonicalize().unwrap().to_string_lossy().into_owned(), title: "guard.md".into(), heading: "guard".into(),
+        id: 1, document_id: 1, path: source.canonicalize().unwrap().to_string_lossy().into_owned(), source_path: None, title: "guard.md".into(), heading: "guard".into(),
         content: passage.into(), start_line: 3, end_line: 5, source_ranges: vec![(start, start + passage.len())],
         source_spans: vec![SourceSpan { start_byte: start, end_byte: start + passage.len(), start_line: 3, start_column: 1, end_line: 5, end_column: 1 }],
         bm25: 0., score: 1., previous_score: None, order: 0, hash: crate::store::hash(&raw),
@@ -1405,6 +1406,7 @@ async fn import_invalid_offline_component_fails_locally_without_registering_a_so
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn mineru_settings_keep_provider_secrets_separate_and_validate_before_saving() {
     use sag_protocol::mineru::{MineruConfig, MineruProvider};
+    use sag_protocol::types::DocumentParser;
     let (dir, client, server) = start().await;
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert!(!settings.mineru.enabled);
@@ -1420,10 +1422,28 @@ async fn mineru_settings_keep_provider_secrets_separate_and_validate_before_savi
     assert_eq!(saved.mineru.base_url(), "https://mineru.example.com/proxy");
     assert!(saved.mineru.has_key && saved.mineru.enabled);
     assert_ne!(saved.mineru.content_identity(), MineruConfig::default().content_identity());
+    settings.document_parser = Some(DocumentParser::Docling);
+    call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:String::new(),mcp_credentials:None }).await;
+    let Output::Settings(saved) = call(&client,Operation::GetSettings).await else {panic!("settings")};
+    assert_eq!(saved.document_parser, Some(DocumentParser::Docling));
+    assert!(saved.mineru.has_key && !saved.mineru.enabled);
+    // An older client omits the preference; saving a key must not change the selected parser.
+    settings.document_parser = None;
+    call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:"302-test-secret".into(),mcp_credentials:None }).await;
+    let Output::Settings(saved) = call(&client,Operation::GetSettings).await else {panic!("settings")};
+    assert_eq!(saved.document_parser, Some(DocumentParser::Docling));
+    assert!(saved.mineru.has_key && !saved.mineru.enabled);
+    settings.document_parser = Some(DocumentParser::Mineru);
+    call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:String::new(),mcp_credentials:None }).await;
+    let Output::Settings(saved) = call(&client,Operation::GetSettings).await else {panic!("settings")};
+    assert!(saved.mineru.has_key && saved.mineru.enabled);
     settings.mineru.base_url.clear();
     settings.mineru.provider=MineruProvider::Official;
     let result=client.call(Operation::SaveSettings {settings:settings.clone(),answer_key:String::new(),jev_key:String::new(),mineru_key:String::new(),mcp_credentials:None},Duration::from_secs(5)).await;
     assert!(result.is_ok());
+    let Output::Settings(saved) = call(&client,Operation::GetSettings).await else {panic!("settings")};
+    assert_eq!(saved.document_parser, Some(DocumentParser::Mineru));
+    assert!(!saved.mineru.enabled);
     call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:"official-test-secret".into(),mcp_credentials:None }).await;
     let data=dir.path().join("data");
     assert_eq!(crate::mineru::key(&data,&MineruConfig::default()).unwrap(),"302-test-secret");

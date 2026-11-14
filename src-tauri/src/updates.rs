@@ -8,6 +8,8 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+#[cfg(target_os = "macos")]
+use tauri::Manager;
 use tauri::{ipc::Channel, State};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
@@ -233,6 +235,27 @@ pub async fn download_app_update(
     }
 }
 
+// Tauri opens a new macOS instance before the old one exits (#16449).
+// Wait outside the app process so Dock can reuse the pinned tile.
+#[cfg(target_os = "macos")]
+const RELAUNCH_AFTER_EXIT: &str = r#"
+pid=$1
+shift
+attempts=0
+while kill -0 "$pid" 2>/dev/null; do
+    if [ "$attempts" -ge 100 ]; then
+        /usr/bin/logger -t sag-wiki "Timed out waiting for SAG Wiki to exit after an update"
+        exit 1
+    fi
+    attempts=$((attempts + 1))
+    /bin/sleep 0.1
+done
+if ! "$@"; then
+    /usr/bin/logger -t sag-wiki "Could not reopen SAG Wiki after an update"
+    exit 1
+fi
+"#;
+
 #[tauri::command]
 pub async fn install_app_update(
     app: tauri::AppHandle,
@@ -243,6 +266,12 @@ pub async fn install_app_update(
     if cfg!(debug_assertions) {
         return Err("请在安装版中执行更新".into());
     }
+    #[cfg(target_os = "macos")]
+    let bundle = {
+        let executable = tauri::process::current_binary(&app.env()).map_err(|e| e.to_string())?;
+        tauri_plugin_updater::extract_path_from_executable(&executable)
+            .map_err(|e| e.to_string())?
+    };
     let (update, bytes) = {
         let mut state = session.0.lock().unwrap();
         if state.busy {
@@ -261,12 +290,31 @@ pub async fn install_app_update(
     result
         .map_err(|error| error.to_string())?
         .map_err(|error| error.to_string())?;
-    // Windows' updater launches the installer, exits and relaunches the app itself.
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    {
+        use std::os::unix::process::CommandExt;
+        use std::process::{Command, Stdio};
+        Command::new("/bin/sh")
+            .args(["-c", RELAUNCH_AFTER_EXIT, "sag-relaunch"])
+            .arg(std::process::id().to_string())
+            .arg("/usr/bin/open")
+            .arg(bundle)
+            .arg("--args")
+            .args(app.env().args_os.into_iter().skip(1))
+            .process_group(0)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("更新已安装，无法自动重启。请重新打开 SAG Wiki：{e}"))?;
+        app.exit(0);
+    }
+    #[cfg(not(any(windows, target_os = "macos")))]
     app.restart();
+    // Windows' updater launches the installer, exits and relaunches the app itself.
     #[cfg(windows)]
     let _ = app;
-    #[cfg(windows)]
+    #[cfg(any(windows, target_os = "macos"))]
     Ok(())
 }
 
@@ -274,6 +322,35 @@ pub async fn install_app_update(
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_relaunch_waits_for_the_old_process_to_exit() {
+        use std::process::{Command, Stdio};
+        let mut old = Command::new("/bin/sleep").arg("30").spawn().unwrap();
+        let pid = old.id().to_string();
+        let mut relaunch = Command::new("/bin/sh")
+            .args(["-c", RELAUNCH_AFTER_EXIT, "sag-relaunch", &pid])
+            .args([
+                "/bin/sh",
+                "-c",
+                "if kill -0 \"$1\" 2>/dev/null; then exit 1; fi; printf '%s' \"$2\"",
+                "launch",
+                &pid,
+                "/Applications/SAG Wiki.app",
+            ])
+            .stdout(Stdio::piped())
+            .spawn()
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(250));
+        let before_exit = relaunch.try_wait().unwrap();
+        old.kill().unwrap();
+        old.wait().unwrap();
+        let output = relaunch.wait_with_output().unwrap();
+        assert!(before_exit.is_none());
+        assert!(output.status.success());
+        assert_eq!(output.stdout, b"/Applications/SAG Wiki.app");
+    }
 
     #[test]
     fn checks_release_manifest_without_rest_api() {

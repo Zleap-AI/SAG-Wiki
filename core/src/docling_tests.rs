@@ -1,4 +1,13 @@
 use super::*;
+
+fn library_store(path: &Path) -> Store {
+    let store = Store::open(path).unwrap();
+    let mut settings = store.settings().unwrap();
+    settings.conversion_storage = sag_protocol::types::ConversionStorage::Library;
+    store.save_settings(&settings).unwrap();
+    store
+}
+
 use crate::store::Store;
 
 #[test]
@@ -637,7 +646,7 @@ fn pem_keys_are_skipped_without_excluding_keynote_documents() {
     assert!(!is_pem_key(&keynote).unwrap());
     assert!(is_source(&keynote));
     fs::remove_file(keynote).unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let root = store.add_root(&library).unwrap();
     let mut settings = store.settings().unwrap();
     settings.convert_other_formats = true;
@@ -706,7 +715,7 @@ fn completed_conversions_are_searchable_before_the_conversion_phase_finishes() {
     let temp = tempfile::tempdir().unwrap();
     let library = temp.path().join("library");
     fs::create_dir(&library).unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let root = store.add_root(&library).unwrap();
     let mut settings = store.settings().unwrap();
     settings.convert_other_formats = true;
@@ -754,7 +763,7 @@ fn fixture() -> (tempfile::TempDir, Store, String) {
     let temp = tempfile::tempdir().unwrap();
     let root = temp.path().join("library");
     fs::create_dir(&root).unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let bin = store.docling.home.join("bin");
     fs::create_dir_all(&bin).unwrap();
     let command = bin.join("docling");
@@ -786,7 +795,7 @@ fn builtin_formats_convert_without_any_component_and_component_formats_stay_opt_
     let temp = tempfile::tempdir().unwrap();
     let library = temp.path().join("library");
     fs::create_dir(&library).unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let root = store.add_root(&library).unwrap();
     fs::write(library.join("table.csv"), "型号,价格\nBCD-215,1999\n").unwrap();
     fs::write(library.join("photo.png"), "not really an image").unwrap();
@@ -1882,7 +1891,7 @@ fn built_in_documents_follow_source_updates_and_migrate_old_conversion_cache() {
     let root = temp.path().join("library");
     fs::create_dir(&root).unwrap();
     let root = root.canonicalize().unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let source = root.join("中文.csv");
     let bytes = "姓名,内容\n张三,nativewordevidence\n";
     fs::write(&source, bytes).unwrap();
@@ -1977,7 +1986,7 @@ fn converter_cache_upgrade_failure_keeps_unchanged_source_evidence() {
     let temp = tempfile::tempdir().unwrap();
     let library = temp.path().join("library");
     fs::create_dir(&library).unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let root = store.add_root(&library).unwrap();
     let source = Path::new(&root).join("scan.pdf");
     fs::write(&source, include_bytes!("../tests/fixtures/anydoc/pdf-handmade-scanned.pdf")).unwrap();
@@ -1999,7 +2008,7 @@ fn converter_cache_hit_keeps_user_edits_and_version_change_does_not_overwrite_th
     let temp = tempfile::tempdir().unwrap();
     let library = temp.path().join("library");
     fs::create_dir(&library).unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let source = library.join("data.csv");
     fs::write(&source, "name,value\nalpha,originalcacheevidence\n").unwrap();
     let root = store.add_root(&library).unwrap();
@@ -2024,7 +2033,7 @@ fn built_in_documents_follow_type_settings_updates_and_migrate_old_conversion_ca
     let root = temp.path().join("library");
     fs::create_dir(&root).unwrap();
     let root = root.canonicalize().unwrap();
-    let store = Store::open(&temp.path().join("data/index.sqlite")).unwrap();
+    let store = library_store(&temp.path().join("data/index.sqlite"));
     let source = root.join("中文.csv");
     let bytes = "姓名,内容\n张三,nativewordevidence\n";
     fs::write(&source, bytes).unwrap();

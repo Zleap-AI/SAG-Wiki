@@ -249,13 +249,14 @@ fn save_document(
         .roots()
         .map_err(error)?
         .into_iter()
-        .find(|r| Path::new(&document.path).starts_with(&r.path))
+        .find(|r| Path::new(document.source_path.as_ref().unwrap_or(&document.path)).starts_with(&r.path))
         .ok_or("目录未加入")?;
+    let changed = document.source_path.as_ref().unwrap_or(&document.path);
     state
         .scan
         .send(IndexRequest::Paths {
             root: root.path,
-            paths: vec![PathBuf::from(&document.path)],
+            paths: vec![PathBuf::from(changed)],
         })
         .map_err(error)?;
     Ok(document)
@@ -413,8 +414,10 @@ fn save_settings(
     Store::validate_settings(&settings).map_err(error)?;
     settings.mineru.validate().map_err(error)?;
     crate::mineru::validate_base_url(settings.mineru.base_url()).map_err(error)?;
-    settings.mineru.enabled = !mineru_key.trim().is_empty()
-        || crate::mineru::has_key(&state.data_dir, &settings.mineru).map_err(error)?;
+    settings.document_parser = settings.document_parser.or(old.document_parser);
+    settings.mineru.enabled = settings.document_parser != Some(DocumentParser::Docling)
+        && (!mineru_key.trim().is_empty()
+            || crate::mineru::has_key(&state.data_dir, &settings.mineru).map_err(error)?);
     if settings.convert_other_formats
         && (!old.convert_other_formats || old.conversion_formats != settings.conversion_formats)
     {
@@ -480,7 +483,7 @@ fn save_settings(
                 .map_err(error)?
         }
     } else if old.mineru.enabled != settings.mineru.enabled
-        || old.mineru.content_identity() != settings.mineru.content_identity()
+        || settings.mineru.enabled && old.mineru.content_identity() != settings.mineru.content_identity()
         || old.runtime.content_identity() != settings.runtime.content_identity()
         || old.runtime.office_text_only != settings.runtime.office_text_only
         || old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
@@ -1056,7 +1059,7 @@ async fn execute_query(
 }
 fn load_image(path: String, state: &Arc<Service>) -> CommandResult<String> {
     use base64::Engine;
-    let p = state.store.authorize(Path::new(&path)).map_err(error)?;
+    let p = state.store.authorize_image(Path::new(&path)).map_err(error)?;
     let ext = p
         .extension()
         .and_then(|s| s.to_str())
@@ -1418,7 +1421,9 @@ impl Service {
                     return Err("此文件夹已被添加，请使用文件夹菜单中的索引设置".into());
                 }
                 if options.convert_other_formats {
-                    self.store.docling.require_formats(&options.conversion_formats).map_err(error)?;
+                    let mineru = self.store.settings().map_err(error)?.mineru;
+                    let local_formats = crate::conversion::local_formats(&options.conversion_formats, &mineru);
+                    self.store.docling.require_formats(&local_formats).map_err(error)?;
                 }
                 crate::folder_index::write(&directory, &options).map_err(error)?;
                 Out::Text(add_root(path, self)?)
@@ -1538,7 +1543,9 @@ impl Service {
                 mineru_key,
                 mcp_credentials,
             } => {
-                save_settings(settings, answer_key, jev_key, mineru_key, mcp_credentials, self, app)?;
+                let state = self.clone();
+                let app = app.clone();
+                tokio::task::spawn_blocking(move || save_settings(settings, answer_key, jev_key, mineru_key, mcp_credentials, &state, &app)).await.map_err(error)??;
                 Out::Unit
             }
             Op::ClearModelKey { kind } => {

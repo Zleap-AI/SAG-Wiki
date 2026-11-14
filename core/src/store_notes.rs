@@ -101,8 +101,10 @@ fn write_check(tx: &Connection, note_id: i64, id: usize, check: &Check, at: i64)
 impl Store {
     /// Whether `path` lies inside a registered root and is not excluded.
     fn note_path_authorized(db: &Connection, path: &str) -> Result<bool> {
+        let source: Option<String> = db.query_row("SELECT source FROM conversions WHERE output=? AND valid=1", [path], |row| row.get(0)).optional()?;
+        let source = source.as_deref().unwrap_or(path);
         let roots: Vec<String> = db.prepare_cached("SELECT path FROM roots")?.query_map([], |r| r.get(0))?.collect::<rusqlite::Result<_>>()?;
-        if !roots.iter().any(|root| Path::new(path).starts_with(root)) {
+        if !roots.iter().any(|root| Path::new(source).starts_with(root)) {
             return Ok(false);
         }
         Ok(!Self::path_excluded(db, path)?)

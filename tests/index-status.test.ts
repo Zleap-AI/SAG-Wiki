@@ -193,7 +193,7 @@ it('暂停过程中分别显示仍在收尾和已经暂停的任务，并保留�
  expect(document.querySelector('.index-count')?.textContent).toContain('12 / 100');
 });
 
-it('文件设置最下方的索引历史打开相同详情窗口，关闭后仍在文件设置中',async()=>{
+it('文件设置中的索引历史打开相同详情窗口，关闭后仍在文件设置中',async()=>{
  const settings={language:'zh-CN',theme:'light',start_page:'ask',editor_size:15,show_hidden:false,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048,answer:{url:'http://localhost',model:'test',models:['test'],has_key:false},jev:{url:'http://localhost',model:'jev',models:[],has_key:false},retrieval:{candidate_k:100,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512}};
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return settings;
@@ -208,7 +208,7 @@ it('文件设置最下方的索引历史打开相同详情窗口，关闭后仍�
  expect(document.querySelector('.settings-index-history')).toBeNull();
  [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(button=>button.textContent==='文件设置')!.click();await tick();
  const entry=document.querySelector<HTMLButtonElement>('.settings-index-history')!;
- expect(document.querySelector('.settings-content')!.lastElementChild).toBe(document.querySelector('.index-history-settings'));
+ expect(entry.closest('.settings-group')?.previousElementSibling?.textContent).toBe('索引与显示');
  expect(document.querySelector('.settings-nav')?.textContent).not.toContain('索引历史');
  expect(document.querySelector('.index-history-settings')?.textContent).toContain('索引历史');
  entry.click();

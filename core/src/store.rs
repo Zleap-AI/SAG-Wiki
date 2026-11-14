@@ -4,6 +4,8 @@ mod notes_index;
 mod retry_index;
 #[path = "store_progressive.rs"]
 mod progressive;
+#[path = "store_conversion_storage.rs"]
+mod conversion_storage;
 use crate::{ignore_rules, text, types::*};
 use crate::index_status::IndexOutcome;
 use anyhow::{bail, Context, Result};
@@ -118,6 +120,7 @@ pub struct Store {
     text_preparation: Arc<PreparationBudget>,
     enhancement_sources: Arc<Mutex<HashMap<String, Vec<(String, String, String)>>>>,
     deferred_refresh: Arc<Mutex<HashSet<String>>>,
+    conversion_storage_access: Arc<RwLock<()>>,
 }
 #[cfg(test)]
 const QUERY_CACHE_ENTRIES: usize = 256;
@@ -260,6 +263,7 @@ fn candidate_metadata(r: &rusqlite::Row<'_>, order: usize) -> Result<Candidate> 
         id: r.get(0)?,
         document_id: r.get(1)?,
         path: r.get(2)?,
+        source_path: r.get(11)?,
         title: r.get(3)?,
         heading: r.get(4)?,
         content: String::new(),
@@ -346,6 +350,15 @@ impl Store {
         // Check before journal setup, CREATE/ALTER statements or data migrations:
         // an older application must leave a newer database untouched.
         let schema_version: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        if schema_version == 0 {
+            // Some old stores have no saved preferences. Remember their layout before
+            // schema setup makes them indistinguishable from a new installation.
+            let existing: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='roots')", [], |row| row.get(0))?;
+            if existing {
+                db.execute_batch("CREATE TABLE IF NOT EXISTS preferences(id INTEGER PRIMARY KEY CHECK(id=1),value TEXT NOT NULL);
+                    INSERT OR IGNORE INTO preferences VALUES(1,'{\"conversion_storage\":{\"mode\":\"library\"}}');")?;
+            }
+        }
         anyhow::ensure!(schema_version <= 10, "索引数据库版本 {schema_version} 高于当前支持的版本 10，请使用更新版本的应用");
         register_rank(&db)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
@@ -460,12 +473,14 @@ impl Store {
         } else if schema_version < 10 {
             db.pragma_update(None, "user_version", 10)?;
         }
+        let storage = if schema_version == 0 { ConversionStorage::AppData } else { ConversionStorage::Library };
+        db.execute("INSERT OR IGNORE INTO preferences VALUES(1,?)", [serde_json::json!({"conversion_storage":storage}).to_string()])?;
         // Slots are cheap; open read connections only when a configured worker is used.
         let query_readers = Arc::new((0..64).map(|_| Mutex::new(None)).collect());
         let saved: Option<String> = db.query_row("SELECT value FROM preferences WHERE id=1", [], |r| r.get(0)).optional()?;
         let store = Self {
             indexing: crate::index_status::IndexControl::default(),
-            docling: Arc::new(crate::docling::Docling::new(path.parent().context("数据库缺少父目录")?)),
+            docling: Arc::new(crate::docling::Docling::new(&path.canonicalize()?.parent().unwrap())),
             db: Arc::new(Mutex::new(db)),
             query_readers,
             query_path: path.to_path_buf(),
@@ -474,6 +489,7 @@ impl Store {
             text_preparation: PreparationBudget::new(TEXT_PREPARATION_BUDGET),
             enhancement_sources: Arc::new(Mutex::new(HashMap::new())),
             deferred_refresh: Arc::new(Mutex::new(HashSet::new())),
+            conversion_storage_access: Arc::new(RwLock::new(())),
         };
         if let Some(saved) = saved {
             let previous: Settings = serde_json::from_str(&saved)?;
@@ -501,6 +517,7 @@ impl Store {
             text_preparation: self.text_preparation.clone(),
             enhancement_sources: self.enhancement_sources.clone(),
             deferred_refresh: self.deferred_refresh.clone(),
+            conversion_storage_access: self.conversion_storage_access.clone(),
         }
     }
     fn query_reader(&self, index: usize) -> Result<MutexGuard<'_, Option<Connection>>> {
@@ -542,7 +559,8 @@ impl Store {
             },
             None => Settings::default(),
         };
-        settings.mineru.enabled = crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
+        settings.mineru.enabled = settings.document_parser != Some(DocumentParser::Docling)
+            && crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
         Ok(settings)
     }
     pub fn validate_settings(s: &Settings) -> Result<()> {
@@ -607,14 +625,27 @@ impl Store {
     }
     pub fn save_settings(&self, s: &Settings) -> Result<()> {
         Self::validate_settings(s)?;
+        let current = self.settings()?.conversion_storage;
+        let _storage = if current != s.conversion_storage {
+            Some(self.conversion_storage_access.try_write()
+                .map_err(|_| anyhow::anyhow!("请等待当前索引完成，再更改转换结果存放位置"))?)
+        } else { None };
+        let _unchanged_storage = _storage.is_none().then(|| self.conversion_storage_access.read().unwrap());
         let previous = self.settings()?;
+        anyhow::ensure!(_storage.is_some() || previous.conversion_storage == s.conversion_storage,
+            "转换结果存放位置已更改，请重新打开设置");
+        let mut settings = s.clone();
+        let migration = if _storage.is_some() {
+            settings.conversion_storage = self.validate_conversion_storage(&settings.conversion_storage)?;
+            self.prepare_conversion_migration(&previous.conversion_storage, &settings.conversion_storage)?
+        } else { Vec::new() };
         let mut db = self.connection();
         let transaction = db.transaction()?;
-        transaction.execute("INSERT INTO preferences VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(s)?])?;
+        transaction.execute("INSERT INTO preferences VALUES(1,?) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(&settings)?])?;
         if previous.file_types != s.file_types || previous.excluded != s.excluded || previous.convert_other_formats != s.convert_other_formats || previous.conversion_formats != s.conversion_formats {
             transaction.execute("UPDATE metadata SET version=version+1", [])?;
         }
-        transaction.commit()?;
+        self.commit_conversion_migration(transaction, migration)?;
         *self.runtime.write().expect("runtime settings poisoned") = s.runtime.clone();
         Ok(())
     }
@@ -705,6 +736,7 @@ impl Store {
         Ok(())
     }
     pub fn remove_all_roots(&self) -> Result<()> {
+        let _storage = self.conversion_storage_access.read().unwrap();
         let mut db = self.connection();
         let tx = db.transaction()?;
         let busy: bool = tx.query_row(
@@ -721,6 +753,7 @@ impl Store {
         self.reclaim_storage(&db)
     }
     pub fn clear_all_data(&self) -> Result<()> {
+        let _storage = self.conversion_storage_access.read().unwrap();
         let mut db = self.connection();
         db.execute_batch("PRAGMA secure_delete=ON;")?;
         let tx = db.transaction()?;
@@ -733,6 +766,7 @@ impl Store {
             DELETE FROM index_history;
             DELETE FROM drafts;
             DELETE FROM preferences;
+            INSERT INTO preferences VALUES(1,'{\"conversion_storage\":{\"mode\":\"app_data\"}}');
             DELETE FROM chunk_fts;
             DELETE FROM documents;
             DELETE FROM index_issues;
@@ -767,6 +801,13 @@ impl Store {
         };
         let mut allowed = roots.iter().any(|root| canonical.starts_with(root));
         if !allowed {
+            if let Some(source) = self.conversion_source(&canonical)? {
+                anyhow::ensure!(!crate::docling::in_output(&source), "原文件路径不可用");
+                self.authorize(&source)?;
+                return Ok(canonical);
+            }
+        }
+        if !allowed {
             for root in &roots {
                 let actual = match Path::new(root).canonicalize() {
                     Ok(path) => path,
@@ -791,6 +832,7 @@ impl Store {
     // Preserve the path namespace used by an index created before a root became a symlink.
     pub(crate) fn indexed_path(&self, path: &Path) -> Result<PathBuf> {
         let canonical = self.authorize(path)?;
+        if self.conversion_source(&canonical)?.is_some() { return Ok(canonical); }
         let roots = self.roots()?;
         if roots.iter().any(|root| canonical.starts_with(&root.path)) {
             return Ok(canonical);
@@ -808,7 +850,13 @@ impl Store {
         bail!("目录已从知识库移除")
     }
     pub fn add_root(&self, path: &Path) -> Result<String> {
+        let _storage = self.conversion_storage_access.read().unwrap();
         let path = path.canonicalize().context("无法打开这个文件夹")?;
+        anyhow::ensure!(!crate::docling::in_output(&path), "转换结果目录不能添加为资料文件夹");
+        if let ConversionStorage::Custom { directory } = self.settings()?.conversion_storage {
+            anyhow::ensure!(!Path::new(&directory).join(crate::docling::OUTPUT_DIRECTORY).starts_with(&path),
+                "资料文件夹不能包含自定义转换结果目录");
+        }
         if !path.is_dir() && !path.is_file() { bail!("请选择文件或文件夹") }
         let roots = self.roots()?;
         if let Some(r) = roots.iter().find(|r| path.starts_with(&r.path)) {
@@ -858,6 +906,7 @@ impl Store {
         let value = path_text(path)?;
         let roots = self.roots()?;
         if roots.iter().any(|root| root.path == value) { return self.remove_root(&value); }
+        let _storage = self.conversion_storage_access.read().unwrap();
         let root = roots.iter().find(|root| path.starts_with(&root.path)).context("此路径不在知识库中")?;
         if !path.is_dir() && !path.is_file() { bail!("只能移除知识库中的文件或文件夹") }
         let mut db = self.connection();
@@ -880,6 +929,8 @@ impl Store {
         Ok(())
     }
     pub fn remove_root(&self, path: &str) -> Result<()> {
+        let _storage = self.conversion_storage_access.read().unwrap();
+        let settings = self.settings()?;
         let mut c = self.connection();
         let tx = c.transaction()?;
         let exists: bool = tx.query_row(
@@ -894,7 +945,7 @@ impl Store {
         // Snapshot the latest completed/basic ownership under the writer lock
         // before cascading mappings. Intermediate enhancement turns deliberately
         // avoid rewriting the whole journal for every document.
-        Self::save_conversion_ownership_from(&tx, path)?;
+        self.save_conversion_ownership_from(&tx, path, &settings)?;
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.root=?)",[path])?;
         tx.execute("DELETE FROM documents WHERE root=?", [path])?;
         tx.execute("DELETE FROM roots WHERE path=?", [path])?;
@@ -961,6 +1012,7 @@ impl Store {
         Ok(Some(Document {
             id,
             path: path_text(&path)?,
+            source_path: self.conversion_source(&path)?.as_deref().map(path_text).transpose()?,
             name: path.file_name().unwrap().to_string_lossy().into(),
             body: body.into_owned(),
             hash: hash(&raw),
@@ -968,12 +1020,13 @@ impl Store {
     }
     pub fn files(&self) -> Result<Vec<FileInfo>> {
         let c = self.connection();
-        let mut q = c.prepare("SELECT d.id,d.path,d.name,COALESCE(s.status,'complete'),s.error FROM documents d LEFT JOIN conversions c ON c.output=d.path LEFT JOIN conversion_states s ON s.source=c.source WHERE c.source IS NULL OR c.valid=1 ORDER BY d.name,d.path")?;
+        let mut q = c.prepare("SELECT d.id,d.path,d.name,COALESCE(s.status,'complete'),s.error,c.source FROM documents d LEFT JOIN conversions c ON c.output=d.path LEFT JOIN conversion_states s ON s.source=c.source WHERE c.source IS NULL OR c.valid=1 ORDER BY d.name,d.path")?;
         let rows = q
             .query_map([], |r| {
                 Ok(FileInfo {
                     id: r.get(0)?,
                     path: r.get(1)?,
+                    source_path: r.get(5)?,
                     name: r.get(2)?,
                     index_status: Some(r.get(3)?),
                     index_error: r.get(4)?,
@@ -988,7 +1041,12 @@ impl Store {
         content: &str,
         expected_hash: Option<&str>,
     ) -> Result<Document> {
-        let parent = self.authorize(path.parent().context("缺少父文件夹")?)?;
+        let _storage = self.conversion_storage_access.read().unwrap();
+        let parent = if expected_hash.is_some() && self.conversion_source(path)?.is_some() {
+            self.authorize(path)?.parent().unwrap().to_path_buf()
+        } else {
+            self.authorize(path.parent().context("缺少父文件夹")?)?
+        };
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -1118,6 +1176,7 @@ impl Store {
     /// Service runs this through a shared Store
     /// handle with its own control lane, so primary ingestion remains available.
     pub fn enhance(&self, root: &str, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        let _storage = self.conversion_storage_access.read().unwrap();
         if !Path::new(root).is_dir() {
             self.root_status(root,"error",Some("文件夹不可用，请检查磁盘或重新添加"))?;
             bail!("文件夹不可用，请检查磁盘或重新添加");
@@ -1140,7 +1199,7 @@ impl Store {
             if !eligible {
                 self.connection().execute("DELETE FROM conversion_states WHERE source=?", [&source])?;
                 self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
-                self.remove_indexed(&path_text(&crate::docling::output_path(Path::new(root),path)?)?)?;
+                self.remove_indexed(&path_text(&self.conversion_path(Path::new(root),path,&settings)?)?)?;
                 continue;
             }
             snapshots.push((source.clone(),crate::docling::fingerprint(path)?,crate::conversion::identity(path,&settings)));
@@ -1207,7 +1266,7 @@ impl Store {
                 let current:Option<String>=self.connection().query_row("SELECT source_hash FROM conversions WHERE source=?",[&active_source],|row|row.get(0)).optional()?;
                 if current.as_deref().and_then(|hash|hash.rsplit(':').next())==Some(input_hash.as_str()) {
                     self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?",[&active_source])?;
-                    self.remove_indexed(&path_text(&crate::docling::output_path(Path::new(root),source)?)?)?;
+                    self.remove_indexed(&path_text(&self.conversion_path(Path::new(root),source,&settings)?)?)?;
                 }
             }
         }
@@ -1217,6 +1276,7 @@ impl Store {
         self.scan_with_mode(root, true, progress)
     }
     fn scan_with_mode(&self, root: &str, enhance: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        let _storage = self.conversion_storage_access.read().unwrap();
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
@@ -1239,6 +1299,7 @@ impl Store {
         self.update_paths_mode(root,paths,true,progress)
     }
     fn update_paths_mode(&self, root: &str, paths: &[PathBuf], enhance: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
+        let _storage = self.conversion_storage_access.read().unwrap();
         if !self.begin_indexing(root)? { return Ok(0); }
         let started_at = now();
         self.indexing.begin(root);
@@ -1555,7 +1616,7 @@ impl Store {
         let mut rules = crate::folder_index::Rules::new(Path::new(root), settings)?;
         // Keep ownership beside the derived files so removing/re-adding a library
         // can reuse them without mistaking user files for disposable output.
-        let metadata_path = crate::docling::output_path(Path::new(root), &Path::new(root).join(".ownership"))?
+        let metadata_path = self.conversion_path(Path::new(root), &Path::new(root).join(".ownership"), settings)?
             .parent().unwrap().join(".sag-converted.json");
         if metadata_path.symlink_metadata().is_ok_and(|metadata| metadata.file_type().is_symlink()) {
             bail!(".sag-converted 转换记录不能是符号链接")
@@ -1566,7 +1627,7 @@ impl Store {
                 .context("无法读取 .sag-converted 转换记录")?;
             for (relative, (source_hash, output_hash)) in records {
                 let source = Path::new(root).join(relative);
-                let output = crate::docling::output_path(Path::new(root), &source)?;
+                let output = self.conversion_path(Path::new(root), &source, settings)?;
                 if !crate::docling::is_source(&source) {
                     bail!("转换记录包含无效的原文件路径")
                 }
@@ -1660,7 +1721,7 @@ impl Store {
                         let mut stat = None;
                         let mut expected_record = None;
                         let result = (|| -> Result<bool> {
-                            let output = crate::docling::output_path(Path::new(root), source)?;
+                            let output = self.conversion_path(Path::new(root), source, &settings)?;
                             let metadata = fs::metadata(source)?;
                             let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
                             let size = metadata.len() as i64;
@@ -1800,13 +1861,13 @@ impl Store {
                     if !preserve_previous {
                         // Backend failure still invalidates evidence for the changed source.
                         self.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source])?;
-                        let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
+                        let output = self.conversion_path(Path::new(root), Path::new(&source), &settings)?;
                         self.remove_indexed(&path_text(&output)?)?;
                     }
                     // Removing stale evidence is an index update, not a
                     // successful recovery of the conversion that just failed.
                     if !self.indexing.cancelled(root) {
-                        self.indexing.record_file(root, &crate::docling::output_path(Path::new(root), Path::new(&source))?, IndexOutcome::Failed);
+                        self.indexing.record_file(root, &self.conversion_path(Path::new(root), Path::new(&source), &settings)?, IndexOutcome::Failed);
                     }
                     // Remember every failure under the identity that produced it, so a
                     // later scan reports it without parsing the source again. Cancelled
@@ -1823,7 +1884,7 @@ impl Store {
                 } else {
                     self.conversion_state(&source, root, "complete", None)?;
                     if result.unwrap() {
-                    let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
+                    let output = self.conversion_path(Path::new(root), Path::new(&source), &settings)?;
                     self.accept_prepared(root, &output, self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false, &settings.runtime)?)?;
                     if !prune {
                         // The normal native scan retires source issues before
@@ -1942,7 +2003,7 @@ impl Store {
             let c = self.connection();
             let directory = path_text(directory)?;
             let prefix = format!("{}{}", directory.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
-            let converted_directory = crate::docling::output_path(Path::new(root), &Path::new(&directory).join(".scope"))?.parent().unwrap().to_path_buf();
+            let converted_directory = self.conversion_path(root, &Path::new(&directory).join(".scope"), settings)?.parent().unwrap().to_path_buf();
             let converted_prefix = format!("{}{}", converted_directory.display(), std::path::MAIN_SEPARATOR);
             let mut q = c.prepare("SELECT snapshot.path,d.hash,d.mtime,d.size FROM (SELECT path FROM documents WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1) UNION SELECT path FROM index_issues WHERE root=?1 AND (path=?2 OR instr(path,?3)=1 OR instr(path,?4)=1)) snapshot LEFT JOIN documents d ON d.path=snapshot.path")?;
             let rows = q
@@ -1956,7 +2017,26 @@ impl Store {
         };
         let converted = if converted_only == Some(false) { HashSet::new() } else { self.conversion_outputs()? };
         let mut rules = crate::folder_index::Rules::new(root, settings)?;
-        let converted_target = crate::docling::output_path(root, &directory.join(".scope"))?.parent().unwrap().to_path_buf();
+        let converted_target = self.conversion_path(root, &directory.join(".scope"), settings)?.parent().unwrap().to_path_buf();
+        let external = settings.conversion_storage != ConversionStorage::Library;
+        let mut files = Vec::new();
+        if external && converted_only != Some(false) {
+            let db = self.connection();
+            let mut query = db.prepare("SELECT source,output FROM conversions WHERE root=? AND valid=1 ORDER BY source")?;
+            let rows = query.query_map([path_text(root)?], |row| Ok((row.get::<_, String>(0)?,row.get::<_, String>(1)?)))?;
+            for row in rows {
+                let (source, output) = row?;
+                let source = Path::new(&source);
+                let output = PathBuf::from(output);
+                if source.starts_with(directory) && !excluded.iter().any(|path| source.starts_with(path))
+                    && crate::docling::should_convert(source, rules.file(source)?)
+                    && self.conversion_path(root, source, settings)? == output && output.is_file()
+                {
+                    files.push(output);
+                }
+            }
+            if converted_only == Some(true) { return Ok(DirectoryScan { files,indexed }); }
+        }
         let output_target = converted_target.clone();
         let target = directory.to_path_buf();
         let excluded = excluded.to_vec();
@@ -1966,14 +2046,13 @@ impl Store {
             let path = entry.path();
             (if converted_only == Some(true) { path.starts_with(&output_target) || output_target.starts_with(path) }
              else { path.starts_with(&target) || target.starts_with(path) || path.starts_with(&output_target) || output_target.starts_with(path) })
-                && (converted_only != Some(false) || !crate::docling::in_output(path))
+                && (!external && converted_only != Some(false) || !crate::docling::in_output(path))
                 && !excluded.iter().any(|removed| path.starts_with(removed))
                 && (entry.depth() == 0 || !(entry.file_type().is_some_and(|ty| ty.is_dir())
                     && entry.file_name().as_encoded_bytes().starts_with(b".")
                     && entry.file_name() != crate::docling::OUTPUT_DIRECTORY)
                     && !names.iter().any(|name| entry.file_name() == name.as_str()))
         });
-        let mut files = Vec::new();
         for entry in builder.build() {
             self.indexing.checkpoint_root(&root.to_string_lossy())?;
             let Some(entry) = self.walk_entry(root, entry)? else { continue };
@@ -2060,8 +2139,10 @@ impl Store {
     pub fn index_file(&self, root: &str, path: &Path, max_chars: usize) -> Result<bool> {
         let mut ignore = ignore_rules::matcher(Path::new(root));
         let mut rules = crate::folder_index::Rules::new(Path::new(root), &self.settings()?)?;
-        if ignore_rules::is_ignored(&mut ignore, path, false)? || text::in_hidden_directory(Path::new(root), path, false)
-            || !Self::indexable_path(path, rules.file(path)?) {
+        let source = self.conversion_source(path)?;
+        let filter_path = source.as_deref().unwrap_or(path);
+        if ignore_rules::is_ignored(&mut ignore, filter_path, false)? || text::in_hidden_directory(Path::new(root), filter_path, false)
+            || !Self::indexable_path(path, rules.file(filter_path)?) {
             self.remove_indexed(&path_text(path)?)?;
             return Ok(false);
         }
@@ -2361,7 +2442,8 @@ impl Store {
         ), top_hits AS MATERIALIZED (
             SELECT id,score FROM ranked WHERE position=1 ORDER BY score,id LIMIT ?3 OFFSET ?4
         )
-        SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,r.score,d.hash,c.spans
+        SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,r.score,d.hash,c.spans,
+            (SELECT source FROM conversions WHERE output=d.path AND valid=1)
         FROM top_hits r JOIN chunks c ON c.id=r.id JOIN documents d ON d.id=c.document_id
         ORDER BY r.score,c.id")?;
         let mut rows = statement.query(params![
@@ -2609,7 +2691,8 @@ impl Store {
                 ))
                 ORDER BY score,rowid LIMIT ?4
             )
-            SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,h.score,d.hash,c.spans
+            SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,h.score,d.hash,c.spans,
+                (SELECT source FROM conversions WHERE output=d.path AND valid=1)
             FROM top_hits h JOIN chunks c ON c.id=h.rowid JOIN documents d ON d.id=c.document_id
             ORDER BY h.score,c.id";
         let expression = key.required.as_ref().map_or_else(|| key.expression.clone(), |required| format!("({}) AND ({required})", key.expression));
@@ -2673,7 +2756,8 @@ impl Store {
         limit: usize,
     ) -> Result<Vec<Candidate>> {
         let c = self.connection();
-        let mut q=c.prepare("SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,0.0,d.hash,c.spans FROM chunks c JOIN documents d ON d.id=c.document_id WHERE (d.path IN (SELECT value FROM json_each(?1)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?1)))) ORDER BY c.id LIMIT ?2")?;
+        let mut q=c.prepare("SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,0.0,d.hash,c.spans,
+            (SELECT source FROM conversions WHERE output=d.path AND valid=1) FROM chunks c JOIN documents d ON d.id=c.document_id WHERE (d.path IN (SELECT value FROM json_each(?1)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?1)))) ORDER BY c.id LIMIT ?2")?;
         let mut rows = q.query(params![serde_json::to_string(references)?, limit as i64])?;
         let mut result = vec![];
         let mut documents = HashMap::new();
@@ -3057,6 +3141,9 @@ mod tests {
         let notes = dir.path().join("notes");
         fs::create_dir(&notes).unwrap();
         let db = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
+        let mut settings = db.settings().unwrap();
+        settings.conversion_storage = ConversionStorage::Library;
+        db.save_settings(&settings).unwrap();
         db.add_root(&notes).unwrap();
         let notes = notes.canonicalize().unwrap();
         (dir, db, notes)
@@ -3918,7 +4005,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let mut old = serde_json::to_value(Settings::default()).unwrap();
         old.as_object_mut().unwrap().remove("retrieval_version");
         old["retrieval"] = serde_json::json!({"candidate_k":50,"seed_k":10,"max_hops":1,"expansion_term_limit":20,"top_k":10,"chunk_chars":1000});
-        store.connection().execute("INSERT INTO preferences VALUES(1,?)", [old.to_string()]).unwrap();
+        store.connection().execute("UPDATE preferences SET value=? WHERE id=1", [old.to_string()]).unwrap();
         drop(store);
         let reopened = Store::open(&database).unwrap();
         assert_eq!(reopened.settings().unwrap().retrieval.chunk_chars,512);
@@ -3965,7 +4052,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         old.as_object_mut().unwrap().remove("retrieval_version");
         old["jev"]["url"] = serde_json::json!("https://existing.example/decisions");
         old["retrieval"] = serde_json::json!({"candidate_k":50,"seed_k":10,"max_hops":1,"expansion_term_limit":20,"top_k":10,"chunk_chars":1000});
-        store.connection().execute("INSERT INTO preferences VALUES(1,?)", [old.to_string()]).unwrap();
+        store.connection().execute("UPDATE preferences SET value=? WHERE id=1", [old.to_string()]).unwrap();
         let upgraded = store.settings().unwrap();
         assert_eq!(upgraded.retrieval_version, 10);
         assert_eq!(upgraded.retrieval.candidate_k, 50);

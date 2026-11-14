@@ -114,6 +114,6 @@
  .fold-reader:not(.ready) iframe{visibility:hidden}
  .fold-warning{position:absolute;bottom:104px;left:24px;right:120px;z-index:3;text-align:center;font-size:12px;color:var(--color-secondary);pointer-events:none}
  @media(max-width:1080px){.document-fold-controls{right:20px}.fold-levels button{padding:8px 10px}}
- @media(max-width:640px){.fold-panel{left:16px;right:auto;max-width:calc(100% - 140px)}.fold-levels{flex-wrap:wrap}}
+ @media(max-width:680px){.fold-panel{left:16px;right:auto;max-width:calc(100% - 140px)}.fold-levels{flex-wrap:wrap}}
  @media(prefers-reduced-motion:reduce){.fold-levels button{transition:none}}
 </style>

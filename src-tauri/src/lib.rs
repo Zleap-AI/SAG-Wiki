@@ -379,6 +379,15 @@ async fn reveal_path(path: String, state: State<'_, Arc<AppState>>) -> CommandRe
     let value = rpc(&state, Operation::AuthorizePath { path }).await?;
     reveal(Path::new(value.as_str().unwrap())).map_err(error)
 }
+
+#[tauri::command]
+async fn open_source_file(path: String, state: State<'_, Arc<AppState>>) -> CommandResult<()> {
+    let value = rpc(&state, Operation::AuthorizePath { path }).await?;
+    let path = Path::new(value.as_str().unwrap());
+    if !path.is_file() { return Err("原文件不可用".into()); }
+    tauri::async_runtime::spawn_blocking(move || open_local_file(Path::new(value.as_str().unwrap())))
+        .await.map_err(error)?
+}
 #[tauri::command]
 async fn reveal_docling_log(state: State<'_, Arc<AppState>>) -> CommandResult<()> {
     let log = state.data_dir.join("docling").join("install-diagnostics.log");
@@ -390,6 +399,9 @@ async fn reveal_docling_log(state: State<'_, Arc<AppState>>) -> CommandResult<()
 #[tauri::command]
 async fn open_index_history_file(id: i64, path: String, state: State<'_, Arc<AppState>>) -> CommandResult<()> {
     let value = rpc(&state, Operation::AuthorizeIndexHistoryFile { id, path }).await?;
+    open_local_file(Path::new(value.as_str().unwrap()))
+}
+fn open_local_file(path: &Path) -> CommandResult<()> {
     #[cfg(target_os = "macos")]
     let mut command = std::process::Command::new("open");
     #[cfg(target_os = "windows")]
@@ -400,7 +412,7 @@ async fn open_index_history_file(id: i64, path: String, state: State<'_, Arc<App
     };
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     let mut command = std::process::Command::new("xdg-open");
-    if !command.arg(value.as_str().unwrap()).status().map_err(error)?.success() {
+    if !command.arg(path).status().map_err(error)?.success() {
         return Err("无法用系统默认应用打开原文件".into());
     }
     Ok(())
@@ -684,6 +696,7 @@ pub fn run() {
             summarize_search,
             fold_document,
             reveal_path,
+            open_source_file,
             reveal_docling_log,
             open_data_directory,
             open_about_link,

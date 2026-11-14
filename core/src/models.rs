@@ -919,6 +919,7 @@ mod tests {
 
     pub(super) fn candidate(id: i64, body: String) -> Candidate {
         Candidate {
+            source_path: None,
             previous_score: None,
             id,
             document_id: 1,
@@ -1349,7 +1350,7 @@ mod tests {
             previous_score: None,
             id: 7,
             document_id: 1,
-            path: "/test".into(),
+            path: "/test".into(), source_path: None,
             title: "Title".into(),
             heading: "".into(),
             content: "Evidence".into(),

@@ -88,6 +88,7 @@ impl Store {
         enhance: bool,
         progress: impl Fn(IndexProgress),
     ) -> Result<usize> {
+        let _storage = self.conversion_storage_access.read().unwrap();
         if !self.begin_indexing(root)? {
             return Ok(0);
         }
@@ -222,7 +223,7 @@ impl Store {
                 // basic text and let the independent worker consume pending states.
                 self.publish_basic_sources(root, &sources, &settings, &conversion_progress)?;
                 for source in &sources {
-                    let output = crate::docling::output_path(Path::new(root), source)?;
+                    let output = self.conversion_path(Path::new(root), source, &settings)?;
                     let owned: bool = self.connection().query_row(
                         "SELECT EXISTS(SELECT 1 FROM conversions WHERE source=? AND valid=1)",
                         [path_text(source)?],

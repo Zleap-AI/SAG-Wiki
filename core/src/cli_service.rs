@@ -500,9 +500,12 @@ impl CliService {
                         if document.hash != hash {
                             bail!("文件已修改，请重新搜索：{}", candidate_path)
                         }
-                        let canonical = Path::new(&candidate_path).canonicalize()?;
+                        let output_path = self.store.authorize(Path::new(&candidate_path))?;
+                        let canonical = if output_path.starts_with(&path) { output_path.clone() } else {
+                            self.store.authorize(Path::new(document.source_path.as_deref().context("转换结果缺少原文件")?))?
+                        };
                         if !canonical.starts_with(&path) || !scopes.iter().any(|scope| {
-                            if exclude.is_empty() { canonical.starts_with(scope) } else { canonical == Path::new(scope) }
+                            if exclude.is_empty() { canonical.starts_with(scope) } else { output_path == Path::new(scope) }
                         }) {
                             bail!("搜索结果超出授权目录")
                         }

@@ -583,7 +583,7 @@ input,select,textarea{font-size:var(--text-ui)}
 @media(prefers-reduced-motion:no-preference){.real-client .index-retry-button .retry-spinning{animation:search-progress-spin 1s linear infinite}}
 
 :is([data-sag-web],html:has(.real-client)) body{min-width:0}
-@media(max-width:640px){
+@media(max-width:680px){
  html:not([data-sag-web]):has(.real-client){--window-bar-height:32px}
  .real-client .compact-window-bar{display:flex;flex:none;height:var(--window-bar-height);background:var(--color-sidebar)}
  .modal-backdrop:not(.source-dialog){top:var(--window-bar-height)}

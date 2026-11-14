@@ -924,7 +924,8 @@ async fn search(
             let document=store.document(Path::new(&path)).map_err(ApiError::internal)?;
             if document.hash!=hash{return Err(ApiError::internal("文件已修改，请重新搜索"))}
             let canonical=store.authorize(Path::new(&path)).map_err(ApiError::internal)?;
-            if !canonical_scope.iter().any(|s|if files_only {canonical==*s}else{canonical.starts_with(s)}){return Err(ApiError::internal("结果超出搜索范围"))}
+            let source=document.source_path.as_deref().map(|path| store.authorize(Path::new(path))).transpose().map_err(ApiError::internal)?;
+            if !canonical_scope.iter().any(|s|if files_only {canonical==*s}else{canonical.starts_with(s)||source.as_ref().is_some_and(|path| path.starts_with(s))}){return Err(ApiError::internal("结果超出搜索范围"))}
             ranges.sort_unstable();let mut merged:Vec<(usize,usize)>=vec![];
             for (start,end) in ranges{if let Some(last)=merged.last_mut().filter(|last|start<=last.1){last.1=last.1.max(end)}else{merged.push((start,end))}}
             let lines=crate::text::Lines::new(&document.body);
