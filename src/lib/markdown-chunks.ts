@@ -28,14 +28,14 @@ const htmlBlocks:[RegExp,RegExp][]=[
 export function splitMarkdown(text:string,target=4000):Chunk[]{
  const chunks:Chunk[]=[];
  // The previous line was empty and the one before it had text.
- let start=0,fence='',html:RegExp|null=null,lastEmpty=false,lastText=false,textBeforeLast=false,lineStart=0;
+ let start=0,fence='',html:RegExp|null=null,math='',lastEmpty=false,lastText=false,textBeforeLast=false,lineStart=0;
  for(;;){
   const newline=text.indexOf('\n',lineStart),rawLine=text.slice(lineStart,newline<0?text.length:newline);
   // Inspect CRLF as a line ending without changing offsets into the original text.
   const line=rawLine.endsWith('\r')?rawLine.slice(0,-1):rawLine;
   // Keep definitions with the preceding block: a repeated definition can vanish
   // from the token stream, leaving the preceding blank line at the document end.
-  if(!fence&&!html&&lastEmpty&&textBeforeLast&&lineStart-start>=target&&/^\S/.test(line)&&!listMarker.test(line)&&!definitionStart.test(text.slice(lineStart,lineStart+2004))){
+  if(!fence&&!html&&!math&&lastEmpty&&textBeforeLast&&lineStart-start>=target&&/^\S/.test(line)&&!listMarker.test(line)&&!definitionStart.test(text.slice(lineStart,lineStart+2004))){
    chunks.push({from:start,to:lineStart});start=lineStart;
   }
   if(html){if(html.test(line))html=null}
@@ -43,6 +43,19 @@ export function splitMarkdown(text:string,target=4000):Chunk[]{
    const block=htmlBlocks.find(([open])=>open.test(line));
    // The closer may sit on the opening line, after the opener itself.
    if(block&&!block[1].test(line.replace(block[0],'')))html=block[1];
+  }
+  // A display formula owns its blank lines: `aligned`/`cases` blocks often contain
+  // them, and splitting there would turn one formula into several paragraphs.
+  if(math){
+   if((math==='$$'&&/\$\$[ \t]*$/.test(line))||(math==='\\['&&/\\\][ \t]*$/.test(line)))math='';
+  }
+  else if(!fence&&!html){
+   const open=/^ {0,3}(\$\$|\\\[)/.exec(line);
+   if(open){
+    const rest=line.slice(open[0].length);
+    const closed=open[1]==='$$'?/\$\$/.test(rest):/\\\]/.test(rest);
+    if(!closed)math=open[1];
+   }
   }
   const fenceMatch=html?null:fencePattern.exec(line);
   if(fenceMatch){

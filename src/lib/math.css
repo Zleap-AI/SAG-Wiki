@@ -1,0 +1,6 @@
+/* Block formulas scroll instead of widening the transcript or the reader. */
+.math-block{display:block;margin:12px 0;overflow-x:auto;overflow-y:hidden}
+.math-block>.math-output{display:block}
+.math-block .katex-display{margin:0}
+/* KaTeX keeps invalid syntax visible; style its error box like a code span. */
+.katex-error{color:var(--color-danger,#c0392b);font-family:var(--font-mono,ui-monospace,monospace);font-size:.92em;white-space:pre-wrap;overflow-wrap:anywhere}
