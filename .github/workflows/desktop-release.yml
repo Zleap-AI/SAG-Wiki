@@ -70,6 +70,7 @@ jobs:
           cache: npm
           cache-dependency-path: docs-site/package-lock.json
       - name: Reuse a verified documentation checkpoint or wait for its running producer
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         id: reuse
         env:
           GH_TOKEN: ${{ github.token }}
@@ -79,7 +80,9 @@ jobs:
       - run: npm --prefix docs-site run build
         if: steps.reuse.outputs.reuse != 'true'
 
+      # Branch dispatches exercise every check without producing release receipts.
       - name: Record the verified checkpoint producer
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: checkpoint-documentation-${{ github.sha }}-${{ github.run_attempt }}
@@ -102,6 +105,7 @@ jobs:
           node-version: '24.13.0'
           cache: npm
       - name: Reuse a verified frontend checkpoint or wait for its running producer
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         id: reuse
         env:
           GH_TOKEN: ${{ github.token }}
@@ -112,7 +116,9 @@ jobs:
         if: steps.reuse.outputs.reuse != 'true'
         run: npm test
 
+      # Branch dispatches exercise every check without producing release receipts.
       - name: Record the verified checkpoint producer
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: checkpoint-frontend-${{ github.sha }}-${{ github.run_attempt }}
@@ -169,6 +175,7 @@ jobs:
           node-version: '24.13.0'
           cache: npm
       - name: Reuse this checkpoint or wait for its running main or tag producer
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         id: reuse
         env:
           GH_TOKEN: ${{ github.token }}
@@ -209,8 +216,9 @@ jobs:
             !src-tauri/target/debug/build/sag-*
             !src-tauri/target/debug/deps/libsag_*
             !src-tauri/target/debug/deps/sag_*
-          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
+          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
           restore-keys: |
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Install locked JavaScript dependencies
         if: steps.reuse.outputs.reuse != 'true'
@@ -237,22 +245,35 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Run native tests with locked dependencies
+        env:
+          # Keep assertions and overflow checks; reduce only test debug metadata.
+          # Scope this to tests so production builds retain their release profiles.
+          CARGO_PROFILE_TEST_DEBUG: '1'
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
         run: |
           node scripts/prepare-qpdf.mjs
           node --test scripts/qpdf-packaging.node-test.mjs
-          cargo test --locked --manifest-path protocol/Cargo.toml
-          cargo test --locked --manifest-path client/Cargo.toml
-          cargo test --locked --manifest-path core/Cargo.toml
+          cargo test --locked --timings --manifest-path protocol/Cargo.toml
+          cargo test --locked --timings --manifest-path client/Cargo.toml
+          cargo test --locked --timings --manifest-path core/Cargo.toml
           # Fail within a bounded regression test if daemon pipes leak again,
           # before running CLI tests that collect complete subprocess output.
-          cargo test --locked --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
-          cargo test --locked --manifest-path cli/Cargo.toml -- --nocapture
+          cargo test --locked --timings --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
+          cargo test --locked --timings --manifest-path cli/Cargo.toml -- --nocapture
           if [[ "$RUNNER_OS" == Windows ]]; then
             pwsh -NoProfile -File scripts/test-windows-desktop.ps1
           else
-            cargo test --locked --manifest-path src-tauri/Cargo.toml
+            cargo test --locked --timings --manifest-path src-tauri/Cargo.toml
           fi
+      - name: Upload native compilation timings
+        if: always() && matrix.kind == 'test' && steps.reuse.outputs.reuse != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: native-timings-${{ matrix.platform }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: src-tauri/target/cargo-timings/
+          if-no-files-found: warn
+          retention-days: 7
+
       - name: Save trusted main Rust debug cache
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (github.ref == 'refs/heads/main' && github.event_name == 'push' && steps.rust-debug.outputs.cache-hit != 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -396,7 +417,9 @@ jobs:
             !src-tauri/target/${{ matrix.target }}/release/deps/sag_*
           key: ${{ steps.rust-release.outputs.cache-primary-key }}
 
+      # Branch dispatches exercise every check without producing release receipts.
       - name: Record the verified checkpoint producer
+        if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: checkpoint-${{ matrix.component }}-${{ github.sha }}-${{ github.run_attempt }}
