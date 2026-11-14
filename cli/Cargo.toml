@@ -1,6 +1,6 @@
 [package]
 name = "sag-cli"
-version = "0.2.13"
+version = "0.2.16"
 edition = "2021"
 
 [[bin]]
