@@ -3,9 +3,9 @@ import {mermaidPreview} from './mermaid';
 import {get} from 'svelte/store';
 import {t} from './i18n';
 import type {Candidate,ToolCallRecord,ReasoningBlock} from './types';
-import {getHTMLFromFragment,getSchema,type JSONContent} from '@tiptap/core';import {Node as ProseMirrorNode} from '@tiptap/pm/model';import StarterKit from '@tiptap/starter-kit';import {MarkdownManager}from '@tiptap/markdown';import {BoundedTableKit,BoundedTaskList,TaskItem,ReadHtmlAlignment} from './markdown-extensions';import {splitMarkdown} from './markdown-chunks';import Image from '@tiptap/extension-image';import DOMPurify from 'dompurify';import{api}from './api';import{dirname}from './domain';
+import {getHTMLFromFragment,getSchema,type JSONContent} from '@tiptap/core';import {Node as ProseMirrorNode} from '@tiptap/pm/model';import StarterKit from '@tiptap/starter-kit';import {MarkdownManager}from '@tiptap/markdown';import {BoundedTableKit,BoundedTaskList,TaskItem,ReadHtmlAlignment} from './markdown-extensions';import {splitMarkdown} from './markdown-chunks';import Image from '@tiptap/extension-image';import DOMPurify from 'dompurify';import{api}from './api';import{dirname}from './domain';import{mathExtensions}from './math';
 export const LocalImage=Image.extend({renderHTML({node,HTMLAttributes}){return['img',{...HTMLAttributes,src:'',alt:node.attrs.alt||get(t)('图片'),'data-source':node.attrs.src}]}});
-const extensions=[StarterKit,...BoundedTableKit,LocalImage.configure({inline:true}),ReadHtmlAlignment,BoundedTaskList,TaskItem.configure({nested:true})];const parser=new MarkdownManager({extensions});
+const extensions=[StarterKit,...BoundedTableKit,LocalImage.configure({inline:true}),ReadHtmlAlignment,BoundedTaskList,TaskItem.configure({nested:true}),...mathExtensions];const parser=new MarkdownManager({extensions});
 // generateHTML rebuilds the schema on every call; documents render in many pieces.
 const schema=getSchema(extensions);
 type Links=Record<string,{href:string;title:string|null}>;
@@ -91,7 +91,7 @@ export function renderMarkdownPiece(text:string,links:LinkDefinition[]=[],{offse
 }
 export function markdownTokens(text:string){return parser.instance.lexer(text)}
 export function finishHtml(html:string):string{
- html=DOMPurify.sanitize(html,{ADD_ATTR:['data-source']});
+ html=DOMPurify.sanitize(html,{ADD_ATTR:['data-source','data-tex']});
  if(!/class="language-mermaid"/i.test(html))return html;
  const doc=new DOMParser().parseFromString(html,'text/html');
  for(const code of doc.querySelectorAll('pre > code')){
@@ -132,7 +132,7 @@ export function renderAnswer(text:string,evidence:Candidate[],tools:ToolCallReco
  function renderPart(content:string){
  const html=renderMarkdown(content,text);const doc=new DOMParser().parseFromString(html,'text/html');const walker=doc.createTreeWalker(doc.body,NodeFilter.SHOW_TEXT);const nodes:Text[]=[];while(walker.nextNode())nodes.push(walker.currentNode as Text);
  for(const node of nodes){
-  if(node.parentElement?.closest('code,pre,a,svg,.mermaid-diagram'))continue;
+  if(node.parentElement?.closest('code,pre,a,svg,.mermaid-diagram,.math-inline,.math-block'))continue;
   const value=node.textContent||'';
   const matches=[...value.matchAll(/\[(\d+)\]/g)].filter(m=>Number(m[1])>0&&Number(m[1])<=evidence.length);
   if(!matches.length)continue;
