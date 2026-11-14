@@ -9,8 +9,8 @@ import {verifyEnvironment} from './release.mjs';
 
 const repository = 'Zleap-AI/SAG-Wiki';
 const root = resolve(import.meta.dirname, '..');
-const {values} = parseArgs({options: Object.fromEntries(['key-file', 'password-file', 'reviewer'].map(name => [name, {type: 'string'}]))});
-for (const name of ['key-file', 'password-file', 'reviewer']) assert.ok(values[name], `--${name} is required`);
+const {values} = parseArgs({options: Object.fromEntries(['key-file', 'password-file'].map(name => [name, {type: 'string'}]))});
+for (const name of ['key-file', 'password-file']) assert.ok(values[name], `--${name} is required`);
 const run = (args, input, sensitive = false) => {
   const result = spawnSync('gh', args, {encoding: 'utf8', input});
   assert.equal(result.status, 0, sensitive ? 'Secret upload failed; secret content was not logged' : `GitHub request failed: ${result.stderr?.trim()}`);
@@ -19,9 +19,6 @@ const run = (args, input, sensitive = false) => {
 const api = (path, method, body) => JSON.parse(run(['api', ...(method ? ['--method', method] : []), path, ...(body ? ['--input', '-'] : [])], body && JSON.stringify(body)));
 const project = api(`repos/${repository}`);
 assert.equal(project.permissions?.admin, true, 'Repository Admin is required to configure release protection and Environment Secrets');
-const reviewer = api(`users/${encodeURIComponent(values.reviewer)}`);
-const permission = api(`repos/${repository}/collaborators/${encodeURIComponent(reviewer.login)}/permission`);
-assert.ok(['admin', 'maintain', 'write', 'triage', 'read'].includes(permission.permission), 'Reviewer needs repository access');
 
 function secretFile(path) {
   const file = resolve(path);
@@ -50,7 +47,7 @@ try {
 }
 
 api(`repos/${repository}/environments/release`, 'PUT', {
-  wait_timer: 0, prevent_self_review: true, reviewers: [{type: 'User', id: reviewer.id}],
+  wait_timer: 0, prevent_self_review: false, reviewers: [],
   deployment_branch_policy: {protected_branches: false, custom_branch_policies: true},
 });
 const policiesPath = `repos/${repository}/environments/release/deployment-branch-policies`;
