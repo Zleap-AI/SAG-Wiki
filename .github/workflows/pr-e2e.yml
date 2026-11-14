@@ -75,6 +75,8 @@ jobs:
       # Only compile the CLI needed by E2E, without Tauri or installers.
       - name: Prepare E2E executable
         run: cargo build --locked --manifest-path cli/Cargo.toml
+      - name: Verify service shutdown synchronization
+        run: cargo test --locked --manifest-path client/Cargo.toml shutdown_tests
       - name: Exercise real service and CLI with local Jev fixture
         run: python tests/local-jev-e2e.py --binary "${{ matrix.binary }}"
 
