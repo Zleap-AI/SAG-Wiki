@@ -469,17 +469,25 @@ pub fn fields() -> Vec<RuntimeField> {
 mod tests {
     use super::*;
     #[test]
-    fn schema_covers_every_runtime_field_and_only_content_changes_invalidate_cache() {
+    fn runtime_controls_cover_every_field_and_only_content_changes_invalidate_cache() {
         let runtime = RuntimeSettings::default();
         let values = serde_json::to_value(&runtime).unwrap();
         let schema = fields();
-        assert_eq!(schema.len(), values.as_object().unwrap().len());
-        for field in schema {
+        let mut schema_keys = std::collections::BTreeSet::new();
+        for field in &schema {
+            assert!(schema_keys.insert(field.key.clone()), "duplicate {}", field.key);
             assert!(!values[&field.key].is_null(), "{}", field.key);
         }
+        // Office parsing has a dedicated switch in Settings, outside the generic
+        // advanced runtime controls. Both surfaces together must cover every field.
+        let dedicated_keys = std::collections::BTreeSet::from(["office_text_only".to_owned()]);
+        assert!(schema_keys.is_disjoint(&dedicated_keys));
+        schema_keys.extend(dedicated_keys);
+        assert_eq!(schema_keys, values.as_object().unwrap().keys().cloned().collect());
         let mut scheduling = runtime.clone();
         scheduling.docling_timeout_secs += 1;
         scheduling.jev_concurrency += 1;
+        scheduling.office_text_only = true;
         assert_eq!(runtime.content_identity(), scheduling.content_identity());
         scheduling.do_ocr = false;
         assert_ne!(runtime.content_identity(), scheduling.content_identity());
