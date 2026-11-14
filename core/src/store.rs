@@ -5,6 +5,7 @@ mod retry_index;
 #[path = "store_progressive.rs"]
 mod progressive;
 use crate::{ignore_rules, text, types::*};
+use crate::index_status::IndexOutcome;
 use anyhow::{bail, Context, Result};
 use indexmap::IndexMap;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
@@ -301,6 +302,10 @@ impl Store {
             fs::create_dir_all(parent)?;
         }
         let db = Connection::open(path)?;
+        // Check before journal setup, CREATE/ALTER statements or data migrations:
+        // an older application must leave a newer database untouched.
+        let schema_version: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
+        anyhow::ensure!(schema_version <= 10, "索引数据库版本 {schema_version} 高于当前支持的版本 10，请使用更新版本的应用");
         register_rank(&db)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
@@ -343,6 +348,13 @@ impl Store {
         if !has_file_log {
             db.execute("ALTER TABLE index_history ADD COLUMN file_log TEXT", [])?;
         }
+        let has_summary: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('index_history') WHERE name='summary')",
+            [], |row| row.get(0),
+        )?;
+        if !has_summary {
+            db.execute("ALTER TABLE index_history ADD COLUMN summary TEXT", [])?;
+        }
         let has_conversion_mtime: bool = db.query_row(
             "SELECT EXISTS(SELECT 1 FROM pragma_table_info('conversions') WHERE name='mtime')",
             [], |r| r.get(0),
@@ -383,7 +395,6 @@ impl Store {
                 COMMIT;
                 VACUUM;")?;
         }
-        let schema_version: i64 = db.pragma_query_value(None, "user_version", |row| row.get(0))?;
         if schema_version > 0 && schema_version < 7 {
             db.execute_batch("BEGIN; DELETE FROM chunk_fts; DELETE FROM chunks; UPDATE documents SET hash=''; UPDATE roots SET status='pending',error=NULL; UPDATE metadata SET version=version+1; COMMIT;")?;
         }
@@ -405,7 +416,7 @@ impl Store {
                 UPDATE metadata SET version=version+1;
                 PRAGMA user_version=10;
                 COMMIT;")?;
-        } else {
+        } else if schema_version < 10 {
             db.pragma_update(None, "user_version", 10)?;
         }
         // Slots are cheap; open read connections only when a configured worker is used.
@@ -1221,8 +1232,9 @@ impl Store {
         }
         let raw = files.iter().map(serde_json::to_string).collect::<serde_json::Result<Vec<_>>>()?.join("\n");
         let (completed, total) = self.indexing.indexed(root);
-        db.execute("INSERT INTO index_history(path,name,started_at,finished_at,completed,total,status,error,file_log) VALUES(?,?,?,?,?,?,?,?,?)",
-            params![task.path, name, started_at, now(), completed, total, status, error, raw])?;
+        let summary = task.summary.as_ref().map(serde_json::to_string).transpose()?;
+        db.execute("INSERT INTO index_history(path,name,started_at,finished_at,completed,total,status,error,file_log,summary) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            params![task.path, name, started_at, now(), completed, total, status, error, raw, summary])?;
         Ok(())
     }
     pub fn index_history_log(&self, id: i64) -> Result<sag_protocol::IndexHistoryLog> {
@@ -1245,10 +1257,12 @@ impl Store {
     }
     pub fn index_history(&self) -> Result<Vec<sag_protocol::IndexHistory>> {
         let db = self.connection();
-        let mut query = db.prepare("SELECT id,path,name,started_at,finished_at,completed,total,status,error FROM index_history ORDER BY id DESC LIMIT 100")?;
+        let mut query = db.prepare("SELECT id,path,name,started_at,finished_at,completed,total,status,error,summary FROM index_history ORDER BY id DESC LIMIT 100")?;
         let records = query.query_map([], |row| Ok(sag_protocol::IndexHistory {
             id: row.get(0)?, path: row.get(1)?, name: row.get(2)?, started_at: row.get(3)?,
             finished_at: row.get(4)?, completed: row.get(5)?, total: row.get(6)?, status: row.get(7)?, error: row.get(8)?,
+            summary: row.get::<_, Option<String>>(9)?.map(|raw| serde_json::from_str(&raw)
+                .map_err(|error| rusqlite::Error::FromSqlConversionFailure(9, rusqlite::types::Type::Text, Box::new(error)))).transpose()?,
         }))?.collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(records)
     }
@@ -1261,6 +1275,24 @@ impl Store {
             "UPDATE roots SET status='indexing',error=NULL WHERE path=?",
             [root],
         )? > 0)
+    }
+    fn record_index_outcome(&self, root: &str, path: &Path, changed: bool) -> Result<()> {
+        let failed: bool = self.connection().query_row(
+            "SELECT EXISTS(SELECT 1 FROM index_issues WHERE path=?)", [path_text(path)?], |row| row.get(0),
+        )?;
+        self.indexing.record_file(root, path, if failed { IndexOutcome::Failed }
+            else if changed { IndexOutcome::Updated } else { IndexOutcome::Reused });
+        Ok(())
+    }
+    fn accept_prepared(&self, root: &str, path: &Path, prepared: Option<PreparedFile>) -> Result<()> {
+        let changed = if let Some(file) = prepared {
+            let mut db = self.connection();
+            let tx = db.transaction()?;
+            let changed = Self::write_prepared(&tx, root, file)?;
+            tx.commit()?;
+            changed
+        } else { false };
+        self.record_index_outcome(root, path, changed)
     }
     fn update_paths_inner(&self, root: &str, paths: &[PathBuf], enhance: bool, progress: impl Fn(IndexProgress)) -> Result<usize> {
         let settings = self.settings()?;
@@ -1340,12 +1372,7 @@ impl Store {
                 }
                 Work::File(path) => {
                     let result = self.indexing.file(root, &path, || self.prepare_file_with_runtime(root, &path, settings.retrieval.chunk_chars, true, &settings.runtime));
-                    if let Some(file) = self.prepared_or_issue(root, &path, result)? {
-                        let mut db = self.connection();
-                        let tx = db.transaction()?;
-                        Self::write_prepared(&tx, root, file)?;
-                        tx.commit()?;
-                    }
+                    self.accept_prepared(root, &path, self.prepared_or_issue(root, &path, result)?)?;
                     count += 1;
                     completed += 1;
                 }
@@ -1361,8 +1388,16 @@ impl Store {
     fn remove_indexed_under(&self, root: &str, path: &Path) -> Result<usize> {
         let mut db = self.connection();
         let tx = db.transaction()?;
+        let source = path_text(path)?;
+        let prefix = format!("{}{}", source.trim_end_matches(std::path::MAIN_SEPARATOR), std::path::MAIN_SEPARATOR);
+        let targets = {
+            let mut query = tx.prepare("SELECT DISTINCT d.path FROM documents d LEFT JOIN conversions c ON c.output=d.path WHERE d.root=?1 AND (d.path=?2 OR instr(d.path,?3)=1 OR c.source=?2 OR instr(c.source,?3)=1)")?;
+            let targets = query.query_map(params![root, source, prefix], |row| row.get::<_,String>(0))?.collect::<rusqlite::Result<Vec<_>>>()?;
+            targets
+        };
         let removed = Self::remove_indexed_under_tx(&tx, root, path)?;
         tx.commit()?;
+        for target in targets { self.indexing.record_file(root, Path::new(&target), IndexOutcome::Updated); }
         Ok(removed)
     }
     fn remove_indexed_under_tx(tx: &rusqlite::Transaction<'_>, root: &str, path: &Path) -> Result<usize> {
@@ -1652,13 +1687,19 @@ impl Store {
                                     if *valid && previous_content == source_content_hash {
                                         unchanged_previous = Some(source_content_hash.clone());
                                     }
-                                    previous_usable = *valid && crate::docling::fingerprint(&output)? == *previous_output;
-                                    if previous_source == &source_hash {
-                                        self.connection().execute("UPDATE conversions SET valid=1,mtime=?2,size=?3 WHERE source=?1", params![&source_text, mtime, size])?;
-                                        return Ok(true);
-                                    }
-                                    if crate::docling::fingerprint(&output)? != *previous_output {
+                                    let output_unchanged = crate::docling::fingerprint(&output)? == *previous_output;
+                                    previous_usable = *valid && output_unchanged;
+                                    if !output_unchanged {
                                         bail!("转换文件已被手动修改，未覆盖：{}", output.display())
+                                    }
+                                    // Scope toggles mark owned results invalid without
+                                    // changing their contents. Restore an exact current
+                                    // identity after validating source and output; only
+                                    // valid results may adopt a compatible legacy key.
+                                    if previous_source == &source_hash || *valid && previous_content == source_content_hash
+                                        && crate::conversion::compatible_success_hash(source, settings, previous_source).as_ref() == Some(&source_hash) {
+                                        self.connection().execute("UPDATE conversions SET valid=1,source_hash=?4,mtime=?2,size=?3 WHERE source=?1", params![&source_text, mtime, size, &source_hash])?;
+                                        return Ok(true);
                                     }
                                 }
                             } else if output.exists() { bail!("转换位置已有文件，未覆盖：{}", output.display()) }
@@ -1720,6 +1761,11 @@ impl Store {
                         let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
                         self.remove_indexed(&path_text(&output)?)?;
                     }
+                    // Removing stale evidence is an index update, not a
+                    // successful recovery of the conversion that just failed.
+                    if !self.indexing.cancelled(root) {
+                        self.indexing.record_file(root, &crate::docling::output_path(Path::new(root), Path::new(&source))?, IndexOutcome::Failed);
+                    }
                     // Remember every failure under the identity that produced it, so a
                     // later scan reports it without parsing the source again. Cancelled
                     // runs are not remembered: the file was never evaluated.
@@ -1736,12 +1782,7 @@ impl Store {
                     self.conversion_state(&source, root, "complete", None)?;
                     if result.unwrap() {
                     let output = crate::docling::output_path(Path::new(root), Path::new(&source))?;
-                    if let Some(file) = self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false, &settings.runtime)? {
-                        let mut db = self.connection();
-                        let tx = db.transaction()?;
-                        Self::write_prepared(&tx, root, file)?;
-                        tx.commit()?;
-                    }
+                    self.accept_prepared(root, &output, self.prepare_indexed_file(root, &output, settings.retrieval.chunk_chars, false, &settings.runtime)?)?;
                     if !prune {
                         // The normal native scan retires source issues before
                         // conversions. Selective recovery skips that sweep, so
@@ -1799,7 +1840,7 @@ impl Store {
             let mut db = self.connection();
             let tx = db.transaction()?;
             anyhow::ensure!(!Self::path_excluded(&tx, &path_text(source)?)?, "原文件已从知识库移除，未发布转换输出");
-            Self::write_prepared(&tx, root, prepared)?;
+            let changed = Self::write_prepared(&tx, root, prepared)?;
             tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash,mtime,size) VALUES(?,?,?,?,?,?,?) ON CONFLICT(source) DO UPDATE SET root=excluded.root,source_hash=excluded.source_hash,output=excluded.output,output_hash=excluded.output_hash,valid=1,mtime=excluded.mtime,size=excluded.size",
                 params![path_text(source)?,root,source_hash,path_text(output)?,output_hash,source_stat.0,source_stat.1])?;
             tx.execute("DELETE FROM index_issues WHERE path=?", [path_text(source)?])?;
@@ -1808,6 +1849,7 @@ impl Store {
             fs::rename(&staged, output)?;
             published = true;
             tx.commit()?;
+            self.indexing.record_file(root, output, if changed { IndexOutcome::Updated } else { IndexOutcome::Reused });
             Ok(())
         })();
         if let Err(error) = outcome {
@@ -1934,14 +1976,15 @@ impl Store {
                 let mut handles = Vec::new();
                 for (path, bytes) in window {
                     seen.insert(path_text(path)?);
-                    handles.push(scope.spawn(move || {
+                    handles.push((path, scope.spawn(move || {
                         let result = self.indexing.file(root, path, || self.prepare_file_at_with_runtime(root, path, path, max_chars, verify, bytes, &settings.runtime));
                         self.prepared_or_issue(root, path, result)
-                    }));
+                    })));
                 }
-                for handle in handles {
+                for (path, handle) in handles {
                     let prepared = handle.join().expect("index worker panicked")?;
                     self.indexing.checkpoint_root(root)?;
+                    let mut changed = false;
                     if let Some(file) = prepared {
                         let mut db = self.connection();
                         let tx = db.transaction()?;
@@ -1949,9 +1992,10 @@ impl Store {
                             let current: Option<IndexedVersion> = tx.query_row("SELECT hash,mtime,size FROM documents WHERE path=?", [&file.path], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
                             current.as_ref() == indexed.get(&file.path).and_then(Option::as_ref)
                         } else { true };
-                        if unchanged { Self::write_prepared(&tx, root, file)?; }
+                        if unchanged { changed = Self::write_prepared(&tx, root, file)?; }
                         tx.commit()?;
                     }
+                    self.record_index_outcome(root, path, changed)?;
                     count += 1;
                     if count % 20 == 0 { progress(IndexProgress { count, total }); }
                 }
@@ -2212,8 +2256,9 @@ impl Store {
     pub fn remove_indexed(&self, path: &str) -> Result<()> {
         let mut db = self.connection();
         let tx = db.transaction()?;
-        Self::remove_indexed_tx(&tx, path)?;
+        let root = Self::remove_indexed_tx(&tx, path)?;
         tx.commit()?;
+        if let Some(root) = root { self.indexing.record_file(&root, Path::new(path), IndexOutcome::Updated); }
         Ok(())
     }
     fn remove_indexed_if_unchanged(&self, path: &str, expected: Option<&IndexedVersion>) -> Result<()> {
@@ -2221,17 +2266,19 @@ impl Store {
         let tx = db.transaction()?;
         let current: Option<IndexedVersion> = tx.query_row("SELECT hash,mtime,size FROM documents WHERE path=?", [path], |row| Ok((row.get(0)?,row.get(1)?,row.get(2)?))).optional()?;
         if current.as_ref() != expected { return Ok(()); }
-        Self::remove_indexed_tx(&tx, path)?;
+        let root = Self::remove_indexed_tx(&tx, path)?;
         tx.commit()?;
+        if let Some(root) = root { self.indexing.record_file(&root, Path::new(path), IndexOutcome::Updated); }
         Ok(())
     }
-    fn remove_indexed_tx(tx: &rusqlite::Transaction<'_>, path: &str) -> Result<()> {
+    fn remove_indexed_tx(tx: &rusqlite::Transaction<'_>, path: &str) -> Result<Option<String>> {
+        let root = tx.query_row("SELECT root FROM documents WHERE path=?", [path], |row| row.get::<_,String>(0)).optional()?;
         tx.execute("DELETE FROM chunk_fts WHERE rowid IN (SELECT c.id FROM chunks c JOIN documents d ON d.id=c.document_id WHERE d.path=?)",[path])?;
         let removed = tx.execute("DELETE FROM documents WHERE path=?", [path])?;
         tx.execute("DELETE FROM index_issues WHERE path=?", [path])?;
         Self::mark_note_sources_removed_tx(tx, path, false)?;
         if removed > 0 { tx.execute("UPDATE metadata SET version=version+1", [])?; }
-        Ok(())
+        Ok(root)
     }
     pub fn search_files(
         &self,

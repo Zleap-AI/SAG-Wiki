@@ -64,6 +64,8 @@ PDF 基础文字入库后即可搜索，OCR 与表格增强在后台继续。本
 
 你还可以编辑 Markdown、阅读 HTML、探索文档关联，或直接在终端搜索。PDF、Office、EPUB 等文档内置转换，直接加入同一知识库；图片识别与音视频转写按需安装组件。
 
+大量附图但只需检索文字的 DOCX/PPTX，可在“设置 → 文件设置”开启“Office 仅提取文字”（默认关闭），在加载前跳过图片和内嵌对象；不识别图片中的文字。详见[文件夹使用说明](docs-site/content/docs/folders.mdx#office-仅提取文字)。
+
 ### 与 LLM Wiki、RAG 的区别
 
 | 功能 | **SAG-Wiki** | LLM Wiki | 典型向量 RAG |

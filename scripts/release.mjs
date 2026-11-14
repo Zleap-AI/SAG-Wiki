@@ -93,9 +93,10 @@ function stage({platform, target}) {
   console.log(`Staged ${platform} ${version} from ${commit}`);
 }
 
-export function validateStagedArtifacts(input, version, commit) {
+export function validateStagedArtifacts(input, version, commit, platforms = Object.keys(targets)) {
   const manifests = {};
-  for (const platform of Object.keys(targets)) {
+  for (const platform of platforms) {
+    assert.ok(Object.hasOwn(targets, platform), 'Unknown artifact platform');
     const directory = join(input, platform);
     const metadata = json(join(directory, 'metadata.json'));
     assert.equal(metadata.schema, 1, 'Unsupported artifact metadata');

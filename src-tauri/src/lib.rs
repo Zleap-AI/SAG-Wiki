@@ -409,14 +409,7 @@ fn open_data_directory(state: State<Arc<AppState>>) -> CommandResult<()> {
 }
 #[tauri::command]
 fn open_about_link(target: &str) -> CommandResult<()> {
-    let url = match target {
-        "project" => "https://github.com/Zleap-AI/SAG-Wiki",
-        "company" => "https://zleap.com",
-        "docling" => "https://docling.ai/",
-        "zleap-console" => "https://platform.zleap.com/console",
-        "302-api-keys" => "https://302.ai/api-keys/list",
-        _ => return Err("未知的关于页面链接".into()),
-    };
+    let url = sag_protocol::about_links::url(target).ok_or("未知的关于页面链接")?;
     open_browser_url(url)
 }
 #[tauri::command]

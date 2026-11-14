@@ -35,13 +35,13 @@
   pending=true;error='';notice='';
   try{await call(action);await refresh(action.action==='configure'||action.action==='start'||action.action==='web_start');return true;}catch(e){error=String(e);return false;}finally{pending=false;}
  }
- async function toggle(enabled:boolean){
-  if(enabled&&(!port||!Number.isInteger(port)||port<1||port>65535)){error=$t('请输入有效端口（1–65535）');apiEnabled=status!.enabled;return;}
-  await act(enabled?{action:'start',host,port}:{action:'stop'});apiEnabled=status!.enabled;
- }
- async function toggleWeb(enabled:boolean){
-  if(enabled&&(!port||!Number.isInteger(port)||port<1||port>65535)){error=$t('请输入有效端口（1–65535）');webEnabled=status!.web_enabled;return;}
-  await act(enabled?{action:'web_start',host,port}:{action:'web_stop'});webEnabled=status!.web_enabled;
+ async function toggleService(service:'api'|'web',enabled:boolean){
+  if(enabled&&(!port||!Number.isInteger(port)||port<1||port>65535))error=$t('请输入有效端口（1–65535）');
+  else{
+   const action=service==='web'?(enabled?'web_start':'web_stop'):(enabled?'start':'stop');
+   await act(enabled?{action,host,port}:{action});
+  }
+  if(service==='web')webEnabled=status!.web_enabled;else apiEnabled=status!.enabled;
  }
  async function toggleAutostart(enabled:boolean){await act({action:'autostart',enabled});autostartEnabled=status!.autostart;}
  async function rotateWebCode(){
@@ -80,7 +80,7 @@
  <section class="settings-group web-service-settings">
   <div class="setting-row">
    <div><strong>{$t('网页服务')}</strong><p class="api-run-state" data-state={status.web_running?'running':'stopped'} role="status">{$t(status.web_running?'运行中':status.web_enabled?'已启用，未运行':'已关闭')}</p></div>
-   <Switch bind:checked={webEnabled} disabled={pending} label={$t('网页服务')} onCheckedChange={toggleWeb}/>
+   <Switch bind:checked={webEnabled} disabled={pending} label={$t('网页服务')} onCheckedChange={enabled=>toggleService('web',enabled)}/>
   </div>
   {#if status.web_running}
    <div class="api-address"><span>{$t('本机地址')}</span><code>{status.local_url}</code><Button.Root type="button" class="icon-button" aria-label={$t('打开网页')} onclick={()=>api('open_external_link',{url:status!.local_url}).catch(e=>error=String(e))}>{@html icon('externalLink')}</Button.Root></div>
@@ -91,7 +91,7 @@
   {/if}
  </section>
  <section class="settings-group api-endpoints">
-  <div class="setting-row"><div><strong>{$t('API 和 MCP')}</strong><p class="api-run-state" data-state={status.running?'running':status.enabled?'enabled':'stopped'} role="status">{$t(status.running?'运行中':status.enabled?'已启用，未运行':'已关闭')}</p></div><Switch bind:checked={apiEnabled} disabled={pending} label={$t('API 和 MCP')} onCheckedChange={toggle}/></div>
+  <div class="setting-row"><div><strong>{$t('API 和 MCP')}</strong><p class="api-run-state" data-state={status.running?'running':status.enabled?'enabled':'stopped'} role="status">{$t(status.running?'运行中':status.enabled?'已启用，未运行':'已关闭')}</p></div><Switch bind:checked={apiEnabled} disabled={pending} label={$t('API 和 MCP')} onCheckedChange={enabled=>toggleService('api',enabled)}/></div>
   {#if status.last_error}<p class="form-error" role="alert">{status.last_error}</p>{/if}
   {#if status.running}
   <div class="api-address"><span>{$t('本机地址')}</span><code>{status.local_url}</code><Button.Root type="button" class="icon-button" aria-label={$t('复制本机地址')} onclick={()=>copy(status!.local_url,'local')}>{@html icon(copied==='local'?'check':'copy')}</Button.Root></div>

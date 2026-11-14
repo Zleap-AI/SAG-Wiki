@@ -1,7 +1,7 @@
 const assert=require('node:assert/strict');
 const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
 (async()=>{
- const browser=await chromium.launch({channel:'chrome',headless:true,args:['--no-proxy-server']});
+ const browser=await chromium.launch({channel:process.env.PLAYWRIGHT_BROWSER_CHANNEL||'chrome',headless:true,args:['--no-proxy-server']});
  try {
   const context=await browser.newContext({locale:'zh-CN',viewport:{width:1280,height:900}}),page=await context.newPage();
   page.setDefaultTimeout(10000);
@@ -13,6 +13,12 @@ const {chromium}=require(process.env.PLAYWRIGHT_MODULE||'playwright');
   await page.locator('#web-code').fill(process.env.SAG_WEB_CODE);
   await page.getByRole('button',{name:'进入知识库'}).click();
   await page.locator('.library-files h1').filter({hasText:'项目资料'}).waitFor();
+  for(const entry of [page.locator('.tree').getByRole('button',{name:'项目资料',exact:true}),page.getByRole('button',{name:'发布流程.md',exact:true})]){
+   await entry.click({button:'right'});
+   await page.getByRole('menu').waitFor();
+   assert.equal(await page.getByRole('menuitem',{name:/^(移除|从知识库移除)$/}).count(),0,'web menus must not remove shared knowledge-base entries');
+   await page.keyboard.press('Escape');
+  }
   await page.getByRole('button',{name:'发布流程.md',exact:true}).click();
   await page.locator('#rich-editor').getByText('Vega release checklist VX-417').waitFor();
   const editor=page.locator('#rich-editor [contenteditable=true], #rich-editor[contenteditable=true]').first();

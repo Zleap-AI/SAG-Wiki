@@ -36,11 +36,13 @@ export type DoclingProfile='documents'|'media';
 export type DoclingStatus={installed:boolean;running:boolean;stage:string;message:string;downloaded:number;total:number|null;percent?:number|null;packages_done?:number;packages_total?:number;error:string|null;formats:[string,string[]][];builtin_formats?:[string,string[]][];profiles?:{id:DoclingProfile;installed:boolean;extensions:string[]}[];requested_profiles?:DoclingProfile[]};
 
 export type ConversionSegment={current:number;total:number;start_page:number;end_page:number};
-export type IndexTask={id?:string;kind?:'primary'|'enhancement';path:string;stage:string;completed:number;total:number;files:string[];conversions?:{path:string;engine:string;segment?:ConversionSegment}[]};
+export type IndexSummary={checked:number;reused:number;updated:number;failed:number};
+export type IndexProgress={id?:string;kind?:'primary'|'enhancement';path:string;count:number;total:number;stage?:string;summary?:IndexSummary};
+export type IndexTask={id?:string;kind?:'primary'|'enhancement';path:string;stage:string;completed:number;total:number;files:string[];summary?:IndexSummary;conversions?:{path:string;engine:string;segment?:ConversionSegment}[]};
 export type ConversionState={source:string;root:string;status:string;searchable:boolean;error?:string|null};
 export type IndexStatus={paused:boolean;tasks:IndexTask[];failed_files?:number;conversion_states?:ConversionState[]};
 export type FolderIndexOptions={extensions?:string[]|null;file_types:FileTypes;convert_other_formats:boolean;conversion_formats?:string[]|null};
-export type IndexHistory={id:number;path:string;name:string;started_at:number;finished_at:number;completed:number;total:number;status:string;error:string|null};
+export type IndexHistory={id:number;path:string;name:string;started_at:number;finished_at:number;completed:number;total:number;status:string;error:string|null;summary?:IndexSummary};
 export type IndexFileLog={phase?:string;engine?:string;elapsed_ms?:number;time:number;path:string;stage:string;status:string;error:string|null};
 export type IndexHistoryLog={raw:string|null};
 

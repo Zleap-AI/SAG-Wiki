@@ -112,7 +112,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
   if (environment.GITHUB_SHA) assert.equal(commit, environment.GITHUB_SHA, 'Checkout must match the triggering commit');
   const source = resolve(input);
   const destination = resolve(output);
-  const original = validateStagedArtifacts(source, version, commit).macos;
+  const original = validateStagedArtifacts(source, version, commit, ['macos']).macos;
   assert.ok(!existsSync(destination), 'Signed release output must be fresh');
   assert.ok(destination !== source && !destination.startsWith(source + '/'), 'Signed output must be outside the source staging directory');
   mkdirSync(dirname(destination), {recursive: true});

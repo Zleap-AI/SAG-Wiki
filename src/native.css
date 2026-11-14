@@ -480,8 +480,11 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .index-status-link{min-height:0;padding:2px 0}
 .real-client .index-status-link:hover{text-decoration:none}
 .real-client .index-status-link:hover .index-status-primary{color:var(--color-ink)}
-.real-client .index-status-bar{display:block;height:3px;margin:3px 0 2px;border-radius:2px;background:var(--color-hover);overflow:hidden}
-.real-client .index-status-bar>span{display:block;height:100%;border-radius:inherit;background:var(--color-ink);transition:width .3s ease}
+.real-client .index-status-summary{font-size:var(--text-caption);color:var(--color-secondary);font-variant-numeric:tabular-nums}
+.real-client .index-status-bar{display:block;width:100%;appearance:none;border:0;height:3px;margin:3px 0 2px;border-radius:2px;background:var(--color-hover);overflow:hidden}
+.real-client .index-status-bar::-webkit-progress-bar{background:transparent}
+.real-client .index-status-bar::-webkit-progress-value{background:var(--color-ink)}
+.real-client .index-status-bar::-moz-progress-bar{background:var(--color-ink)}
 
 /* Row menus in the folder tree appear on demand, like conversation rows. */
 @media(hover:hover){.real-client .sidebar .tree-row .tree-more{opacity:0;transition:opacity .12s}.real-client .sidebar .tree-row:is(:hover,:focus-within,.selected) .tree-more{opacity:1}}

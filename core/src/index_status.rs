@@ -1,5 +1,5 @@
 use anyhow::{bail, Result};
-use sag_protocol::{IndexConversion, IndexFileLog, IndexStatus, IndexTask};
+use sag_protocol::{IndexConversion, IndexFileLog, IndexStatus, IndexSummary, IndexTask};
 use std::{collections::{BTreeMap,BTreeSet}, path::Path, sync::{Arc, Condvar, Mutex}};
 
 #[derive(Default)]
@@ -11,7 +11,13 @@ struct State {
     logs: BTreeMap<String, Vec<IndexFileLog>>,
     indexed: BTreeMap<String, (usize, usize)>,
     retrying: BTreeSet<(String, String)>,
+    outcomes: BTreeMap<String, BTreeMap<String, FileOutcome>>,
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum IndexOutcome { Reused, Updated, Failed }
+#[derive(Clone, Copy, Default)]
+struct FileOutcome { updated: bool, failed: bool }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum IndexLane {
@@ -101,14 +107,45 @@ impl IndexControl {
         state.cancelled.remove(&self.key(root));
         state.logs.insert(self.key(root), vec![]);
         state.indexed.insert(self.key(root), (0, 0));
+        state.outcomes.insert(self.key(root), BTreeMap::new());
         state.tasks.insert(self.key(root), IndexTask {
             id: self.key(root), kind: self.lane.kind().into(),
-            path: root.into(), stage: "scanning".into(), completed: 0, total: 0, files: vec![], conversions: vec![],
+            path: root.into(), stage: "scanning".into(), completed: 0, total: 0, summary: Some(IndexSummary::default()), files: vec![], conversions: vec![],
         });
     }
     pub fn task(&self, root: &str) -> IndexTask { self.shared.state.lock().unwrap().tasks[&self.key(root)].clone() }
     pub fn log(&self, root: &str) -> Vec<IndexFileLog> { self.shared.state.lock().unwrap().logs[&self.key(root)].clone() }
     pub fn indexed(&self, root: &str) -> (usize, usize) { self.shared.state.lock().unwrap().indexed[&self.key(root)] }
+    /// A converted output can be encountered again by the final scan. A cache
+    /// hit there must not erase a real update or failure earlier in this run.
+    pub(crate) fn record_file(&self, root: &str, path: &Path, outcome: IndexOutcome) {
+        let mut state = self.shared.state.lock().unwrap();
+        let key = self.key(root);
+        let Some(outcomes) = state.outcomes.get_mut(&key) else { return };
+        let path = path.to_string_lossy().into_owned();
+        let previous = outcomes.get(&path).copied();
+        if previous.is_some() && outcome == IndexOutcome::Reused { return; }
+        let mut current = previous.unwrap_or_default();
+        match outcome {
+            IndexOutcome::Reused => {},
+            IndexOutcome::Updated => { current.updated = true; current.failed = false; },
+            IndexOutcome::Failed => current.failed = true,
+        }
+        outcomes.insert(path, current);
+        let summary = state.tasks.get_mut(&key).unwrap().summary.as_mut().unwrap();
+        if let Some(previous) = previous {
+            summary.reused -= usize::from(!previous.updated && !previous.failed);
+            summary.updated -= usize::from(previous.updated);
+            summary.failed -= usize::from(previous.failed);
+        } else {
+            summary.checked += 1;
+        }
+        summary.reused += usize::from(!current.updated && !current.failed);
+        // Publishing basic text and subsequently failing OCR are both real work.
+        // Keep the write count even when this target also has an unresolved failure.
+        summary.updated += usize::from(current.updated);
+        summary.failed += usize::from(current.failed);
+    }
     pub(crate) fn record_indexed_progress(&self, root: &str, completed: usize, total: usize) {
         *self.shared.state.lock().unwrap().indexed.get_mut(&self.key(root)).unwrap() = (completed, total);
     }
@@ -118,6 +155,7 @@ impl IndexControl {
         state.tasks.remove(&self.key(root));
         state.logs.remove(&self.key(root));
         state.indexed.remove(&self.key(root));
+        state.outcomes.remove(&self.key(root));
         state.retrying.retain(|(key,_)|key != &self.key(root));
     }
     pub fn phase(&self, root: &str, stage: &str, total: usize) {
@@ -211,6 +249,40 @@ impl IndexControl {
             });
         }
         result
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+
+    #[test]
+    fn later_cache_checks_preserve_updates_and_failures_without_double_counting() {
+        let control = IndexControl::default();
+        control.begin("root");
+        control.phase("root", "converting", 2);
+        control.record_file("root", Path::new("root/a.pdf.md"), IndexOutcome::Updated);
+        control.record_file("root", Path::new("root/b.pdf.md"), IndexOutcome::Failed);
+        control.phase("root", "indexing_converted", 2);
+        control.record_file("root", Path::new("root/a.pdf.md"), IndexOutcome::Reused);
+        control.record_file("root", Path::new("root/b.pdf.md"), IndexOutcome::Reused);
+        assert_eq!(control.task("root").summary, Some(IndexSummary {checked:2,reused:0,updated:1,failed:1}));
+        control.record_file("root", Path::new("root/b.pdf.md"), IndexOutcome::Updated);
+        assert_eq!(control.task("root").summary, Some(IndexSummary {checked:2,reused:0,updated:2,failed:0}));
+    }
+
+    #[test]
+    fn summaries_are_isolated_by_lane_and_reset_on_next_run() {
+        let primary = IndexControl::default();
+        let enhancement = primary.for_lane(IndexLane::Enhancement);
+        primary.begin("root"); enhancement.begin("root");
+        primary.record_file("root", Path::new("root/a.pdf.md"), IndexOutcome::Reused);
+        enhancement.record_file("root", Path::new("root/a.pdf.md"), IndexOutcome::Updated);
+        assert_eq!(primary.task("root").summary, Some(IndexSummary {checked:1,reused:1,updated:0,failed:0}));
+        assert_eq!(enhancement.task("root").summary, Some(IndexSummary {checked:1,reused:0,updated:1,failed:0}));
+        primary.finish("root"); primary.begin("root");
+        assert_eq!(primary.task("root").summary, Some(IndexSummary::default()));
+        assert_eq!(enhancement.task("root").summary.as_ref().unwrap().updated, 1);
     }
 }
 

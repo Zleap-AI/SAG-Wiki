@@ -22,6 +22,7 @@ export function sameIndexStatus(previous: IndexStatus, next: IndexStatus): boole
   return oldStates.length===nextStates.length && nextStates.every((state,index)=>{const old=oldStates[index];return old.source===state.source&&old.root===state.root&&old.status===state.status&&old.searchable===state.searchable&&old.error===state.error;}) && previous.paused === next.paused && previous.tasks.length === next.tasks.length && next.tasks.every((task, index) => {
     const old = previous.tasks[index];
     return indexTaskKey(old) === indexTaskKey(task) && old.kind === task.kind && old.path === task.path && old.stage === task.stage && old.completed === task.completed && old.total === task.total &&
+      (old.summary===task.summary||!!old.summary&&!!task.summary&&old.summary.checked===task.summary.checked&&old.summary.reused===task.summary.reused&&old.summary.updated===task.summary.updated&&old.summary.failed===task.summary.failed) &&
       (old.conversions?.length??0) === (task.conversions?.length??0) &&
       (task.conversions??[]).every((item, conversionIndex) => item.path === old.conversions?.[conversionIndex].path && item.engine === old.conversions?.[conversionIndex].engine) &&
       old.files.length === task.files.length && task.files.every((file, fileIndex) => file === old.files[fileIndex]);

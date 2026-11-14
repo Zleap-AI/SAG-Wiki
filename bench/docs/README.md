@@ -48,3 +48,7 @@ dialog at 1280 and 720 pixels; it does not install a component or run OCR.
 `node bench/docs/progressive-index.cjs` captures the bilingual basic-text and
 background-enhancement labels in the real file-list component. These synthetic
 states demonstrate availability and failure retention, not measured parser results.
+
+`node bench/docs/office-text.cjs` captures the default-off DOCX/PPTX text-only
+setting in both languages. The fixture checks the actual switch state; it does
+not parse Office files or measure memory.

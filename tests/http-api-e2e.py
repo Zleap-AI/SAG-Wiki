@@ -138,9 +138,19 @@ def main():
             model.behavior='unauthorized'
             assert http('/v1/search',key['key'],{'query':fixture_module.QUESTION},expected=502)['error']['code']=='decision_request_failed'
             model.behavior='valid'
+            # Upgrade an existing digest-only key alongside a newly copyable key.
+            cli('service','stop')
+            key_file = data / 'http-api.json'
+            saved = json.loads(key_file.read_text(encoding='utf-8'))
+            next(item for item in saved['keys'] if item['id'] == key['id']).pop('secret')
+            key_file.write_text(json.dumps(saved), encoding='utf-8')
             cli('service','restart')
             assert cli('api','status','--json',json_output=True)['running']
             http('/v1/status',key['key'])
+            metadata = {item['id']: item for item in cli('api','key','list','--json',json_output=True)}
+            assert not metadata[key['id']]['copyable'] and metadata[other['id']]['copyable']
+            rejected_config('--key-id',key['id'],message='请先创建 API Key')
+            assert cli('api','mcp','config',json_output=True)['mcpServers']['sag-wiki']['headers']['Authorization'] == 'Bearer ' + other['key']
             cli('api','key','revoke',key['id']);http('/v1/status',key['key'],expected=401);http('/v1/status',other['key'])
             rejected_config('--key-id',key['id'],message='API Key 不存在')
             cli('api','key','revoke',other['id'])
