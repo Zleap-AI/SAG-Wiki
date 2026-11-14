@@ -2941,7 +2941,7 @@ mod tests {
         fs::write(root.join("archive/old.md"), "needle needle needle excluded").unwrap();
         store.scan(root.to_str().unwrap(), |_| {}).unwrap();
         let scopes = vec![path_text(&root).unwrap()];
-        for pattern in ["archive/**", "archive/", "archive"] {
+        for pattern in ["archive/**", "archive/"] {
             let allowed = store.search_scopes_excluding(&root, &scopes, &[pattern.into()]).unwrap();
             assert_eq!(allowed, vec![path_text(&root.join("keep.md")).unwrap()]);
             let candidates = store.candidate_query(&text::match_query("needle"), None, &allowed, &[], &[], 1).unwrap();

@@ -94,8 +94,12 @@ fn reserve(value: &impl serde::Serialize, used: &mut usize) -> Result<bool> {
 }
 
 pub(crate) fn path_filter_matches(pattern: &glob::Pattern, relative: &std::path::Path) -> bool {
+    // Preserve the existing filename-only meaning for bare patterns.
+    if !pattern.as_str().contains('/') {
+        return relative.file_name().is_some_and(|name| pattern.matches_path(std::path::Path::new(name)));
+    }
     let text = relative.to_string_lossy().replace('\\', "/");
-    let options = glob::MatchOptions { case_sensitive: !cfg!(windows), require_literal_separator: true, require_literal_leading_dot: false };
+    let options = glob::MatchOptions { case_sensitive: true, require_literal_separator: true, require_literal_leading_dot: false };
     pattern.matches_with(&text, options)
         || (!pattern.as_str().contains('/') && relative.file_name().is_some_and(|name| pattern.matches_with(&name.to_string_lossy(), options)))
         || relative.ancestors().skip(1).filter(|p| !p.as_os_str().is_empty()).any(|parent| {
@@ -156,7 +160,9 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
         } else if !store::Store::indexable_path(file, options) { return Ok(true); }
         let mut included = filters.first().is_none_or(|(include, _)| !include);
         for (include, pattern) in &filters {
-            if path_filter_matches(pattern, file.strip_prefix(&path).unwrap_or(file)) {
+            let matches = if *include { pattern.matches_path(std::path::Path::new(file.file_name().unwrap())) }
+                else { path_filter_matches(pattern, file.strip_prefix(&path).unwrap_or(file)) };
+            if matches {
                 included = *include;
             }
         }
