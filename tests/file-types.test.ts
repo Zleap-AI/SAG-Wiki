@@ -34,3 +34,14 @@ it('恢复已保存的选择，取消不会保存，并支持英文',async()=>{
  (document.querySelector('.settings-cancel') as HTMLButtonElement).click();await tick();
  expect(onClose).toHaveBeenCalled();expect(onSave).not.toHaveBeenCalled();
 });
+
+it('Office text-only defaults off and saves independently of OCR settings',async()=>{
+ const onSave=vi.fn(async(_settings:Settings)=>{});
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'files',onSave,onClose:()=>{}}});
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="Office 仅提取文字"]')).not.toBeNull());
+ const toggle=document.querySelector<HTMLButtonElement>('[aria-label="Office 仅提取文字"]')!;
+ expect(toggle.getAttribute('aria-checked')).toBe('false');toggle.click();await tick();
+ document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
+ expect(onSave.mock.calls[0][0].runtime?.office_text_only).toBe(true);
+ expect(value.runtime?.office_text_only).toBeUndefined();
+});

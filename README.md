@@ -64,6 +64,8 @@ The indexing figure above concerns text indexing, excluding document conversion,
 
 Read and edit Markdown, preview HTML, explore related documents, or search from the terminal. PDF, Office, and EPUB documents convert out of the box; image recognition and audio/video transcription are optional components.
 
+For image-heavy DOCX/PPTX files where only text is needed, enable **Office text only** in **Settings → File settings** (off by default). Images and embedded objects are skipped before loading; text inside images is not recognized. See the [folder guide](docs-site/content/docs/folders.en.mdx#office-text-only).
+
 ### How it compares
 
 | Capability | **SAG-Wiki** | LLM Wiki | Typical vector RAG |

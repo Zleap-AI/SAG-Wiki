@@ -1818,5 +1818,7 @@
   "当前阶段：已处理 {value0} / {value1} 个文件": "Current stage: processed {value0} / {value1} files",
   "{value0} 的当前阶段进度": "Current stage progress for {value0}",
   "正在检查基础文本": "Checking basic text",
-  "复用已有基础文本，仅在需要时提取文字层并更新索引；完成后即可搜索，扫描内容等待 OCR。": "Reuse existing basic text; extract a text layer only when needed and update the index. Text becomes searchable when ready; scanned content waits for OCR."
+  "复用已有基础文本，仅在需要时提取文字层并更新索引；完成后即可搜索，扫描内容等待 OCR。": "Reuse existing basic text; extract a text layer only when needed and update the index. Text becomes searchable when ready; scanned content waits for OCR.",
+  "Office 仅提取文字": "Office text only",
+  "仅适用于 DOCX/PPTX。跳过图片和内嵌对象，不识别图片文字；回退也必须遵守此限制。修改后重新检查相关文档。": "DOCX/PPTX only. Skip images and embedded objects without image OCR. Fallbacks must honor this restriction. Changed settings recheck affected documents."
 }
