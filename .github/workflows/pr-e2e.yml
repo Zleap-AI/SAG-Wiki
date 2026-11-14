@@ -72,6 +72,14 @@ jobs:
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Verify relocatable QPDF runtime package
         run: node --test scripts/qpdf-packaging.node-test.mjs
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Embed the browser workspace in the E2E executable
+        run: |
+          npm ci
+          node --input-type=module -e "import {buildWebAssets} from './scripts/build-web-assets.mjs'; buildWebAssets();"
+          echo "SAG_WEB_DIST=$GITHUB_WORKSPACE/dist-web" >> "$GITHUB_ENV"
       # Only compile the CLI needed by E2E, without Tauri or installers.
       - name: Prepare E2E executable
         run: cargo build --locked --manifest-path cli/Cargo.toml
@@ -80,6 +88,14 @@ jobs:
 
       - name: Exercise CLI-managed HTTP API and persisted state
         run: python tests/http-api-e2e.py --binary "${{ matrix.binary }}"
+
+      - name: Exercise the real browser workspace and independent service switches
+        env:
+          PLAYWRIGHT_BROWSER_CHANNEL: chromium
+        run: |
+          npm install --no-save --package-lock=false playwright@1.65.1
+          npx playwright install chromium
+          python tests/web-service-e2e.py --binary "${{ matrix.binary }}"
 
   qpdf-linux:
     name: QPDF package Linux
