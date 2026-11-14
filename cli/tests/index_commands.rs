@@ -228,7 +228,18 @@ fn add_supports_builtin_documents_without_docling() {
     let check: Value = serde_json::from_slice(&check.stdout).unwrap();
     assert_eq!(check["extensions"], serde_json::json!(["csv"]));
     assert_eq!(check["indexed_files"], 1);
-    assert!(project.join(".sag-converted/table.csv.md").is_file());
+    assert!(run(&["service", "stop"]).status.success());
+    let store = sag_core::store::Store::open(&data.join("sag.sqlite")).unwrap();
+    let files = store.files().unwrap();
+    assert_eq!(files.len(), 1);
+    let converted = Path::new(&files[0].path);
+    assert!(converted.starts_with(data.canonicalize().unwrap()));
+    assert!(fs::read_to_string(converted).unwrap().contains("builtindocumentevidence"));
+    assert_eq!(
+        files[0].source_path.as_deref(),
+        project.join("table.csv").canonicalize().unwrap().to_str()
+    );
+    assert!(!project.join(".sag-converted").exists());
     assert!(!data.join("docling").exists());
     assert_eq!(fs::read_to_string(project.join("note.md")).unwrap(), "excludedmarkdown");
 }

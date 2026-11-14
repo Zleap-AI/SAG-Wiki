@@ -257,6 +257,12 @@ function prepare() {
     const files = Object.fromEntries(versionFiles.map(name => [name, blob(git, source, name)]));
     const versions = versionFiles.map(name => name.endsWith('.json') ? JSON.parse(files[name]).version :
       files[name].match(name.endsWith('.toml') ? /^version = "([^"]+)"/m : new RegExp(`\\[\\[package\\]\\]\\nname = "${name.startsWith('cli/') ? 'sag-cli' : 'sag-desktop'}"\\nversion = "([^"]+)"`))?.[1]);
+    const pendingTag = `v${versions[0]}`;
+    if (versions.every(version => version === versions[0]) && tags.includes(pendingTag) &&
+        !releases.some(release => release.tag_name === pendingTag && !release.draft)) {
+      summary(`${pendingTag} is not published yet; keep its version and request an explicit rebuild after fixing the release.`);
+      return;
+    }
     const version = releaseVersion(versions, tags, blob(git, source, 'CHANGELOG.md'));
     tag = `v${version}`;
     const provenance = {schema: 1, source, baseline, version};
