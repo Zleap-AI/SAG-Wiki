@@ -1,0 +1,59 @@
+name: Prepare automatic desktop release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  classify:
+    if: github.repository == 'Zleap-AI/SAG-Wiki'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      eligible: ${{ steps.changes.outputs.eligible }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - name: Classify the push before entering the product preparation queue
+        id: changes
+        run: node scripts/automatic-release.mjs classify
+
+  prepare:
+    needs: classify
+    if: needs.classify.outputs.eligible == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    # Keep every product preparation queued; documentation-only pushes never
+    # enter this queue. Each preparation includes the cumulative unpublished diff.
+    concurrency:
+      group: automatic-desktop-release-preparation
+      cancel-in-progress: false
+      queue: max
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          # Only this job can push its newly prepared tag, never protected main.
+          persist-credentials: true
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - name: Regress preparation, source trust and publishing policy
+        run: node --test scripts/automatic-release.node-test.mjs
+      - name: Prepare an immutable version tag and dispatch its checked release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/automatic-release.mjs prepare
