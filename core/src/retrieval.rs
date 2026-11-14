@@ -1,6 +1,6 @@
 pub use sag_protocol::{Term,Trace};
 use crate::{
-    store::Store,
+    store::{SearchScope, Store},
     text::{match_query, quote, tokenize},
     types::{Candidate, Retrieval},
 };
@@ -193,7 +193,7 @@ where
 {
     let mut options = options.clone();
     options.candidate_k = 100;
-    retrieve_inner(store, query, scope, &[], &options, cancel, Some(100), score, progress).await
+    retrieve_inner(store, query, SearchScope::Paths(scope), &[], &options, cancel, Some(100), score, progress).await
 }
 pub async fn retrieve<F, Fut>(
     store: &Store,
@@ -209,12 +209,28 @@ where
     F: FnMut(Vec<Candidate>, Vec<Candidate>) -> Fut,
     Fut: Future<Output = Result<Vec<Candidate>>>,
 {
+    retrieve_in_scope(store, query, SearchScope::Paths(scope), references, options, cancel, score, progress).await
+}
+pub(crate) async fn retrieve_in_scope<F, Fut>(
+    store: &Store,
+    query: &str,
+    scope: SearchScope<'_>,
+    references: &[String],
+    options: &Retrieval,
+    cancel: &CancellationToken,
+    score: F,
+    progress: impl Fn(&str, usize),
+) -> Result<SearchOutput>
+where
+    F: FnMut(Vec<Candidate>, Vec<Candidate>) -> Fut,
+    Fut: Future<Output = Result<Vec<Candidate>>>,
+{
     retrieve_inner(store, query, scope, references, options, cancel, None, score, progress).await
 }
 async fn retrieve_inner<F, Fut>(
     store: &Store,
     query: &str,
-    scope: &[String],
+    scope: SearchScope<'_>,
     references: &[String],
     options: &Retrieval,
     cancel: &CancellationToken,
@@ -231,8 +247,8 @@ where
     if cancel.is_cancelled() { bail!("已停止") }
     progress("正在加载搜索索引", 0);
     if cancel.is_cancelled() { bail!("已停止") }
-    let corpus = store.retrieval_statistics(scope, references, cancel)?;
-    let repaired = corpus.repair(query, |term| store.has_candidate_match(&quote(term), scope, references, &[]))?;
+    let corpus = store.retrieval_statistics_in_scope(scope, references, cancel)?;
+    let repaired = corpus.repair(query, |term| store.has_candidate_match_in_scope(&quote(term), scope, references, &[]))?;
     let expression = match_query(&repaired);
     if expression.is_empty() && references.is_empty() {
         return Ok(SearchOutput {
@@ -280,9 +296,9 @@ where
             hop,
         );
         let excluded: Vec<i64> = seen.iter().copied().collect();
-        corpus.resolve_terms(store, &mut terms, scope, references, &excluded)?;
+        corpus.resolve_terms_in_scope(store, &mut terms, scope, references, &excluded)?;
         let candidates = if hop == 0 {
-            let hits = store.candidate_query(
+            let hits = store.candidate_query_in_scope(
                 &expression,
                 None,
                 scope,
@@ -298,7 +314,9 @@ where
             } else {
                 let mut combined = IndexMap::new();
                 for c in store.reference_candidates(references, options.candidate_k)? {
-                    combined.insert(c.id, c);
+                    if !scope.files_only() || scope.contains(std::path::Path::new(&c.path)) {
+                        combined.insert(c.id, c);
+                    }
                 }
                 for c in hits {
                     combined.insert(c.id, c);
@@ -323,7 +341,7 @@ where
                     .join(" OR ")
             );
             let required = terms.iter().map(|term| quote(&term.term)).collect::<Vec<_>>();
-            let lists = store.candidate_queries(
+            let lists = store.candidate_queries_in_scope(
                 &ranking,
                 &required,
                 scope,

@@ -52,6 +52,8 @@ pub enum Command {
     AddWithTypes { extensions: Vec<String> },
     Remove,
     Search {
+        #[serde(default)]
+        exclude: Vec<String>,
         query: String,
         max_results: usize,
         content: bool,

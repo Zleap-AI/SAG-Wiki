@@ -6,6 +6,7 @@ import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 import {pathToFileURL} from 'node:url';
 import {packageUpdates} from './package-updates.mjs';
+import {gitAt, validateReleaseSource} from './automatic-release.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const repository = 'Zleap-AI/SAG-Wiki';
@@ -42,8 +43,7 @@ function validate() {
   if (process.env.GITHUB_SHA) assert.equal(commit, process.env.GITHUB_SHA, 'Checkout must match the triggering commit');
   if (process.env.GITHUB_REF?.startsWith('refs/tags/')) {
     assert.equal(process.env.GITHUB_REF, `refs/tags/v${version}`, 'Tag must exactly match the release version');
-    git('merge-base', '--is-ancestor', commit, 'origin/main');
-    assert.equal(git('rev-parse', `refs/tags/v${version}^{commit}`), commit, 'Release tag moved');
+    validateReleaseSource(gitAt(root), commit, `v${version}`);
   }
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\ncommit=${commit}\n`);
   console.log(JSON.stringify({version, commit}));
@@ -168,10 +168,12 @@ function assemble({input, output, 'signed-macos': signedMacOS}) {
 }
 
 export function validateEnvironment(environment, policies) {
-  assert.equal(environment.can_admins_bypass, false, 'Administrators must not bypass release approval');
+  assert.equal(environment.can_admins_bypass, false, 'Administrators must not bypass release restrictions');
   const reviewers = environment.protection_rules?.find(rule => rule.type === 'required_reviewers');
-  assert.ok(reviewers?.reviewers?.length > 0, 'release environment must require reviewers');
-  assert.equal(reviewers.prevent_self_review, true, 'Self-approval must be disabled');
+  assert.equal(reviewers?.reviewers?.length ?? 0, 0, 'Automatic releases must not wait for reviewers');
+  const timer = environment.protection_rules?.find(rule => rule.type === 'wait_timer');
+  assert.equal(timer?.wait_timer ?? 0, 0, 'Automatic releases must not have a wait timer');
+  assert.ok((environment.protection_rules ?? []).every(rule => ['required_reviewers', 'wait_timer', 'branch_policy'].includes(rule.type)), 'Unexpected release protection rule');
   assert.equal(environment.deployment_branch_policy?.custom_branch_policies, true, 'Custom tag restrictions required');
   assert.equal(environment.deployment_branch_policy?.protected_branches, false, 'Only explicit release tags may deploy');
   assert.ok(policies.length > 0 && policies.every(policy => policy.type === 'tag' && policy.name === 'v*'), 'Only v* tags may access release secrets');

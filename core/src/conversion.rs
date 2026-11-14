@@ -262,9 +262,13 @@ fn convert_mode(
         let parts =
             match crate::mineru::prepare_pdf_segments(source, limit, &settings.runtime, &cancel) {
                 Ok(parts) => parts,
-                // Docling's alternate backend can repair PDFs rejected by lopdf.
-                // Preparation incompatibility must not bypass the parser chain.
-                Err(error) if error.chain().any(|cause| cause.is::<lopdf::Error>()) => {
+                // The preflight only decides how to split a PDF. A file it cannot
+                // measure (lopdf recovers from an unreadable cross-reference by
+                // scanning, then sees no catalog in object-stream exports), a file
+                // it rejects, or a missing QPDF splitter must not veto conversion:
+                // Docling can still repair it. Only a decision the user made
+                // (page/input limits) or a cancellation stays fatal.
+                Err(error) if preflight_falls_back(&error) => {
                     return convert_single(source, output, docling, settings, cancel, report, None, enhanced, None);
                 }
                 Err(error) => return Err(error),
@@ -301,6 +305,17 @@ fn convert_mode(
         }
     }
     convert_single(source, output, docling, settings, cancel, report, None, enhanced, None)
+}
+
+/// Whether a failed PDF segment preflight leaves the file convertible as a whole.
+/// Configured limits and cancellation keep their meaning; every other preflight
+/// failure only means "cannot segment this file", not "cannot read this file".
+fn preflight_falls_back(error: &anyhow::Error) -> bool {
+    !error.chain().any(|cause| {
+        cause
+            .downcast_ref::<Failure>()
+            .is_some_and(|failure| matches!(failure.kind, FailureKind::Cancelled | FailureKind::Memory))
+    })
 }
 
 fn convert_single(
@@ -552,14 +567,46 @@ mod tests {
         assert_eq!(fs::read(output).unwrap(), first);
     }
 
-    #[cfg(unix)]
+    // A valid PDF whose trailer points at a missing catalog object: lopdf loads it
+    // without an error and reports no pages, which is what object-stream exports
+    // look like after lopdf recovers an unreadable cross-reference.
+    fn pdf_without_a_resolvable_catalog() -> Vec<u8> {
+        let mut bytes = text_pdf(1);
+        let marker = b"/Root ";
+        let start = bytes.windows(marker.len()).position(|window| window == marker).unwrap() + marker.len();
+        let end = start + bytes[start..].iter().position(|byte| !byte.is_ascii_digit()).unwrap();
+        bytes.splice(start..end, b"9".iter().copied());
+        bytes
+    }
+
     #[test]
-    fn pdf_split_preflight_failure_still_reaches_docling() {
-        use std::os::unix::fs::PermissionsExt;
+    fn pdf_preflight_that_cannot_count_pages_still_falls_back() {
         let dir = tempfile::tempdir().unwrap();
-        let source = dir.path().join("repairable.pdf");
-        fs::write(&source, "PDF rejected by the splitter").unwrap();
-        let home = dir.path().join("docling");
+        let source = dir.path().join("no-catalog.pdf");
+        fs::write(&source, pdf_without_a_resolvable_catalog()).unwrap();
+        let runtime = sag_protocol::runtime::RuntimeSettings::default();
+        let error = crate::mineru::prepare_pdf_segments(&source, 512 * 1024 * 1024, &runtime, &|| false)
+            .unwrap_err();
+        // lopdf accepts the file, so this error is not a lopdf::Error and the old
+        // fallback condition failed the file instead of reaching Docling.
+        assert!(!error.chain().any(|cause| cause.is::<lopdf::Error>()));
+        assert!(error.to_string().contains("PDF 中没有可解析页面"), "{error:#}");
+        assert!(preflight_falls_back(&error));
+    }
+
+    #[test]
+    fn configured_limits_and_cancellation_stay_fatal() {
+        let cancelled = anyhow::Error::new(Failure::new(FailureKind::Cancelled, "已停止转换，未发布输出"));
+        assert!(!preflight_falls_back(&cancelled));
+        let pages = anyhow::Error::new(Failure::new(FailureKind::Memory, "文档页数超过配置上限"));
+        assert!(!preflight_falls_back(&pages));
+        assert!(preflight_falls_back(&anyhow::anyhow!("缺少 QPDF 拆页程序，请重新安装完整安装包")));
+    }
+
+    #[cfg(unix)]
+    fn docling_recovery_fixture(dir: &Path) {
+        use std::os::unix::fs::PermissionsExt;
+        let home = dir.join("docling");
         fs::create_dir_all(home.join("bin")).unwrap();
         fs::write(home.join("ready"), "2.140.0").unwrap();
         let binary = home.join("bin/docling");
@@ -576,6 +623,15 @@ printf '# recovered by alternate parser\n' > "$output"
         )
         .unwrap();
         fs::set_permissions(&binary, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pdf_split_preflight_failure_still_reaches_docling() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("repairable.pdf");
+        fs::write(&source, "PDF rejected by the splitter").unwrap();
+        docling_recovery_fixture(dir.path());
         let output = dir.path().join(".sag-converted/repaired.md");
         let mut attempts = vec![];
         convert(
@@ -595,6 +651,39 @@ printf '# recovered by alternate parser\n' > "$output"
                 .iter()
                 .filter(|a| a.phase.is_none())
                 .map(|a| a.engine.as_str())
+                .collect::<Vec<_>>(),
+            ["anydoc", "Docling"]
+        );
+    }
+
+    // The icd_test.pdf failure: a valid PDF that lopdf can load but whose pages it
+    // cannot enumerate. The preflight must not decide the file is unreadable.
+    #[cfg(unix)]
+    #[test]
+    fn pdf_without_an_enumerated_catalog_still_reaches_docling() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("no-catalog.pdf");
+        fs::write(&source, pdf_without_a_resolvable_catalog()).unwrap();
+        docling_recovery_fixture(dir.path());
+        let output = dir.path().join(".sag-converted/no-catalog.md");
+        let mut attempts = vec![];
+        convert(
+            &source,
+            &output,
+            &Docling::new(dir.path()),
+            &Settings::default(),
+            || false,
+            |attempt| attempts.push(attempt),
+        )
+        .unwrap();
+        assert!(fs::read_to_string(output)
+            .unwrap()
+            .contains("recovered by alternate parser"));
+        assert_eq!(
+            attempts
+                .iter()
+                .filter(|attempt| attempt.phase.is_none())
+                .map(|attempt| attempt.engine.as_str())
                 .collect::<Vec<_>>(),
             ["anydoc", "Docling"]
         );

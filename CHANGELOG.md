@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.2.17
+
+- **数学公式**：问答和文档阅读支持显示 TeX 公式，离线也可用。
+- **搜索排除**：CLI、MCP 和 HTTP API 支持按相对路径排除文件和目录。
+- **PDF 索引**：修复部分 PDF 无法读取页数时的索引失败，可重新索引受影响文件。
+
+### English
+
+- **Math formulas**: Render TeX formulas in answers and document reading views, including offline.
+- **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
+- **PDF indexing**: Fix indexing for PDFs whose page count could not be read. Reindex affected files to retry.
+
 ## 0.2.14
 
 - **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答布局。

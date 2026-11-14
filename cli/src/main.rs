@@ -41,6 +41,9 @@ struct Args {
     directory: Option<PathBuf>,
     #[arg(long)]
     path: Option<PathBuf>,
+    /// 排除搜索目录下的相对路径（glob），可重复使用。
+    #[arg(long)]
+    exclude: Vec<String>,
     /// 最多选择的语义证据块（各段完整返回）；-E/-F 为匹配行数。默认 10，--count 默认统计全部。
     #[arg(short = 'm', long, value_parser = clap::value_parser!(u16).range(1..=100))]
     max_results: Option<u16>,
@@ -98,9 +101,6 @@ struct MatchingArgs {
     /// 只匹配符合通配符的文件名，可重复使用。
     #[arg(long)]
     include: Vec<String>,
-    /// 排除符合通配符的文件名，可重复使用。
-    #[arg(long)]
-    exclude: Vec<String>,
     #[arg(skip)]
     filters: Vec<MatchFilter>,
 }
@@ -414,6 +414,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
                         else if args.matching.files_with_matches { MatchOutputMode::Files } else if args.matching.only_matching { MatchOutputMode::OnlyMatching } else { MatchOutputMode::Lines },
                     filters: args.matching.filters },
             }) } else { Command::Search {
+                exclude: args.exclude,
                 query: args.query.expect("a bare invocation returns before search"),
                 max_results: args.max_results.unwrap_or(10).into(),
                 content: true,

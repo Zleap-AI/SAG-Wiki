@@ -20,6 +20,13 @@
           "minimum": 1,
           "maximum": 100,
           "description": "返回片段数量；省略沿用检索设置，默认 10。"
+        },
+        "exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "相对于所选目录的排除 glob，可指定多个，如 [\".git/**\",\"archive/\",\"*.zip\"]；检索前生效，不修改索引。省略 path 时分别相对于各所选根目录。"
         }
       },
       "required": [
