@@ -84,3 +84,5 @@ Select **Import JSON**, paste the configuration in the dialog and select **Impor
 ![Add an MCP server](/images/product-mcp-add-en.png)
 
 ![Import MCP configuration](/images/product-mcp-import-en.png)
+
+The search tool accepts an `exclude` array, e.g. `{"query":"authentication flow","path":"F:/project","exclude":[".git/**","archive/","*.zip"]}`. Patterns are relative to the selected directory, or to each search root when no path is supplied. They apply before retrieval and JEV scoring and do not modify the index.

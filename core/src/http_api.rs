@@ -591,6 +591,8 @@ async fn handle_http(
 #[serde(deny_unknown_fields)]
 struct SearchRequest {
     query: String,
+    #[serde(default)]
+    exclude: Vec<String>,
     #[serde(default = "deep")]
     mode: String,
     #[serde(default)]
@@ -839,7 +841,11 @@ async fn search(
 ) -> std::result::Result<Value, ApiError> {
     let store = service.store.clone();
     let paths = input.paths.clone();
-    let scope = tokio::task::spawn_blocking(move || scopes(&store, &paths))
+    let exclude = input.exclude.clone();
+    let scope = tokio::task::spawn_blocking(move || {
+        let scopes = scopes(&store, &paths)?;
+        store.search_scopes_excluding_each(&scopes, &exclude).map_err(ApiError::bad)
+    })
         .await
         .map_err(ApiError::internal)??;
     let canonical_scope = scope.iter().map(|path| Path::new(path).canonicalize())

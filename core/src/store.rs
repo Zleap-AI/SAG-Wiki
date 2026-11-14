@@ -2466,6 +2466,17 @@ impl Store {
         }
         Ok(allowed)
     }
+    pub(crate) fn search_scopes_excluding_each(&self, scopes: &[String], exclude: &[String]) -> Result<Vec<String>> {
+        if exclude.is_empty() { return Ok(scopes.to_vec()); }
+        let mut allowed = vec![];
+        for scope in scopes {
+            let path = Path::new(scope);
+            let base = if path.is_file() { path.parent().context("搜索路径缺少父目录")? } else { path };
+            allowed.extend(self.search_scopes_excluding(base, std::slice::from_ref(scope), exclude)?);
+        }
+        allowed.sort(); allowed.dedup();
+        Ok(allowed)
+    }
     fn scope_document_ids(&self, connection: &Connection, version: i64, scope: &[String], references: &[String]) -> Result<Option<Arc<str>>> {
         if scope.is_empty() { return Ok(None); }
         let key = CorpusScope { scope: scope.to_vec(), references: references.to_vec() };

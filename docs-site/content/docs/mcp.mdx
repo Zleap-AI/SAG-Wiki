@@ -84,3 +84,5 @@ description: "为每个问答模型选择内置工具和外部 MCP 服务。"
 ![添加 MCP 服务](/images/product-mcp-add-cn.png)
 
 ![导入 MCP 配置](/images/product-mcp-import-cn.png)
+
+搜索工具支持 `exclude` 字符串数组，例如 `{"query":"认证流程","path":"F:/project","exclude":[".git/**","archive/","*.zip"]}`。排除规则相对于所选目录；省略路径时分别相对于各搜索根目录。仅影响本次搜索，在检索和 JEV 判断前生效，不修改索引。

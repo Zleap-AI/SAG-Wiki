@@ -257,6 +257,13 @@ async fn mcp_reuses_api_authentication_search_scope_and_lifecycle() {
     let results = search["result"]["structuredContent"]["results"].as_array().unwrap();
     assert_eq!(results.len(), 2);
     assert!(results.iter().all(|item| Path::new(item["path"].as_str().unwrap()).starts_with(&f.a)));
+    let excluded = call("search", json!({"query":"deploymarker","mode":"fast","paths":[f.a,f.b],"exclude":["sub/**","three.md"]})).await;
+    let kept = excluded["result"]["structuredContent"]["results"].as_array().unwrap();
+    assert_eq!(kept.len(), 1);
+    assert!(kept[0]["path"].as_str().unwrap().ends_with("one.md"));
+    let empty = call("search", json!({"query":"deploymarker","mode":"fast","paths":[f.a],"exclude":["**"]})).await;
+    assert!(empty["result"]["structuredContent"]["results"].as_array().unwrap().is_empty());
+    assert_eq!(listed["result"]["tools"][0]["inputSchema"]["properties"]["exclude"]["type"], "array");
     let outside = call("folders", json!({"path":f.dir.path()})).await;
     assert_eq!(outside["result"]["isError"], true);
     assert_eq!(outside["result"]["structuredContent"]["code"], "path_not_allowed");

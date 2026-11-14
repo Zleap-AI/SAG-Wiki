@@ -73,6 +73,8 @@ pub struct SagTools {
 #[serde(deny_unknown_fields)]
 struct SearchArgs {
     query: String,
+    #[serde(default)]
+    exclude: Vec<String>,
     path: Option<String>,
     top_k: Option<usize>,
 }
@@ -386,6 +388,7 @@ impl SagTools {
                 .iter()
                 .map(|p| self.store.indexed_path(p).and_then(|path| store::path_text(&path)))
                 .collect::<Result<Vec<_>>>()?;
+            let scope = self.store.search_scopes_excluding_each(&scope, &args.exclude)?;
             let refs = self
                 .references
                 .iter()
@@ -1022,6 +1025,7 @@ pub(crate) mod tests {
     async fn search_uses_the_existing_sag2_pipeline_and_returns_read_offsets() {
         use std::{io::{Read,Write},net::TcpListener};
         let (dir,mut tools,root)=fixture();
+        assert!(tools.execute("search",json!({"query":"needle","exclude":["**"]})).await.unwrap().sources.is_empty());
         tools.settings.retrieval.max_hops=0;
         tools.settings.retrieval.top_k=1;
         tools.store.scan(root.to_str().unwrap(), |_|{}).unwrap();
