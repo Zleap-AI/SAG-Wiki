@@ -292,3 +292,66 @@ fn text_only_stays_local_in_both_scan_lanes_even_when_cloud_is_enabled() {
         assert_eq!(store.roots().unwrap()[0].status, "ready");
     }
 }
+
+#[test]
+fn renamed_word_notes_are_preserved_without_silent_success() {
+    use std::io::Read;
+    let dir = tempfile::tempdir().unwrap();
+    let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/anydoc/docx-text.docx");
+    let source = dir.path().join("custom-notes.docx");
+    let mut original = zip::ZipArchive::new(fs::File::open(fixture).unwrap()).unwrap();
+    let mut renamed = zip::ZipWriter::new(fs::File::create(&source).unwrap());
+    for i in 0..original.len() {
+        let mut entry = original.by_index(i).unwrap();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).unwrap();
+        // Both a different basename and a different directory are legal OPC part names.
+        let replacements = [
+            ("word/footnotes.xml", "notes/custom-foot.xml"),
+            ("word/endnotes.xml", "notes/custom-end.xml"),
+        ];
+        let name = replacements
+            .iter()
+            .fold(entry.name().to_owned(), |s, (old, new)| s.replace(old, new));
+        if entry.name() == "[Content_Types].xml" || entry.name() == "word/_rels/document.xml.rels" {
+            let mut xml = String::from_utf8(bytes).unwrap();
+            for (old, new) in replacements {
+                let old = if entry.name() == "[Content_Types].xml" {
+                    old
+                } else {
+                    old.strip_prefix("word/").unwrap()
+                };
+                let new = if entry.name() == "[Content_Types].xml" {
+                    new.to_owned()
+                } else {
+                    format!("../{new}")
+                };
+                xml = xml.replace(old, &new);
+            }
+            bytes = xml.into_bytes();
+        }
+        renamed
+            .start_file(name, zip::write::SimpleFileOptions::default())
+            .unwrap();
+        renamed.write_all(&bytes).unwrap();
+    }
+    renamed.finish().unwrap();
+    let mut runtime = sag_protocol::runtime::RuntimeSettings::default();
+    for enabled in [false, true] {
+        runtime.office_text_only = enabled;
+        let output = dir
+            .path()
+            .join(if enabled { "text.md" } else { "normal.md" });
+        anydoc::convert_with_runtime(&source, &output, &runtime, || false).unwrap();
+        let text = fs::read_to_string(output).unwrap();
+        assert!(
+            text.contains("Footnote after an astral character."),
+            "footnote missing with text-only={enabled}"
+        );
+        assert!(
+            text.contains("Endnote body text."),
+            "endnote missing with text-only={enabled}"
+        );
+    }
+}

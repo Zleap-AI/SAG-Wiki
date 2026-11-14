@@ -129,7 +129,7 @@ pub fn identity(source: &Path, settings: &Settings) -> String {
     let base = engine_identity(source, settings);
     // Scope invalidation to DOCX/PPTX; changing this switch must not rebuild PDF caches.
     if anydoc::office_text_only(source, &settings.runtime) {
-        return format!("office-text-only-v1:{base}");
+        return format!("office-text-only-v2:{base}");
     }
     if source
         .extension()

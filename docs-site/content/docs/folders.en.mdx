@@ -33,7 +33,7 @@ The basic stage may omit scanned images, complex tables or final source position
 
 ## Office text only
 
-Enable **Office text only** in **Settings → File settings** to index DOCX/PPTX text while skipping images and embedded objects. It is off by default and does not cover legacy DOC/PPT, DOCM/PPTM or other formats. Body text, tables, text boxes and supported notes retain built-in parsing. Text inside images and embedded attachments is not recognized.
+Enable **Office text only** in **Settings → File settings** to index DOCX/PPTX text while skipping images and embedded objects. It is off by default and does not cover legacy DOC/PPT, DOCM/PPTM or other formats. Body text, tables, text boxes and supported notes retain built-in parsing. Known Word text parts, such as footnotes and endnotes, are retained by their declared content type, including custom names or paths. Text inside images and embedded attachments is not recognized.
 
 Filtering occurs before ZIP members are opened, read or decompressed, retaining only necessary Office XML by path and content type. Container directories, relationships and text XML still need reading; source fingerprinting still reads the original file in chunks, so this does not promise zero disk I/O over compressed image bytes. Input, XML decompression, entry count, nesting, output and timeout limits remain enforced.
 

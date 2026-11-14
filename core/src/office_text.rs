@@ -174,6 +174,26 @@ fn content_types(
     }
     Ok((overrides, defaults))
 }
+// OPC gives text parts their identity through content types and relationships,
+// not conventional filenames. Keep this list exact so media/OLE types stay excluded.
+fn word_text_part(mime: &str) -> bool {
+    mime.strip_prefix("application/vnd.openxmlformats-officedocument.wordprocessingml.")
+        .is_some_and(|kind| {
+            matches!(
+                kind,
+                "styles+xml"
+                    | "numbering+xml"
+                    | "settings+xml"
+                    | "fontTable+xml"
+                    | "footnotes+xml"
+                    | "endnotes+xml"
+                    | "comments+xml"
+                    | "header+xml"
+                    | "footer+xml"
+            )
+        })
+}
+
 fn text_mime(mime: &str) -> bool {
     mime == "application/vnd.openxmlformats-package.relationships+xml"
         || (mime.ends_with("+xml")
@@ -244,15 +264,35 @@ pub(super) fn convert(
         ensure!(types.len() as u64 <= cap, "Office 内容类型部件超过上限");
     }
     let (overrides, defaults) = content_types(&types, &checkpoint)?;
+    let content_type = |name: &str| {
+        overrides
+            .get(name)
+            .or_else(|| name.rsplit_once('.').and_then(|(_, ext)| defaults.get(ext)))
+    };
+    let mut text_parts = std::collections::HashSet::new();
+    if prefix == "word/" {
+        for name in &names {
+            if content_type(name).is_some_and(|mime| word_text_part(mime)) {
+                text_parts.insert(name.clone());
+                // Retain the part's relationship metadata too (e.g. links inside notes).
+                let (parent, file) = name
+                    .rsplit_once('/')
+                    .map_or(("", name.as_str()), |(p, f)| (p, f));
+                let parent = if parent.is_empty() {
+                    String::new()
+                } else {
+                    format!("{parent}/")
+                };
+                text_parts.insert(format!("{parent}_rels/{file}.rels"));
+            }
+        }
+    }
     let mut names: Vec<_> = names
         .into_iter()
         .filter(|n| {
-            allowed(n, prefix)
+            (allowed(n, prefix) || text_parts.contains(n))
                 && (n == "[Content_Types].xml"
-                    || overrides
-                        .get(n)
-                        .or_else(|| n.rsplit_once('.').and_then(|(_, ext)| defaults.get(ext)))
-                        .is_some_and(|mime| text_mime(mime)))
+                    || content_type(n).is_some_and(|mime| text_mime(mime)))
         })
         .collect();
     names.sort();
