@@ -67,8 +67,13 @@ with tempfile.TemporaryDirectory(prefix='sag-web-demo-') as td, ThreadingHTTPSer
   http('/v1/status',api_key,expected=401)
   http('/web/operation',code,{'operation':'list_roots'},expected=403,extra={'Origin':'http://example.invalid'})
   http('/web/operation',code,{'operation':'shutdown'},expected=400)
-  http('/web/operation',code,{'operation':'remove_root','args':{'path':str(docs)}},expected=400)
-  assert json.loads(http('/web/operation',code,{'operation':'list_roots'}))[0]['path']==str(docs)
+  roots=json.loads(http('/web/operation',code,{'operation':'list_roots'}))
+  assert len(roots)==1
+  # Use the service's canonical path, including Windows verbatim prefixes.
+  path=roots[0]['path']
+  rejected=json.loads(http('/web/operation',code,{'operation':'remove_root','args':{'path':path}},expected=400))
+  assert rejected['error']['message']=='此操作需在桌面端完成'
+  assert [item['path'] for item in json.loads(http('/web/operation',code,{'operation':'list_roots'}))]==[path]
   outside=root/'outside.md';outside.write_text('outside indexed folders',encoding='utf-8')
   http('/web/operation',code,{'operation':'read_document','args':{'path':str(outside)}},expected=400)
   cli('api','start')
