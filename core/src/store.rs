@@ -2450,6 +2450,22 @@ impl Store {
         Ok(stats)
     }
 
+    pub(crate) fn search_scopes_excluding(&self, root: &Path, scopes: &[String], exclude: &[String]) -> Result<Vec<String>> {
+        if exclude.is_empty() { return Ok(scopes.to_vec()); }
+        let patterns = exclude.iter().map(|p| glob::Pattern::new(&p.replace('\\', "/")).context("排除路径通配符无效")).collect::<Result<Vec<_>>>()?;
+        let db = self.connection();
+        let mut query = db.prepare("SELECT d.path,COALESCE(cv.source,d.path) FROM documents d LEFT JOIN conversions cv ON cv.output=d.path AND cv.valid=1")?;
+        let rows = query.query_map([], |row| Ok((row.get::<_,String>(0)?,row.get::<_,String>(1)?)))?;
+        let mut allowed = vec![];
+        for row in rows {
+            let (output, source) = row?;
+            let source = Path::new(&source);
+            if !scopes.iter().any(|scope| source.starts_with(scope) || Path::new(&output).starts_with(scope)) { continue; }
+            let Ok(relative) = source.strip_prefix(root) else { continue; };
+            if !patterns.iter().any(|pattern| crate::cli_match::path_filter_matches(pattern, relative)) { allowed.push(output); }
+        }
+        Ok(allowed)
+    }
     fn scope_document_ids(&self, connection: &Connection, version: i64, scope: &[String], references: &[String]) -> Result<Option<Arc<str>>> {
         if scope.is_empty() { return Ok(None); }
         let key = CorpusScope { scope: scope.to_vec(), references: references.to_vec() };
@@ -2916,6 +2932,24 @@ mod tests {
         db.add_root(&notes).unwrap();
         let notes = notes.canonicalize().unwrap();
         (dir, db, notes)
+    }
+    #[test]
+    fn search_exclude_paths_filter_before_candidate_limit() {
+        let (_dir, store, root) = setup();
+        fs::create_dir(root.join("archive")).unwrap();
+        fs::write(root.join("keep.md"), "needle retained").unwrap();
+        fs::write(root.join("archive/old.md"), "needle needle needle excluded").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let scopes = vec![path_text(&root).unwrap()];
+        for pattern in ["archive/**", "archive/", "archive"] {
+            let allowed = store.search_scopes_excluding(&root, &scopes, &[pattern.into()]).unwrap();
+            assert_eq!(allowed, vec![path_text(&root.join("keep.md")).unwrap()]);
+            let candidates = store.candidate_query(&text::match_query("needle"), None, &allowed, &[], &[], 1).unwrap();
+            assert_eq!(candidates.len(), 1);
+            assert!(candidates[0].content.contains("retained"));
+        }
+        assert!(store.search_scopes_excluding(&root, &scopes, &["**".into()]).unwrap().is_empty());
+        assert!(store.search_scopes_excluding(&root, &scopes, &["[".into()]).is_err());
     }
     #[cfg(unix)]
     fn converted_text_fixture() -> (tempfile::TempDir, Store, PathBuf) {

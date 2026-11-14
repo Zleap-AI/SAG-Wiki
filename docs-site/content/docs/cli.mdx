@@ -206,3 +206,5 @@ Windows 使用独立控制台 `sag.exe`。应用安装包附带该文件，默�
 - [OpenCode Skill](https://opencode.ai/docs/skills/)
 
 开发、构建与代码检查见[开发指南](/zh/docs/development)。
+
+默认搜索当前工作目录，`--path` 可覆盖。语义搜索和 `-E` / `-F` 都支持重复使用 `--exclude`，按搜索根目录下的相对路径匹配，例如 `sag "色差" --path "F:/资料" --exclude "旧资料/**" --exclude "备份/"`。排除在候选检索和 JEV 判断前生效，不删除文件或索引；全部排除时返回空结果。无斜杠的模式继续匹配文件名。

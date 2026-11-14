@@ -66,7 +66,7 @@ async fn send(
     serde_json::from_str(&line).unwrap()
 }
 fn search(content: bool) -> Command {
-    Command::Search {
+    Command::Search { exclude: vec![],
         query: "authenticate permission\n中文".into(),
         max_results: 10,
         content,
@@ -315,6 +315,32 @@ async fn twenty_searches_reach_the_model_before_any_response_returns() {
     service.shutdown();
 }
 #[tokio::test]
+async fn search_exclude_never_sends_excluded_passages_to_jev() {
+    let (_dir, service, root) = fixture();
+    fs::create_dir(root.join("archive")).unwrap();
+    fs::write(root.join("archive/private.rs"), "authenticate permission private_excluded_marker").unwrap();
+    service.store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut settings = service.store.settings().unwrap();
+    settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
+    settings.retrieval.max_hops = 0;
+    service.store.save_settings(&settings).unwrap();
+    models::save_secret(&service.data, "jev", "fixture-only").unwrap();
+    let target = service.clone(); let scope = root.clone();
+    let search = tokio::spawn(async move { send(&target, &scope, Command::Search { exclude: vec!["archive/**".into()], query:"authenticate permission".into(), max_results:10, content:true, timeout:5 }, None).await });
+    let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept()).await.unwrap().unwrap();
+    let payload = model_request(&mut stream).await;
+    assert!(!payload.to_string().contains("private_excluded_marker"));
+    let answers: serde_json::Map<String,Value> = payload["questions"].as_object().unwrap().keys().map(|key|(key.clone(),json!({"type":"noul","noul":0.9}))).collect();
+    let body = json!({"answers":answers}).to_string();
+    stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
+    let Response::Search(result) = search.await.unwrap() else {panic!("search failed")};
+    assert!(result.results.iter().all(|r| !r.path.contains("archive")));
+    let Response::Search(empty) = send(&service,&root,Command::Search {exclude:vec!["**".into()],query:"authenticate".into(),max_results:10,content:true,timeout:5},None).await else {panic!("empty search failed")};
+    assert!(empty.results.is_empty());
+    service.shutdown();
+}
+#[tokio::test]
 async fn standalone_search_rechecks_access_changed_by_another_core() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("project");
@@ -329,7 +355,7 @@ async fn standalone_search_rechecks_access_changed_by_another_core() {
     settings.retrieval.max_hops = 0;
     service.store.save_settings(&settings).unwrap();
     models::save_secret(dir.path(), "jev", "test-only").unwrap();
-    let task = tokio::spawn(async move { service.run_local(root, Command::Search {
+    let task = tokio::spawn(async move { service.run_local(root, Command::Search { exclude: vec![],
         query: "How does session authentication check permissions?".into(),
         max_results: 1, content: true, timeout: 3,
     }, CancellationToken::new()).await });
@@ -368,7 +394,7 @@ async fn semantic_limit_keeps_every_source_span_of_selected_evidence() {
         }
     });
     for content in [true, false] {
-        let response = send(&service, &root, Command::Search {
+        let response = send(&service, &root, Command::Search { exclude: vec![],
             query: "How does session authentication check permission and report denied access?".into(),
             max_results: 1, content, timeout: 3,
         }, None).await;
@@ -405,7 +431,7 @@ async fn semantic_results_keep_headings_without_repeating_overlap() {
         let body = json!({"answers":answers}).to_string();
         stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
     });
-    let Response::Search(output) = send(&service, &root, Command::Search {query:"Session production permission".into(),max_results:100,content:true,timeout:3}, None).await else { panic!("search failed") };
+    let Response::Search(output) = send(&service, &root, Command::Search { exclude: vec![],query:"Session production permission".into(),max_results:100,content:true,timeout:3}, None).await else { panic!("search failed") };
     model.await.unwrap();
     assert!(output.results.iter().all(|r| r.heading == "Deploy / Production" && r.path == "./session.md"));
     let shown = output.results.iter().map(|r| r.content.as_deref().unwrap()).collect::<Vec<_>>().join("\n");
@@ -524,7 +550,7 @@ async fn disconnect_and_timeout_only_cancel_their_own_parallel_queries() {
     let cli = send(
         &service,
         &root,
-        Command::Search {
+        Command::Search { exclude: vec![],
             query: "authenticate".into(),
             max_results: 10,
             content: false,

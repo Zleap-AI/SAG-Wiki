@@ -441,6 +441,7 @@ impl CliService {
                 Ok(Response::Matches(output))
             }
             Command::Search {
+                exclude,
                 query,
                 max_results,
                 content,
@@ -460,6 +461,10 @@ impl CliService {
                 let operation = async {
                     let (path, scopes) = self.authorized(&request.path)?;
                     let scope = store::path_text(&path)?;
+                    let scopes = self.store.search_scopes_excluding(&path, &scopes, &exclude)?;
+                    if scopes.is_empty() {
+                        return Ok(Response::Search(SearchOutput { protocol_version: VERSION, scope, results: vec![], truncated: false }));
+                    }
                     let tools = SagTools {
                         store: self.store.clone(),
                         client: self.client.clone(),

@@ -207,3 +207,5 @@ Skill installation is currently provided for Claude Code, Codex and OpenCode.
 - [OpenCode Skill](https://opencode.ai/docs/skills/)
 
 For development, builds and code checks, see the [development guide](/en/docs/development).
+
+Search defaults to the current working directory; `--path` overrides it. Semantic search and `-E` / `-F` accept repeated `--exclude` patterns relative to the search root, e.g. `sag "aberration" --path "F:/docs" --exclude "archive/**" --exclude "backup/"`. Exclusions apply before candidate retrieval and JEV scoring, without deleting files or indexes. Excluding everything returns no results. Patterns without slashes also match file names.
