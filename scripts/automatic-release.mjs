@@ -47,6 +47,19 @@ export function nextVersion(manifests, tags) {
   return `${major}.${minor}.${BigInt(patch) + 1n}`;
 }
 
+const hasReleaseNotes = (changelog, version) => changelog.replace(/\r\n/g, '\n').split(/^## /m)
+  .some(section => section.startsWith(`${version}\n`));
+
+export function releaseVersion(manifests, tags, changelog) {
+  const version = manifests[0];
+  const occupied = tags.filter(tag => /^v/.test(tag) && stable.test(tag));
+  if (version && manifests.every(value => value === version) && hasReleaseNotes(changelog, version) &&
+      occupied.length && version === nextVersion([], occupied)) {
+    return version;
+  }
+  return nextVersion(manifests, tags);
+}
+
 // Unknown paths are product changes. Release infrastructure is intentionally
 // narrow: build-cli, packaging, updater and macOS signing code affect the product.
 export function isProductPath(path) {
@@ -111,13 +124,18 @@ export function preparedContents(git, {source, baseline, version}) {
   assert.match(source, sha); assert.match(baseline, sha);
   git('merge-base', '--is-ancestor', baseline, source);
   const files = Object.fromEntries(versionFiles.map(name => [name, blob(git, source, name)]));
-  assert.ok(compareVersions(version, JSON.parse(files['package.json']).version) > 0, 'Prepared version must increase');
+  const changelog = blob(git, source, 'CHANGELOG.md');
+  const reviewed = hasReleaseNotes(changelog, version);
+  const comparison = compareVersions(version, JSON.parse(files['package.json']).version);
+  assert.ok(comparison > 0 || (comparison === 0 && reviewed), 'Prepared version must increase or have reviewed notes');
   const updates = updateVersionFiles(files, version);
+  if (reviewed) {
+    return {...updates, 'CHANGELOG.md': changelog};
+  }
   const subjects = git('log', '--no-merges', '--format=%H', `${baseline}..${source}`).split('\n').filter(Boolean)
     .filter(commit => hasProductChanges(git.raw('diff-tree', '--root', '--no-commit-id', '--name-only', '-z', '--no-renames', '-r', commit).split('\0').filter(Boolean)))
     .map(commit => `- ${git('show', '-s', '--format=%s', commit).replace(/[\r\n]/g, ' ')} (${commit.slice(0, 7)})`);
   assert.ok(subjects.length, 'No product commits to release');
-  const changelog = blob(git, source, 'CHANGELOG.md');
   const heading = changelog.indexOf('\n');
   assert.ok(heading >= 0, 'Changelog heading is required');
   updates['CHANGELOG.md'] = changelog.slice(0, heading + 1) +
@@ -239,7 +257,7 @@ function prepare() {
     const files = Object.fromEntries(versionFiles.map(name => [name, blob(git, source, name)]));
     const versions = versionFiles.map(name => name.endsWith('.json') ? JSON.parse(files[name]).version :
       files[name].match(name.endsWith('.toml') ? /^version = "([^"]+)"/m : new RegExp(`\\[\\[package\\]\\]\\nname = "${name.startsWith('cli/') ? 'sag-cli' : 'sag-desktop'}"\\nversion = "([^"]+)"`))?.[1]);
-    const version = nextVersion(versions, tags);
+    const version = releaseVersion(versions, tags, blob(git, source, 'CHANGELOG.md'));
     tag = `v${version}`;
     const provenance = {schema: 1, source, baseline, version};
     commit = createPreparedCommit(root, provenance);

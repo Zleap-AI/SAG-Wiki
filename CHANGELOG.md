@@ -1,5 +1,45 @@
 # 更新日志 / Changelog
 
+## 0.2.17
+
+- **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答。
+- **问答模型与搜索总结**：支持从服务商获取模型列表、选择多个问答模型，并接入 OpenAI Decisions。搜索总结可单独选择模型并查看用量。
+- **文档解析**：Docling 组件可从资源站安装，MinerU 可配置自定义接口。文件转换默认并行数提高到 4，已保存的设置继续保留。
+- **系统代理**：Windows 和 macOS 上的模型请求可使用手动配置的系统代理，修改后无需重启。
+
+### English
+
+- **Narrow layouts**: Improve the sidebar, settings, search, and chat on mobile browsers and in narrow desktop windows.
+- **Chat models and search summaries**: Fetch model lists from providers, select multiple chat models, and use OpenAI Decisions. Choose a separate model for search summaries and view its usage.
+- **Document parsing**: Install Docling from the resource site and configure a custom MinerU endpoint. File conversion defaults to four concurrent tasks and preserves saved settings.
+- **System proxy**: Model requests on Windows and macOS support manually configured system proxies. Changes take effect without restarting.
+
+## 0.2.16
+
+- **数学公式**：问答和文档阅读支持显示 TeX 公式，离线也可用。
+- **搜索排除**：CLI、MCP 和 HTTP API 支持按相对路径排除文件和目录。
+- **PDF 索引**：修复部分 PDF 无法读取页数时的索引失败，可重新索引受影响文件。
+
+### English
+
+- **Math formulas**: Render TeX formulas in answers and document reading views, including offline.
+- **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
+- **PDF indexing**: Fix indexing for PDFs whose page count could not be read. Reindex affected files to retry.
+
+## 0.2.14
+
+- **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答布局。
+- **模型与搜索总结**：可获取并多选问答模型，支持 OpenAI Decisions，并可为搜索总结单独选择模型、查看用量。
+- **系统代理**：Windows 和 macOS 上的模型请求支持手动配置的系统代理，切换后无需重启。
+- **文档解析设置**：Docling 文档组件可从资源站下载安装，保留手动导入入口；MinerU 支持自定义接口地址。
+
+### English
+
+- **Narrow layouts**: Improve the sidebar, settings, search and chat on mobile browsers and in narrow desktop windows.
+- **Models and search summaries**: Fetch and select chat models, use OpenAI Decisions, and choose a separate model for search summaries with usage shown.
+- **System proxy**: Model requests use manually configured system proxies on Windows and macOS. Changes apply without restarting.
+- **Document parsing settings**: Install the Docling document component from the resource site or import it manually. Set a custom endpoint for MinerU.
+
 ## 0.2.13
 
 - **升级缓存与索引统计**：启动或升级后的检查复用未变化的索引和兼容的转换结果；索引详情区分已检查、已复用、已更新和失败，避免将检查文件数误认为重新构建数。内容、解析设置或必要迁移变化时，仍会更新受影响文档。
@@ -297,48 +337,20 @@ The desktop app and bundled CLI both use 0.2.2 for macOS and Windows, retaining 
 
 ## 0.2.0
 
-相对 0.1.9 的桌面端与 CLI 更新。
-
-### 新功能与体验改进
-
-- 内置 anydoc 文档转换，文本型 PDF、Word、PowerPoint、Excel/CSV、OpenDocument 和 EPUB 无需另行下载转换组件。扫描件仍需按需安装的 OCR 组件；缺少组件时会提示索引问题。
-- 新增网页剪藏扩展和桌面导出入口，可预览网页正文后保存为本地 Markdown，并将保存目录加入知识库。支持 Chrome / Edge；Safari 导出仅在桌面构建附带已签名、公证的扩展安装包时可用。
-- 新增文档标题目录、当前文档问答、首次保存时命名与选择目录，并改善转换后文档的打开、编辑和文件列表展示。
-- 文档编辑器、引用原文、搜索预览和回答支持本地 Mermaid 图表；问答处理过程可自动折叠并显示用时。
-- 长会话超出上下文预算时，使用当前问答模型生成并保存摘要，保留完整历史。每轮工具调用仍默认 10 次，新增设置为 0 取消次数限制，SAG 与 MCP 工具共用该上限。
-- 改善 MCP 工具绑定：添加服务和导入 JSON 使用独立弹窗，明确显示待测试、已连接及当前模型启用状态，新增移除确认与撤销。
-- 新增带操作截图的中英文文档站，涵盖文档编辑、网页剪藏、检索、问答、CLI 与 MCP 接入。
-
-### Bug 修复
-
-- 改善未配置模型时的首次使用：默认使用本地快速搜索，跳过需要回答模型的自动摘要，并为语义检索与问答提供配置提示。
-- 后台服务启动连接失败时显示可操作错误并重连，恢复后清除临时错误；事件消费者落后时保持事件流连接，避免后续进度和问答事件中断。
-- 索引时跳过不可读子目录，继续处理其余文件；目录中的 `.sagignore` 无法读取时停止该范围的扫描，避免忽略规则失效。
-- 检索跳过已删除、已变化或不可读的原文，以及超过 Jev 单项输入预算的候选，避免单份文档导致整个查询失败；搜索数量扣除当前页跳过的失效项。
-- 修复 Windows 转换输出的 UTF-8 读取及 uv 目录联接处理，并调整 8 GiB 设备的转换内存预算，避免原有 2 GiB 限额过早终止转换。
-- 转换组件安装显示实际进度，模型下载源不可达时及时报错；“其他格式”默认不预选，按所选格式安装文档/OCR 或音视频组件。
-- 内置转换缓存纳入 anydoc 版本，后续索引时更新旧缓存；原文未变时保留失败重试前的有效结果，避免覆盖用户编辑过的转换文档，并防止原文变化后继续使用旧结果。
-- 外部链接改用系统浏览器打开，避免打断应用内会话；手动上滚阅读回答后，生成完成不再将阅读位置拉回底部。
-- 已关闭的相同索引失败提示不再重复出现，新的失败仍会提醒，并改善 Windows 索引路径显示。
-
-### 发布与兼容性
-
-- 桌面端和随包 CLI 统一为 0.2.0，沿用 0.1.9 的更新签名通道。0.1.8 及更早版本的签名迁移要求不变。
-- GitHub 发布范围为 macOS 和 Windows 桌面端。PR 执行两平台 CLI/服务 E2E；完整构建、单元测试、文档构建与安装器检查由桌面发布工作流执行。
+- 新增网页剪藏、Mermaid 图表和文档目录。
+- 内置解析 Office、文本型 PDF 和电子书。
+- 改善文件管理、问答过程展示和索引体验。
+- 新增中英文帮助文档。
 
 ## 0.1.9
 
-- 支持本地 Jev 的基础地址及完整接口地址，修复重复拼接 `/systemone` 导致连接失败的问题。
-- Jev 新增“无需鉴权”选项，桌面与 CLI 均可接入无 API Key 的本地服务，旧配置保持 API Key 鉴权。
-- 保留跨供应商密钥保护，修复无效配置保存可能删除原 Jev 密钥的问题。
-- 新增集中签名的 macOS/Windows 发布流水线；更新签名密钥迁移后，旧版本用户需手动安装一次 0.1.9，之后恢复应用内更新。
-- 修复 Windows CLI 启动后台服务后输出管道不结束，以及子目录搜索结果路径显示不完整的问题。
-- 改善文件索引的资源占用、转换组件安装与进度显示。
-- 优化主题选择、侧栏设置入口与窗口控制布局。
+- 支持本地 Jev 和无需 API Key 的连接方式。
+- 改善文档转换、索引和密钥保存。
+- 修复 Windows CLI 的后台启动和搜索路径问题。
+- 更换更新签名密钥，旧版本需手动升级一次至 0.1.9。
 
 ## 0.1.8
 
-- 修复 Windows 文档转换组件安装卡住及部分 PDF 转换失败的问题。
-- 文件转换完成后即可检索，索引进度与图表同步刷新。
-- 优化 Windows 路径显示、失败文件定位及 @ 文件引用交互。
-- 其他产品优化与问题修复。
+- 修复 Windows 文档转换问题。
+- 文档转换完成后即可搜索。
+- 改善文件路径、失败定位和文件引用操作。

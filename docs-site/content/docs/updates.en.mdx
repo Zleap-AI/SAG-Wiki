@@ -5,6 +5,26 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.2.17
+
+- **Narrow layouts**: Improve the sidebar, settings, search, and chat on mobile browsers and in narrow desktop windows.
+- **Chat models and search summaries**: Fetch model lists and use OpenAI Decisions. Choose a separate model for search summaries and view its usage.
+- **Document parsing**: Install Docling from the resource site and configure a custom MinerU endpoint. File conversion defaults to four concurrent tasks and preserves saved settings.
+- **System proxy**: Model requests on Windows and macOS support manually configured system proxies.
+
+## 0.2.16
+
+- **Math formulas**: Render TeX formulas offline in answers and document reading views.
+- **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
+- **PDF indexing**: Fix indexing for PDFs whose page count could not be read.
+
+## 0.2.14
+
+- **Narrow layouts**: Improve usability on mobile browsers and in narrow desktop windows.
+- **Models and search summaries**: Fetch and select chat models, use OpenAI Decisions, and choose a separate summary model with usage shown.
+- **System proxy**: Model requests can use manually configured system proxies on Windows and macOS. Changes apply without restarting.
+- **Document parsing**: Install the Docling document component from the resource site and set a custom endpoint for MinerU.
+
 ## 0.2.13
 
 - **Upgrade cache reuse and indexing summaries**: Startup and upgrade checks reuse unchanged indexes and compatible conversion results. Indexing details distinguish checked, reused, updated and failed files, so a check is not mistaken for a rebuild. Content changes, parsing settings and required migrations can still update affected documents.

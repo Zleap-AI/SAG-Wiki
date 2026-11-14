@@ -23,6 +23,8 @@
 .settings-window .setting-row strong{font-size:var(--text-ui);font-weight:500;line-height:1.5}
 .settings-window .setting-row p{font-size:var(--text-caption);line-height:1.6;margin:3px 0 0;color:var(--color-secondary)}
 .settings-window .setting-row .ui-select,.settings-window .setting-row input[type=number]{width:112px;min-width:112px;min-height:31px;padding:5px 9px;border-radius:6px;font-size:var(--text-ui);background:var(--color-panel);border:1px solid var(--color-rule);font-variant-numeric:tabular-nums}
+.settings-window .setting-row .summary-model-select{width:min(52%,240px);min-width:0}
+.settings-window .summary-model-select span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .settings-window .setting-value{flex-shrink:0;font-size:var(--text-ui);color:var(--color-secondary)}
 .settings-window .settings-info-box{margin-bottom:18px;padding:13px 16px;border-radius:9px;background:var(--color-sidebar);font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
 .settings-window .settings-info-box strong{display:block;font-size:var(--text-caption);font-weight:600;color:var(--color-ink);margin-bottom:3px}
@@ -183,3 +185,122 @@
 [data-theme=dark] .settings-window .model-settings-card[data-model=jev]{background:#24272c;border-color:#393e46}
 
 .settings-window .api-settings-footer{justify-content:space-between}
+
+.settings-window > .dialog-head .settings-back { display: none; }
+
+@media (max-width: 640px) {
+  /* Settings is portaled outside the workspace. */
+  .settings-backdrop {
+    padding: 0;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .settings-window.settings-dialog {
+    width: 100%;
+    height: calc(100dvh - var(--window-bar-height));
+    max-width: none;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+  .settings-window > .dialog-head {
+    display: grid;
+    grid-template-columns: 44px 1fr 44px;
+    align-items: center;
+    gap: 0;
+    height: 56px;
+    min-height: 56px;
+    padding: 0 12px;
+    border-bottom: 0;
+    background: var(--color-panel);
+  }
+  .settings-window > .dialog-head h2 {
+    grid-area: 1 / 2;
+    text-align: center;
+    font-size: 18px;
+    font-weight: 650;
+  }
+  .settings-window > .dialog-head .settings-back {
+    grid-area: 1 / 1;
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    color: var(--color-ink);
+  }
+  .settings-window > .dialog-head .settings-back .icon { width: 22px; height: 22px; }
+  .settings-window :is(.settings-close, .settings-cancel, .settings-content > .settings-page-heading, .appearance-section-title, .settings-nav button .icon) {
+    display: none;
+  }
+  .settings-window .settings-form {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .settings-window .settings-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: auto;
+    margin: 4px 20px 0;
+    padding: 3px;
+    background: var(--color-hover);
+    border: 1px solid var(--color-rule);
+    border-radius: 10px;
+  }
+  html:not([data-sag-web]) .settings-window .settings-nav { display: none; }
+  .settings-window .settings-category-picker { margin: 4px 20px 0; }
+  .settings-window .settings-category-picker > .ui-select {
+    width: 100%;
+    min-height: 44px;
+  }
+  .settings-window .settings-field-grid { grid-template-columns: minmax(0, 1fr); }
+  .settings-window .settings-nav button {
+    justify-content: center;
+    min-height: 44px;
+    font-size: 14px;
+    border: 1px solid transparent;
+  }
+  .settings-window .settings-nav button.active {
+    border-color: var(--color-rule);
+    background: var(--color-paper);
+    box-shadow: 0 1px 2px var(--color-shadow);
+    font-weight: 600;
+  }
+  .settings-window .settings-content {
+    min-height: 0;
+    padding: 20px;
+    scrollbar-gutter: auto;
+  }
+  .settings-window .setting-row { gap: 12px; min-height: 72px; padding: 13px 14px; }
+  .settings-window .setting-row strong { font-size: 15px; }
+  .settings-window .setting-row p { font-size: 13px; line-height: 1.55; }
+  .settings-window .setting-row .ui-select { min-height: 44px; font-size: 14px; }
+  .settings-window .setting-value { font-size: 13px; }
+  .settings-window .appearance-theme-row { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .settings-window .theme-picker {
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+  .settings-window .theme-thumbnail { max-width: 100%; }
+  .settings-window .theme-label { font-size: 12px; }
+  .settings-window .settings-type-preview { padding: 16px 14px; }
+  .settings-window .settings-type-preview > span { margin-bottom: 8px; }
+  .settings-window .settings-footer {
+    flex-direction: column;
+    align-items: stretch;
+    min-height: 0;
+    gap: 0;
+    padding: 12px 20px max(16px, env(safe-area-inset-bottom));
+    background: var(--color-panel);
+  }
+  .settings-window .api-settings-footer { gap: 6px; }
+  .settings-window .settings-feedback { gap: 0; padding: 0; }
+  .settings-window .settings-feedback > span:not(:empty) { padding-bottom: 6px; }
+  .settings-window .settings-footer > .primary {
+    min-height: 46px;
+    border-radius: 9px;
+    font-size: 15px;
+  }
+}

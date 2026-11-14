@@ -6,7 +6,7 @@ import {dirname, join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
 import {changedPaths, compareVersions, createPreparedCommit, gitAt, hasProductChanges, isProductPath, latestPublished,
-  nextVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
+  nextVersion, releaseVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
 import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-release-environment.mjs';
 import {validateVersions} from './release.mjs';
 
@@ -73,6 +73,47 @@ test('classifies a newline-containing Git path as one documentation change', {sk
     const paths = changedPaths(f.git, f.product, f.source);
     assert.deepEqual(paths, ['docs/zh-CN/中文 更新\n说明.md']);
     assert.equal(hasProductChanges(paths), false);
+  } finally { f.close(); }
+});
+
+test('keeps the reviewed bilingual changelog for the allocated release version', () => {
+  const f = fixture();
+  try {
+    const changelog = `# 更新日志 / Changelog\n\n## ${f.version}\n\n- 改善文档索引。\n\n### English\n\n- Improve document indexing.\n`;
+    const source = f.save('CHANGELOG.md', changelog, 'docs: write bilingual release notes');
+    f.git('update-ref', 'refs/remotes/origin/main', source);
+    const provenance = {...f.provenance, source};
+    const commit = createPreparedCommit(f.directory, provenance);
+    const tag = `v${f.version}`;
+    f.annotate(tag, commit, provenance);
+    assert.equal(f.git.blob(commit, 'CHANGELOG.md'), changelog);
+    assert.deepEqual(validateReleaseSource(f.git, commit, tag), provenance);
+  } finally { f.close(); }
+});
+
+test('releases an unused reviewed manifest version without skipping it', () => {
+  const f = fixture();
+  try {
+    const tag = `v${f.version}`;
+    const notes = `# 更新日志 / Changelog\n\n## ${f.version}\n\n- 改善文档索引。\n\n### English\n\n- Improve document indexing.\n`;
+    const files = Object.fromEntries(versionFiles.map(name => [name, f.git.blob(f.source, name)]));
+    for (const [name, content] of Object.entries(updateVersionFiles(files, f.version))) {
+      writeFileSync(join(f.directory, name), content);
+    }
+    writeFileSync(join(f.directory, 'CHANGELOG.md'), notes);
+    f.git('add', '.');
+    f.git('commit', '-m', 'Prepare the reviewed version');
+    const source = f.git('rev-parse', 'HEAD');
+    f.git('update-ref', 'refs/remotes/origin/main', source);
+    const manifests = versionFiles.map(() => validateVersions(f.directory));
+    assert.equal(releaseVersion(manifests, f.git('tag').split('\n'), notes), f.version);
+    assert.equal(releaseVersion(manifests, [tag], notes), nextVersion(manifests, [tag]));
+    assert.equal(releaseVersion(manifests, [], '# Changelog\n'), nextVersion(manifests, []));
+    const provenance = {...f.provenance, source};
+    const commit = createPreparedCommit(f.directory, provenance);
+    f.annotate(tag, commit, provenance);
+    assert.deepEqual(changedPaths(f.git, source, commit), []);
+    assert.deepEqual(validateReleaseSource(f.git, commit, tag), provenance);
   } finally { f.close(); }
 });
 

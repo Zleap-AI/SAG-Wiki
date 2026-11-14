@@ -12,7 +12,7 @@ const initial:DoclingStatus={installed:false,running:false,stage:'',message:'',d
 const find=(label:string)=>document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();vi.useRealTimers();setLanguage('zh-CN');doclingStatus.set(null);doclingDownloadOpen.set(false)});
 
-it('未安装时只有选择入口，从所选格式确认后才安装',async()=>{
+it('选择额外格式后确认安装',async()=>{
  invoke.mockResolvedValue(initial);
  app=mount(OtherFormats,{target:document.body});
  await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));
@@ -33,7 +33,7 @@ it('下载展示实际字节与阶段，成功后显示选择，失败可重试'
  let current={...initial};
  invoke.mockImplementation(async command=>{
   if(command==='get_docling_status')return current;
-  if(command==='install_docling'){current={...initial,running:true,stage:'runtime',downloaded:1048576,total:2097152,message:'download'};return current;}
+  if(command==='install_docling_from_resource'){current={...initial,running:true,stage:'runtime',downloaded:1048576,total:2097152,message:'download'};return current;}
  });
  app=mount(OtherFormats,{target:document.body});
  await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));
@@ -86,7 +86,7 @@ it('状态连接中断一次后继续刷新，取消下载后退出运行状态'
  expect(find('选择其他格式').textContent).toBe('选择');
 });
 
-it('选择窗口说明转换位置，主页通过系统浏览器打开，卸载需确认且失败保留格式选择',async()=>{
+it('卸载失败保留格式选择，成功后直接提供安装和原在线入口',async()=>{
  let current={...initial,installed:true},fail=true;
  invoke.mockImplementation(async(command)=>{
   if(command==='get_docling_status')return current;
@@ -112,7 +112,26 @@ it('选择窗口说明转换位置，主页通过系统浏览器打开，卸载�
  expect(find('转换 .dotx').getAttribute('aria-checked')).toBe('true');
  fail=false;find('确认卸载 Docling').click();
  await vi.waitFor(()=>expect(find('选择其他格式')?.textContent).toBe('选择'));
- await vi.waitFor(()=>expect(document.querySelector('.docling-formats-dialog')).toBeNull());
+ await vi.waitFor(()=>expect(find('安装 Docling')?.disabled).toBe(false));
+ expect(document.querySelector('.uninstall-docling')).toBeNull();
+ const original=[...document.querySelectorAll<HTMLButtonElement>('.formats-footer button')].find(button=>button.textContent==='通过命令行安装')!;
+ original.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling',undefined));
+ expect(invoke.mock.calls.some(([command])=>command==='install_docling_from_resource')).toBe(false);
+});
+
+it('未安装时直接从资源站安装文档组件，不要求选择格式',async()=>{
+ let current=initial;
+ invoke.mockImplementation(async command=>{
+  if(command==='install_docling_from_resource')current={...initial,running:true,stage:'runtime'};
+  return current;
+ });
+ app=mount(OtherFormats,{target:document.body});
+ await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
+ find('选择其他格式').click();await tick();find('安装 Docling').click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling_from_resource',{profiles:['documents']}));
+ await vi.waitFor(()=>expect(document.querySelector('.download-indeterminate')).not.toBeNull());
+ expect(document.querySelector('[aria-label="已应用转换设置"]')?.textContent).toBe('{"enabled":false}');
 });
 
 it('其他格式可保留并保存已配置的转换并行数，输入错误后可修正',async()=>{
@@ -130,7 +149,6 @@ it('其他格式可保留并保存已配置的转换并行数，输入错误后�
  find('转换 .eml').click();await tick();
  const input=document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')!;
  expect(input.value).toBe('4');
- expect(document.querySelector('.conversion-info')?.textContent).toContain('先索引 Markdown');
  input.value='0';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  [...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='应用')!.click();
  await vi.waitFor(()=>expect(document.querySelector('[role="alert"]')?.textContent).toContain('1–16'));
@@ -143,7 +161,7 @@ it('其他格式可保留并保存已配置的转换并行数，输入错误后�
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('2'));
 });
 
-it('旧设置缺少转换并行数时使用单个转换，并说明实际并行受资源预算约束',async()=>{
+it('旧设置缺少转换并行数时默认使用 4，并说明实际并行受资源预算约束',async()=>{
  invoke.mockImplementation(async command=>{
   if(command==='get_docling_status')return {...initial,installed:true};
   if(command==='get_settings')return {};
@@ -153,7 +171,7 @@ it('旧设置缺少转换并行数时使用单个转换，并说明实际并行�
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
  find('选择其他格式').click();
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.disabled).toBe(false));
- expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('1');
+ expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('4');
  expect(document.querySelector('.conversion-workers')?.textContent).toContain('资源预算');
 });
 

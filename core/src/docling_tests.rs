@@ -1467,7 +1467,7 @@ fn text_is_searchable_before_parallel_conversion_and_converted_indexing_preserve
         );
         fs::write(&command, script).unwrap();
         let mut settings = store.settings().unwrap();
-        assert_eq!(settings.conversion_workers, 1);
+        assert_eq!(settings.conversion_workers, 4);
         settings.convert_other_formats = true;
         settings.conversion_workers = workers;
         store.save_settings(&settings).unwrap();
@@ -1562,8 +1562,8 @@ fn conversion_parallelism_defaults_persists_and_rejects_invalid_values() {
     let database = temp.path().join("index.sqlite");
     let store = Store::open(&database).unwrap();
     let mut settings = store.settings().unwrap();
-    assert_eq!(settings.conversion_workers, 1);
-    settings.conversion_workers = 2;
+    assert_eq!(settings.conversion_workers, 4);
+    settings.conversion_workers = 1;
     store.save_settings(&settings).unwrap();
     for value in [0, 17] {
         settings.conversion_workers = value;
@@ -1576,7 +1576,7 @@ fn conversion_parallelism_defaults_persists_and_rejects_invalid_values() {
             .settings()
             .unwrap()
             .conversion_workers,
-        2
+        1
     );
 }
 

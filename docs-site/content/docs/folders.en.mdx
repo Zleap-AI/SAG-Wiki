@@ -113,7 +113,7 @@ Standalone images use a lightweight OCR path and do not load the layout and tabl
 
 - **Select all / Clear selection** selects or clears all conversion formats. An empty selection disables additional formats without affecting enabled built-in documents.
 - **Apply** applies the format selection; global settings still need to be saved.
-- **Conversion workers** defaults to 1, allows 1–16, is shared across folders and takes effect on the next indexing task. Actual concurrency is also limited by the shared resource budget. Previously saved values are preserved.
+- **Conversion workers** defaults to 4, allows 1–16, is shared across folders and takes effect on the next indexing task. Actual concurrency is also limited by the shared resource budget. Previously saved values are preserved.
 - **Conversion memory** defaults to automatic physical-memory allocation;[Runtime settings](/en/docs/preferences#runtime-settings) can adjust its percentage and per-job budget. By default, Docling tasks share half of physical memory; a regular document task may use one quarter. On smaller machines, the task allowance retains 4 GiB for OCR where possible, without exceeding the total budget. For example, a 64 GiB computer allows 16 GiB per task and 32 GiB in total. In automatic mode (per-task budget set to 0), each standalone-image OCR worker reserves up to 2 GiB, capped by the total budget. A nonzero per-task memory budget applies to both images and documents, subject to the total budget. Saved settings apply to new tasks; image tasks recreate idle workers that use old settings. Document accounting includes child processes, while lightweight image workers monitor their own process. Exceeding a limit stops processing without replacing an existing conversion result. Additional tasks queue when the budget is reserved; failure to read physical memory is reported as an error.
 - **Uninstall related components** removes SAG-managed document and media components, runtimes, recognition models, FFmpeg and download caches. Original files, converted files and existing indexes remain; built-in document parsing stays available.
 
@@ -128,11 +128,19 @@ material/report.pdf
 
 macOS hides dot-prefixed directories by default. Built-in parsing does not upload files. Docling may require additional recognition models for scans, audio and video; first use includes model preparation. After a parser upgrade, reindexing updates built-in conversion results that have not been edited manually.
 
-### Import an offline document component after a download failure
+### Install the Docling document component
 
-In the file parsing support installer, choose **Import offline component**, then select the extracted complete document component folder containing `manifest.json`. SAG checks its platform, component version and file integrity, then runs a sample conversion. Once ready, choose **Apply selected formats**. Reindex the folder if previous files failed to convert.
+Go to **Settings → File settings → Other formats → Select**. When Docling is absent or has been uninstalled, click **Install**. SAG Wiki downloads the document component for macOS Apple Silicon or Windows x64 from the [resource site](https://resource.zleap.com/api/public/v1/resources/sag-wiki-docling/releases?channel=stable), verifies it, and runs a sample conversion before enabling it. The package includes the runtime, dependencies and models for scanned PDFs, image OCR and table recognition. Downloading requires an internet connection; the installed component works offline.
 
-The component must include Python, recognition dependencies and models. A standalone Python installer or model download is not a complete component. This entry supports document components only; audio and video still use online installation. When document and media formats are selected together, the entry is still shown; after the import finishes, choose **Retry installation** to install the media component online. A failed import does not fall back to online downloads. Select another folder to retry offline, or choose Retry installation to install online.
+**Built-in conversion** formats need no Docling download. At the bottom of the dialog, **Install via command line** uses the original online installer. SAG Wiki downloads Python, dependencies and models in the background without opening a terminal. Audio and video components still install online after you select the relevant formats.
+
+![File formats and Docling installation options](/images/product-docling-formats-en.png)
+
+### Import an offline document component
+
+At the bottom of the dialog, choose **Import offline component**, then select the extracted complete component folder containing `manifest.json`. SAG checks its platform, component version and file integrity, then runs a sample conversion. If you started from a format selection, choose **Apply selected formats** once the component is ready. Reindex the folder if previous files failed to convert.
+
+A standalone Python installer or model download cannot replace the complete component. If you selected both document and media formats, choose **Retry installation** after the import to install the media component online. If the import fails, you can select another folder.
 
 #### When only the uv download fails
 
@@ -152,7 +160,7 @@ Environment variables only affect newly started processes. The installation runs
 
 While the recognition models download and the runtime is unpacked, the installer commits about 2.5 GiB of memory; when memory is tight the installation stops and the error shows a message such as `memory allocation ... failed`. Close memory-hungry programs and retry; if it keeps failing, open **Open install log** for the last lines, or switch to a complete offline component.
 
-Obtain a complete folder matching your system, architecture and component version from your administrator or maintainer. Extract archives before selecting the folder. Current official Releases do not distribute a separate complete offline component; the application installer is not a component package. The import entry is available in application builds containing this feature, not the official 0.2.7 package.
+For manual distribution, use a ZIP that matches the target operating system, architecture and the component series supported by the app. A new build revision in the same series, such as `2.140.0-documents.2` after `2.140.0-documents.1`, remains compatible. A different Docling series requires a matching app version.
 
 ![Offline document component import after a download failure](/images/product-offline-component-en.png)
 

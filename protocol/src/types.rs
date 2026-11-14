@@ -298,6 +298,7 @@ pub struct Settings {
     /// Maximum tool calls per turn; 0 leaves the number unlimited.
     pub max_tool_calls: usize,
     pub search_summary_enabled: bool,
+    pub search_summary_model: String,
     pub search_summary_sources: usize,
     pub model_profiles: BTreeMap<String, ModelProfile>,
     pub mcp_servers: Vec<McpServer>,
@@ -331,7 +332,7 @@ impl Default for Settings {
             show_hidden: false,
             watch: true,
             index_workers: 8,
-            conversion_workers: 1,
+            conversion_workers: 4,
             file_types: FileTypes::default(),
             excluded: [
                 ".git",
@@ -350,6 +351,7 @@ impl Default for Settings {
             answer_output_tokens: 2048,
             max_tool_calls: 0,
             search_summary_enabled: true,
+            search_summary_model: String::new(),
             search_summary_sources: 10,
             model_profiles: BTreeMap::new(),
             mcp_servers: vec![],

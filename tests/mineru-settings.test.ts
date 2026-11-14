@@ -9,25 +9,36 @@ const value:MineruConfig={enabled:false,provider:'302',has_key:false,request_tim
 afterEach(async()=>{if(app)await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 it('offers API key only and tests unsaved provider settings without saving',async()=>{
  api.mockImplementation((command)=>Promise.resolve(command==='mineru_schema'?JSON.stringify({defaults:value,keys:{},endpoints:{'302':'https://api.302ai.cn',official:'https://mineru.net/api/v4'}}):'服务可达；未验证密钥有效性')); app=mount(MineruSettings,{target:document.body,props:{value:{...value}}});await tick();
- expect(document.querySelector('input[type=url]')).toBeNull();expect(document.querySelector('[aria-label="启用 MinerU"]')).toBeNull();
+ const address=document.querySelector<HTMLInputElement>('input[type=url]')!;await vi.waitFor(()=>expect(address.placeholder).toBe('https://api.302ai.cn'));
+ address.value='https://mineru.example.com/proxy';address.dispatchEvent(new Event('input',{bubbles:true}));
+ expect(document.querySelector('[aria-label="启用 MinerU"]')).toBeNull();
  const key=document.querySelector<HTMLInputElement>('[aria-label="MinerU API Key"]')!;key.value='test-key';key.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  [...document.querySelectorAll('button')].find(b=>b.textContent==='测试连接')!.click();
- await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_mineru',expect.objectContaining({key:'test-key',config:expect.objectContaining({provider:'302'})})));
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_mineru',expect.objectContaining({key:'test-key',config:expect.objectContaining({provider:'302',base_url:'https://mineru.example.com/proxy'})})));
  expect(api.mock.calls.some(([command])=>command==='save_settings')).toBe(false);
  await vi.waitFor(()=>expect(document.querySelector('.mineru-test-area')?.textContent).toContain('未验证密钥有效性'));
- expect(document.body.textContent).toContain('https://api.302ai.cn');
 });
 it('clears draft key on provider switch and requires the matching key',async()=>{
- app=mount(MineruSettings,{target:document.body,props:{value:{...value},apiKey:'302-secret'}});await tick();
+ app=mount(MineruSettings,{target:document.body,props:{value:{...value,base_url:'https://mineru.example.com/proxy'},apiKey:'302-secret'}});await tick();
  const select=document.querySelector<HTMLButtonElement>('[aria-label="MinerU 服务商"]')!;expect(select.tagName).toBe('BUTTON');select.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));await tick();
  await vi.waitFor(()=>expect(document.querySelector('[role=option]')).not.toBeNull());
  [...document.querySelectorAll<HTMLElement>('[role=option]')].find(el=>el.textContent?.includes('MinerU 官方'))!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
  expect(document.querySelector<HTMLInputElement>('[aria-label="MinerU API Key"]')!.value).toBe('');
+ expect(document.querySelector<HTMLInputElement>('input[type=url]')!.value).toBe('');
  [...document.querySelectorAll('button')].find(b=>b.textContent==='测试连接')!.click();await tick();
  expect(api).not.toHaveBeenCalledWith('test_mineru',expect.anything());expect(document.body.textContent).toContain('请填写');
 });
 
-it('shows failed connection beside the test action',async()=>{
+it('tests an edited address with the saved key for the current provider',async()=>{
+ api.mockImplementation(command=>Promise.resolve(command==='mineru_schema'?JSON.stringify({defaults:value,keys:{'302':true},endpoints:{'302':'https://api.302ai.cn'}}):'服务可达'));
+ app=mount(MineruSettings,{target:document.body,props:{value:{...value,has_key:true}}});await tick();
+ const address=document.querySelector<HTMLInputElement>('input[type=url]')!;
+ address.value='https://mineru.example.com';address.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ [...document.querySelectorAll('button')].find(b=>b.textContent==='测试连接')!.click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_mineru',{key:'',config:expect.objectContaining({provider:'302',has_key:true,base_url:'https://mineru.example.com'})}));
+});
+
+it('shows failed connection above the test action',async()=>{
  api.mockImplementation(command=>command==='test_mineru'?Promise.reject('HTTP 403'):Promise.resolve(JSON.stringify({defaults:value,keys:{}})));
  app=mount(MineruSettings,{target:document.body,props:{value:{...value},apiKey:'draft-key'}});await tick();
  [...document.querySelectorAll('button')].find(b=>b.textContent==='测试连接')!.click();
