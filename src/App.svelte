@@ -66,7 +66,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  let sidebarMotion=false,sidebarAnimations:Animation[]=[];
  let viewportWidth=window.innerWidth,mobileSidebarOpen=false;
  let sidebarToggle:HTMLElement|null=null,mobileSidebarToggle:HTMLElement|null=null;
- $: narrowLayout=viewportWidth<=640;
+ $: narrowLayout=viewportWidth<=680;
  $: if(!narrowLayout)mobileSidebarOpen=false;
  async function toggleMobileSidebar(open:boolean){
   mobileSidebarOpen=open;
@@ -141,7 +141,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  $:scopeLabel=scope.length===0?$t("全部文件"):scope.length===1?basename(scope[0]):$t("{value0} 个文件夹",{value0:scope.length});
  $:currentEntries=cache[selected]||[];
  $:directoryEntries=selected?currentEntries:roots.map(root=>({path:root.path,name:root.name,directory:true,symlink:false}));
- $:indexedPaths=new Set(files.flatMap(file=>[file.path,indexedSourcePath(file.path)]));
+ $:indexedPaths=new Set(files.flatMap(file=>[file.path,indexedSourcePath(file.path,file.source_path)]));
  $:indexedCache=Object.fromEntries(Object.entries(cache).map(([path,entries])=>[path,entries.filter(entry=>entry.directory?!entry.name.startsWith('.'):indexedPaths.has(entry.path))]));
  $:fileView=view==='files'||view==='document'||view==='editor';
  $:libraryParent=roots.some(root=>root.path===selected)?'':dirname(selected);
@@ -262,7 +262,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  function toolRun(m:Message,events:AnswerEvent[],i:number){const run=[i];while(run.at(-1)!+1<events.length&&joinsToolRun(m,events,run.at(-1)!+1))run.push(run.at(-1)!+1);return run}
  const toolState=(m:Message,call:ToolCallRecord,current:Message|null,active:string,working:boolean)=>call.error&&!call.is_error&&m.status==='stopped'?'stopped':m===current&&active===call.id?(m.error?'failed':working?'running':'stopped'):'complete';
  // Converted sources are stored as <name>.md next to the original; show the original name.
- const citationName=(candidate:Candidate)=>candidate.path.includes('/.sag-converted/')||candidate.path.includes('\\.sag-converted\\')?candidate.title.replace(/\.md$/i,''):candidate.title;
+ const citationName=sourceName;
  async function toggleSidebar(event:MouseEvent){
   if(narrowLayout){await toggleMobileSidebar(false);return;}
   const animate=event.detail>0&&!matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -309,7 +309,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    if(!current())return;
    documentInitialMatch=initialMatch;documentFromSearch=fromSearch;documentFromConversation=fromConversation;documentSearchScroll=scroll;documentConversationScroll=chatScroll;exploreReturn=origin;documentSearchTerms=terms;menu=null;
    if(!editor){readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(path);view='document';source=null;return;}
-   draft={...doc,is_new:false};dirty=false;selected=dirname(path);EditorComponent=editor;view='editor';source=null;
+   draft={...doc,is_new:false};dirty=false;selected=dirname(doc.source_path??path);EditorComponent=editor;view='editor';source=null;
    noteDetail=null;if(isNote(doc.body))void loadNote(doc.path);else noteRequest++;
   }catch(e){if(current())notify($t(String(e)))}
  }
@@ -392,7 +392,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
     folder=await new Promise<string|null>(resolve=>chooseSaveFolder=resolve)??'';
     if(!folder)return false;
    }
-   const old=draft.path;const name=fileName(draft.name);const path=draft.is_new?folder+'/'+name:draft.path;const doc=await api<Document>('save_document',{path,body:draft.body,expectedHash:draft.is_new?null:draft.hash});clearTimeout(draftTimer);await api('delete_draft',{path:old});draft={path:doc.path,name:doc.name,body:doc.body,hash:doc.hash,is_new:false};selected=dirname(doc.path);dirty=false;await refresh();notify($t("文件已保存，索引正在更新"));return true;
+   const old=draft.path;const name=fileName(draft.name);const path=draft.is_new?folder+'/'+name:draft.path;const doc=await api<Document>('save_document',{path,body:draft.body,expectedHash:draft.is_new?null:draft.hash});clearTimeout(draftTimer);await api('delete_draft',{path:old});draft={path:doc.path,source_path:doc.source_path,name:doc.name,body:doc.body,hash:doc.hash,is_new:false};selected=dirname(doc.path);dirty=false;await refresh();notify($t("文件已保存，索引正在更新"));return true;
   }catch(e){notify($t(String(e)));return false}finally{saving=false}
  }
  function scopeShow(){scopeDraft=[...scope];scopeExpanded=new Set(expanded);scopeOpen=true;menu=null}
@@ -520,7 +520,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   if(composing||performance.now()-compositionEndedAt<100)return;
   const question=(kind==='ask'?ask:page===undefined?search:searchQuestion).trim();
   if(!question||(kind==='ask'?askBusy||cancellingAsk:searchBusy)||!settings)return;
-  if(page===undefined&&matchMedia('(max-width: 640px), (pointer: coarse)').matches)(kind==='ask'?askInput:searchInput)?.blur();
+  if(page===undefined&&matchMedia('(max-width: 680px), (pointer: coarse)').matches)(kind==='ask'?askInput:searchInput)?.blur();
   closeNotice();menu=null;
   const id=requestId(),conversationId=conversation?.id||null;let summaryCancellation:Promise<void>|undefined;
   if(kind==='ask'){
@@ -656,7 +656,20 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  function setReasoning(value:ReasoningEffort|null){if(!settings)return;const model=settings.answer.model;const profile=settings.model_profiles?.[model]??{system_prompt:'',sag2_enabled:true,mcp_servers:[],mcp_tools:{}};settings={...settings,model_profiles:{...settings.model_profiles,[model]:{...profile,reasoning_effort:value}}};}
  function openAgentSetup(){settingsPage=web?'general':'cli';settingsOpen=true;}
  async function saveReasoning(){if(!settings)return;try{await api('save_settings',{settings,answerKey:'',jevKey:'',mcpCredentials:{}})}catch(e){notify($t('思考强度保存失败：{value0}',{value0:$t(String(e))}))}}
- async function saveSettings(value:Settings,a:string,j:string,credentials:Record<string,McpCredentials>={},mineruKey=''){await api('save_settings',{settings:value,answerKey:a,jevKey:j,mcpCredentials:credentials,mineruKey});settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary();cache={};await refresh()}
+ async function saveSettings(value:Settings,a:string,j:string,credentials:Record<string,McpCredentials>={},mineruKey=''){
+  const moving=!web&&JSON.stringify(value.conversion_storage??{mode:'library'})!==JSON.stringify(settings?.conversion_storage??{mode:'library'});
+  if(moving&&dirty&&draft?.source_path&&!await save())throw new Error($t('请先保存当前转换文档'));
+  await api('save_settings',{settings:value,answerKey:a,jevKey:j,mcpCredentials:credentials,mineruKey});
+  settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');
+  if(settings.search_summary_enabled===false)await stopSummary();cache={};await refresh();
+  if(moving){
+   const byOriginal=new Map(files.filter(file=>file.source_path).map(file=>[file.source_path!,file.path]));
+   if(draft?.source_path){const path=byOriginal.get(draft.source_path);if(path)draft={...draft,path};}
+   results=results.map(candidate=>candidate.source_path&&byOriginal.has(candidate.source_path)?{...candidate,path:byOriginal.get(candidate.source_path)!}:candidate);
+   const focused=focus&&results.find(candidate=>candidate.id===focus!.id);
+   if(focused&&focused.path!==focus?.path)await focusResult(focused);
+  }
+ }
  async function keys(e:KeyboardEvent){if(onboardingOpen)return;if(e.key==='Escape'){if(view==='search'&&passagesOpen){e.preventDefault();closePassages();return;}if(view==='search'&&previewFindOpen){e.preventDefault();closePreviewFind();return;}if(view==='search'&&searchFocusMode){e.preventDefault();searchFocusMode=false;return;}if(leave||renameId||settingsOpen||historySearchOpen||folderPickerOpen||chooseSaveFolder||menu||source||scopeOpen||toolApproval)return;if(narrowLayout&&mobileSidebarOpen&&!indexDetailsOpen){e.preventDefault();await toggleMobileSidebar(false);return;}if(mention){mention=false;return;}if(view==='search'&&focus&&showSummary&&!(e.target instanceof Element&&e.target.closest('input,textarea,[contenteditable=true],[role=listbox]:not(.search-results)'))){toggleSearchSummary()}return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();await openPreviewFind();return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='g'){e.preventDefault();previewFindOpen=true;await tick();document.querySelector<HTMLButtonElement>(`.search-preview ${e.shiftKey?'.match-previous':'.match-next'}`)?.click();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'&&view==='editor'){e.preventDefault();await save()}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();await navigate('search')}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='n'){e.preventDefault();await newChat()}}
  onMount(()=>{
   const openLink=(event:Event)=>{void api('open_external_link',{url:(event as CustomEvent<string>).detail}).catch(e=>notify($t(String(e))));};
@@ -719,7 +732,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
     <div class="search-preview-head">
      {#if showSummary}<Button.Root class="icon-button search-preview-back summary-only" aria-label={$t("返回搜索总结")} title={$t("返回搜索总结")} onclick={toggleSearchSummary}>{@html icon('back')}</Button.Root>{/if}
      <Button.Root class="icon-button search-preview-back list-only" aria-label={$t("返回结果列表")} title={$t("返回结果列表")} onclick={leaveSearchReader}>{@html icon('back')}</Button.Root>
-     <div class="search-preview-title"><strong title={sourceName(focus)}>{sourceName(focus)}</strong><span class="source-path" title={displayPath(indexedSourcePath(focus.path))}>{sourceFolder(focus.path,roots)}</span></div>
+     <div class="search-preview-title"><strong title={sourceName(focus)}>{sourceName(focus)}</strong><span class="source-path" title={displayPath(indexedSourcePath(focus.path,focus.source_path))}>{sourceFolder(focus.path,roots,focus.source_path)}</span></div>
      <div class="search-preview-actions">
       <div class="search-passage-nav" role="group" aria-label={$t('相关片段')}>
        <Button.Root class="search-passage-trigger" aria-expanded={passagesOpen} aria-controls="search-passage-picker" title={$t('选择相关片段')} onclick={()=>togglePassages(focus!.path)}>{@html icon('bulletList')}<span>{$t('相关片段')}</span><b>{passageIndex+1} / {focusedPassages.length}</b>{@html icon('down')}</Button.Root>
@@ -728,7 +741,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
       </div>
       <Button.Root class="icon-button search-find-trigger" aria-label={$t('在文档中查找')} title={$t('在文档中查找')} aria-expanded={previewFindOpen} onclick={()=>previewFindOpen?closePreviewFind():openPreviewFind()}>{@html icon('search')}</Button.Root>
       <Button.Root class="icon-button search-focus-toggle" aria-label={$t(searchFocusMode?'退出专注阅读':'进入专注阅读')} title={$t(searchFocusMode?'退出专注阅读':'进入专注阅读')} aria-pressed={searchFocusMode} onclick={()=>{closePassages(false);searchFocusMode=!searchFocusMode}}>{@html icon(searchFocusMode?'panel':'maximize')}</Button.Root>
-      {#if !web}<Popover.Root><Popover.Trigger class="icon-button" aria-label={$t('文档操作')} title={$t('文档操作')}>{@html icon('more')}</Popover.Trigger><Popover.Portal><Popover.Content class="search-document-menu" side="bottom" align="end" sideOffset={8} collisionPadding={12}><p>{displayPath(indexedSourcePath(focus.path))}</p><Button.Root onclick={()=>api('reveal_path',{path:indexedSourcePath(focus!.path)}).catch(e=>notify($t(String(e))))}>{$t('在文件夹中显示')}</Button.Root><Button.Root onclick={()=>edit(focus!.path,searchTerms)}>{$t('打开文档')}</Button.Root></Popover.Content></Popover.Portal></Popover.Root>{/if}
+      {#if !web}<Popover.Root><Popover.Trigger class="icon-button" aria-label={$t('文档操作')} title={$t('文档操作')}>{@html icon('more')}</Popover.Trigger><Popover.Portal><Popover.Content class="search-document-menu" side="bottom" align="end" sideOffset={8} collisionPadding={12}><p>{displayPath(indexedSourcePath(focus.path,focus.source_path))}</p><Button.Root onclick={()=>api('reveal_path',{path:indexedSourcePath(focus!.path,focus!.source_path)}).catch(e=>notify($t(String(e))))}>{$t('在文件夹中显示')}</Button.Root><Button.Root onclick={()=>edit(focus!.path,searchTerms)}>{$t('打开文档')}</Button.Root>{#if focus.source_path}<Button.Root onclick={()=>api('open_source_file',{path:focus!.source_path}).catch(e=>notify($t(String(e))))}>{$t('打开原文件')}</Button.Root>{/if}</Popover.Content></Popover.Portal></Popover.Root>{/if}
       <Button.Root class="search-open-document" onclick={()=>edit(focus!.path,searchTerms)}>{$t('打开文档')}</Button.Root>
      </div>
     </div>
@@ -767,7 +780,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
 {:else if !busy}<div class="search-empty">{@html icon('search')}<h2>{searchStopped?$t("已停止搜索"):searchError?$t("搜索未完成"):$t("没有找到相关文件")}</h2><p>{searchStopped?$t("可以重新搜索，或调整范围。"):searchError?$t("可以重试搜索，或切换搜索模式。"):$t("换一个关键词，或调整查询范围。")}</p><Button.Root class="outline" onclick={scopeShow}>{$t("选择范围")}</Button.Root></div>{/if}{/if}</section>
  {:else if view==='files'&&librarySessions[selected]}{#key selected}<LibraryWorkspace {conversionStates} {indexTasks} {indexPaused} scope={displayPath(selected)} parent={libraryParent} session={librarySessions[selected]} onModeChange={()=>librarySessions={...librarySessions}} entries={directoryEntries} totalFiles={files.length} indexedFiles={files} notes={noteSummaries} {roots} onIndexDetails={()=>indexDetailsOpen=true} onPauseChange={indexPauseChanged} oncreate={()=>create()} onadd={add} reading={!!selected&&readingFolder===selected} revision={libraryRevision} onbrowse={libraryBrowse} onopen={(path,terms)=>edit(path,terms,selected)} onmenu={showMenu} onSettings={()=>{settingsPage='files';settingsOpen=true}}/>{/key}
  {:else if view==='document'&&readOnlyDoc}<section class="readonly-document"><div class="editor-head"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root><span>{readOnlyDoc.name}</span><span class="document-status">{#if isRtf(readOnlyDoc.path)}{$t("RTF 正文")} · {/if}{$t("只读")}</span><Button.Root class="outline" onclick={()=>api('reveal_path',{path:readOnlyDoc!.path}).catch(e=>notify($t(String(e))))}>{mac?$t("在 Finder 中打开"):$t("在文件资源管理器中打开")}</Button.Root></div><div class="source-path">{displayPath(readOnlyDoc.path)}</div>{#if isHtml(readOnlyDoc.path)}<HtmlDocument body={readOnlyDoc.body} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{:else}<HighlightedDocument html={readonlyHtml(readOnlyDoc.path,readOnlyDoc.body)} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{/if}{#key readOnlyDoc.path}<DocumentQuestion name={readOnlyDoc.name} onAsk={askDocument}/>{/key}</section>
- {:else if view==='editor'&&draft}<section class="editor wysiwyg-editor"><div class="editor-head"><div class="editor-location"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root>{#if selected}<Popover.Root><Popover.Trigger type="button" class="scope-info" title={displayPath(selected)} aria-label={$t("文件夹路径")}>{@html icon('folder')}<span>{basename(selected)}</span></Popover.Trigger><Popover.Portal><Popover.Content class="document-folder-path" aria-label={$t("文件夹路径")} side="bottom" align="start" sideOffset={8} collisionPadding={12}>{displayPath(selected)}</Popover.Content></Popover.Portal></Popover.Root>{/if}</div><div class="document-name-wrap"><Input class="document-name" aria-label={$t("文件名")} title={draft.name} bind:value={draft.name} readonly={!draft.is_new} oninput={()=>dirty=true}/></div><div class="editor-save-actions"><span class="document-status">{dirty?$t("未保存"):draft.is_new?'':$t("已保存")}</span><Button.Root class="primary small" disabled={saving} onclick={save}>{$t("保存")}</Button.Root></div></div>{#if noteDetail&&noteDetail.summary.path===draft.path}<NoteStatus note={noteDetail} checking={noteChecking} onRecheck={recheckNote} onOpenSource={openNoteSource} onReask={reaskNote}/>{/if}{#if EditorComponent}{#key draft.path}<svelte:component this={EditorComponent} body={draft.body} path={draft.path} searchTerms={documentSearchTerms} initialMatch={documentInitialMatch} onChange={changed}/>{/key}{/if}{#key draft.path}<DocumentQuestion name={draft.name} onAsk={askDocument}/>{/key}<div class="editor-footer">{draft.is_new?$t("保存后才创建文件并加入知识库。"):$t("修改后点击保存。")}</div></section>{/if}
+ {:else if view==='editor'&&draft}<section class="editor wysiwyg-editor"><div class="editor-head"><div class="editor-location"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root>{#if selected}<Popover.Root><Popover.Trigger type="button" class="scope-info" title={displayPath(selected)} aria-label={$t("文件夹路径")}>{@html icon('folder')}<span>{basename(selected)}</span></Popover.Trigger><Popover.Portal><Popover.Content class="document-folder-path" aria-label={$t("文件夹路径")} side="bottom" align="start" sideOffset={8} collisionPadding={12}>{displayPath(selected)}</Popover.Content></Popover.Portal></Popover.Root>{/if}</div><div class="document-name-wrap"><Input class="document-name" aria-label={$t("文件名")} title={draft.name} bind:value={draft.name} readonly={!draft.is_new} oninput={()=>dirty=true}/></div><div class="editor-save-actions">{#if !web&&draft.source_path}<Button.Root type="button" class="outline small" onclick={()=>api('open_source_file',{path:draft!.source_path}).catch(e=>notify($t(String(e))))}>{$t('打开原文件')}</Button.Root>{/if}<span class="document-status">{dirty?$t("未保存"):draft.is_new?'':$t("已保存")}</span><Button.Root class="primary small" disabled={saving} onclick={save}>{$t("保存")}</Button.Root></div></div>{#if noteDetail&&noteDetail.summary.path===draft.path}<NoteStatus note={noteDetail} checking={noteChecking} onRecheck={recheckNote} onOpenSource={openNoteSource} onReask={reaskNote}/>{/if}{#if EditorComponent}{#key draft.path}<svelte:component this={EditorComponent} body={draft.body} path={draft.path} searchTerms={documentSearchTerms} initialMatch={documentInitialMatch} onChange={changed}/>{/key}{/if}{#key draft.path}<DocumentQuestion name={draft.name} onAsk={askDocument}/>{/key}<div class="editor-footer">{draft.is_new?$t("保存后才创建文件并加入知识库。"):$t("修改后点击保存。")}</div></section>{/if}
  {#if error&&view!=='search'&&!answerHasError}<p class="form-error">{$t(error)}</p>{/if}
  </div></main></div></div>
 {#if menu}<ActionMenu {menu} onClose={()=>menu=null}/>{/if}

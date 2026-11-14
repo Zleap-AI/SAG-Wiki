@@ -26,7 +26,7 @@ A directory with zero indexed files has no searchable content.
 
 The background service checks files against existing indexes at startup. The file total describes what is being checked, not how many files were rebuilt. Unchanged indexes and compatible successful conversions are reused. In [indexing details](/en/docs/folders#reindex-and-history), use Checked, Reused, Updated and Failed to distinguish checking from actual updates. Older history without this summary retains its original processed counts.
 
-Changed content, settings that affect parsed text, or a required parsing or index migration can still update affected documents. Keep indexes and the `.sag-converted` directory to retain reusable data.
+Changed content, settings that affect parsed text, or a required parsing or index migration can still update affected documents. Keep indexes and the conversion output folder to retain reusable data.
 
 ## What if the database was created by a newer version?
 

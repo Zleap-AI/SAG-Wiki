@@ -1534,21 +1534,22 @@ impl Docling {
             })
             .context("转换路径必须位于 .sag-converted")?;
         let root = output.ancestors().nth(depth + 1).unwrap();
-        let relative = source
-            .strip_prefix(root)?
-            .to_string_lossy()
-            .replace('\\', "/");
-        let link = format!("{}{}", "../".repeat(depth), relative);
-        let link = link
-            .bytes()
-            .map(|b| {
-                if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) {
-                    (b as char).to_string()
-                } else {
-                    format!("%{b:02X}")
-                }
-            })
-            .collect::<String>();
+        let link = match source.strip_prefix(root) {
+            Ok(relative) => format!("{}{}", "../".repeat(depth), relative.to_string_lossy().replace('\\', "/"))
+                .bytes().map(|b| {
+                    if b.is_ascii_alphanumeric() || b"-._~/".contains(&b) { (b as char).to_string() }
+                    else { format!("%{b:02X}") }
+                }).collect::<String>(),
+            Err(_) => {
+                // Strip Windows's verbatim path prefix for file URL conversion.
+                let source = source.to_string_lossy();
+                let normal = if let Some(unc) = source.strip_prefix(r"\\?\UNC\") {
+                    format!(r"\\{unc}")
+                } else { source.strip_prefix(r"\\?\").unwrap_or(&source).to_owned() };
+                reqwest::Url::from_file_path(normal)
+                    .map_err(|_| anyhow::anyhow!("无法生成原文件链接"))?.to_string()
+            }
+        };
         writeln!(
             file,
             "[{}](<{link}>)\n",
@@ -1672,6 +1673,10 @@ pub fn fingerprint(path: &Path) -> Result<String> {
 }
 
 pub fn output_path(root: &Path, source: &Path) -> Result<PathBuf> {
+    output_path_in(root, source, &root.join(OUTPUT_DIRECTORY))
+}
+
+pub(crate) fn output_path_in(root: &Path, source: &Path, directory: &Path) -> Result<PathBuf> {
     let relative = source.strip_prefix(root)?;
     if relative
         .components()
@@ -1679,13 +1684,14 @@ pub fn output_path(root: &Path, source: &Path) -> Result<PathBuf> {
     {
         bail!("转换文件必须位于所选文件夹内")
     }
-    let mut output = root.join(OUTPUT_DIRECTORY).join(relative);
+    let mut output = directory.join(relative);
     output.set_file_name(format!(
         "{}.md",
         source.file_name().context("缺少文件名")?.to_string_lossy()
     ));
     // Never follow a user-created output link outside the authorized folder.
-    for path in output.ancestors().take_while(|path| *path != root) {
+    let boundary = directory.ancestors().find(|path| path.file_name().is_some_and(|name| name == OUTPUT_DIRECTORY)).unwrap();
+    for path in output.ancestors().take_while(|path| Some(*path) != boundary.parent()) {
         if path
             .symlink_metadata()
             .is_ok_and(|metadata| metadata.file_type().is_symlink())

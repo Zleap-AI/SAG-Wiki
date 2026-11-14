@@ -15,7 +15,7 @@
 .real-client .search-composer.compact .search-entry input{padding:6px 0;font-size:var(--text-reading)}
 .real-client .search-composer.compact .search-composer-bottom{flex-shrink:0;gap:10px}
 .real-client .search-composer.compact .send{width:30px;height:30px}
-@media(max-width:640px){
+@media(max-width:680px){
  .real-client.narrow-layout .search-composer{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:6px 10px 4px 12px;border-radius:12px}
  .narrow-layout .search-entry{min-height:38px;padding-right:44px;align-items:center}
  .real-client.narrow-layout .search-composer .search-entry input{padding:6px 0;font-size:16px}

@@ -91,7 +91,7 @@ Keys are stored in the current user's application data directory. macOS uses own
 
 ## MinerU document parsing
 
-Open **Settings → Model settings → Document parsing · MinerU**. Choose **302.AI** or **MinerU official**, then edit the **API endpoint** below or leave it blank to use the provider's default. A custom endpoint must support the selected provider's API. Editing the address keeps the saved key for that provider; switching providers restores the new provider's default address and uses its own key. Saving a key makes MinerU the preferred parser. Click **Remove saved key** to immediately delete the selected provider's key and return to local parsing.
+In **Settings → File settings → Document parsing**, select **MinerU** and click **Configure MinerU**. Choose **302.AI** or **MinerU official**, then edit the **API endpoint** below or leave it blank to use the provider's default. A custom endpoint must support the selected provider's API. Editing the address keeps the saved key for that provider; switching providers restores the new provider's default address and uses its own key. When done, return to File settings and click **Save settings**. Switching to Docling keeps the saved key. Click **Remove saved key** to immediately delete the selected provider's key and return to local parsing.
 
 302.AI uses the enterprise knowledge base's MinerU 2.x contract: default endpoint `https://api.302ai.cn`, upload at `/302/upload-file`, create with `POST /302/v2/mineru/task`, and poll with `GET /302/v2/mineru/task?task_id=…`. Authentication is `Authorization: Bearer <API Key>`; enter only the key, without the Bearer prefix.
 

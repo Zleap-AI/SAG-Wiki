@@ -104,6 +104,8 @@ pub struct Entry {
 pub struct Document {
     pub id: i64,
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
     pub name: String,
     pub body: String,
     pub hash: String,
@@ -112,6 +114,8 @@ pub struct Document {
 pub struct FileInfo {
     pub id: i64,
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub index_status: Option<String>,
@@ -138,6 +142,8 @@ pub struct Candidate {
     pub id: i64,
     pub document_id: i64,
     pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path: Option<String>,
     pub title: String,
     pub heading: String,
     pub content: String,
@@ -267,15 +273,37 @@ impl Default for UpdateSettings {
         }
     }
 }
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+pub enum ConversionStorage {
+    #[default]
+    AppData,
+    Library,
+    Custom { directory: String },
+}
+
+fn legacy_conversion_storage() -> ConversionStorage { ConversionStorage::Library }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DocumentParser {
+    Docling,
+    Mineru,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub runtime: crate::runtime::RuntimeSettings,
     pub mineru: crate::mineru::MineruConfig,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_parser: Option<DocumentParser>,
     pub updates: UpdateSettings,
     pub convert_other_formats: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversion_formats: Option<Vec<String>>,
+    #[serde(default = "legacy_conversion_storage")]
+    pub conversion_storage: ConversionStorage,
     #[serde(default)]
     pub retrieval_version: u8,
     pub credential_error: Option<String>,
@@ -310,9 +338,11 @@ impl Default for Settings {
         Self {
             runtime: crate::runtime::RuntimeSettings::default(),
             mineru: crate::mineru::MineruConfig::default(),
+            document_parser: None,
             updates: UpdateSettings::default(),
             convert_other_formats: false,
             conversion_formats: None,
+            conversion_storage: ConversionStorage::default(),
             retrieval_version: crate::RETRIEVAL_VERSION,
             credential_error: None,
             answer: ModelConfig::default(),

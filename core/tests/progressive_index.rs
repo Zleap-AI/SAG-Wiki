@@ -274,8 +274,8 @@ printf 'enhancedtoken\n' > "$output"
         .iter()
         .all(|file| file.index_status.as_deref() == Some("complete")));
     assert!(
-        dir.path()
-            .join("files/.sag-converted/.sag-converted.json")
+        std::path::Path::new(&store.document(&root.join("a.pdf")).unwrap().path)
+            .parent().unwrap().join(".sag-converted.json")
             .is_file(),
         "ownership journal is persisted once enhancement queue drains"
     );

@@ -95,7 +95,18 @@ Location: **Settings → File settings**. Global settings apply to folders witho
 
 Disabling a type removes it from indexing and retrieval while preserving original files and browsing. For code repositories, enable code and configuration or select extensions using CLI `--types`.
 
+**Reindex** is the first row in this card, with its description beside the button. It checks all files using saved file types and excluded folders, updating only changed indexes.
+
 ![Global file types and indexing settings](/images/product-file-settings-en.png)
+
+### Preferred parser
+
+In **Settings → File settings → Document parsing**, choose **Docling** or **MinerU** and click the adjacent **Configure** button. Return to File settings and click **Save settings** to apply.
+
+- **Docling**: Common documents use the built-in parser first. Installed Docling handles OCR and files the built-in parser does not support. Open **Configure Docling** to install components, select formats, or adjust concurrency.
+- **MinerU**: After a key is configured, supported documents use the selected MinerU provider first and fall back to applicable local parsers on failure. Without a key, parsing stays local. [See MinerU configuration](/en/docs/models#mineru-document-parsing).
+
+Switching parsers keeps your MinerU configuration and key. Existing installations retain their previous parsing behavior on upgrade.
 
 ### Other formats and conversion
 
@@ -119,18 +130,21 @@ Standalone images use a lightweight OCR path and do not load the layout and tabl
 
 Native text is indexed first, built-in documents and enabled additional formats are parsed in parallel, and finished results are then indexed. Already indexed content can be searched before every conversion finishes.
 
-Converted files go under `.sag-converted/` in the added root, preserving subfolders:
+In **Settings → File settings → Conversion output location**, choose:
 
-```text
-material/report.pdf
-→ .sag-converted/material/report.pdf.md
-```
+- **App data folder**: The default for new users. Conversion results are stored outside the library folders.
+- **Inside library folders**: Keep results in the hidden `.sag-converted` folder inside each library. Existing users retain this location on upgrade.
+- **Custom folder**: Choose a folder outside your libraries, such as a folder on a different drive. Each library's results are stored separately.
 
-macOS hides dot-prefixed directories by default. Built-in parsing does not upload files. Docling may require additional recognition models for scans, audio and video; first use includes model preparation. After a parser upgrade, reindexing updates built-in conversion results that have not been edited manually.
+Save after active indexing finishes. SAG Wiki moves the conversion results for your registered folders, retaining images, manual edits, and existing indexes without running OCR again. You can still search the text and select **Open original file** from the converted document.
+
+![Conversion output location and timeouts](/images/product-conversion-storage-en.png)
+
+Built-in parsing does not upload files. Docling may require additional recognition models for scans, audio and video; first use includes model preparation. After a parser upgrade, reindexing updates built-in conversion results that have not been edited manually.
 
 ### Install the Docling document component
 
-Go to **Settings → File settings → Other formats → Select**. When Docling is absent or has been uninstalled, click **Install**. SAG Wiki downloads the document component for macOS Apple Silicon or Windows x64 from the [resource site](https://resource.zleap.com/api/public/v1/resources/sag-wiki-docling/releases?channel=stable), verifies it, and runs a sample conversion before enabling it. The package includes the runtime, dependencies and models for scanned PDFs, image OCR and table recognition. Downloading requires an internet connection; the installed component works offline.
+In **Settings → File settings**, select **Docling** and click **Configure Docling**. When Docling is absent or has been uninstalled, click **Install**. SAG Wiki downloads the document component for macOS Apple Silicon or Windows x64 from the [resource site](https://resource.zleap.com/api/public/v1/resources/sag-wiki-docling/releases?channel=stable), verifies it, and runs a sample conversion before enabling it. The package includes the runtime, dependencies and models for scanned PDFs, image OCR and table recognition. Downloading requires an internet connection; the installed component works offline.
 
 **Built-in conversion** formats need no Docling download. At the bottom of the dialog, **Install via command line** uses the original online installer. SAG Wiki downloads Python, dependencies and models in the background without opening a terminal. Audio and video components still install online after you select the relevant formats.
 

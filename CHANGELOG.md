@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.2.18
+
+- **转换结果存放位置**：可选择应用数据目录、资料文件夹或自定义目录，切换时迁移已有结果，无需重新识别。阅读转换结果时可直接打开原文件。
+- **文件与解析设置**：Docling 和 MinerU 的配置入口统一到文件设置，可选择优先解析方式，并调整设置分组。
+- **macOS 更新重启**：应用内更新后等待旧进程退出，再从原安装位置重新启动。
+
+### English
+
+- **Conversion storage**: Save converted files in the app data directory, library folders, or a custom directory. Move existing results without repeating OCR, and open the original file from the reader.
+- **File and parser settings**: Configure Docling and MinerU in File settings, choose the preferred parser, and use the revised settings groups.
+- **macOS update restart**: After an in-app update, wait for the old process to exit before reopening the app from its original location.
+
 ## 0.2.17
 
 - **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答。

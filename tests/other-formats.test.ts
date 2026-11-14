@@ -98,15 +98,13 @@ it('卸载失败保留格式选择，成功后直接提供安装和原在线入�
  app=mount(OtherFormats,{target:document.body});
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
  find('选择其他格式').click();await tick();
- expect(document.querySelector('.conversion-info')?.textContent).toContain('已添加文件夹根目录的 .sag-converted');
- expect(document.querySelector('.conversion-info code')?.textContent).toContain('.sag-converted/资料/报告.pdf.md');
  document.querySelector<HTMLAnchorElement>('.docling-component a')!.click();await tick();
  expect(invoke).toHaveBeenCalledWith('open_about_link',{target:'docling'});
  expect(find('转换 .dotx').getAttribute('aria-checked')).toBe('false');
  find('转换 .dotx').click();await tick();
  document.querySelector<HTMLButtonElement>('.uninstall-docling')!.click();await tick();
  expect(invoke.mock.calls.some(([command])=>command==='uninstall_docling')).toBe(false);
- expect(document.querySelector('.docling-uninstall-dialog')?.textContent).toContain('原文件、.sag-converted 中的转换文件及已有索引都会保留');
+ expect(document.querySelector('.docling-uninstall-dialog')?.textContent).toContain('原文件、转换文件及已有索引都会保留');
  find('确认卸载 Docling').click();
  await vi.waitFor(()=>expect(document.querySelector('.docling-uninstall-dialog [role="alert"]')?.textContent).toContain('Docling 正在使用'));
  expect(find('转换 .dotx').getAttribute('aria-checked')).toBe('true');

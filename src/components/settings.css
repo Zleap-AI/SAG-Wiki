@@ -13,7 +13,7 @@
 .settings-window .settings-page-heading{margin-bottom:24px}
 .settings-window .settings-page-heading h2{font:650 20px/1.3 var(--font-body);letter-spacing:-.5px;margin:0 0 7px}
 .settings-window .settings-page-heading p{font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}
-.settings-window .appearance-section-title{font:600 var(--text-ui)/1.5 var(--font-body);margin:0 0 12px}
+.settings-window .settings-section-title{font:600 14px/1.5 var(--font-body);margin:0 0 10px}
 .settings-window .appearance-theme-row{min-height:112px;gap:20px;padding:17px}
 @media(max-width:600px){.settings-window .appearance-theme-row{align-items:flex-start;flex-direction:column;gap:16px}}
 .settings-window .settings-group{background:var(--color-paper);border:1px solid var(--color-rule);border-radius:11px;overflow:hidden;margin:0 0 18px}
@@ -30,8 +30,9 @@
 .settings-window .settings-info-box strong{display:block;font-size:var(--text-caption);font-weight:600;color:var(--color-ink);margin-bottom:3px}
 .settings-window .settings-info-box p{margin:0}
 .settings-window .settings-fields{padding:17px}
-.settings-window .settings-group-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 17px}
+.settings-window .settings-group-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 10px}
 .settings-window .settings-group-heading h3{font:600 14px/1.5 var(--font-body);margin:0}
+.settings-window .settings-group-heading p{margin:6px 0 0}
 .settings-window .settings-group-heading>span{font-size:var(--text-caption);color:var(--color-muted);border:1px solid var(--color-rule);border-radius:5px;padding:3px 6px;background:var(--color-panel)}
 .settings-window .field-label{font-size:var(--text-ui);font-weight:500;line-height:1.5;margin:0 0 16px}
 .settings-window .field-label:last-child{margin-bottom:0}
@@ -57,7 +58,6 @@
 .settings-window .settings-limits summary{cursor:pointer;font-size:var(--text-ui);color:var(--color-ink)}
 .settings-window .settings-limits p{margin-top:8px}
 .settings-window .settings-type-preview{padding:21px 22px;border:1px solid var(--color-rule);border-radius:11px;background:var(--color-paper)}
-.settings-window .settings-type-preview>span{display:block;margin-bottom:15px;font-size:var(--text-caption);color:var(--color-muted)}
 .settings-window .settings-type-preview>p{font-family:var(--font-body);line-height:1.6}
 .settings-window .settings-shortcuts .setting-row{min-height:54px}
 .settings-window .settings-shortcuts kbd{font:var(--text-ui)/1.4 var(--font-body);color:var(--color-secondary);padding:4px 7px;border:1px solid var(--color-rule);border-radius:5px;background:var(--color-panel);box-shadow:0 1px 1px var(--color-shadow)}
@@ -80,9 +80,7 @@
 .settings-window .settings-status{color:var(--color-secondary)}
 .settings-window .settings-footer>.primary{padding:7px 14px;min-height:31px;border-radius:6px;font-size:var(--text-ui);font-weight:550}
 .settings-window .model-profile-settings>.model-reasoning-row{padding:0 0 17px;margin-bottom:17px}
-.settings-window .model-request-settings>.settings-group-heading{margin-bottom:0;padding-bottom:15px;border-bottom:1px solid var(--color-rule)}
-.settings-window .model-request-settings>.setting-row{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:24px;padding:17px 0}
-.settings-window .model-request-settings>.setting-row:last-child{padding-bottom:0}
+.settings-window .model-request-settings>.setting-row{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:24px}
 .settings-window .model-request-settings label{display:block;min-width:0}
 .settings-window .model-request-settings input[type=number]{width:128px;min-width:0;min-height:34px}
 .settings-window .model-mcp-bindings>strong{display:block;margin-bottom:10px;font-size:var(--text-ui);font-weight:600}
@@ -110,11 +108,24 @@
 @media(prefers-reduced-motion:reduce){.settings-window .model-tool-content{animation:none}.settings-window .model-tool-chevron>.icon{transition:none}}
 @media(max-height:700px){.settings-window .settings-content{padding-top:22px}.settings-window .settings-page-heading{margin-bottom:18px}.settings-window .settings-nav{padding-top:12px}}
 
-.settings-window .file-types .settings-group-heading{padding:15px 17px;margin:0;border-bottom:1px solid var(--color-rule)}
-.settings-window .file-types .settings-group-heading p{margin:6px 0 0}
 .settings-window .file-types .setting-row>label{flex:1;cursor:pointer}
+.settings-window .file-excluded{padding:15px 17px;border-bottom:1px solid var(--color-rule)}
+.settings-window .conversion-storage .conversion-storage-select{width:auto;min-width:fit-content}
+.settings-window .conversion-storage .conversion-directory{overflow-wrap:anywhere}
+.settings-window .conversion-storage>p{margin:0;padding:14px 17px}
+.settings-window .parser-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.settings-window .parser-actions>button{white-space:nowrap}
+.mineru-config-dialog{width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
+.mineru-config-dialog>.dialog-body{min-height:0;overflow:auto;padding-top:10px}
+.mineru-config-dialog .mineru-settings-card{border:0;margin:0;padding:0}
+.mineru-config-dialog .field-label{margin:0 0 12px}
+.mineru-config-dialog .field-label>input{width:100%}
+.mineru-config-dialog .mineru-test-area{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}
+.mineru-config-dialog .settings-card-actions{display:flex;gap:8px;margin-left:auto}
+@media(max-width:540px){.settings-window .parser-setting{flex-wrap:wrap}.settings-window .parser-actions{flex:1;justify-content:flex-end}}
 .settings-window .reindex-settings .outline{flex-shrink:0}
-.settings-window .reindex-status{padding:12px 17px;border-bottom:1px solid var(--color-rule);font-size:var(--text-caption);line-height:1.6}
+.settings-window .reindex-settings{border-bottom:1px solid var(--color-rule)}
+.settings-window .reindex-status{padding:0 17px 15px;font-size:var(--text-caption);line-height:1.6}
 .settings-window .reindex-status p{margin:0 0 6px}
 .settings-window .reindex-status p:last-child{margin-bottom:0}
 .settings-window .reindex-status progress{display:block;width:100%;height:5px;margin:8px 0 12px;accent-color:var(--color-ink)}
@@ -188,7 +199,7 @@
 
 .settings-window > .dialog-head .settings-back { display: none; }
 
-@media (max-width: 640px) {
+@media (max-width: 680px) {
   /* Settings is portaled outside the workspace. */
   .settings-backdrop {
     padding: 0;
@@ -230,7 +241,7 @@
     color: var(--color-ink);
   }
   .settings-window > .dialog-head .settings-back .icon { width: 22px; height: 22px; }
-  .settings-window :is(.settings-close, .settings-cancel, .settings-content > .settings-page-heading, .appearance-section-title, .settings-nav button .icon) {
+  .settings-window :is(.settings-close, .settings-cancel, .settings-content > .settings-page-heading, .settings-nav button .icon) {
     display: none;
   }
   .settings-window .settings-form {
@@ -286,7 +297,6 @@
   .settings-window .theme-thumbnail { max-width: 100%; }
   .settings-window .theme-label { font-size: 12px; }
   .settings-window .settings-type-preview { padding: 16px 14px; }
-  .settings-window .settings-type-preview > span { margin-bottom: 8px; }
   .settings-window .settings-footer {
     flex-direction: column;
     align-items: stretch;

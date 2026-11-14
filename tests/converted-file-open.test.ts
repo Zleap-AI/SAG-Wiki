@@ -14,10 +14,10 @@ it('从原文件打开内置解析得到的 Markdown，不要求安装 Docling',
   if(command==='get_settings')return{theme:'light',language:'zh-CN',start_page:'ask',editor_size:15,show_hidden:false,watch:true,excluded:[],answer:{url:'https://example.com/v1',model:'test',models:['test']},jev:{url:'https://example.com/v1',model:'jev',models:[]},retrieval:{chunk_chars:512}};
   if(command==='get_docling_status')return{installed:false,running:false,stage:'',message:'',downloaded:0,total:null,error:null,formats:[]};
   if(command==='list_roots')return[{path:'/notes',name:'notes',status:'ready',count:1,error:null}];
-  if(command==='list_files')return[{id:1,path:'/notes/.sag-converted/report.docx.md',name:'report.docx.md'}];
+  if(command==='list_files')return[{id:1,path:'/appdata/.sag-converted/sample/report.docx.md',source_path:'/notes/report.docx',name:'report.docx.md'}];
   if(command==='get_index_status')return{paused:false,tasks:[]};
   if(command==='list_entries')return args.path==='/notes'?[{path:'/notes/report.docx',name:'report.docx',directory:false,symlink:false}]:[];
-  if(command==='read_document')return{id:1,path:'/notes/.sag-converted/report.docx.md',name:'report.docx.md',body:'# Parsed document\n\nDocument evidence.',hash:'fixture'};
+  if(command==='read_document')return{id:1,path:'/appdata/.sag-converted/sample/report.docx.md',source_path:'/notes/report.docx',name:'report.docx.md',body:'# Parsed document\n\nDocument evidence.',hash:'fixture'};
   return[];
  });
  app=mount(App,{target:document.body});
@@ -27,6 +27,10 @@ it('从原文件打开内置解析得到的 Markdown，不要求安装 Docling',
  [...document.querySelectorAll<HTMLButtonElement>('.sidebar .tree-name')].find(node=>node.textContent==='report.docx')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('read_document',{path:'/notes/report.docx'}));
  await vi.waitFor(()=>expect(document.querySelector('.wysiwyg-editor')).not.toBeNull());
+ const openOriginal=[...document.querySelectorAll<HTMLButtonElement>('.editor-save-actions button')].find(button=>button.textContent==='打开原文件');
+ expect(openOriginal).toBeDefined();
+ openOriginal!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_source_file',{path:'/notes/report.docx'}));
  expect(document.querySelector('.readonly-document')).toBeNull();
  expect(invoke.mock.calls.some(([command])=>command==='install_docling')).toBe(false);
 });

@@ -19,7 +19,7 @@
  export let onToggle:()=>void;
  export let onFocus:()=>void=()=>{};
  $:first=group.first;
- $:folder=sourceFolder(first.path,roots);
+ $:folder=sourceFolder(first.path,roots,first.source_path);
  $:format=(sourceName(first).match(/\.([^.]+)$/)?.[1]??'').toUpperCase();
  const snippet=(candidate:Candidate)=>searchSnippet(plainText(candidate.path,candidate.content),terms);
 </script>

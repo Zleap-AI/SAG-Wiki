@@ -785,6 +785,7 @@ mod tests {
     }
     fn candidate(id: i64, content: &str) -> Candidate {
         Candidate {
+            source_path: None,
             previous_score: None,
             id,
             document_id: id,

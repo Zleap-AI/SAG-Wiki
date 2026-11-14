@@ -432,6 +432,7 @@ mod tests {
     use super::*;
     fn c(id: i64) -> Candidate {
         Candidate {
+            source_path: None,
             previous_score: None,
             id,
             document_id: id,
