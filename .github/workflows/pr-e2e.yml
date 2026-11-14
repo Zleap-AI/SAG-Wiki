@@ -110,3 +110,43 @@ jobs:
           persist-credentials: false
       - name: Verify relocatable QPDF runtime package
         run: node --test scripts/qpdf-packaging.node-test.mjs
+
+  release-tooling:
+    name: Test release tooling
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - name: Select release infrastructure changes without running a release
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --input-type=module <<'NODE'
+          import {appendFileSync} from 'node:fs';
+          import {execFileSync} from 'node:child_process';
+          const paths = execFileSync('git', ['diff', '--name-only', '-z', process.env.BASE_SHA, 'HEAD', '--'], {encoding: 'utf8'}).split('\0').filter(Boolean);
+          const relevant = paths.some(path => /^(?:\.github\/workflows\/|config\/|src-tauri\/src\/update-fixtures\/)/.test(path) ||
+            /^scripts\/(?:automatic-release|release|configure-release|migrate-release-environment|sign-macos-release|build-cli|package-updates|verify-update)[^/]*\.mjs$/.test(path) ||
+            /^(?:package(?:-lock)?\.json|(?:cli|src-tauri)\/Cargo\.(?:toml|lock)|src-tauri\/tauri[^/]*\.json|docs-site\/lib\/release-downloads\.ts)$/.test(path));
+          appendFileSync(process.env.GITHUB_OUTPUT, `relevant=${relevant}\n`);
+          NODE
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: steps.changes.outputs.relevant == 'true'
+        with:
+          python-version: '3.13.9'
+      - name: Install locked test tools without lifecycle scripts
+        if: steps.changes.outputs.relevant == 'true'
+        run: npm ci --ignore-scripts
+      - name: Regress preparation, trust, signing, assembly and cache gates
+        if: steps.changes.outputs.relevant == 'true'
+        run: node --test scripts/automatic-release.node-test.mjs scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs

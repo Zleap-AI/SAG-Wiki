@@ -10,7 +10,7 @@ import {targets} from './release.mjs';
 import {verifyUpdate} from './verify-update.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-const inputs = ['scripts/release.mjs', 'scripts/package-updates.mjs', 'scripts/verify-update.mjs',
+const inputs = ['scripts/release.mjs', 'scripts/automatic-release.mjs', 'scripts/package-updates.mjs', 'scripts/verify-update.mjs',
   'package.json', 'package-lock.json', 'src-tauri/tauri.conf.json', 'cli/Cargo.toml', 'cli/Cargo.lock',
   'src-tauri/Cargo.toml', 'src-tauri/Cargo.lock', 'CHANGELOG.md', 'config/updates/legacy-latest.json'];
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
