@@ -157,6 +157,15 @@ pub struct IndexConversion {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub segment: Option<ConversionSegment>,
 }
+/// Unique indexed targets checked in a task, independent of phase traversal totals.
+/// An update followed by a failure counts in both fields: actual writes are retained.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IndexSummary {
+    pub checked: usize,
+    pub reused: usize,
+    pub updated: usize,
+    pub failed: usize,
+}
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexTask {
     /// Stable identity of this root's primary or enhancement lane.
@@ -168,6 +177,8 @@ pub struct IndexTask {
     pub stage: String,
     pub completed: usize,
     pub total: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<IndexSummary>,
     pub files: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub conversions: Vec<IndexConversion>,
@@ -183,6 +194,9 @@ pub struct IndexHistory {
     pub finished_at: i64,
     pub completed: usize,
     pub total: usize,
+    /// Absent for records created before outcome counts were recorded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<IndexSummary>,
     pub status: String,
     pub error: Option<String>,
 }

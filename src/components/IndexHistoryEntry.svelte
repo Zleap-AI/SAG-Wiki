@@ -50,7 +50,8 @@
  <span class="index-entry-icon" class:failed>{@html icon(failed?'alert':'folder')}</span>
  <span class="index-entry-main">
   <span class="index-root-title"><strong>{record.name}</strong><span class:failed>{label}</span></span>
-  <span class="index-entry-meta"><span class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:record.completed,value1:record.total})}</span><span class="index-root-path" title={displayPath(record.path)}>{displayPath(record.path)}</span></span>
+  {#if record.summary}<span class="index-outcomes">{$t('已检查 {value0} · 已复用 {value1} · 已更新 {value2} · 失败 {value3}',{value0:record.summary.checked,value1:record.summary.reused,value2:record.summary.updated,value3:record.summary.failed})}</span>{/if}
+  <span class="index-entry-meta">{#if !record.summary}<span class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:record.completed,value1:record.total})}</span>{/if}<span class="index-root-path" title={displayPath(record.path)}>{displayPath(record.path)}</span></span>
  </span>
  <span class="index-entry-side"><time datetime={new Date(record.started_at).toISOString()} title={date(record.started_at)}>{when(record.started_at)}</time><span class="index-entry-chevron" class:open={expanded}>{@html icon('chevron')}</span></span>
 </Button.Root>
@@ -114,6 +115,7 @@
  .index-root-title>span.failed{border-color:var(--color-rule);background:var(--color-paper);color:var(--color-ink);font-weight:550}
  .index-entry-meta{display:flex;align-items:baseline;gap:6px;min-width:0;font-size:12px;line-height:1.5;color:var(--color-muted)}
  .index-count{flex-shrink:0;font-variant-numeric:tabular-nums}
+ .index-outcomes{font-size:12px;line-height:1.6;color:var(--color-secondary);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
  .index-count::after{content:'·';margin-left:6px}
  .index-root-path{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .index-entry-side{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--color-muted);white-space:nowrap;font-variant-numeric:tabular-nums}
