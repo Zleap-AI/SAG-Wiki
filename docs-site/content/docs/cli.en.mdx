@@ -41,7 +41,7 @@ CLI and the optional SAG Wiki desktop use the same indexing, retrieval and confi
 
 - Desktop and CLI share a standalone background service, configuration and knowledge base. Directory changes appear in both.
 - The service keeps running after desktop exits. `sag add` returns after indexing finishes; background watching updates file and ignore-rule changes.
-- `sag service status` shows the service version and process. `sag service stop` stops it; `sag service restart` restarts it. Status inspection does not automatically start it.
+- `sag service status` shows the service version and process. `sag service stop` stops it; `sag service restart` restarts it after the old instance has shut down and released its instance lock. Status inspection does not automatically start it.
 - Both modes retain access controls and directory-scope restrictions. Failures do not switch search algorithms. If CLI access was disabled, explicitly run `sag config --enable` to restore it.
 - After installing the SAG Skill for the relevant coding tool, open a new session to use it. The agent can run `sag add` for the current project, then `sag "search query"`.
 
