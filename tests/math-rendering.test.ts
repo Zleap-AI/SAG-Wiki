@@ -35,6 +35,15 @@ describe('inline math', () => {
   }
  });
 
+ it('keeps page-footers and bare numbers as text', () => {
+  for (const text of ['|Figure 3.1| The bonding wire connection. *$.04$','It costs $1,000$ per wafer.']) {
+   expect(render(text).querySelector('.math-inline'), text).toBeNull();
+  }
+  // Real math keeps working, including single symbols and expressions.
+  expect(render('$2+2$').querySelector('.math-inline')).not.toBeNull();
+  expect(render('$x$').querySelector('.math-inline')).not.toBeNull();
+ });
+
  it('keeps escaped dollars literal', () => {
   const doc=render(`A literal ${B}$x${B}$ stays text.`);
   expect(doc.querySelector('.math-inline')).toBeNull();

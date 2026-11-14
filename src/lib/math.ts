@@ -45,6 +45,12 @@ function mathToken(type:string,raw:string,tex:string):MarkdownToken{
 
 // `$…$` stays prose when the closing `$` is followed by a digit (prices) or the
 // body starts/ends with whitespace, which keeps "$5 and $10" and "$HOME" text.
+// A body without math syntax stays prose too: the converted books carry page
+// footers like `$.04$`, which must not turn into formulas.
+function inlineMathBody(tex:string):boolean{
+ return !/^[0-9\s.,:\u2013\u2014-]+$/.test(tex);
+}
+
 function inlineDollar(src:string):MarkdownToken|undefined{
  if(src[0]!=='$'||src[1]==='$')return;
  if(!/\S/.test(src[1]??''))return;
@@ -56,6 +62,7 @@ function inlineDollar(src:string):MarkdownToken|undefined{
   const tex=src.slice(1,index);
   if(!/\S$/.test(tex))return;
   if(/\d/.test(src[index+1]??''))return;
+  if(!inlineMathBody(tex))return;
   return mathToken('inlineMath',src.slice(0,index+1),tex);
  }
  return;
