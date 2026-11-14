@@ -3,6 +3,7 @@ import {chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSy
 import {delimiter, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {prepareQpdf} from './prepare-qpdf.mjs';
+import {buildWebAssets} from './build-web-assets.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const run = (command, args, cwd = root) => {
@@ -22,6 +23,7 @@ const targets = {
 const target = process.env.SAG_TARGET || run('rustc', ['-vV']).match(/^host: (.+)$/m)?.[1];
 if (!targets[target]) throw new Error(`Unsupported Rust target: ${target}`);
 const version = readFileSync(join(root, 'cli/Cargo.toml'), 'utf8').match(/^version = "(.+)"/m)[1];
+process.env.SAG_WEB_DIST=buildWebAssets();
 run('cargo', ['build', '--release', '--locked', '--manifest-path', 'cli/Cargo.toml', ...(process.env.SAG_TARGET ? ['--target', target] : [])]);
 const current = targets[target];
 const nativeCache = join(root, 'releases/cli-native', version);

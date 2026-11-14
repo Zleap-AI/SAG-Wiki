@@ -155,11 +155,11 @@ Standalone mode rechecks the index before the next search. With desktop auto-wat
 
 ## HTTP API
 
-Use `sag api start` and `sag api stop` to manage the HTTP service. Stopping the API leaves indexing and ordinary CLI searches running. `sag api status --json` reads its state without starting the backend.
+Use `sag api start` and `sag api stop` to manage the HTTP service. Stopping the API leaves indexing and ordinary CLI searches running. `sag api status` shows API and MCP addresses without exposing keys or starting the backend. Add `--json` for JSON output.
 
-Create a key with `sag api key create --name "Application A"`. The complete key is shown only once. List or revoke keys with `sag api key list` and `sag api key revoke KEY_ID`. Key creation and listing accept `--json`.
+Create and show a key with `sag api key create --name "Application A"`. List or revoke keys with `sag api key list` and `sag api key revoke KEY_ID`. Key creation and listing accept `--json`. Export a client configuration with `sag api mcp config`; see the [MCP guide](/en/docs/mcp-guide) for address and key options.
 
-Local and LAN applications can call fast or deep search, browse folders and choose multiple directories by their absolute server paths. The CLI's existing search syntax remains unchanged. See the [API overview](/en/docs/api-guide) for setup and [API reference](/en/docs/api) for endpoints.
+Local and LAN applications can call fast or deep search, browse folders and choose multiple directories by their absolute server paths. The CLI's existing search syntax remains unchanged. See the [API overview](/en/docs/api-guide#start-the-service) for setup and [API reference](/en/docs/api) for endpoints.
 
 ## Installation locations and upgrades
 
@@ -175,7 +175,7 @@ Update an npm-installed CLI with `npm install -g @zleap-ai/sag`, and remove it w
 
 Repeating `sag install` updates SAG-owned files. Installation records contain checksums, version and the actual CLI installation location. Later PATH-order changes do not change that location, and uninstallation follows the records. If foreign files, user modifications or altered SAG-managed terminal configuration blocks are detected, the installer stops and reports them. Uninstallation removes only verified SAG files and preserves other directory contents.
 
-The command name is `sag`. On startup, the client updates managed CLIs and SAG Skills not modified by the user. An explicitly uninstalled CLI is not restored automatically. The `.sagignore` filename and existing knowledge base remain unchanged.
+The command is `sag`. When the desktop app first starts after an upgrade, it updates the CLI it manages. If an older CLI at the default location no longer matches its SAG installation checksum, the app backs up that file in the same directory before installing the bundled version. An explicitly uninstalled CLI stays uninstalled. Update an npm-installed CLI through npm.
 
 Windows uses a separate console `sag.exe`, bundled with the application installer. Installing the CLI does not normally require administrator privileges. The Windows packaging entry point is `npm run package:windows`. Available platforms depend on the native executables actually included in a release package.
 

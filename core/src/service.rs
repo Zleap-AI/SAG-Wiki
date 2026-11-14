@@ -841,6 +841,7 @@ async fn execute_query(
             let servers = profile
                 .mcp_servers
                 .iter()
+                .filter(|_| !app.owner.starts_with("web:"))
                 .map(|id| {
                     let server = settings
                         .mcp_servers

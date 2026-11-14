@@ -5,6 +5,21 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.2.13
+
+- **Office text only**: Add an opt-in DOCX/PPTX parsing mode that skips images and embedded objects without image OCR. Changed settings recheck affected documents. See [Folders and indexing](/en/docs/folders).
+- **Remote services**: Browse files, edit Markdown, search and ask questions in a browser on the host or LAN. A Linux server can run the web service with just the standalone CLI, without installing the desktop app. The web app and API can be enabled independently. See [Remote access](/en/docs/remote-access).
+- **CLI updates with the desktop app**: Fix an older managed `sag` being left behind. The app backs up an old executable if its checksum no longer matches.
+
+- **MCP access**: External MCP clients can search the knowledge base and browse folders. Copy the configuration from desktop settings or export it with the CLI.
+- **API key management**: Copy newly created keys again from desktop settings.
+
+## 0.2.12
+
+- **Progressive indexing**: Search available PDF text while OCR and table recognition continue in the background. Other files can be indexed while a large PDF is processed.
+- **PDF segments**: Reuse Docling models across segments of the same PDF and show conversion progress.
+- **Retry failed files**: Retry indexing only affected files while keeping available text searchable.
+
 ## 0.2.11
 
 - **Resumable long-PDF conversion**: process PDFs in parts of at most 50 pages, independently trying MinerU, the applicable built-in parser, and installed Docling. Only failed parts fall back; successful parts are cached. Merge and index the complete document only after every part succeeds, without publishing partial output after failure or cancellation.

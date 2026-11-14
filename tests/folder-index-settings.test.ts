@@ -119,3 +119,30 @@ it('已安装后可选择具体扩展名，保存后重新打开保留选择',as
  expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('false');
  expect(invoke.mock.calls.some(([command])=>command==='install_docling')).toBe(false);
 });
+
+it('desktop folder removal still supports restoring the same folder',async()=>{
+ const root={path:'/notes',name:'Notes',status:'ready',count:0,error:null};
+ let roots=[root];
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='get_settings')return {theme:'light',start_page:'files',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='list_roots')return structuredClone(roots);
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='remove_root'){roots=[];return;}
+  if(command==='add_root'){roots=[root];return args.path;}
+  return [];
+ });
+ localStorage.setItem('sag.onboarding.seen','1');
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="Notes 的文件夹选项"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="Notes 的文件夹选项"]')!.click();await tick();
+ const remove=[...document.querySelectorAll<HTMLElement>('[role=menuitem]')].find(node=>node.textContent?.trim()==='移除')!;
+ expect(remove).toBeDefined();remove.click();
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="确认移除文件夹"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="确认移除文件夹"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.tree-name[title="/notes"]')).toBeNull());
+ expect(invoke).toHaveBeenCalledWith('remove_root',{path:'/notes'});
+ const restore=[...document.querySelectorAll<HTMLButtonElement>('#notice button')].find(button=>button.textContent?.trim()==='恢复')!;
+ expect(restore).toBeDefined();restore.click();
+ await vi.waitFor(()=>expect(document.querySelector('.tree-name[title="/notes"]')).not.toBeNull());
+ expect(invoke).toHaveBeenCalledWith('add_root',{path:'/notes'});
+});

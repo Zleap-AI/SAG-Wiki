@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {requestId} from "../lib/web-connection";
  import {t} from '../lib/i18n';
  import {onMount} from 'svelte';
  import {highlightDocument} from '../lib/search-highlights';
@@ -16,7 +17,7 @@
   for(const node of doc.querySelectorAll('*'))for(const attribute of [...node.attributes]){
    if(/^on/i.test(attribute.name)||attribute.name==='srcdoc'||(/^(?:href|xlink:href)$/i.test(attribute.name)&&/^(?:javascript|vbscript|data):/i.test(attribute.value.replace(/[\u0000-\u0020]/g,''))))node.removeAttribute(attribute.name);
   }
-  const nonce=crypto.randomUUID();
+  const nonce=requestId();
   const policy=doc.createElement('meta');policy.httpEquiv='Content-Security-Policy';policy.content=`script-src 'nonce-${nonce}'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`;doc.head.prepend(policy);
   const bridge=doc.createElement('script');bridge.src=new URL('../lib/document-bridge.js?no-inline',import.meta.url).href;bridge.setAttribute('nonce',nonce);doc.body.append(bridge);
   doc.querySelectorAll('a[href^="#"]').forEach(link=>link.setAttribute('href','about:srcdoc'+link.getAttribute('href')));

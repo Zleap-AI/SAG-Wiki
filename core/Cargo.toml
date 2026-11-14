@@ -37,7 +37,7 @@ tar = "0.4"
 libc = "0.2"
 portable-pty = "0.9"
 zip = { version = "2", default-features = false, features = ["deflate"] }
-rmcp = { version = "3.5.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+rmcp = { version = "3.5.1", default-features = false, features = ["client", "server", "transport-child-process", "transport-streamable-http-client-reqwest", "transport-streamable-http-server", "reqwest"] }
 glob = "0.3"
 tokio = { version = "1", features = ["rt-multi-thread", "time", "sync", "macros", "net", "io-util"] }
 tokio-util = "0.7"

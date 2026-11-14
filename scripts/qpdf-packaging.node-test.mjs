@@ -71,6 +71,7 @@ test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:window
  for(const file of ['scripts/package-npm-cli.mjs','scripts/prepare-qpdf.mjs','npm/sag/bin/sag.cjs','npm/sag/package.json','npm/sag/README.md','cli/Cargo.toml']) {
   const destination=join(dir,file);mkdirSync(resolve(destination,'..'),{recursive:true});copyFileSync(join(root,file),destination);
  }
+ writeFileSync(join(dir,'scripts/build-web-assets.mjs'),"export const buildWebAssets = () => 'unused-web-fixture';\n");
  const fake=join(dir,'fake-bin');mkdirSync(fake);
  writeFileSync(join(fake,'cargo'),'#!/bin/sh\nexit 0\n',{mode:0o755});
  const native=join(dir,'cli/target',target,'release');mkdirSync(native,{recursive:true});

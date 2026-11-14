@@ -4,6 +4,10 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum ApiAction {
     Status,
+    WebStart { host: Option<String>, port: Option<u16> },
+    WebStop,
+    WebCode,
+    WebRotateCode,
     Start {
         host: Option<String>,
         port: Option<u16>,
@@ -14,6 +18,9 @@ pub enum ApiAction {
         port: u16,
     },
     ListKeys,
+    CopyKey {
+        id: Option<String>,
+    },
     CreateKey {
         name: String,
     },

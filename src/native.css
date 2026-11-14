@@ -581,3 +581,15 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .index-retry-button:disabled{opacity:.55;cursor:default}
 .real-client .index-retry-error{margin:0;padding:0 12px 10px;color:var(--color-ink);font-size:var(--text-caption);line-height:1.5;overflow-wrap:anywhere}
 @media(prefers-reduced-motion:no-preference){.real-client .index-retry-button .retry-spinning{animation:search-progress-spin 1s linear infinite}}
+
+[data-sag-web] body{min-width:0}
+@media(max-width:640px){
+ .web-client.compact-sidebar .shell{grid-template-columns:58px minmax(0,1fr)}
+ .web-client:not(.compact-sidebar) .shell{grid-template-columns:min(44vw,180px) minmax(0,1fr)}
+ .web-client .sidebar-tools{flex-wrap:wrap}
+ .web-client .workspace-header{grid-template-columns:minmax(0,1fr);padding-inline:8px;gap:0}
+ .web-client .workspace-switch{grid-column:1;width:min(100%,300px);justify-self:center}
+ .web-client .workspace-switch .nav-item{padding-inline:4px}
+ .web-client .workspace-back{top:2px;left:6px;width:22px;height:22px}
+ .web-client .library-files{padding-inline:12px}
+}
