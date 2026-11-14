@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.2.14
+
+自动发布：包含自上次正式发布以来的产品改动。
+
+Automatic release: product changes since the previous published release.
+
+- fix(convert): keep PDFs whose pages lopdf cannot count (#128) (963b18d)
+
 ## 0.2.13
 
 - **升级缓存与索引统计**：启动或升级后的检查复用未变化的索引和兼容的转换结果；索引详情区分已检查、已复用、已更新和失败，避免将检查文件数误认为重新构建数。内容、解析设置或必要迁移变化时，仍会更新受影响文档。
