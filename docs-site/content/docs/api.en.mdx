@@ -220,4 +220,6 @@ An upstream model authentication failure is distinct from an unauthorized callin
 
 To connect through an MCP client, see the [MCP guide](/en/docs/mcp-guide).
 
-HTTP MCP `search` (fast/deep) and `/v1/search` accept `exclude`: `{"query":"authentication flow","paths":["F:/project"],"exclude":[".git/**","archive/","*.zip"]}`. Patterns are relative to each search root. Excluding all files returns no results, never an unrestricted search.
+HTTP MCP `search` (fast/deep) and `/v1/search` accept `exclude`: `{"query":"authentication flow","paths":["F:/project"],"exclude":[".git/**","archive/","*.zip"]}`. Patterns are relative to each search root. Excluding all files returns no results, never an unrestricted search. Converted documents use the original filename and extension; within a converted-output directory, relative subdirectories are preserved, for example `nested/report.csv` rather than `nested/report.csv.md`.
+
+With exclusions, each search uses the files allowed when filtering runs; newly added files are included on the next search.

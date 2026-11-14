@@ -1,6 +1,6 @@
 use crate::{
     ignore_rules, models, retrieval,
-    store::{self, Store},
+    store::{self, SearchScope, Store},
     text,
     types::*,
 };
@@ -157,6 +157,30 @@ impl SagTools {
             Ok(vec![path])
         } else {
             Ok(roots)
+        }
+    }
+    fn selected_file_paths(&self, requested: Option<&str>) -> Result<Vec<PathBuf>> {
+        let mut paths = self.scope.iter()
+            .map(|path| {
+                if self.store.indexed_path(Path::new(path))? != Path::new(path) {
+                    bail!("搜索范围已变化，请重试")
+                }
+                Ok(PathBuf::from(path))
+            })
+            .collect::<Result<Vec<_>>>()?;
+        paths.sort();
+        paths.dedup();
+        if let Some(requested) = requested {
+            let requested = PathBuf::from(requested);
+            if self.store.indexed_path(&requested)? != requested {
+                bail!("搜索范围已变化，请重试")
+            }
+            if !paths.contains(&requested) {
+                bail!("该路径不在本轮选择的文件范围内")
+            }
+            Ok(vec![requested])
+        } else {
+            Ok(paths)
         }
     }
     pub(crate) fn visit(
@@ -372,6 +396,12 @@ impl SagTools {
         ))
     }
     pub(crate) async fn execute(&self, name: &str, arguments: Value) -> Result<Output> {
+        self.execute_with_scope(name, arguments, false).await
+    }
+    pub(crate) async fn execute_with_file_scope(&self, name: &str, arguments: Value) -> Result<Output> {
+        self.execute_with_scope(name, arguments, true).await
+    }
+    async fn execute_with_scope(&self, name: &str, arguments: Value, files_only: bool) -> Result<Output> {
         if !self.enabled.iter().any(|enabled| enabled == name) {
             bail!("当前模型未启用 SAG / {name}")
         }
@@ -383,18 +413,24 @@ impl SagTools {
             if args.query.trim().is_empty() || args.query.chars().count() > 2000 {
                 bail!("检索问题不能为空或超过 2000 字符")
             }
-            let scope = self
-                .selected_paths(args.path.as_deref())?
+            let selected_paths = if files_only {
+                self.selected_file_paths(args.path.as_deref())?
+            } else {
+                self.selected_paths(args.path.as_deref())?
+            };
+            let selected = selected_paths
                 .iter()
-                .map(|p| self.store.indexed_path(p).and_then(|path| store::path_text(&path)))
+                .map(|p| {
+                    if files_only { store::path_text(p) }
+                    else { self.store.indexed_path(p).and_then(|path| store::path_text(&path)) }
+                })
                 .collect::<Result<Vec<_>>>()?;
-            let scope = self.store.search_scopes_excluding_each(&scope, &args.exclude)?;
-            let refs = self
-                .references
-                .iter()
-                .filter(|path| scope.iter().any(|root| Path::new(path).starts_with(root)))
-                .cloned()
-                .collect::<Vec<_>>();
+            let mut scope = self.store.search_scopes_excluding_each(&selected, &args.exclude)?;
+            if files_only && !args.exclude.is_empty() {
+                let allowed = selected.iter().collect::<std::collections::HashSet<_>>();
+                scope.retain(|path| allowed.contains(path));
+            }
+            let refs = self.store.search_references_in_scopes(&self.references, &scope)?;
             let mut options = self.settings.retrieval.clone();
             if let Some(top_k) = args.top_k {
                 if !(1..=100).contains(&top_k) {
@@ -405,11 +441,16 @@ impl SagTools {
             if scope.is_empty() {
                 return Ok(Output::new(json!({"query":args.query}), vec![]));
             }
+            let scope = if files_only || !args.exclude.is_empty() {
+                SearchScope::Files(&scope)
+            } else {
+                SearchScope::Paths(&scope)
+            };
             let key = models::jev_secret(&self.data_dir, &self.settings.jev)?;
-            let output = retrieval::retrieve(
+            let output = retrieval::retrieve_in_scope(
                 &self.store,
                 &args.query,
-                &scope,
+                scope,
                 &refs,
                 &options,
                 &self.cancel,
@@ -1020,6 +1061,72 @@ pub(crate) mod tests {
             .unwrap()
             .to_string()
             .contains("已停止"));
+    }
+    #[test]
+    fn search_references_keep_converted_originals_only_within_allowed_outputs() {
+        let (_dir, mut tools, root) = fixture();
+        let output = root.join("evidence.md");
+        fs::write(&output, "needle converted evidence").unwrap();
+        tools.store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let source = root.join("original.csv");
+        fs::write(&source, "name,value\nneedle,1\n").unwrap();
+        let source = store::path_text(&source).unwrap();
+        let output = store::path_text(&output).unwrap();
+        tools.store.connection().execute(
+            "INSERT INTO conversions(source,root,source_hash,output,output_hash,valid) VALUES(?1,?2,?3,?4,?5,1)",
+            rusqlite::params![source, store::path_text(&root).unwrap(), "fixture-source", output, store::hash(&fs::read(&output).unwrap())],
+        ).unwrap();
+        tools.references = vec![source.clone(), output.clone()];
+
+        assert_eq!(tools.store.search_references_in_scopes(&tools.references, &[output.clone()]).unwrap(), vec![source.clone(), output.clone()]);
+        assert!(tools.store.search_references_in_scopes(&tools.references, &[store::path_text(&root.join("README.md")).unwrap()]).unwrap().is_empty());
+        tools.store.connection().execute("UPDATE conversions SET valid=0 WHERE source=?", [&source]).unwrap();
+        assert_eq!(tools.store.search_references_in_scopes(&tools.references, &[output.clone()]).unwrap(), vec![output]);
+    }
+    #[tokio::test]
+    async fn search_file_scope_does_not_expand_after_a_selected_file_becomes_a_directory() {
+        let (dir, mut tools, root) = fixture();
+        let selected = root.join("selected.md");
+        fs::write(&selected, "needle allowed evidence").unwrap();
+        tools.store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let selected_path = store::path_text(&selected).unwrap();
+        let allowed = tools.store.search_scopes_excluding_each(&[selected_path.clone()], &["*.private.md".into()]).unwrap();
+        assert_eq!(allowed, vec![selected_path]);
+
+        fs::remove_file(&selected).unwrap();
+        fs::create_dir(&selected).unwrap();
+        let excluded = selected.join("child.private.md");
+        fs::write(&excluded, "needle excluded private evidence").unwrap();
+        tools.store.index_file(root.to_str().unwrap(), &excluded, 512).unwrap();
+        tools.scope = allowed;
+        tools.references = vec![store::path_text(&excluded).unwrap()];
+        tools.settings.retrieval.max_hops = 0;
+        models::save_secret(dir.path(), "jev", "fixture-only").unwrap();
+
+        assert!(tools.execute_with_file_scope("search", json!({"query":"needle","path":excluded})).await.is_err());
+        assert!(tools.execute_with_file_scope("search", json!({"query":"needle"})).await.unwrap().sources.is_empty());
+        tools.scope.clear();
+        assert!(tools.execute_with_file_scope("search", json!({"query":"needle"})).await.unwrap().sources.is_empty());
+    }
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn search_file_scope_keeps_its_indexed_identity_after_a_symlink_replacement() {
+        let (dir, mut tools, root) = fixture();
+        let selected = root.join("public.md");
+        let excluded = root.join("private.md");
+        fs::write(&selected, "needle public evidence").unwrap();
+        fs::write(&excluded, "needle excluded private evidence").unwrap();
+        tools.store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let selected_path = store::path_text(&selected).unwrap();
+        tools.scope = tools.store.search_scopes_excluding_each(&[selected_path.clone()], &["private.md".into()]).unwrap();
+        fs::remove_file(&selected).unwrap();
+        std::os::unix::fs::symlink(&excluded, &selected).unwrap();
+        tools.references = vec![store::path_text(&excluded).unwrap()];
+        tools.settings.retrieval.max_hops = 0;
+        models::save_secret(dir.path(), "jev", "fixture-only").unwrap();
+
+        assert!(tools.selected_file_paths(None).unwrap_err().to_string().contains("搜索范围已变化"));
+        assert!(tools.execute_with_file_scope("search", json!({"query":"needle"})).await.err().unwrap().to_string().contains("搜索范围已变化"));
     }
     #[tokio::test]
     async fn search_uses_the_existing_sag2_pipeline_and_returns_read_offsets() {

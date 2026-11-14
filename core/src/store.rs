@@ -122,17 +122,58 @@ pub struct Store {
 #[cfg(test)]
 const QUERY_CACHE_ENTRIES: usize = 256;
 
+#[derive(Clone, Copy)]
+pub(crate) enum SearchScope<'a> {
+    Paths(&'a [String]),
+    Files(&'a [String]),
+}
+impl<'a> SearchScope<'a> {
+    pub(crate) fn paths(self) -> &'a [String] {
+        match self { Self::Paths(paths) | Self::Files(paths) => paths }
+    }
+    pub(crate) fn files_only(self) -> bool { matches!(self, Self::Files(_)) }
+    pub(crate) fn contains(self, path: &Path) -> bool {
+        self.paths().iter().any(|allowed| {
+            if self.files_only() { path == Path::new(allowed) } else { path.starts_with(allowed) }
+        })
+    }
+}
+
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct CorpusScope {
     scope: Vec<String>,
+    files_only: bool,
     references: Vec<String>,
 }
+
+// Resolve exact indexed files as a set. Only directory scopes need prefix
+// matching; scanning a selected-file list for every document is quadratic.
+const SCOPE_DOCUMENT_IDS_SQL: &str = "WITH requested_files AS MATERIALIZED (
+        SELECT value AS path FROM json_each(?1) WHERE value NOT IN (SELECT value FROM json_each(?3))
+    ), files AS MATERIALIZED (
+        SELECT id,path FROM documents WHERE path IN (SELECT path FROM requested_files)
+        UNION
+        SELECT d.id,cv.source FROM conversions cv JOIN documents d ON d.path=cv.output
+        WHERE ?4=0 AND cv.valid=1 AND cv.source IN (SELECT path FROM requested_files)
+    ), directories AS MATERIALIZED (
+        SELECT value AS path FROM json_each(?1) WHERE ?4=0 AND value NOT IN (SELECT path FROM files)
+    )
+    SELECT d.id FROM documents d
+    WHERE d.id IN (SELECT id FROM files)
+        OR (?4=0 AND (d.path IN (SELECT value FROM json_each(?2))
+            OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?2)))))
+        OR EXISTS(SELECT 1 FROM directories s WHERE
+            instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.path,char(92),'/'),'/')||'/')=1
+            OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1
+                AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.path,char(92),'/'),'/')||'/')=1))
+    ORDER BY d.id";
 
 #[derive(Clone, Hash, PartialEq, Eq)]
 struct CandidateQuery {
     expression: String,
     required: Option<String>,
     scope: Vec<String>,
+    files_only: bool,
     references: Vec<String>,
     excluded: Vec<i64>,
     limit: usize,
@@ -2350,12 +2391,24 @@ impl Store {
         excluded: &[i64],
         limit: usize,
     ) -> Result<Vec<Candidate>> {
+        self.candidate_query_in_scope(expression, required, SearchScope::Paths(scope), references, excluded, limit)
+    }
+    pub(crate) fn candidate_query_in_scope(
+        &self,
+        expression: &str,
+        required: Option<&str>,
+        scope: SearchScope<'_>,
+        references: &[String],
+        excluded: &[i64],
+        limit: usize,
+    ) -> Result<Vec<Candidate>> {
         let mut excluded = excluded.to_vec();
         excluded.sort_unstable();
         self.candidate_query_on(0, CandidateQuery {
             expression: expression.to_owned(),
             required: required.map(str::to_owned),
-            scope: scope.to_vec(),
+            scope: scope.paths().to_vec(),
+            files_only: scope.files_only(),
             references: references.to_vec(),
             excluded,
             limit,
@@ -2371,6 +2424,17 @@ impl Store {
         excluded: &[i64],
         limit: usize,
     ) -> Result<Vec<Vec<Candidate>>> {
+        self.candidate_queries_in_scope(expression, required, SearchScope::Paths(scope), references, excluded, limit)
+    }
+    pub(crate) fn candidate_queries_in_scope(
+        &self,
+        expression: &str,
+        required: &[String],
+        scope: SearchScope<'_>,
+        references: &[String],
+        excluded: &[i64],
+        limit: usize,
+    ) -> Result<Vec<Vec<Candidate>>> {
         let mut excluded = excluded.to_vec();
         excluded.sort_unstable();
         let workers = required.len().min(self.runtime_settings().query_workers);
@@ -2382,7 +2446,8 @@ impl Store {
                         let rows = self.candidate_query_on(worker, CandidateQuery {
                             expression: expression.to_owned(),
                             required: Some(required[position].clone()),
-                            scope: scope.to_vec(),
+                            scope: scope.paths().to_vec(),
+                            files_only: scope.files_only(),
                             references: references.to_vec(),
                             excluded: excluded.clone(),
                             limit,
@@ -2416,7 +2481,8 @@ impl Store {
         } else {
             let stats = self.rank_statistics(&transaction, version, &key.expression)?;
             let rows = if stats.is_empty() { vec![] } else {
-                let documents = self.scope_document_ids(&transaction, version, &key.scope, &key.references)?;
+                let scope = if key.files_only { SearchScope::Files(&key.scope) } else { SearchScope::Paths(&key.scope) };
+                let documents = self.scope_document_ids(&transaction, version, scope, &key.references)?;
                 Self::query_candidate_metadata(&transaction, &key, &stats, documents.as_deref())?
             };
             self.query_cache.lock().expect("query cache mutex poisoned").insert_with_limit(version, key, rows.clone(), self.runtime_settings().query_cache_entries);
@@ -2461,8 +2527,13 @@ impl Store {
             let (output, source) = row?;
             let source = Path::new(&source);
             if !scopes.iter().any(|scope| source.starts_with(scope) || Path::new(&output).starts_with(scope)) { continue; }
-            let Ok(relative) = source.strip_prefix(root) else { continue; };
-            if !patterns.iter().any(|pattern| crate::cli_match::path_filter_matches(pattern, relative)) { allowed.push(output); }
+            let relative = source.strip_prefix(root).map(Path::to_path_buf).ok().or_else(|| {
+                // Converted output directories mirror the source directories,
+                // but their file names have an extra .md suffix.
+                Some(Path::new(&output).strip_prefix(root).ok()?.with_file_name(source.file_name()?))
+            });
+            let Some(relative) = relative else { continue; };
+            if !patterns.iter().any(|pattern| crate::cli_match::path_filter_matches(pattern, &relative)) { allowed.push(output); }
         }
         Ok(allowed)
     }
@@ -2477,9 +2548,30 @@ impl Store {
         allowed.sort(); allowed.dedup();
         Ok(allowed)
     }
-    fn scope_document_ids(&self, connection: &Connection, version: i64, scope: &[String], references: &[String]) -> Result<Option<Arc<str>>> {
-        if scope.is_empty() { return Ok(None); }
-        let key = CorpusScope { scope: scope.to_vec(), references: references.to_vec() };
+
+    pub(crate) fn search_references_in_scopes(&self, references: &[String], scopes: &[String]) -> Result<Vec<String>> {
+        if references.is_empty() { return Ok(vec![]); }
+        let within_scope = |path: &str| scopes.iter().any(|scope| Path::new(path).starts_with(scope));
+        let db = self.connection();
+        let mut query = db.prepare("SELECT output FROM conversions WHERE source=? AND valid=1")?;
+        let mut allowed = vec![];
+        for reference in references {
+            let included = if within_scope(reference) {
+                true
+            } else {
+                let output: Option<String> = query.query_row([reference], |row| row.get(0)).optional()?;
+                output.as_deref().is_some_and(within_scope)
+            };
+            if included { allowed.push(reference.clone()); }
+        }
+        Ok(allowed)
+    }
+
+    fn scope_document_ids(&self, connection: &Connection, version: i64, scope: SearchScope<'_>, references: &[String]) -> Result<Option<Arc<str>>> {
+        let files_only = scope.files_only();
+        let scope = scope.paths();
+        if scope.is_empty() { return Ok(files_only.then(|| Arc::<str>::from("[]"))); }
+        let key = CorpusScope { scope: scope.to_vec(), files_only, references: references.to_vec() };
         {
             let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
             if cache.refresh(version) {
@@ -2489,12 +2581,11 @@ impl Store {
                 }
             }
         }
-        let mut query = connection.prepare("SELECT d.id FROM documents d
-            WHERE (d.path IN (SELECT value FROM json_each(?2)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?2)))) OR EXISTS(
-                SELECT 1 FROM json_each(?1) s
-                WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1))
-            ) ORDER BY d.id")?;
-        let ids = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |row| row.get::<_, i64>(0))?
+        // An old indexed file can already have become a directory while an
+        // incremental update has indexed its children but not removed that row.
+        let directories = scope.iter().filter(|path| !files_only && Path::new(path).is_dir()).collect::<Vec<_>>();
+        let mut query = connection.prepare(SCOPE_DOCUMENT_IDS_SQL)?;
+        let ids = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?, serde_json::to_string(&directories)?, files_only], |row| row.get::<_, i64>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let total: usize = connection.query_row("SELECT COUNT(*) FROM documents", [], |row| row.get(0))?;
         // A scope covering every indexed document uses the same query as all files.
@@ -2556,6 +2647,9 @@ impl Store {
     }
 
     pub fn has_candidate_match(&self, expression: &str, scope: &[String], references: &[String], excluded: &[i64]) -> Result<bool> {
+        self.has_candidate_match_in_scope(expression, SearchScope::Paths(scope), references, excluded)
+    }
+    pub(crate) fn has_candidate_match_in_scope(&self, expression: &str, scope: SearchScope<'_>, references: &[String], excluded: &[i64]) -> Result<bool> {
         let mut connection = self.connection();
         let transaction = connection.transaction()?;
         let version = transaction.query_row("SELECT version FROM metadata WHERE id=1", [], |row| row.get(0))?;
@@ -2595,8 +2689,16 @@ impl Store {
         references: &[String],
         cancel: &tokio_util::sync::CancellationToken,
     ) -> Result<Arc<crate::sag2_v10::Corpus>> {
+        self.retrieval_statistics_in_scope(SearchScope::Paths(scope), references, cancel)
+    }
+    pub(crate) fn retrieval_statistics_in_scope(
+        &self,
+        scope: SearchScope<'_>,
+        references: &[String],
+        cancel: &tokio_util::sync::CancellationToken,
+    ) -> Result<Arc<crate::sag2_v10::Corpus>> {
         let version = self.version()?;
-        let key = CorpusScope { scope: scope.to_vec(), references: references.to_vec() };
+        let key = CorpusScope { scope: scope.paths().to_vec(), files_only: scope.files_only(), references: references.to_vec() };
         {
             let mut cache = self.query_cache.lock().expect("query cache mutex poisoned");
             if cache.refresh(version) {
@@ -2607,11 +2709,17 @@ impl Store {
             }
         }
         let rows = {
-            let db = self.connection();
-            let mut query = db.prepare("SELECT d.id,d.name,d.path,d.hash,v.terms,CASE WHEN v.document_id IS NULL THEN (SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) END FROM documents d LEFT JOIN retrieval_vocabulary v ON v.document_id=d.id WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (json_array_length(?1)=0 OR (d.path IN (SELECT value FROM json_each(?2)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?2)))) OR EXISTS(SELECT 1 FROM json_each(?1) s WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1)))) ORDER BY d.id")?;
-            let rows = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| {
+            let mut db = self.connection();
+            let tx = db.transaction()?;
+            let snapshot: i64 = tx.query_row("SELECT version FROM metadata WHERE id=1", [], |r| r.get(0))?;
+            if snapshot != version { bail!("索引已更新，请重新查询") }
+            let documents = self.scope_document_ids(&tx, snapshot, scope, references)?;
+            let mut query = tx.prepare("SELECT d.id,d.name,d.path,d.hash,v.terms,CASE WHEN v.document_id IS NULL THEN (SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) END FROM documents d LEFT JOIN retrieval_vocabulary v ON v.document_id=d.id WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (?1 IS NULL OR d.id IN (SELECT value FROM json_each(?1))) ORDER BY d.id")?;
+            let rows = query.query_map([documents.as_deref()], |r| {
                 Ok((r.get::<_, i64>(0)?,r.get::<_, String>(1)?,r.get::<_, String>(2)?,r.get::<_, String>(3)?,r.get::<_, Option<String>>(4)?,r.get::<_, Option<String>>(5)?))
             })?.collect::<rusqlite::Result<Vec<_>>>()?;
+            drop(query);
+            tx.commit()?;
             rows
         };
         let mut documents = Vec::with_capacity(rows.len());
@@ -2656,10 +2764,18 @@ impl Store {
     }
 
     pub fn retrieval_corpus(&self, scope: &[String], references: &[String]) -> Result<Vec<(String, String)>> {
+        self.retrieval_corpus_in_scope(SearchScope::Paths(scope), references)
+    }
+    pub(crate) fn retrieval_corpus_in_scope(&self, scope: SearchScope<'_>, references: &[String]) -> Result<Vec<(String, String)>> {
         let rows: Vec<(String, String, String, String)> = {
-            let db = self.connection();
-            let mut query = db.prepare("SELECT d.name,d.path,d.hash,(SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) FROM documents d WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (json_array_length(?1)=0 OR (d.path IN (SELECT value FROM json_each(?2)) OR d.path IN (SELECT output FROM conversions WHERE valid=1 AND source IN (SELECT value FROM json_each(?2)))) OR EXISTS(SELECT 1 FROM json_each(?1) s WHERE (instr(replace(d.path,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',rtrim(replace(s.value,char(92),'/'),'/')||'/')=1)))) ORDER BY d.id")?;
-            let values = query.query_map(params![serde_json::to_string(scope)?, serde_json::to_string(references)?], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
+            let mut db = self.connection();
+            let tx = db.transaction()?;
+            let version = tx.query_row("SELECT version FROM metadata WHERE id=1", [], |r| r.get(0))?;
+            let documents = self.scope_document_ids(&tx, version, scope, references)?;
+            let mut query = tx.prepare("SELECT d.name,d.path,d.hash,(SELECT json_group_array(json(c.spans)) FROM chunks c WHERE c.document_id=d.id) FROM documents d WHERE EXISTS(SELECT 1 FROM chunks c WHERE c.document_id=d.id) AND (?1 IS NULL OR d.id IN (SELECT value FROM json_each(?1))) ORDER BY d.id")?;
+            let values = query.query_map([documents.as_deref()], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?)))?.collect::<rusqlite::Result<_>>()?;
+            drop(query);
+            tx.commit()?;
             values
         };
         rows.into_iter().filter_map(|(title,path,expected,spans)| {
@@ -2961,6 +3077,161 @@ mod tests {
         }
         assert!(store.search_scopes_excluding(&root, &scopes, &["**".into()]).unwrap().is_empty());
         assert!(store.search_scopes_excluding(&root, &scopes, &["[".into()]).is_err());
+    }
+
+    #[test]
+    fn search_exclusions_preserve_converted_file_and_directory_scopes() {
+        let (_dir, store, root) = setup();
+        let source = root.join("nested/report.csv");
+        let output = crate::docling::output_path(&root, &source).unwrap();
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(&source, "name,value\nretained,1\n").unwrap();
+        fs::write(&output, "needle converted evidence").unwrap();
+        let prepared = store.prepare_file(root.to_str().unwrap(), &output, 512, false).unwrap().unwrap();
+        {
+            let mut db = store.connection();
+            let tx = db.transaction().unwrap();
+            Store::write_prepared(&tx, root.to_str().unwrap(), prepared).unwrap();
+            tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?)",
+                params![path_text(&source).unwrap(), path_text(&root).unwrap(), "fixture", path_text(&output).unwrap(), crate::docling::fingerprint(&output).unwrap()]).unwrap();
+            tx.commit().unwrap();
+        }
+        let output_path = path_text(&output).unwrap();
+        for selected in [&source, &output, output.parent().unwrap(), &root.join(".sag-converted")] {
+            let scopes = vec![path_text(selected).unwrap()];
+            for pattern in ["*.zip", "*.md"] {
+                let allowed = store.search_scopes_excluding_each(&scopes, &[pattern.into()]).unwrap();
+                assert_eq!(allowed, vec![output_path.clone()], "scope={selected:?}, pattern={pattern}");
+                let hits = store.candidate_query(&text::match_query("needle"), None, &allowed, &[], &[], 1).unwrap();
+                assert_eq!(hits.len(), 1);
+            }
+            assert!(store.search_scopes_excluding_each(&scopes, &["*.csv".into()]).unwrap().is_empty());
+        }
+        let output_root = vec![path_text(&root.join(".sag-converted")).unwrap()];
+        assert!(store.search_scopes_excluding_each(&output_root, &["nested/**".into()]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn search_scope_file_sets_use_bounded_sql_work() {
+        let (_dir, store, root) = setup();
+        let mut db = store.connection();
+        let tx = db.transaction().unwrap();
+        let mut selected = vec![];
+        for index in 0..1000 {
+            let path = path_text(&root.join(format!("file{index:04}.md"))).unwrap();
+            tx.execute("INSERT INTO documents(id,root,path,name,hash,mtime) VALUES(?,?,?,?,?,0)",
+                params![index + 1, path_text(&root).unwrap(), path, "fixture", "fixture"]).unwrap();
+            if index % 2 == 0 { selected.push(path); }
+        }
+        let reference = path_text(&root.join("original.csv")).unwrap();
+        tx.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?)",
+            params![reference, path_text(&root).unwrap(), "fixture", path_text(&root.join("file0999.md")).unwrap(), "fixture"]).unwrap();
+        let mut query = tx.prepare(SCOPE_DOCUMENT_IDS_SQL).unwrap();
+        let ids = query.query_map(params![serde_json::to_string(&selected).unwrap(), serde_json::to_string(&[reference]).unwrap(), "[]", false], |row| row.get::<_, i64>(0)).unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>().unwrap();
+        assert_eq!(ids, (1..=1000).filter(|id| id % 2 == 1 || *id == 1000).collect::<Vec<_>>());
+        // Count SQLite operations rather than elapsed time, so slower CI hosts
+        // still catch the per-document scan of the complete selected-file list.
+        let steps = query.get_status(rusqlite::StatementStatus::VmStep);
+        assert!(steps < 200_000, "selected-file filtering used {steps} SQLite operations");
+    }
+
+    #[test]
+    fn search_scopes_keep_mixed_files_directories_references_and_empty_corpora() {
+        let (_dir, store, root) = setup();
+        let directory = root.join("selected");
+        fs::create_dir(&directory).unwrap();
+        for relative in ["selected/first.md", "selected/second.md", "single.md", "converted.md", "outside.md"] {
+            fs::write(root.join(relative), "needle evidence").unwrap();
+        }
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let source = path_text(&root.join("original.csv")).unwrap();
+        let output = path_text(&root.join("converted.md")).unwrap();
+        store.connection().execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?)",
+            params![source, path_text(&root).unwrap(), "fixture", output, "fixture"]).unwrap();
+        let scope = vec![path_text(&directory).unwrap(), path_text(&root.join("single.md")).unwrap(), source];
+        let references = vec![output];
+        let expression = text::match_query("needle");
+        let hits = store.candidate_query(&expression, None, &scope, &references, &[], 10).unwrap();
+        let mut names = hits.iter().map(|hit| Path::new(&hit.path).file_name().unwrap().to_string_lossy().into_owned()).collect::<Vec<_>>();
+        names.sort();
+        assert_eq!(names, ["converted.md", "first.md", "second.md", "single.md"]);
+        let mut corpus_names = store.retrieval_corpus(&scope, &references).unwrap().into_iter().map(|(name, _)| name).collect::<Vec<_>>();
+        corpus_names.sort();
+        assert_eq!(corpus_names, names);
+        let empty = vec![path_text(&root.join("missing")).unwrap()];
+        assert!(store.candidate_query(&expression, None, &empty, &[], &[], 10).unwrap().is_empty());
+        assert!(store.retrieval_corpus(&empty, &[]).unwrap().is_empty());
+        store.retrieval_statistics(&empty, &[], &tokio_util::sync::CancellationToken::new()).unwrap();
+        assert_eq!(store.retrieval_corpus(&[], &[]).unwrap().len(), 5);
+        // A separate Store can update the same database; cached scope IDs must
+        // follow its metadata version instead of preserving the old corpus.
+        let added = directory.join("added.md");
+        fs::write(&added, "needle fresh evidence").unwrap();
+        let other = Store::open(&store.query_path).unwrap();
+        other.index_file(root.to_str().unwrap(), &added, 512).unwrap();
+        assert_eq!(store.candidate_query(&expression, None, &scope, &references, &[], 10).unwrap().len(), 5);
+        assert_eq!(store.retrieval_corpus(&scope, &references).unwrap().len(), 5);
+    }
+
+    #[test]
+    fn search_scope_keeps_children_when_an_indexed_file_becomes_a_directory() {
+        let (_dir, store, root) = setup();
+        let path = root.join("changed.md");
+        fs::write(&path, "old file evidence").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        let child = path.join("child.md");
+        fs::write(&child, "needle child evidence").unwrap();
+        store.index_file(root.to_str().unwrap(), &child, 512).unwrap();
+        let scope = vec![path_text(&path).unwrap()];
+        let hits = store.candidate_query(&text::match_query("needle"), None, &scope, &[], &[], 10).unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].path, path_text(&child).unwrap());
+        let corpus = store.retrieval_corpus(&scope, &[]).unwrap();
+        assert_eq!(corpus.len(), 1);
+        assert_eq!(corpus[0].0, "child.md");
+    }
+
+    #[test]
+    fn search_exclusion_file_whitelist_cannot_become_a_directory_scope() {
+        let (_dir, store, root) = setup();
+        let allowed = root.join("allowed.md");
+        let outside = root.join("outside.md");
+        fs::write(&allowed, "needle original evidence").unwrap();
+        fs::write(&outside, "needle outside evidence").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let selected = vec![path_text(&allowed).unwrap()];
+        let whitelist = store.search_scopes_excluding(&root, &selected, &["**/private.md".into()]).unwrap();
+        assert_eq!(whitelist, selected);
+        fs::remove_file(&allowed).unwrap();
+        fs::create_dir(&allowed).unwrap();
+        let child = allowed.join("private.md");
+        fs::write(&child, "needle excluded child evidence").unwrap();
+        store.index_file(root.to_str().unwrap(), &child, 512).unwrap();
+        let source = path_text(&root.join("outside.csv")).unwrap();
+        store.connection().execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?,?,?,?,?)",
+            params![source, path_text(&root).unwrap(), "fixture", path_text(&outside).unwrap(), "fixture"]).unwrap();
+        let references = vec![source, path_text(&outside).unwrap()];
+        let expression = text::match_query("needle");
+        // The same path is a valid user-selected directory now. Populate the
+        // normal-scope caches first: exact whitelists must never reuse them.
+        assert_eq!(store.candidate_query(&expression, None, &selected, &references, &[], 10).unwrap().len(), 2);
+        assert_eq!(store.retrieval_corpus(&selected, &references).unwrap().len(), 2);
+        store.retrieval_statistics(&selected, &references, &tokio_util::sync::CancellationToken::new()).unwrap();
+        let exact = SearchScope::Files(&whitelist);
+        assert!(store.candidate_query_in_scope(&expression, None, exact, &references, &[], 10).unwrap().is_empty());
+        assert!(store.retrieval_corpus_in_scope(exact, &references).unwrap().is_empty());
+        store.retrieval_statistics_in_scope(exact, &references, &tokio_util::sync::CancellationToken::new()).unwrap();
+        // Empty exact scopes and deleted whitelist entries also stay closed.
+        store.remove_indexed(&path_text(&allowed).unwrap()).unwrap();
+        for files in [&whitelist[..], &[][..]] {
+            let exact = SearchScope::Files(files);
+            assert!(store.candidate_query_in_scope(&expression, None, exact, &references, &[], 10).unwrap().is_empty());
+            assert!(store.retrieval_corpus_in_scope(exact, &references).unwrap().is_empty());
+        }
     }
     #[cfg(unix)]
     fn converted_text_fixture() -> (tempfile::TempDir, Store, PathBuf) {
@@ -4612,7 +4883,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn query_cache_is_bounded_and_older_readers_cannot_replace_newer_generation() {
         let mut cache = QueryCache::default();
         let mut key = CandidateQuery { expression: "alpha".into(), required: None,
-            scope: vec![], references: vec![], excluded: vec![], limit: 0 };
+            scope: vec![], files_only: false, references: vec![], excluded: vec![], limit: 0 };
         for limit in 0..=QUERY_CACHE_ENTRIES {
             key.limit = limit;
             assert!(cache.get(1, &key).is_none());

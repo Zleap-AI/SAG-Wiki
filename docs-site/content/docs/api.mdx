@@ -220,4 +220,6 @@ JSON 请求体上限为 32 KiB，接收限时 30 秒。搜索 JSON 响应上限�
 
 需要使用 MCP 客户端接入时，见 [MCP 说明](/zh/docs/mcp-guide)。
 
-HTTP MCP `search`（fast/deep）及 `/v1/search` 支持 `exclude` 数组：`{"query":"认证流程","paths":["F:/project"],"exclude":[".git/**","archive/","*.zip"]}`。规则分别相对于每个搜索根目录；全部排除返回空结果，不会扩大为全库搜索。
+HTTP MCP `search`（fast/deep）及 `/v1/search` 支持 `exclude` 数组：`{"query":"认证流程","paths":["F:/project"],"exclude":[".git/**","archive/","*.zip"]}`。规则分别相对于每个搜索根目录；全部排除返回空结果，不会扩大为全库搜索。转换文档按原始文件名及扩展名匹配；选择转换输出目录时，使用其下的相对目录结构，例如 `nested/report.csv`，而不是 `nested/report.csv.md`。
+
+启用排除规则后，本次搜索只使用筛选时允许的文件，新文件在下次搜索时纳入。

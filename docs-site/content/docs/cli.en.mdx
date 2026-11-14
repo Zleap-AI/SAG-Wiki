@@ -95,7 +95,7 @@ Both modes are case-sensitive and line-based by default. Ordinary output returns
 
 Matching remains restricted to registered, indexed knowledge-base directories. It respects access controls, file types, `.gitignore`, `.sagignore` and manually removed subdirectories, and reads current file contents. Results follow file traversal order. `-m` limits matching lines, `-c` displays them, and `--json` retains the same path and line-number fields. No matches produce empty results with exit code 0.
 
-The following options require `-E` or `-F` and do not change default semantic search:
+The following text-matching options apply to `-E` or `-F` searches; `--exclude` also supports semantic search:
 
 | Option | Purpose |
 | --- | --- |
@@ -112,7 +112,7 @@ The following options require `-E` or `-F` and do not change default semantic se
 | `-q` / `--quiet` | Suppress output; found = 0, not found = 1, error = 2 |
 | `-e PATTERN` / `--regexp PATTERN` | Add a pattern; repeatable |
 | `-f FILE` / `--file FILE` | Read patterns line by line from a UTF-8 file; `-` means standard input |
-| `--include GLOB` / `--exclude GLOB` | Include or exclude filenames by glob; repeatable |
+| `--include GLOB` / `--exclude GLOB` | Include filenames, or exclude relative paths and filenames; repeatable |
 
 Context options automatically display content, allowing 0–1000 lines per side. Overlapping or adjacent ranges merge; JSON `matched_lines` identifies which lines matched. `-A` and `-B` override their respective sides of `-C`. File-list, count, substring and quiet output modes are mutually exclusive and cannot use context. `-o` cannot combine with `-v`; `-q` cannot combine with `--json`. `-c` always means display content; use only `--count` for counting.
 
@@ -120,7 +120,7 @@ Context options automatically display content, allowing 0–1000 lines per side.
 
 Multiple `-e` and `-f` patterns use OR semantics. When these options are used, the positional argument denotes only the search directory. An empty pattern file supplies no patterns. `-e ''` matches any line, matches nothing with `-w`, and matches only empty lines with `-x`. Each pattern is limited to 2000 characters; combined patterns are limited to 16 KiB.
 
-File filters are applied in command order, with the last matching rule taking precedence. If the first filter is `--include`, other unmatched filenames are excluded; otherwise inclusion is the default. Globs match filenames only and cannot override knowledge-base ignore rules or manual exclusions.
+File filters are applied in command order, with the last matching rule taking precedence. If the first filter is `--include`, other unmatched filenames are excluded; otherwise inclusion is the default. `--include` matches filenames only; `--exclude` also supports relative paths. Neither can override knowledge-base ignore rules or manual exclusions.
 
 ```sh
 sag -F -i -w -c 'token' ./src
@@ -208,4 +208,6 @@ Skill installation is currently provided for Claude Code, Codex and OpenCode.
 
 For development, builds and code checks, see the [development guide](/en/docs/development).
 
-Search defaults to the current working directory; `--path` overrides it. Semantic search and `-E` / `-F` accept repeated `--exclude` patterns relative to the search root, e.g. `sag "aberration" --path "F:/docs" --exclude "archive/**" --exclude "backup/"`. Exclusions apply before candidate retrieval and JEV scoring, without deleting files or indexes. Excluding everything returns no results. Patterns without slashes also match file names.
+Search defaults to the current working directory; `--path` overrides it. Semantic search and `-E` / `-F` accept repeated `--exclude` patterns relative to the search root, e.g. `sag "aberration" --path "F:/docs" --exclude "archive/**" --exclude "backup/"`. Exclusions apply before candidate retrieval and JEV scoring, without deleting files or indexes. Excluding everything returns no results. Patterns without slashes also match file names. Converted documents in semantic search are matched by their original relative paths and extensions.
+
+For semantic searches with exclusions, each search uses the files allowed when filtering runs; newly added files are included on the next search.
