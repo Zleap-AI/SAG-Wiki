@@ -2888,6 +2888,7 @@ dependencies = [
  "objc2-foundation",
  "pdf-inspector",
  "portable-pty",
+ "quick-xml",
  "regex",
  "regex-syntax",
  "reqwest",

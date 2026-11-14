@@ -395,12 +395,58 @@ pub async fn wait_stopped(data: &Path) -> Result<()> {
     // Stopping waits for in-progress indexing or conversion to finish.
     for _ in 0..1200 {
         if !data.join("sag-service.json").try_exists()? {
-            return Ok(());
+            // The endpoint is removed before the server's final fields are dropped.
+            // Restart must also wait for the instance lock, otherwise the new
+            // daemon can exit immediately while the old one is still tearing down.
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .open(data.join("cli-instance.lock"))
+            {
+                Ok(instance) => match instance.try_lock() {
+                    Ok(()) => return Ok(()),
+                    Err(std::fs::TryLockError::WouldBlock) => {}
+                    Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+                },
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+                Err(error) => return Err(error.into()),
+            }
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
-    bail!("SAG 服务停止超时，连接记录仍存在")
+    bail!("SAG 服务停止超时，连接记录或实例锁仍未释放")
 }
 
 #[cfg(all(test, unix))]
 mod version_tests;
+
+#[cfg(test)]
+mod shutdown_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn removed_endpoint_does_not_mean_instance_lock_has_been_released() {
+        let data = tempfile::tempdir().unwrap();
+        let instance = std::fs::OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .write(true)
+            .open(data.path().join("cli-instance.lock"))
+            .unwrap();
+        instance.try_lock().unwrap();
+        // The service removes its endpoint before its final fields are dropped.
+        // Hold its lock until this test explicitly releases it, without a timing race.
+        let waiting = wait_stopped(data.path());
+        tokio::pin!(waiting);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), &mut waiting)
+                .await
+                .is_err(),
+            "shutdown returned while the old instance still held its lock"
+        );
+        drop(instance);
+        tokio::time::timeout(Duration::from_secs(2), waiting)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+}

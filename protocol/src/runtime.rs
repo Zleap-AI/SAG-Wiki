@@ -46,6 +46,8 @@ pub struct RuntimeSettings {
     pub fold_part_units: usize,
     pub watch_debounce_ms: u64,
     pub watch_max_delay_ms: u64,
+    /// Opt-in DOCX/PPTX resource filtering; scoped conversion identity lives in core.
+    pub office_text_only: bool,
     pub do_ocr: bool,
     pub do_table_structure: bool,
 }
@@ -83,6 +85,7 @@ impl Default for RuntimeSettings {
             fold_part_units: 40,
             watch_debounce_ms: 300,
             watch_max_delay_ms: 1500,
+            office_text_only: false,
             do_ocr: true,
             do_table_structure: true,
         }

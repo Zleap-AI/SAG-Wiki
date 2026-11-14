@@ -8,6 +8,8 @@ cc = "1"
 
 [dependencies]
 anydoc = "=0.2.4"
+# Reuse AnyDoc's already-locked XML parser for resource filtering.
+quick-xml = "=0.41.0"
 # Existing AnyDoc engine, exposed directly to retain partial per-page text.
 pdf-inspector = "=1.25.2"
 lopdf = { version = "0.45", default-features = false }

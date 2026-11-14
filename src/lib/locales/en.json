@@ -1831,5 +1831,7 @@
   "请在服务端添加文件夹。": "Add folders on the host device.",
   "请联系管理员配置问答模型。": "Contact the administrator to configure the chat model.",
   "请联系管理员配置决策模型。配置前仍可使用快速搜索。": "Contact the administrator to configure the decision model. Quick search is still available.",
-  "登录系统后恢复已启用的远程服务。": "Restore enabled remote services at login."
+  "登录系统后恢复已启用的远程服务。": "Restore enabled remote services at login.",
+  "Office 仅提取文字": "Office text only",
+  "仅适用于 DOCX/PPTX。跳过图片和内嵌对象，不识别图片文字；回退也必须遵守此限制。修改后重新检查相关文档。": "DOCX/PPTX only. Skip images and embedded objects without image OCR. Fallbacks must honor this restriction. Changed settings recheck affected documents."
 }

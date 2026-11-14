@@ -480,6 +480,7 @@ fn save_settings(
     } else if old.mineru.enabled != settings.mineru.enabled
         || old.mineru.content_identity() != settings.mineru.content_identity()
         || old.runtime.content_identity() != settings.runtime.content_identity()
+        || old.runtime.office_text_only != settings.runtime.office_text_only
         || old.file_types != settings.file_types || old.convert_other_formats != settings.convert_other_formats || old.conversion_formats != settings.conversion_formats || !old.watch && settings.watch {
         for root in state.store.roots().map_err(error)? {
             state
