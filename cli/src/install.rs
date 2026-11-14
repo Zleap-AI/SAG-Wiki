@@ -80,19 +80,22 @@ fn keep_installed(record: &Receipt) -> Result<bool> {
     )
 }
 fn check_owned(path: &Path) -> Result<()> {
+    check_installation(path, false)
+}
+fn check_installation(path: &Path, backup_modified: bool) -> Result<()> {
     if path.symlink_metadata()?.file_type().is_symlink() {
         bail!("安装位置是符号链接，未修改：{}", path.display())
     }
     let old = receipt(path)?.context("发现同名文件，缺少 SAG 安装记录，未修改")?;
-    if old.owner != OWNER || old.hash != digest(&fs::read(path)?) {
+    if old.owner != OWNER || (!backup_modified && old.hash != digest(&fs::read(path)?)) {
         bail!("文件来源不同或已经修改，未覆盖或删除：{}", path.display())
     }
     Ok(())
 }
-fn write_owned(path: &Path, bytes: &[u8]) -> Result<()> {
+fn write_owned(path: &Path, bytes: &[u8], backup_modified: bool) -> Result<()> {
     use std::io::Write;
     if path.symlink_metadata().is_ok() {
-        check_owned(path)?;
+        check_installation(path, backup_modified)?;
     }
     let directory = path.parent().unwrap();
     fs::create_dir_all(directory)?;
@@ -140,6 +143,14 @@ fn write_owned(path: &Path, bytes: &[u8]) -> Result<()> {
         channel: Some(sag_protocol::BUILD_CHANNEL.into()),
     })?)?;
     record.as_file().sync_all()?;
+    if backup_modified {
+        let backup = tempfile::Builder::new()
+            .prefix(&format!("{BINARY_NAME}.backup-"))
+            .tempfile_in(directory)?;
+        fs::copy(path, backup.path())?;
+        backup.as_file().sync_all()?;
+        backup.keep()?;
+    }
     staged.persist(path)?;
     if let Err(error) = record.persist(receipt_path(path)) {
         if let Some((old, permissions, receipt, receipt_permissions)) = original {
@@ -219,7 +230,7 @@ pub fn harness(home: &Path, name: &str, uninstall: bool) -> Result<PathBuf> {
         if uninstall {
             remove_owned(&file)?;
         } else {
-            write_owned(&file, contents.as_bytes())?;
+            write_owned(&file, contents.as_bytes(), false)?;
         }
     }
     Ok(path)
@@ -251,7 +262,12 @@ pub fn inspect(name: &str, path: &Path) -> Result<Installation> {
     })
 }
 pub fn binary_path(home: &Path) -> Result<PathBuf> {
-    let record = crate::cli_protocol::data_dir()?.join("cli-install-path.json");
+    let data = crate::cli_protocol::data_dir()?;
+    Ok(recorded_binary_path(home, &data)?
+        .unwrap_or_else(|| home.join(".local/bin").join(BINARY_NAME)))
+}
+fn recorded_binary_path(home: &Path, data: &Path) -> Result<Option<PathBuf>> {
+    let record = data.join("cli-install-path.json");
     match fs::read(record) {
         Ok(bytes) => {
             let path: PathBuf = serde_json::from_slice(&bytes).context("CLI 安装位置记录无效")?;
@@ -259,29 +275,24 @@ pub fn binary_path(home: &Path) -> Result<PathBuf> {
                 bail!("CLI 安装位置不属于当前用户目录")
             }
             if path.try_exists()? {
-                return Ok(path);
+                return Ok(Some(path));
             }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
         Err(e) => return Err(e.into()),
     }
-    Ok(home.join(".local/bin").join(BINARY_NAME))
+    Ok(None)
 }
 pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
     let data = crate::cli_protocol::data_dir()?;
     let record = data.join("cli-install-path.json");
     let previous = binary_path(home)?;
-    let target = if uninstall {
-        previous.clone()
-    } else {
-        home.join(".local/bin").join(BINARY_NAME)
-    };
     if uninstall {
-        if target.try_exists()? {
-            check_owned(&target)?;
+        if previous.try_exists()? {
+            check_owned(&previous)?;
         }
-        terminal_path::configure(home, &data, target.parent().unwrap(), true)?;
-        remove_owned(&target)?;
+        terminal_path::configure(home, &data, previous.parent().unwrap(), true)?;
+        remove_owned(&previous)?;
         match fs::remove_file(record) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
@@ -289,8 +300,19 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         }
         fs::create_dir_all(&data)?;
         fs::write(data.join("cli-initialized"), b"1")?;
-        return Ok(target);
+        return Ok(previous);
     }
+    install_binary(home, source, &data, &previous, false)
+}
+
+fn install_binary(
+    home: &Path,
+    source: &Path,
+    data: &Path,
+    previous: &Path,
+    backup_modified: bool,
+) -> Result<PathBuf> {
+    let target = home.join(".local/bin").join(BINARY_NAME);
     if target.exists()
         && sag_protocol::BUILD_CHANNEL == "development"
         && receipt(&target)?
@@ -301,8 +323,8 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         bail!("开发版不会覆盖已安装的正式版 SAG，请使用独立开发产物")
     }
     if previous.try_exists()? {
-        check_owned(&previous)?;
-        let installed = receipt(&previous)?.unwrap();
+        check_installation(previous, backup_modified)?;
+        let installed = receipt(previous)?.unwrap();
         if sag_protocol::compare_versions(&installed.version, sag_protocol::BUILD_VERSION)?
             == std::cmp::Ordering::Greater
         {
@@ -318,14 +340,14 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         None
     } else {
         if target.try_exists()? {
-            check_owned(&target)?;
+            check_installation(&target, backup_modified)?;
         }
         Some(fs::read(source).context("未找到 sag 二进制文件，请重新下载安装包")?)
     };
     // Finish terminal setup before changing the binary or its recorded location.
-    terminal_path::configure(home, &data, target.parent().unwrap(), false)?;
+    terminal_path::configure(home, data, target.parent().unwrap(), false)?;
     if let Some(bytes) = bytes {
-        write_owned(&target, &bytes)?;
+        write_owned(&target, &bytes, backup_modified)?;
     }
     // Keep the helper beside the installed CLI, which can run independently
     // from the desktop bundle. Preserve its libraries and license files.
@@ -347,21 +369,27 @@ pub fn binary(home: &Path, source: &Path, uninstall: bool) -> Result<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&target, fs::Permissions::from_mode(0o755))?;
     }
-    fs::create_dir_all(&data)?;
+    fs::create_dir_all(data)?;
     if previous != target {
-        remove_owned(&previous)?;
+        remove_owned(previous)?;
     }
-    fs::write(record, serde_json::to_vec(&target)?)?;
+    fs::write(
+        data.join("cli-install-path.json"),
+        serde_json::to_vec(&target)?,
+    )?;
     fs::write(data.join("cli-initialized"), b"1")?;
     Ok(target)
 }
 
 // Keep managed installations current while respecting explicit uninstall and user edits.
 pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
-    let record = crate::cli_protocol::data_dir()?.join("cli-initialized");
-    let previous = binary_path(home)?;
-    let installed = inspect("cli", &previous)?.installed;
-    if installed && keep_installed(&receipt(&previous)?.unwrap())? {
+    let data = crate::cli_protocol::data_dir()?;
+    let record = data.join("cli-initialized");
+    let target = home.join(".local/bin").join(BINARY_NAME);
+    let registered = recorded_binary_path(home, &data)?;
+    let previous = registered.as_deref().unwrap_or(&target);
+    let installed = inspect("cli", previous)?.installed;
+    if installed && keep_installed(&receipt(previous)?.unwrap())? {
         // A matching version with a different build has no reliable ordering.
         // Preserve its CLI and Skills rather than letting an older desktop downgrade them.
         return Ok(());
@@ -389,13 +417,25 @@ pub fn bootstrap(home: &Path, source: &Path) -> Result<()> {
             }
         }
     }
-    let update_binary = installed && fs::read(source)? != fs::read(&previous)?;
-    if !record.try_exists()?
+    // A changed file can only be replaced if it is the registered command from
+    // an older SAG installation. Keep its bytes before writing the new CLI.
+    let backup_modified = !installed
+        && registered.as_deref() == Some(target.as_path())
+        && target.symlink_metadata()?.file_type().is_file()
+        && match receipt(&target)? {
+            Some(old) if old.owner == OWNER => {
+                sag_protocol::compare_versions(&old.version, sag_protocol::BUILD_VERSION)?.is_lt()
+            }
+            _ => false,
+        };
+    let update_binary = installed && fs::read(source)? != fs::read(previous)?;
+    if backup_modified
+        || !record.try_exists()?
         || update_binary
         || (previous.try_exists()?
             && previous.file_name() != Some(std::ffi::OsStr::new(BINARY_NAME)))
     {
-        binary(home, source, false)?;
+        install_binary(home, source, &data, previous, backup_modified)?;
     }
     for name in skill_updates {
         harness(home, name, false)?;
