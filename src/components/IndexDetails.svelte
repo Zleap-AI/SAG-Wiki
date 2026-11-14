@@ -9,7 +9,7 @@
  import {indexTaskKey,sameIndexStatus,stableRows} from '../lib/stable-snapshot';
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
- import {indexErrorHint,indexPipeline,indexStage,isConversionStage} from '../lib/index-stages';
+ import {conversionParsers,conversionSegment,indexErrorHint,indexPipeline,indexStage,isConversionStage} from '../lib/index-stages';
  import type {Root,IndexTask,IndexStatus,IndexHistory} from '../lib/types';
  export let roots:Root[]=[];
  export let onClose:()=>void;
@@ -18,7 +18,8 @@
  let history:IndexHistory[]=[],historyKey:string|undefined,clearing=false;
  let disposed=false,timer:ReturnType<typeof setTimeout>;
  let running:Promise<void>|null=null,requested=false,historyDirty=true,generation=0,lastPaused:boolean|undefined;
- const stageLabel=(stage:string)=>$t(indexStage(stage)?.progress??(stage==='indexing'?'正在索引文件':'正在扫描文件'));
+ const taskStage=(task:IndexTask)=>indexStage(task.stage,conversionParsers([task]).length>0||!!conversionSegment([task]));
+ const stageLabel=(task:IndexTask)=>$t(taskStage(task)?.progress??(task.stage==='indexing'?'正在索引文件':'正在扫描文件'));
  const humanError=(message:string|null|undefined)=>{const hint=indexErrorHint(message);return hint?$t('{value0}其他文件可正常检索。',{value0:$t(hint)}):$t(message?'部分文件未能处理，其他已索引文件仍可搜索。':'索引未能完成，查看文件记录了解详情。')};
  const newestByFolder=(records:IndexHistory[])=>{
   const newest=new Map<string,IndexHistory>();
@@ -109,7 +110,7 @@
   <div class="index-section-heading"><h3>{$t('当前任务')}</h3></div>
   {#each activeJobs as {root,task,key} (key)}
    <section class="index-root">
-    <div class="index-root-title">{@html icon('folder')}<strong>{root.name}{#if task?.kind} · {$t(task.kind==='enhancement'?'后台增强':'基础索引')}{/if}</strong><span>{status.paused?$t(task&&task.files.length?'正在暂停…':'索引已暂停'):task?stageLabel(task.stage):$t('等待处理')}</span></div>
+    <div class="index-root-title">{@html icon('folder')}<strong>{root.name}{#if task?.kind} · {$t(task.kind==='enhancement'?'后台增强':'基础索引')}{/if}</strong><span>{status.paused?$t(task&&task.files.length?'正在暂停…':'索引已暂停'):task?stageLabel(task):$t('等待处理')}</span></div>
     <p class="index-root-path" title={displayPath(root.path)}>{displayPath(root.path)}</p>
     {#if task}
      {@const pipeline=indexPipeline(task.stage)}
@@ -118,8 +119,9 @@
       {#each pipeline as item,index}<li class:current={step===index} class:done={step>index} aria-current={step===index?'step':undefined}><span>{step>index?'✓':index+1}</span>{$t(item.title)}</li>{/each}
      </ol>
      <p class="index-stage-description">{$t(indexStage(task.stage)?.description??'先索引文本，再转换其他格式，最后索引转换结果。')}</p>
-     {#if task.total>0}<div class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:task.completed,value1:task.total})}</div><progress aria-label={$t('{value0} 的索引进度',{value0:root.name})} value={task.completed} max={task.total}></progress>{/if}
-     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span class="index-current-file-copy"><span class="index-current-file-path">{displayPath(file)}</span>{#if isConversionStage(task.stage)}{@const conversion=task.conversions?.find(item=>item.path===file)}<span class="index-file-parser">{conversion?.engine?$t('解析方式：{value0}',{value0:conversion.engine}):conversion?.segment?$t('正在处理分段…'):$t('正在准备转换…')}</span>{#if conversion?.segment}<span class="index-file-segment">{$t('当前文档：第 {value0} / {value1} 段',{value0:conversion.segment.current,value1:conversion.segment.total})} · {$t('第 {value0}–{value1} 页',{value0:conversion.segment.start_page,value1:conversion.segment.end_page})}</span>{/if}{/if}</span></li>{/each}</ul>{/if}
+     {#if task.summary}<p class="index-outcomes">{$t('已检查 {value0} · 已复用 {value1} · 已更新 {value2} · 失败 {value3}',{value0:task.summary.checked,value1:task.summary.reused,value2:task.summary.updated,value3:task.summary.failed})}</p>{/if}
+     {#if task.total>0}<div class="index-count">{$t(task.summary?'当前阶段：已处理 {value0} / {value1} 个文件':'已处理 {value0} / {value1} 个文件',{value0:task.completed,value1:task.total})}</div><progress aria-label={$t('{value0} 的当前阶段进度',{value0:root.name})} value={task.completed} max={task.total}></progress>{/if}
+     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span class="index-current-file-copy"><span class="index-current-file-path">{displayPath(file)}</span>{#if isConversionStage(task.stage)}{@const conversion=task.conversions?.find(item=>item.path===file)}<span class="index-file-parser">{conversion?.engine?$t('解析方式：{value0}',{value0:conversion.engine}):conversion?.segment?$t('正在处理分段…'):$t('正在检查转换状态…')}</span>{#if conversion?.segment}<span class="index-file-segment">{$t('当前文档：第 {value0} / {value1} 段',{value0:conversion.segment.current,value1:conversion.segment.total})} · {$t('第 {value0}–{value1} 页',{value0:conversion.segment.start_page,value1:conversion.segment.end_page})}</span>{/if}{/if}</span></li>{/each}</ul>{/if}
     {/if}
    </section>
   {/each}
@@ -208,6 +210,7 @@
  .index-root-title>span.failed{border-color:var(--color-rule);background:var(--color-paper);color:var(--color-ink);font-weight:550}
  .index-root-path{margin:5px 0 0;font-size:12px;line-height:1.6;color:var(--color-muted);overflow-wrap:anywhere}
  .index-count{margin:10px 0 7px;font-size:12px;line-height:1.6;color:var(--color-secondary);font-variant-numeric:tabular-nums}
+ .index-outcomes{margin:10px 0 0;font-size:12px;line-height:1.6;color:var(--color-secondary);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
  .index-pipeline{display:grid;grid-template-columns:1fr 1fr 1.4fr;list-style:none;padding:0;margin:14px 0 0;border:1px solid var(--color-rule);border-radius:7px;overflow:hidden;background:var(--color-panel)}
  .index-pipeline li{display:flex;align-items:center;justify-content:center;gap:6px;padding:9px 5px;font-size:12px;line-height:1.5;color:var(--color-muted);border-right:1px solid var(--color-rule)}
  .index-pipeline li:last-child{border-right:0}

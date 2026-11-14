@@ -1,13 +1,13 @@
 import type {FileInfo,IndexTask} from './types';
 
 export const indexStages=[
- {stage:'indexing_native',title:'文本索引',progress:'正在索引文本',description:'Markdown、文本、代码等直接索引，完成后即可搜索。'},
- {stage:'converting',title:'文件转换',progress:'正在转换文件',description:'其他格式转换为 Markdown，已索引的文件仍可搜索。'},
- {stage:'indexing_converted',title:'转换结果索引',progress:'正在索引转换结果',description:'将转换结果加入索引，原文件保持不变。'},
+ {stage:'indexing_native',title:'文本索引',progress:'正在检查文本索引',description:'检查 Markdown、文本、代码等文件；复用未变化的索引，仅更新新增或变化的内容，完成后即可搜索。'},
+ {stage:'converting',title:'文件转换',progress:'正在检查文件转换',description:'检查其他格式的转换缓存，复用可用结果，需要时才解析文件；已索引的文件仍可搜索。'},
+ {stage:'indexing_converted',title:'转换结果索引',progress:'正在检查转换结果',description:'检查转换结果的索引，复用未变化的内容，仅更新新增或变化的内容；原文件保持不变。'},
 ];
 
 export const progressiveStages=[indexStages[0],
- {stage:'extracting_basic',title:'基础文本',progress:'正在提取基础文本',description:'先提取文档中的文字层，完成后即可搜索；扫描内容等待 OCR。'},
+ {stage:'extracting_basic',title:'基础文本',progress:'正在检查基础文本',description:'复用已有基础文本，仅在需要时提取文字层并更新索引；完成后即可搜索，扫描内容等待 OCR。'},
  {stage:'enhancing',title:'OCR 与表格增强',progress:'正在后台增强 OCR 与表格',description:'已有基础文本的文档可继续搜索；扫描内容和复杂表格可能尚不完整，纯扫描件需等待 OCR。'},
 ];
 export function indexPipeline(stage:string){return ['extracting_basic','enhancing','retrying_enhancement'].includes(stage)?progressiveStages:indexStages;}
@@ -27,7 +27,8 @@ export function indexErrorHint(message:string|null|undefined){
 }
 
 // Watch setup is a preparation step, not an additional file-indexing phase.
-export function indexStage(stage:string|undefined){
+export function indexStage(stage:string|undefined,parsing=false){
+ if(stage==='converting'&&parsing)return {...indexStages[1],progress:'正在解析文件'};
  if(stage==='awaiting_ocr')return {stage,title:'等待 OCR',progress:'正在识别扫描内容',description:'没有可用文字层，扫描内容尚不可搜索；识别完成后会自动加入索引。'};
  if(stage==='retrying_enhancement')return {stage,title:'重试增强',progress:'正在重试后台增强',description:'正在重试 OCR 与表格增强；已有基础文本仍可搜索，纯扫描件需等待识别完成。'};
  if(stage==='retrying_conversion')return {stage,title:'重试转换',progress:'尝试重试转换',description:'正在重试此前失败的文件，已成功转换的文件继续复用。'};

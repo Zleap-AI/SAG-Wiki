@@ -22,6 +22,16 @@ sag check
 
 A directory with zero indexed files has no searchable content.
 
+## Why does indexing progress appear after an upgrade or restart?
+
+The background service checks files against existing indexes at startup. The file total describes what is being checked, not how many files were rebuilt. Unchanged indexes and compatible successful conversions are reused. In [indexing details](/en/docs/folders#reindex-and-history), use Checked, Reused, Updated and Failed to distinguish checking from actual updates. Older history without this summary retains its original processed counts.
+
+Changed content, settings that affect parsed text, or a required parsing or index migration can still update affected documents. Keep indexes and the `.sag-converted` directory to retain reusable data.
+
+## What if the database was created by a newer version?
+
+Keep the data directory and continue using the newer application that created it, or install a compatible newer version. Applications with the version guard reject a newer database schema before running migrations. Previously shipped older binaries do not gain this protection. Do not downgrade the application or delete indexes and conversion caches to resolve the message.
+
 ## Why is the sag command missing?
 
 Check that Node.js and npm are installed, then run `npm install -g @zleap-ai/sag`. Reopen your terminal and check `sag --version`. The npm package supports macOS Apple Silicon, Windows x64 and Linux ARM64/x86_64.

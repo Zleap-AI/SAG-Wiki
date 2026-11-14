@@ -132,13 +132,57 @@ pub fn identity(source: &Path, settings: &Settings) -> String {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
     {
         format!(
-            "pdf-segments-v1:{}:{}:{base}",
-            crate::mineru::PDF_SEGMENT_PAGES,
-            crate::docling_component::VERSION
+            "pdf-content-v1:segments-{}:{base}",
+            crate::mineru::PDF_SEGMENT_PAGES
         )
     } else {
         base
     }
+}
+
+/// Successful PDF output follows a content contract, not the optional runtime's
+/// package revision. Bump pdf-content-v1 for incompatible parser/output changes,
+/// including built-in, Docling and fallback behavior. Failures still include the
+/// installed tools in failure_identity so installing a runtime enables retry.
+/// Only the known equivalent legacy contract is admitted; older parser output
+/// (including pre-segmentation versions) must pass through conversion again.
+pub(crate) fn compatible_success_hash(
+    source: &Path,
+    settings: &Settings,
+    stored: &str,
+) -> Option<String> {
+    let (prefix, stored) = if let Some(hash) = stored.strip_prefix("basic-v1:") {
+        ("basic-v1:", hash)
+    } else if let Some(hash) = stored.strip_prefix("basic-text-v1:") {
+        ("basic-text-v1:", hash)
+    } else {
+        ("", stored)
+    };
+    let content = stored.rsplit(':').next()?;
+    let identity = identity(source, settings);
+    let canonical = if identity.is_empty() {
+        content.to_owned()
+    } else {
+        format!("{identity}:{content}")
+    };
+    // Keep the destination contract explicit as well: a future v2 bump must not
+    // silently declare this v1 legacy result compatible with different output.
+    let legacy_destination = format!(
+        "pdf-content-v1:segments-{}:{}:{content}",
+        crate::mineru::PDF_SEGMENT_PAGES,
+        engine_identity(source, settings),
+    );
+    let compatible = stored == canonical
+        || source
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+            && canonical == legacy_destination
+            && stored == format!(
+                "pdf-segments-v1:{}:2.140.0-documents.1:{}:{content}",
+                crate::mineru::PDF_SEGMENT_PAGES,
+                engine_identity(source, settings),
+            );
+    compatible.then(|| format!("{prefix}{canonical}"))
 }
 
 fn engine_identity(source: &Path, settings: &Settings) -> String {

@@ -199,12 +199,7 @@ impl Store {
                     &settings.runtime,
                 )
             });
-            if let Some(file) = self.prepared_or_issue(root, path, result)? {
-                let mut db = self.connection();
-                let tx = db.transaction()?;
-                Self::write_prepared(&tx, root, file)?;
-                tx.commit()?;
-            }
+            self.accept_prepared(root, path, self.prepared_or_issue(root, path, result)?)?;
             progress(IndexProgress {
                 count: index + 1,
                 total: native.len(),
@@ -236,18 +231,9 @@ impl Store {
                     if !owned || !output.is_file() {
                         continue;
                     }
-                    if let Some(file) = self.prepare_indexed_file(
-                        root,
-                        &output,
-                        settings.retrieval.chunk_chars,
-                        false,
-                        &settings.runtime,
-                    )? {
-                        let mut db = self.connection();
-                        let tx = db.transaction()?;
-                        Self::write_prepared(&tx, root, file)?;
-                        tx.commit()?;
-                    }
+                    self.accept_prepared(root, &output, self.prepare_indexed_file(
+                        root, &output, settings.retrieval.chunk_chars, false, &settings.runtime,
+                    )?)?;
                     self.connection().execute("DELETE FROM index_issues WHERE root=?1 AND path=?2 AND EXISTS(SELECT 1 FROM documents WHERE root=?1 AND path=?3) AND NOT EXISTS(SELECT 1 FROM index_issues WHERE root=?1 AND path=?3)", params![root,path_text(source)?,path_text(&output)?])?;
                 }
                 self.indexing.record_indexed_progress(
