@@ -35,6 +35,12 @@ describe('inline math', () => {
   }
  });
 
+ it('keeps adjacent shell variables literal inside inline code', () => {
+  const doc=render('Use `$HOME/$USER` for the directory.');
+  expect(doc.querySelector('.math-inline')).toBeNull();
+  expect(doc.querySelector('code')?.textContent).toBe('$HOME/$USER');
+ });
+
  it('keeps page-footers and bare numbers as text', () => {
   for (const text of ['|Figure 3.1| The bonding wire connection. *$.04$','It costs $1,000$ per wafer.']) {
    expect(render(text).querySelector('.math-inline'), text).toBeNull();
