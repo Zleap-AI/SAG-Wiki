@@ -127,6 +127,10 @@ pub fn failure_identity(source: &Path, settings: &Settings, tools: &str) -> Stri
 
 pub fn identity(source: &Path, settings: &Settings) -> String {
     let base = engine_identity(source, settings);
+    // Scope invalidation to DOCX/PPTX; changing this switch must not rebuild PDF caches.
+    if anydoc::office_text_only(source, &settings.runtime) {
+        return format!("office-text-only-v1:{base}");
+    }
     if source
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
@@ -273,13 +277,16 @@ fn convert_single(
         return Err(Failure::new(FailureKind::Memory, "文档超过配置的转换输入大小限制").into());
     }
     let mut engines = vec![];
-    if cloud_supports(source, &settings.mineru) {
+    if !anydoc::office_text_only(source, &settings.runtime) && cloud_supports(source, &settings.mineru) {
         engines.push("MinerU")
     }
     if !enhanced && anydoc::handles(source) {
         engines.push("anydoc")
     }
-    engines.push("Docling");
+    // Ordinary fallback parsers may load assets, so they cannot serve text-only requests.
+    if !anydoc::office_text_only(source, &settings.runtime) {
+        engines.push("Docling");
+    }
     let parent = output.parent().context("转换输出缺少父目录")?;
     fs::create_dir_all(parent)?;
     // Parsers atomically replace this path. Close our handle first: Windows

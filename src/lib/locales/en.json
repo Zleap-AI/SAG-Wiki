@@ -1807,5 +1807,7 @@
   "等待解析": "Awaiting parsing",
   "尚未提取到可搜索的正文，内容尚不可搜索；后台将继续尝试适用的解析方式。": "No searchable text has been extracted yet. Background processing will continue with applicable parsers.",
   "后台增强": "Background enhancement",
-  "基础索引": "Basic indexing"
+  "基础索引": "Basic indexing",
+  "Office 仅提取文字": "Office text only",
+  "仅适用于 DOCX/PPTX。跳过图片和内嵌对象，不识别图片文字；回退也必须遵守此限制。修改后重新检查相关文档。": "DOCX/PPTX only. Skip images and embedded objects without image OCR. Fallbacks must honor this restriction. Changed settings recheck affected documents."
 }

@@ -81,7 +81,7 @@ impl Store {
         Ok(())
     }
     /// Finish local built-in formats without queueing behind OCR/table work.
-    /// Cloud-selected formats retain their configured parser order.
+    /// Cloud-selected formats retain their configured parser order unless text-only is required.
     fn publish_builtin_source(
         &self,
         root: &str,
@@ -89,7 +89,8 @@ impl Store {
         settings: &Settings,
     ) -> Result<bool> {
         if !crate::anydoc::handles(source)
-            || crate::conversion::cloud_supports(source, &settings.mineru)
+            || (!crate::anydoc::office_text_only(source, &settings.runtime)
+                && crate::conversion::cloud_supports(source, &settings.mineru))
         {
             return Ok(false);
         }

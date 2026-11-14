@@ -4,6 +4,8 @@
 //! process without any downloaded component. It does not do OCR: a scanned
 //! PDF is reported as [`Outcome::NeedsOcr`] so the caller can hand it to the
 //! Docling component when that is installed.
+#[path = "office_text.rs"]
+mod office_text;
 use crate::process_supervisor::{Failure, FailureKind};
 use anyhow::Result;
 use std::{fs, path::Path, time::Duration};
@@ -17,7 +19,12 @@ pub const EXTENSIONS: &[&str] = &[
 /// Bump when the parser or our normalization changes so cached conversions are rebuilt.
 pub const CACHE_VERSION: &str = "anydoc-0.2.4:adapter-1";
 
-
+/// Whether this source requires the resource-skipping OOXML adapter.
+pub fn office_text_only(path: &Path, runtime: &sag_protocol::runtime::RuntimeSettings) -> bool {
+    runtime.office_text_only && path.extension().is_some_and(|ext| {
+        ext.eq_ignore_ascii_case("docx") || ext.eq_ignore_ascii_case("pptx")
+    })
+}
 pub fn handles(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
@@ -56,6 +63,9 @@ pub fn convert_with_runtime(source: &Path, output: &Path, runtime: &sag_protocol
     let size = fs::metadata(source)?.len();
     if size > (runtime.conversion_input_mib as u64) * 1024 * 1024 {
         return Err(Failure::new(FailureKind::Memory, format!("文档超过 {} MiB 转换输入限制", runtime.conversion_input_mib)).into());
+    }
+    if office_text_only(source, runtime) {
+        return office_text::convert(source, output, runtime, cancel);
     }
     let bytes = fs::read(source)?;
     let bytes = normalise_csv(source, bytes);
