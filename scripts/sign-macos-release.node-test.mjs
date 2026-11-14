@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
-import {targets, validateVersions} from './release.mjs';
+import {targets, validateVersions, validateStagedArtifacts} from './release.mjs';
 
 const moduleUrl = new URL('./sign-macos-release.mjs', import.meta.url);
 const implementation = () => import(moduleUrl.href);
@@ -223,11 +223,12 @@ test('checks bundled Mach-O architecture with real lipo and rejects non-arm64 co
   } finally { rmSync(directory, {recursive: true, force: true}); }
 });
 
-test('publishes only final hashes and provenance after both notarizations and mounted-app gates', async () => {
+test('signs macOS-only input without waiting for Windows and publishes final hashes after both notarizations', async () => {
   const {signMacosRelease} = await implementation();
   const fixture = releaseFixture();
   const {run, state} = appleRunner(fixture);
   try {
+    rmSync(join(fixture.input, 'windows'), {recursive:true, force:true});
     signMacosRelease(fixture, {run, environment, platform: 'darwin', arch: 'arm64'});
     const metadata = JSON.parse(readFileSync(join(fixture.output, 'macos/metadata.json')));
     assert.deepEqual(metadata.source_files, JSON.parse(readFileSync(join(fixture.input, 'macos/metadata.json'))).files);
@@ -279,5 +280,20 @@ test('refuses an empty host architecture instead of falling back to the Node.js 
   try {
     assert.throws(() => signMacosRelease(fixture, {run, environment, platform: 'darwin', arch: 'arm64'}), /arm64 host/);
     assert.equal(existsSync(fixture.output), false);
+  } finally { rmSync(fixture.directory, {recursive: true, force: true}); }
+});
+
+
+test('signs verified macOS input before Windows exists while final assembly still requires both platforms', async () => {
+  const {signMacosRelease} = await implementation();
+  const fixture = releaseFixture();
+  try {
+    rmSync(join(fixture.input, 'windows'), {recursive: true});
+    assert.throws(() => validateStagedArtifacts(fixture.input, fixture.version, fixture.commit), /ENOENT/);
+    const apple = appleRunner(fixture);
+    signMacosRelease(fixture, {run: apple.run, environment, platform: 'darwin', arch: 'arm64'});
+    assert.equal(apple.state.submissions, 2);
+    assert.ok(existsSync(join(fixture.output, 'macos/metadata.json')));
+    assert.throws(() => validateStagedArtifacts(fixture.input, fixture.version, fixture.commit), /ENOENT/);
   } finally { rmSync(fixture.directory, {recursive: true, force: true}); }
 });
