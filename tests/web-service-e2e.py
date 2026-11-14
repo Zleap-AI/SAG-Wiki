@@ -67,6 +67,8 @@ with tempfile.TemporaryDirectory(prefix='sag-web-demo-') as td, ThreadingHTTPSer
   http('/v1/status',api_key,expected=401)
   http('/web/operation',code,{'operation':'list_roots'},expected=403,extra={'Origin':'http://example.invalid'})
   http('/web/operation',code,{'operation':'shutdown'},expected=400)
+  http('/web/operation',code,{'operation':'remove_root','args':{'path':str(docs)}},expected=400)
+  assert json.loads(http('/web/operation',code,{'operation':'list_roots'}))[0]['path']==str(docs)
   outside=root/'outside.md';outside.write_text('outside indexed folders',encoding='utf-8')
   http('/web/operation',code,{'operation':'read_document','args':{'path':str(outside)}},expected=400)
   cli('api','start')

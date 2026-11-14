@@ -379,7 +379,6 @@ fn allowed(op: &Op) -> bool {
             | Op::RefreshRoot { .. }
             | Op::ReindexAll
             | Op::RemovedDirectories
-            | Op::RemoveRoot { .. }
             | Op::GetFolderIndexOptions { .. }
             | Op::SaveFolderIndexOptions { .. }
             | Op::ClearIndexHistory
