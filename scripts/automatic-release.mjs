@@ -352,6 +352,15 @@ export function validatePublicationAssets(release, checksums, expectedDigest, ve
   }
 }
 
+export function releaseForTag(tag, list = pages, read = api) {
+  // GitHub's tag endpoint can return 404 for an existing draft. Listing
+  // authenticated releases includes drafts; fetch that exact ID for fresh assets.
+  const release = list('releases').find(release => release.tag_name === tag);
+  assert.ok(release, `Release ${tag} not found`);
+  assert.ok(Number.isSafeInteger(release.id) && release.id > 0, 'Invalid release ID');
+  return read(`releases/${release.id}`);
+}
+
 function publish() {
   assert.equal(process.env.GITHUB_REPOSITORY, repository);
   const tag = process.env.RELEASE_TAG;
@@ -360,7 +369,7 @@ function publish() {
   assert.equal(tag, `v${version}`);
   assert.equal(git('rev-parse', 'HEAD'), commit);
   validateReleaseSource(git, commit, tag);
-  const release = api(`releases/tags/${tag}`);
+  const release = releaseForTag(tag);
   assert.equal(release.prerelease, false);
   assert.equal(release.tag_name, tag);
   // The preceding assembly job owns the draft and its immutable assets. A rerun
