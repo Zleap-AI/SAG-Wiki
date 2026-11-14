@@ -7,6 +7,7 @@ Major changes by version. See the feature guides for instructions and the [Insta
 
 ## 0.2.13
 
+- **Upgrade cache reuse and indexing summaries**: Startup and upgrade checks reuse unchanged indexes and compatible conversion results. Indexing details distinguish checked, reused, updated and failed files, so a check is not mistaken for a rebuild. Content changes, parsing settings and required migrations can still update affected documents.
 - **Office text only**: Add an opt-in DOCX/PPTX parsing mode that skips images and embedded objects without image OCR. Changed settings recheck affected documents. See [Folders and indexing](/en/docs/folders).
 - **Remote services**: Browse files, edit Markdown, search and ask questions in a browser on the host or LAN. A Linux server can run the web service with just the standalone CLI, without installing the desktop app. The web app and API can be enabled independently. See [Remote access](/en/docs/remote-access).
 - **CLI updates with the desktop app**: Fix an older managed `sag` being left behind. The app backs up an old executable if its checksum no longer matches.

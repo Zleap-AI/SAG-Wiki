@@ -2,6 +2,7 @@
 
 ## 0.2.13
 
+- **升级缓存与索引统计**：启动或升级后的检查复用未变化的索引和兼容的转换结果；索引详情区分已检查、已复用、已更新和失败，避免将检查文件数误认为重新构建数。内容、解析设置或必要迁移变化时，仍会更新受影响文档。
 - **Office 仅提取文字**：新增 DOCX/PPTX 纯文字解析选项，跳过图片和内嵌对象且不执行图片 OCR；设置变化后重新检查相关文档。
 - **远程服务**：提供本机和局域网网页入口，支持文件浏览、Markdown 编辑、搜索和问答。
 - **CLI 随桌面端升级**：修复受管的旧版 `sag` 未同步更新的问题，替换前会备份校验不一致的旧文件。
@@ -11,6 +12,7 @@
 
 ### English
 
+- **Upgrade cache reuse and indexing summaries**: Startup and upgrade checks reuse unchanged indexes and compatible conversion results. Indexing details distinguish checked, reused, updated and failed files, so a check is not mistaken for a rebuild. Content changes, parsing settings and required migrations can still update affected documents.
 - **Office text only**: Add an opt-in DOCX/PPTX parsing mode that skips images and embedded objects without image OCR. Changed settings recheck affected documents.
 - **Remote services**: Open the workspace from a browser on the host or LAN to browse files, edit Markdown, search and ask questions.
 - **CLI updates with the desktop app**: Fix an older managed `sag` being left behind. The app backs up an old executable if its checksum no longer matches.
