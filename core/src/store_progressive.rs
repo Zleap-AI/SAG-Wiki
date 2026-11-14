@@ -3,11 +3,12 @@ use super::*;
 
 impl Store {
     pub(super) fn save_conversion_ownership(&self, root: &str) -> Result<()> {
-        Self::save_conversion_ownership_from(&self.connection(), root)
+        let settings = self.settings()?;
+        self.save_conversion_ownership_from(&self.connection(), root, &settings)
     }
-    pub(super) fn save_conversion_ownership_from(db: &Connection, root: &str) -> Result<()> {
+    pub(super) fn save_conversion_ownership_from(&self, db: &Connection, root: &str, settings: &Settings) -> Result<()> {
         let metadata_path =
-            crate::docling::output_path(Path::new(root), &Path::new(root).join(".ownership"))?
+            self.conversion_path(Path::new(root), &Path::new(root).join(".ownership"), settings)?
                 .parent()
                 .unwrap()
                 .join(".sag-converted.json");
@@ -100,7 +101,7 @@ impl Store {
             metadata.len() as i64,
         );
         let fingerprint = crate::docling::fingerprint(source)?;
-        let output = crate::docling::output_path(Path::new(root), source)?;
+        let output = self.conversion_path(Path::new(root), source, &settings)?;
         let previous: Option<(String, String, bool)> = self
             .connection()
             .query_row(
@@ -195,7 +196,7 @@ impl Store {
                     let source = path_text(source)?;
                     self.conversion_state(&source, root, "enhancement_failed", Some(&error))?;
                     self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![source,root,error])?;
-                    self.indexing.record_file(root, &crate::docling::output_path(Path::new(root), Path::new(&source))?, IndexOutcome::Failed);
+                    self.indexing.record_file(root, &self.conversion_path(Path::new(root), Path::new(&source), &settings)?, IndexOutcome::Failed);
                     continue;
                 }
             }
@@ -240,7 +241,7 @@ impl Store {
                 continue;
             }
             let source_text = path_text(source)?;
-            let output = crate::docling::output_path(Path::new(root), source)?;
+            let output = self.conversion_path(Path::new(root), source, &settings)?;
             let metadata = fs::metadata(source)?;
             let mtime = metadata.modified()?.duration_since(UNIX_EPOCH)?.as_nanos() as i64;
             let size = metadata.len() as i64;

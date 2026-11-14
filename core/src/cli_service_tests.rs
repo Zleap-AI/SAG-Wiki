@@ -144,6 +144,9 @@ async fn local_matching_socket_needs_no_model_and_keeps_access_checks() {
 #[tokio::test]
 async fn converted_sources_are_counted_and_matched_within_their_source_scope() {
     let (dir, service, root) = fixture();
+    let mut settings = service.store.settings().unwrap();
+    settings.conversion_storage = sag_protocol::types::ConversionStorage::Library;
+    service.store.save_settings(&settings).unwrap();
     let case = root.join("case");
     fs::create_dir_all(case.join("subdir")).unwrap();
     fs::create_dir_all(case.join("ignored")).unwrap();
@@ -190,7 +193,7 @@ async fn converted_sources_are_counted_and_matched_within_their_source_scope() {
     assert_eq!(matches(case.clone()).await, ["./subdir/example.csv"]);
     let regex = search(case.clone(), r"indexed-sentinel-[0-9a-f]{4}\b", MatchMode::Regex).await;
     assert_eq!(regex.len(), 1);
-    assert_eq!(Path::new(&regex[0].absolute_path), root.join(".sag-converted/case/subdir/example.csv.md"));
+    assert_eq!(Path::new(&regex[0].absolute_path), PathBuf::from(service.store.document(&case.join("subdir/example.csv")).unwrap().path));
     assert_eq!(matches(root.clone()).await, ["./case/subdir/example.csv", "./case2/example.csv"]);
     let mut settings = service.store.settings().unwrap();
     settings.show_hidden = true;

@@ -44,8 +44,8 @@
  $:promptProcessing=!!scopeTask||scopeRoot?.status==='pending'||scopeRoot?.status==='indexing';
  $:promptNeedsOcr=/OCR/.test(promptIssue);
  export let onbrowse:(path:string)=>void;export let onopen:(path:string,terms:string[])=>void;export let onmenu:(event:MouseEvent,path:string,isRoot:boolean,file:boolean)=>void;
- $:indexedPaths=new Set(indexedFiles.flatMap(file=>[file.path,indexedSourcePath(file.path)]));
- $:indexedByPath=new Map(indexedFiles.flatMap(file=>[[file.path,file],[indexedSourcePath(file.path),file]] as const));
+ $:indexedPaths=new Set(indexedFiles.flatMap(file=>[file.path,indexedSourcePath(file.path,file.source_path)]));
+ $:indexedByPath=new Map(indexedFiles.flatMap(file=>[[file.path,file],[indexedSourcePath(file.path,file.source_path),file]] as const));
  $:conversionByPath=new Map(conversionStates.map(state=>[state.source,{index_status:state.status as FileInfo['index_status'],index_error:state.error,searchable:state.searchable}]));
  $:noteByPath=new Map(notes.map(note=>[note.path,note]));
  const attention=(note:NoteSummary)=>note.state==='changed'||note.state==='missing'||note.state==='unverified';

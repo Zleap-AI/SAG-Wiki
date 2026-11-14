@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAG Wiki · 文件设置演示</title>
+<style>
+ :root{font:14px -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;color:#22242a;background:#dbdde1;--line:#dedfe4;--muted:#656970;--surface:#f8f8fa;--nav:#f0f0f3}
+ *{box-sizing:border-box}
+ body{min-height:100dvh;margin:0;display:grid;place-items:center;padding:24px 20px 70px}
+ button,input,select{font:inherit;color:inherit}
+ :focus-visible{outline:2px solid #5d5ed1;outline-offset:3px}
+ button,select{cursor:pointer}button:disabled{cursor:default}
+ button,input:not([type=checkbox]),select{min-height:34px;border:1px solid var(--line);border-radius:7px;padding:6px 11px;background:white}
+ button:hover,select:hover{background:#f1f1f4}
+ .primary{background:#262628;color:white;border-color:#262628}.primary:hover{background:#444449}
+ .window{width:min(900px,100%);height:min(718px,calc(100dvh - 94px));min-height:320px;background:var(--surface);border:1px solid #d4d5da;border-radius:14px;display:grid;grid-template:52px minmax(0,1fr) 59px / 182px minmax(0,1fr);overflow:hidden;box-shadow:0 18px 52px #20232d22}
+ header{grid-column:1/-1;background:var(--nav);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 20px;font-weight:600}
+ header small{color:var(--muted);font-weight:400}
+ nav{background:var(--nav);padding:14px 10px}
+ nav div{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;color:var(--muted);border-radius:7px;margin-bottom:5px;white-space:nowrap}
+ nav .current{font-weight:600;background:#e0e1e6;color:#27282c}
+ nav svg{width:16px;height:16px;flex-shrink:0}
+ main{overflow:auto;padding:22px 26px;scrollbar-gutter:stable}
+ h1{font-size:21px;margin:0 0 16px}
+ h2,h3,p{margin:0}h2,h3{font-size:14px;font-weight:600}
+ section{margin-bottom:16px;border:1px solid var(--line);border-radius:10px;background:#fff}
+ .section-title{padding:13px 16px;border-bottom:1px solid var(--line)}
+ .row{padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:14px;min-height:52px}
+ .row + .row{border-top:1px solid var(--line)}
+ .help{font-size:12px;line-height:1.6;color:var(--muted);margin-top:4px}
+ .actions{display:flex;gap:8px;align-items:center;flex-shrink:0}
+ .storage{border-top:1px solid var(--line)}
+ .storage select{max-width:100%}
+ .path{display:block;margin-top:8px;width:100%}
+ .split{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line)}
+ .split button{border:0;border-radius:0;position:relative;background:white;font-weight:500;padding:11px}
+ .split button.is-selected{background:#f3f3f7;font-weight:650}
+ .split button.is-selected::after{content:"";position:absolute;inset:auto 0 0;height:2px;background:#353541}
+ .cards{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:13px 16px}
+ .card{text-align:left;padding:12px 13px;border-radius:8px}
+ .card.is-selected{background:#f3f3f8;border-color:#747488}
+ .card small{display:block;color:var(--muted);margin:4px 0 0}
+ .inline{padding:12px 16px 16px;border-bottom:1px solid var(--line)}
+ .config{display:grid;gap:11px}
+ .field{display:grid;gap:5px;font-size:13px}
+ .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ .field input,.field select{width:100%;min-width:0}
+ .config-title{display:flex;gap:10px;align-items:center;justify-content:space-between}
+ .status{color:var(--muted);font-size:12px}
+ .options{display:flex;flex-wrap:wrap;gap:10px 17px}
+ .options label{display:flex;align-items:center;gap:4px;font-size:13px}
+ details summary{padding:12px 16px;cursor:pointer}
+ details .options{padding:0 16px 14px}
+ footer{grid-column:1/-1;display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:0 18px;border-top:1px solid var(--line);background:var(--nav)}
+ footer output{margin-right:auto;color:var(--muted);font-size:12px}
+ .switcher{position:fixed;inset:auto auto 14px 50%;transform:translateX(-50%);border-radius:28px;display:flex;align-items:center;gap:4px;padding:4px;background:#282933;color:white;box-shadow:0 5px 14px #0002;white-space:nowrap}
+ .switcher button{background:transparent;color:inherit;border:0;border-radius:22px}.switcher button:hover{background:#444553}
+ .switcher strong{font-size:12px;text-align:center;min-width:112px}
+ dialog{border:1px solid var(--line);border-radius:12px;max-width:calc(100% - 30px);width:465px;padding:0;color:inherit;box-shadow:0 12px 48px #0003}
+ dialog::backdrop{background:#17192355}
+ dialog h2{font-size:16px;padding:16px 18px;border-bottom:1px solid var(--line)}
+ dialog .config{padding:16px 18px}
+ dialog .dialog-actions{display:flex;justify-content:flex-end;padding:0 18px 15px}
+ @media(max-width:640px){body{padding:8px 8px 64px}.window{height:calc(100dvh - 72px);grid-template-columns:minmax(0,1fr)}nav{display:none}main{padding:16px 12px}.row{gap:8px;padding:11px 12px}.actions{flex-wrap:wrap;justify-content:flex-end}.row .actions select,.row .actions button{min-height:32px;font-size:13px}.cards,.grid{gap:7px}.section-title{padding:11px 12px}}
+ @media(max-width:390px){.row{flex-wrap:wrap}.storage select{width:100%}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="window">
+ <header><span>设置</span><small>交互演示</small></header>
+ <nav aria-label="设置分类" id="nav"></nav>
+ <main>
+  <h1>文件设置</h1>
+  <section aria-label="文档解析">
+   <h2 class="section-title">文档解析</h2>
+   <div id="parser"></div>
+   <div class="row storage">
+    <div><h3><label for="storage">转换结果存放位置</label></h3><p class="help" id="storage-help" hidden>保存后迁移已有转换结果，无需重新 OCR。</p></div>
+    <select id="storage"><option value="app">应用数据目录</option><option value="library">资料文件夹内</option><option value="custom">自定义目录</option></select>
+   </div>
+   <div class="row" id="custom-row" hidden style="display:none"><label for="custom-path">演示目录</label><input id="custom-path" aria-label="演示目录" value="/Volumes/资料盘/SAG 转换结果"></div>
+  </section>
+  <section aria-label="导入文件类型">
+   <h2 class="section-title">导入文件类型</h2>
+   <div class="row"><label for="markdown">Markdown</label><input type="checkbox" id="markdown" checked></div>
+   <div class="row"><label for="office">文本与文档</label><input type="checkbox" id="office" checked></div>
+   <details><summary>更多格式</summary><div class="options"><label><input type="checkbox">代码</label><label><input type="checkbox">配置文件</label><label><input type="checkbox">Office 仅提取文字</label></div></details>
+  </section>
+  <section aria-label="索引与显示"><details><summary>索引与显示</summary><div class="options"><label><input type="checkbox" checked>自动监听文件变化</label><label><input type="checkbox">显示隐藏文件夹</label></div></details></section>
+ </main>
+ <footer><output id="notice" aria-live="polite"></output><button id="reset">重置</button><button class="primary" id="save">保存设置</button></footer>
+</div>
+<div class="switcher" aria-label="切换布局">
+ <button id="prev" aria-label="上一个布局">←</button><strong id="variant"></strong><button id="next" aria-label="下一个布局">→</button>
+</div>
+<dialog aria-labelledby="configuration-title"><h2 id="configuration-title"></h2><div id="dialog-content"></div><form method="dialog" class="dialog-actions"><button class="primary">完成</button></form></dialog>
+<script>
+ // Throwaway prototype. Three settings layouts, selectable with ?variant=A/B/C.
+ const q=(s)=>document.querySelector(s);
+ const catalog={docling:'Docling',mineru:'MinerU'};
+ const variants=['A','B','C'], labels=['下拉 + 配置窗口','页签 + 内联配置','双卡片 + 展开配置'];
+ let variant=variants.includes(new URLSearchParams(location.search).get('variant'))?new URLSearchParams(location.search).get('variant'):'A';
+ let engine='docling', inline=false, provider='302.AI', componentInstalled=true;
+ const descriptions={docling:'在本机识别扫描件和图片。',mineru:'将支持的文档发到所选服务商。'};
+ const icons={tune:'<path d="M4 7h16M4 17h16M8 4v6m8 4v6"/>',folder:'<path d="M3 7a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>',sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v3m0 14v3M2 12h3m14 0h3M5 5l2 2m10 10 2 2M5 19l2-2M17 7l2-2"/>',globe:'<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c5 5 5 13 0 18M12 3c-5 5-5 13 0 18"/>',search:'<circle cx="10" cy="10" r="6"/><path d="m15 15 5 5"/>',info:'<circle cx="12" cy="12" r="9"/><path d="M12 11v5m0-9v1"/>'};
+ q('#nav').innerHTML=[['通用','tune'],['外观','sun'],['文件设置','folder'],['网页剪藏','globe'],['快捷键','tune'],['模型设置','tune'],['问答设置','info'],['搜索设置','search'],['CLI 设置','tune'],['远程服务','globe'],['数据与隐私','info'],['关于','info']].map(([label,icon])=>`<div ${label==='文件设置'?'class="current" aria-current="page"':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">${icons[icon]}</svg>${label}</div>`).join('');
+ function config(){
+  return engine==='docling'? `<div class="config">
+   <div class="config-title"><h3>文档组件</h3><span class="status">${componentInstalled?'已安装':'未安装'}</span></div>
+   ${componentInstalled?`<div class="options"><label><input type="checkbox" checked>OCR 识别</label><label><input type="checkbox" checked>表格识别</label></div>
+   <div class="grid"><label class="field">转换并行数<input type="number" min="1" max="16" value="4"></label><label class="field">转换超时（秒）<input type="number" min="1" value="1800"></label></div>`:
+   '<div class="actions"><button data-action="install">演示安装</button></div>'}
+   </div>`:`<div class="config">
+   <div class="grid"><label class="field">服务商<select data-provider><option>302.AI</option><option>MinerU 官方</option></select></label><label class="field">接口地址<input type="url" placeholder="${provider==='302.AI'?'https://api.302ai.cn':'https://mineru.net/api/v4'}"></label></div>
+   <label class="field">API Key<input type="password" autocomplete="off" placeholder="演示用，无需真实密钥"></label>
+   <div class="config-title"><span class="status" aria-live="polite" data-result>${descriptions.mineru}</span><button data-action="test">测试连接</button></div>
+   </div>`;
+ }
+ function render(){
+  q('#variant').textContent=variant+' · '+labels[variants.indexOf(variant)];
+  let html;
+  const note='<p class="help">常见文档仍使用内置解析。此选项用于需要额外解析的文档。</p>';
+  if(variant==='A'){
+   html=`<div class="row"><div><h3><label for="engine">优先解析方式</label></h3>${note}</div><div class="actions"><select id="engine"><option value="docling">Docling</option><option value="mineru">MinerU</option></select><button data-action="configure">配置 ${catalog[engine]}</button></div></div>`;
+  }else if(variant==='B'){
+   html=`<div class="split" role="group" aria-label="优先解析方式">${Object.keys(catalog).map(key=>`<button data-engine="${key}" aria-pressed="${engine===key}" class="${engine===key?'is-selected':''}">${catalog[key]}</button>`).join('')}</div><div class="inline">${config()}</div>`;
+  }else{
+   html=`<div class="cards" role="group" aria-label="优先解析方式">${Object.keys(catalog).map(key=>`<button class="card ${engine===key?'is-selected':''}" data-engine="${key}" aria-pressed="${engine===key}"><strong>${catalog[key]}</strong><small>${descriptions[key]}</small></button>`).join('')}</div>
+   ${inline?`<div class="inline">${config()}</div>`:`<div class="row"><h3>已选 ${catalog[engine]}</h3><button data-action="expand">配置 ${catalog[engine]}</button></div>`}`;
+  }
+  q('#parser').innerHTML=html;
+  if(q('#engine'))q('#engine').value=engine;
+  document.querySelectorAll('[data-provider]').forEach(select=>select.value=provider);
+ }
+ function choose(key){engine=key;inline=false;q('#notice').textContent='';render()}
+ function cycle(step){
+  variant=variants[(variants.indexOf(variant)+step+variants.length)%variants.length];inline=false;
+  const url=new URL(location.href);url.searchParams.set('variant',variant);history.replaceState(null,'',url);
+  render();
+ }
+ function configure(){
+  q('#configuration-title').textContent='配置 '+catalog[engine];q('#dialog-content').innerHTML=config();if(q('dialog [data-provider]'))q('dialog [data-provider]').value=provider;q('dialog').showModal();
+ }
+ document.addEventListener('click',event=>{
+  const b=event.target.closest('button');if(!b)return;
+  if(b.dataset.engine)choose(b.dataset.engine);
+  if(b.dataset.action==='configure')configure();
+  if(b.dataset.action==='expand'){inline=true;render()}
+  if(b.dataset.action==='test')b.closest('.config').querySelector('[data-result]').textContent='演示：未发出网络请求。';
+  if(b.dataset.action==='install'){componentInstalled=true;if(b.closest('dialog'))q('#dialog-content').innerHTML=config();else render()}
+ });
+ document.addEventListener('change',event=>{
+  if(event.target.id==='engine')choose(event.target.value);
+  if(event.target.hasAttribute('data-provider')){
+   provider=event.target.value;
+   event.target.closest('.config').querySelector('input[type=url]').placeholder=provider==='302.AI'?'https://api.302ai.cn':'https://mineru.net/api/v4';
+  }
+ });
+ q('#storage').onchange=()=>{const custom=q('#storage').value==='custom';q('#custom-row').hidden=!custom;q('#custom-row').style.display=custom?'flex':'none';q('#storage-help').hidden=q('#storage').value==='app';q('#notice').textContent=''};
+ q('#prev').onclick=()=>cycle(-1);q('#next').onclick=()=>cycle(1);
+ q('#save').onclick=()=>q('#notice').textContent='演示已应用：'+catalog[engine]+' · '+q('#storage').selectedOptions[0].text+'。';
+ q('#reset').onclick=()=>{choose('docling');q('#storage').value='app';q('#storage').onchange()};
+ document.addEventListener('keydown',event=>{if(!q('dialog').open&&!event.target.closest('input,select,textarea,[contenteditable]')&&['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();cycle(event.key==='ArrowRight'?1:-1)}});
+ render();
+</script>
+</body>
+</html>

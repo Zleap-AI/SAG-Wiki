@@ -323,7 +323,7 @@ mod tests {
             previous_score: None,
             id: 1,
             document_id: 1,
-            path: "/allowed/1.md".into(),
+            path: "/allowed/1.md".into(), source_path: None,
             title: "1.md".into(),
             heading: String::new(),
             content: "找到了证据".into(),

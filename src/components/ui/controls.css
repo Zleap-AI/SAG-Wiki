@@ -80,7 +80,7 @@
 .context-ring{display:block;width:15px;height:15px;border-radius:50%;background:conic-gradient(var(--color-secondary) var(--context-fill),var(--color-rule) 0);mask:radial-gradient(transparent 5px,#000 5.5px);-webkit-mask:radial-gradient(transparent 5px,#000 5.5px)}
 .context-ring.loading{background:var(--color-rule)}
 @media(hover:hover) and (pointer:fine){.reasoning-button:not(:disabled):hover,.context-usage:hover,.reasoning-reset:hover{background:var(--color-hover);color:var(--color-ink)}}
-@media(max-width:640px){.reasoning-trigger-model{max-width:140px}.composer-model-controls{gap:1px}.real-client .composer-model-controls .send{margin-left:3px}.reasoning-button,.context-usage{padding-inline:4px}}
+@media(max-width:680px){.reasoning-trigger-model{max-width:140px}.composer-model-controls{gap:1px}.real-client .composer-model-controls .send{margin-left:3px}.reasoning-button,.context-usage{padding-inline:4px}}
 
 .search-composer-actions{display:flex;align-items:center;gap:10px;margin-left:auto}
 .search-composer-actions .search-mode{height:30px;padding:4px 8px;border:0;background:transparent;color:var(--color-secondary)}

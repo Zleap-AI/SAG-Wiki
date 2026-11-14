@@ -609,7 +609,7 @@ mod tests {
 
     fn candidate(path: &str, content: &str, start: usize, hash: &str) -> Candidate {
         Candidate {
-            id: 1, document_id: 1, path: path.into(), title: "t".into(), heading: String::new(),
+            id: 1, document_id: 1, path: path.into(), source_path: None, title: "t".into(), heading: String::new(),
             content: content.into(), start_line: 3, end_line: 4,
             source_ranges: vec![(start, start + content.len())],
             source_spans: vec![SourceSpan { start_byte: start, end_byte: start + content.len(), start_line: 3, start_column: 1, end_line: 4, end_column: 1 }],

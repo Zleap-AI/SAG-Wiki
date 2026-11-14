@@ -151,7 +151,8 @@ impl SagTools {
         }
         if let Some(path) = requested {
             let path = self.store.authorize(Path::new(path))?;
-            if !roots.iter().any(|root| path.starts_with(root)) {
+            let source = self.store.conversion_source(&path)?;
+            if !roots.iter().any(|root| path.starts_with(root) || source.as_ref().is_some_and(|source| source.starts_with(root))) {
                 bail!("该路径不在本轮选择的文件范围内")
             }
             Ok(vec![path])
@@ -192,7 +193,8 @@ impl SagTools {
         let excluded = self.store.excluded_directories()?;
         let projects = self.store.roots()?;
         for root in paths {
-            let project = projects.iter().find(|project| root.starts_with(&project.path)).context("目录已从知识库移除")?;
+            let source = self.store.conversion_source(&root)?;
+            let project = projects.iter().find(|project| source.as_ref().unwrap_or(&root).starts_with(&project.path)).context("目录已从知识库移除")?;
             let mut ignore = ignore_rules::matcher(Path::new(&project.path));
             let base = if root.is_dir() {
                 root.clone()
@@ -270,6 +272,7 @@ impl SagTools {
             format!("{}:{}:{ranges:?}", document.path, document.hash).as_bytes(),
         );
         Candidate {
+            source_path: document.source_path.clone(),
             previous_score: None,
             id: -i64::from_str_radix(&key[..15], 16).unwrap() - 1,
             document_id: document.id,

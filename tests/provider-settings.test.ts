@@ -28,9 +28,38 @@ async function chooseAuth(id:'bearer'|'none'){
  document.querySelector(`[role=option][data-value="${id}"]`)!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));
  await tick();
 }
-async function setup(settings=value){const onSave=vi.fn().mockResolvedValue(undefined);app=mount(SettingsPanel,{target:document.body,props:{value:structuredClone(settings),initial:'models',onClose:()=>{},onSave}});await tick();return onSave;}
+async function setup(settings=value,initial='models'){const onSave=vi.fn().mockResolvedValue(undefined);app=mount(SettingsPanel,{target:document.body,props:{value:structuredClone(settings),initial,onClose:()=>{},onSave}});await tick();return onSave;}
 async function save(){document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();}
 afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerHTML='';api.mockReset();});
+
+it('文件设置按所选解析器打开配置，切回 Docling 后保留 MinerU 密钥',async()=>{
+ const mineru={enabled:true,provider:'302' as const,has_key:true,request_timeout_secs:60,task_timeout_secs:1800,poll_interval_secs:2,concurrency:2,model_version:'vlm' as const,ocr:true,table:true,formula:true};
+ api.mockImplementation(async command=>{
+  if(command==='mineru_schema')return JSON.stringify({defaults:mineru,keys:{'302':true},endpoints:{'302':'https://api.302ai.cn'}});
+  if(command==='runtime_schema')return JSON.stringify({defaults:{},fields:[]});
+  if(command==='get_docling_status')return {installed:false,running:false,formats:[]};
+  return [];
+ });
+ const onSave=await setup({...value,mineru},'files');
+ const button=(name:string,root:ParentNode=document)=>[...root.querySelectorAll('button')].find(button=>button.textContent?.trim()===name)!;
+ const parser=document.querySelector<HTMLButtonElement>('[aria-label="优先解析方式"]')!;
+ expect(parser.textContent).toContain('MinerU');
+ button('配置 MinerU').click();
+ await vi.waitFor(()=>expect(document.querySelector('.mineru-config-dialog [aria-label="MinerU API Key"]')).not.toBeNull());
+ button('完成',document.querySelector('.mineru-config-dialog')!).click();
+ await tick();
+ parser.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="docling"]')).not.toBeNull());
+ document.querySelector('[role=option][data-value="docling"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));
+ await tick();
+ button('配置 Docling').click();
+ await vi.waitFor(()=>expect(document.querySelector('[role=dialog][aria-label="配置 Docling"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="关闭格式选择"]')!.click();
+ await tick();
+ await save();
+ expect(onSave.mock.calls[0][0]).toMatchObject({document_parser:'docling',mineru:{has_key:true}});
+ expect(api).not.toHaveBeenCalledWith('clear_mineru_key',expect.anything());
+});
 
 it('已有 302 配置默认显示 302，打开设置不覆盖地址',async()=>{
  await setup();expect(trigger('answer').textContent).toContain('302.AI');expect(trigger('jev').textContent).toContain('302.AI');

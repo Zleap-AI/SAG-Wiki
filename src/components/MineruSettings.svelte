@@ -25,9 +25,8 @@
  async function clear(){if(!value)return;const config=structuredClone(value);busy=true;error='';try{await api('clear_mineru_key',{config});saved={...saved,[config.provider]:false};value={...value,has_key:false};apiKey='';status=$t('已移除保存的密钥');}catch(reason){error=String(reason)}finally{busy=false}}
 </script>
 <section class="settings-group settings-fields model-settings-card mineru-settings-card">
- <div class="settings-group-heading"><h3>{$t('文档解析 · MinerU')}</h3></div>
  {#if value}
-  <p class="settings-help">{$t('保存密钥后自动优先使用 MinerU，失败后尝试本地解析。支持的文档会发送到所选服务商；测试连接不上传文件。')}</p>
+  <p class="settings-help">{$t('使用 MinerU 时，支持的文档会发送到所选服务商；失败后尝试本地解析。测试连接不上传文件。')}</p>
   <div class="field-label provider-field">{$t('供应商')}<Select label={$t('MinerU 服务商')} value={value.provider} onValueChange={provider} disabled={busy} items={[{value:'302',label:'302.AI'},{value:'official',label:$t('MinerU 官方')}]}/></div>
   <label class="field-label">{$t('接口地址')}<Input type="url" value={value.base_url??''} placeholder={endpoints[value.provider]} spellcheck="false" disabled={busy} oninput={event=>{if(value)value={...value,base_url:event.currentTarget.value};error='';status='';}}/></label>
   <label class="field-label">{value.provider==='official'?$t('官方 API Token'):'API Key'}<Input aria-label="MinerU API Key" type="password" bind:value={apiKey} autocomplete="off" placeholder={value.has_key?$t('已保存，留空保留原密钥'):$t('填写当前服务商的 API Key')}/></label>

@@ -351,7 +351,7 @@ mod tests {
         for case in cases.as_array().unwrap() {
             let corpus = Corpus { aliases: HashMap::new(), names: None, titles: HashSet::new(), idf: serde_json::from_value(case["idf"].clone()).unwrap() };
             let mut candidates: Vec<Candidate> = case["candidates"].as_array().unwrap().iter().map(|c| Candidate {
-                id:c["id"].as_i64().unwrap(), document_id:0, path:String::new(), title:String::new(), heading:String::new(), content:c["content"].as_str().unwrap().into(),
+                id:c["id"].as_i64().unwrap(), document_id:0, path:String::new(), source_path: None, title:String::new(), heading:String::new(), content:c["content"].as_str().unwrap().into(),
                 start_line:1,end_line:1,source_ranges:vec![],source_spans:vec![],bm25:0.,score:c["score"].as_f64().unwrap(),previous_score:None,order:0,hash:String::new(),
             }).collect();
             corpus.diversify(&mut candidates);

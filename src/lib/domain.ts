@@ -7,7 +7,8 @@ export function durationLabel(milliseconds:number):string{const seconds=millisec
 export const basename=(path:string)=>path.split(/[\\/]/).filter(Boolean).pop()||path;
 export const dirname=(path:string)=>path.replace(/[\\/][^\\/]+[\\/]?$/,'');
 export const inside=(path:string,parent:string)=>path===parent||path.startsWith(parent.replace(/[\\/]$/,'')+(parent.includes('\\')?'\\':'/'));
-export function indexedSourcePath(path:string):string {
+export function indexedSourcePath(path:string,source?:string):string {
+ if(source)return source;
  const directory=/([\\/])\.sag-converted[\\/]/;
  return directory.test(path)&&path.endsWith('.md')?path.replace(directory,'$1').slice(0,-3):path;
 }
@@ -40,13 +41,14 @@ export function displayPath(path:string):string{
 }
 
 // Name to show for a result: converted files keep their original name ("a.pdf", not "a.pdf.md").
-export function sourceName(candidate:Pick<Candidate,'path'|'title'>):string{
+export function sourceName(candidate:Pick<Candidate,'path'|'title'|'source_path'>):string{
+ if(candidate.source_path)return basename(candidate.source_path);
  return indexedSourcePath(candidate.path)!==candidate.path?candidate.title.replace(/\.md$/i,''):candidate.title;
 }
 
 // Folder of a result relative to the indexed folder that holds it, starting with that folder's name.
-export function sourceFolder(path:string,roots:{path:string;name:string}[]):string{
- const folder=dirname(indexedSourcePath(path));
+export function sourceFolder(path:string,roots:{path:string;name:string}[],source?:string):string{
+ const folder=dirname(indexedSourcePath(path,source));
  const root=roots.filter(root=>inside(folder,root.path)).sort((a,b)=>b.path.length-a.path.length)[0];
  if(!root)return displayPath(folder);
  const rest=folder.slice(root.path.replace(/[\\/]$/,'').length).split(/[\\/]/).filter(Boolean);

@@ -105,8 +105,8 @@
   {/if}
   <details class="api-example"><summary>{@html icon('chevron')}{$t('调用示例')}</summary><pre><code>{example}</code></pre><Button.Root type="button" class="outline" onclick={()=>copy(example,'example')}>{copied==='example'?$t('已复制'):$t('复制示例')}</Button.Root></details>
  </section>
+ <h3 class="settings-section-title" id="api-connection-heading">{$t('连接配置')}</h3>
  <section class="settings-group" aria-labelledby="api-connection-heading">
-  <div class="api-section-heading"><h3 id="api-connection-heading">{$t('连接配置')}</h3></div>
   <div class="api-connection">
    <label>{$t('连接范围')}<Select label={$t('连接范围')} placeholder={$t('选择连接范围')} bind:value={host} items={[{value:'127.0.0.1',label:$t('仅本机')},{value:'0.0.0.0',label:$t('本机与局域网')}]} disabled={pending||status.running||status.web_running}/></label>
    <label>{$t('端口')}<Input aria-label={$t('端口')} type="number" min={1} max={65535} bind:value={port} disabled={pending||status.running||status.web_running}/></label>
@@ -116,8 +116,8 @@
  <section class="settings-group">
   <div class="setting-row"><div><strong>{$t('开机自启')}</strong><p>{$t('登录系统后恢复已启用的远程服务。')}</p></div><Switch bind:checked={autostartEnabled} disabled={pending} label={$t('开机自启')} onCheckedChange={toggleAutostart}/></div>
  </section>
- <section class="settings-group">
-  <div class="api-section-heading"><h3>API Key</h3><Button.Root type="button" class="outline" disabled={pending} onclick={()=>{creating=true;dialogError='';}}>{$t('创建 Key')}</Button.Root></div>
+ <header class="settings-group-heading"><h3 id="api-keys-heading">API Key</h3><Button.Root type="button" class="outline" disabled={pending} onclick={()=>{creating=true;dialogError='';}}>{$t('创建 Key')}</Button.Root></header>
+ <section class="settings-group" aria-labelledby="api-keys-heading">
   {#if keys.length}
    <table class="api-key-table"><thead><tr><th>{$t('名称')}</th><th>Key</th><th>{$t('创建时间')}</th><th><span class="sr-only">{$t('操作')}</span></th></tr></thead><tbody>
     {#each keys as key}<tr><td>{key.name}</td><td><div class="api-key-value"><code>{key.prefix}</code>{#if key.copyable}<Button.Root type="button" class="icon-button" aria-label={$t('复制 Key：{value0}',{value0:key.name})} onclick={()=>copyCredential({id:key.id})}>{@html icon(copied===key.id?'check':'copy')}</Button.Root>{/if}</div></td><td>{new Date(key.created_at).toLocaleDateString($language==='en'?'en-US':'zh-CN')}</td><td><Button.Root type="button" class="api-revoke" disabled={pending} onclick={()=>{revoking=key;dialogError='';}} aria-label={$t('撤销 {value0}',{value0:key.name})}>{$t('撤销 Key')}</Button.Root></td></tr>{/each}
@@ -156,13 +156,13 @@
  .setting-row{padding-left:16px;padding-right:16px}.api-run-state{display:flex;align-items:center;gap:6px}.api-run-state::before{content:'';width:6px;height:6px;flex-shrink:0;border-radius:50%;background:var(--color-muted)}.api-run-state[data-state=running]::before{background:var(--color-success)}
  .api-address{display:grid;grid-template-columns:76px minmax(0,1fr) 32px;align-items:center;gap:12px;padding:10px 16px;font-size:12px}.api-address>span{color:var(--color-secondary)}.api-address code{overflow-wrap:anywhere;font-family:var(--font-mono);font-size:12px;font-variant-numeric:tabular-nums;user-select:text;-webkit-user-select:text}.api-address :global(button){justify-self:end}
  .api-settings:lang(en) .api-address{grid-template-columns:96px minmax(0,1fr) 32px}
- details{border-top:1px solid var(--color-rule);padding:14px 16px}summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;font-size:13px;font-weight:500}summary::-webkit-details-marker{display:none}summary :global(svg){width:16px;height:16px;color:var(--color-secondary);flex-shrink:0;transition:transform var(--dur-fast) var(--ease-out)}details[open]>summary :global(svg){transform:rotate(90deg)}.api-connection{display:grid;grid-template-columns:minmax(0,1fr) 100px;gap:14px;padding:0 16px 14px}.api-connection label{display:grid;gap:8px;font-size:12px}.api-connection > :global(button){justify-self:start;grid-column:1/-1}
- .api-section-heading{display:flex;justify-content:space-between;align-items:center;margin-bottom:0;padding:14px 16px}.api-section-heading h3{margin:0;font-size:14px}.api-key-table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}.api-key-table th{font-weight:400;color:var(--color-secondary)}.api-key-table th,.api-key-table td{padding:12px 6px;border-bottom:1px solid var(--color-rule)}.api-key-table th:first-child,.api-key-table td:first-child{padding-left:16px}.api-key-table th:last-child,.api-key-table td:last-child{padding-right:16px}.api-key-table td:first-child{overflow-wrap:anywhere;max-width:140px}.api-key-table td:last-child{text-align:right}:global(.api-revoke){color:var(--color-secondary);background:none;border:0;cursor:pointer}
- .api-key-empty{padding:0 16px 16px}
+ details{border-top:1px solid var(--color-rule);padding:14px 16px}summary{display:flex;align-items:center;gap:8px;cursor:pointer;list-style:none;font-size:13px;font-weight:500}summary::-webkit-details-marker{display:none}summary :global(svg){width:16px;height:16px;color:var(--color-secondary);flex-shrink:0;transition:transform var(--dur-fast) var(--ease-out)}details[open]>summary :global(svg){transform:rotate(90deg)}.api-connection{display:grid;grid-template-columns:minmax(0,1fr) 100px;gap:14px;padding:16px}.api-connection label{display:grid;gap:8px;font-size:12px}.api-connection > :global(button){justify-self:start;grid-column:1/-1}
+ .api-key-table{width:100%;border-collapse:collapse;font-size:12px;text-align:left}.api-key-table th{font-weight:400;color:var(--color-secondary)}.api-key-table th,.api-key-table td{padding:12px 6px;border-bottom:1px solid var(--color-rule)}.api-key-table th:first-child,.api-key-table td:first-child{padding-left:16px}.api-key-table th:last-child,.api-key-table td:last-child{padding-right:16px}.api-key-table td:first-child{overflow-wrap:anywhere;max-width:140px}.api-key-table td:last-child{text-align:right}:global(.api-revoke){color:var(--color-secondary);background:none;border:0;cursor:pointer}
+ .api-key-empty{padding:16px}
  .setting-row + .api-example{border-top:0}
  .api-key-value{display:flex;align-items:center;gap:4px;flex-wrap:wrap}.api-key-prompt{margin:0;padding:0 16px 10px}
  .api-key-table thead{background:var(--color-panel)}.api-key-table tbody tr:last-child td{border-bottom:0}.api-key-table code{font-family:var(--font-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
  .api-example pre{overflow:auto;padding:14px;background:var(--color-panel);border:1px solid var(--color-rule);border-radius:8px;font-size:12px}.api-secret{display:block;overflow-wrap:anywhere;user-select:all;padding:16px;margin:14px 0;border:1px solid var(--color-rule);border-radius:8px}
- @media(max-width:640px){.api-page-heading{flex-wrap:wrap;gap:12px}.api-docs-link{padding-top:0}.api-address,.api-settings:lang(en) .api-address{grid-template-columns:minmax(0,1fr) 32px;gap:8px 12px}.api-address>span{grid-column:1/-1}.api-key-table th,.api-key-table td{padding:10px 3px}.api-key-table code{font-size:10px}}
+ @media(max-width:680px){.api-page-heading{flex-wrap:wrap;gap:12px}.api-docs-link{padding-top:0}.api-address,.api-settings:lang(en) .api-address{grid-template-columns:minmax(0,1fr) 32px;gap:8px 12px}.api-address>span{grid-column:1/-1}.api-key-table th,.api-key-table td{padding:10px 3px}.api-key-table code{font-size:10px}}
  @media(prefers-reduced-motion:reduce){summary :global(svg){transition:none}}
 </style>

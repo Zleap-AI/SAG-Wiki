@@ -11,7 +11,7 @@ it('默认启用文本与内置文档，保存后记住手动选择',async()=>{
  const onSave=vi.fn(async(_settings:Settings)=>{});
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'files',onSave,onClose:()=>{}}});
  await vi.waitFor(()=>expect(document.querySelectorAll('.file-types [role=checkbox]')).toHaveLength(4));
- expect(document.querySelector('.file-types .settings-group-heading button')?.textContent).toBe('重新索引');
+ expect(document.querySelector('.file-types .reindex-actions button')?.textContent).toBe('重新索引');
  for(const kind of ['markdown','text'])expect(document.querySelector(`#file-type-${kind}`)?.getAttribute('aria-checked')).toBe('true');
  for(const kind of ['code','config'])expect(document.querySelector(`#file-type-${kind}`)?.getAttribute('aria-checked')).toBe('false');
  (document.querySelector('#file-type-code') as HTMLButtonElement).click();await tick();
@@ -20,7 +20,7 @@ it('默认启用文本与内置文档，保存后记住手动选择',async()=>{
  expect(onSave.mock.calls[0][0].file_types).toEqual({markdown:true,text:true,code:true,config:false});
  expect(value.file_types).toBeUndefined();
  expect(document.querySelector('.file-types')?.textContent).toContain('文本与文档');
- expect(document.querySelector('.file-types')?.textContent).toContain('无需下载组件');
+ expect(document.querySelector('.file-types')?.previousElementSibling?.textContent).toContain('无需下载组件');
 });
 it('恢复已保存的选择，取消不会保存，并支持英文',async()=>{
  setLanguage('en');
@@ -28,7 +28,7 @@ it('恢复已保存的选择，取消不会保存，并支持英文',async()=>{
  app=mount(SettingsPanel,{target:document.body,props:{value:{...value,language:'en',file_types:{markdown:true,text:true,code:false,config:true}},initial:'files',onSave,onClose}});
  await vi.waitFor(()=>expect(document.querySelector('#file-type-code')?.getAttribute('aria-checked')).toBe('false'));
  expect(document.querySelector('#file-type-config')?.getAttribute('aria-checked')).toBe('true');
- expect(document.querySelector('.file-types')?.textContent).toContain('File types to import');
+ expect(document.querySelector('.file-types')?.previousElementSibling?.textContent).toContain('File types to import');
  expect(document.querySelector('.file-types')?.textContent).not.toMatch(/[\u3400-\u9fff]/);
  (document.querySelector('#file-type-code') as HTMLButtonElement).click();await tick();
  (document.querySelector('.settings-cancel') as HTMLButtonElement).click();await tick();

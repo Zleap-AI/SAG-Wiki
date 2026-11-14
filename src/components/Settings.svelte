@@ -11,7 +11,9 @@
  import Switch from "./ui/Switch.svelte";
  import ReasoningControl from "./ReasoningControl.svelte";
  import{Button,Checkbox}from 'bits-ui';
- import type{Settings,ModelConfig,Retrieval,FileTypes,CliAccess}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
+ import type{Settings,ModelConfig,Retrieval,FileTypes,CliAccess,ConversionStorage,DocumentParser}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
+ import {open} from '@tauri-apps/plugin-dialog';
+ import {displayPath} from '../lib/domain';
  import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo}from '../lib/types';
  import IndexSettings from './IndexSettings.svelte';
  import MineruSettings from './MineruSettings.svelte';
@@ -43,6 +45,18 @@
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>,mineruKey?:string)=>Promise<void>;
  let settings={...structuredClone(value),runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??defaultConversionWorkers,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=web?'general':initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false,apiBusy=false;
+ let documentFormats:OtherFormats;
+ let mineruConfigOpen=false;
+ $:documentParser=settings.document_parser??(value.mineru?.enabled?'mineru':'docling');
+ $:remoteParsing=documentParser==='mineru'&&!!(settings.mineru?.has_key||mineruKey.trim());
+ let storage:ConversionStorage=value.conversion_storage??{mode:'library'};
+ let customDirectory=storage.mode==='custom'?storage.directory:'';
+ $:storageChanged=JSON.stringify(storage)!==JSON.stringify(value.conversion_storage??{mode:'library'});
+ async function pickConversionDirectory(){
+  error='';
+  try{const directory=await open({directory:true,multiple:false,title:$t('选择转换结果目录')});if(directory){customDirectory=directory;storage={mode:'custom',directory};}}
+  catch(reason){error=$t(String(reason));}
+ }
  let modelCatalog:{items?:string[];error?:string;existing:Set<string>}|null=null,modelFilter='';
  $: visibleModels=modelCatalog?.items?.filter(model=>model.toLowerCase().includes(modelFilter.trim().toLowerCase()));
  $: answerModels=[...new Set(models.split('\n').map(model=>model.trim()).filter(Boolean))];
@@ -114,16 +128,16 @@
    settings={...settings};
   };
  }
- async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=answerModels;if(!answerModels.includes(settings.search_summary_model))settings.search_summary_model='';if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials,mineruKey);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
+ async function save(){busy=true;error='';status=storageChanged?$t('正在迁移转换结果…'):'';try{if(storage.mode==='custom'&&!storage.directory)throw new Error($t('请先选择转换结果目录'));settings.conversion_storage=storage;if(page==='files'||mineruKey.trim())settings.document_parser=documentParser;checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=answerModels;if(!answerModels.includes(settings.search_summary_model))settings.search_summary_model='';if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials,mineruKey);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false;status=''}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
 </script>
 
-<Modal label={$t("设置")} class="settings-dialog settings-window" overlayClass="settings-backdrop" onClose={()=>{if(!apiBusy)onClose();}}>
+<Modal label={$t("设置")} class="settings-dialog settings-window" overlayClass="settings-backdrop" onClose={()=>{if(!apiBusy&&!busy)onClose();}}>
   <div class="dialog-head">
    <h2>{$t("设置")}</h2>
-   <Button.Root class="icon-button settings-close" aria-label={$t("关闭设置")} disabled={apiBusy} onclick={onClose}>{@html icon('close')}</Button.Root>
-   <Button.Root class="icon-button settings-back" aria-label={$t("返回上一层")} disabled={apiBusy} onclick={onClose}>{@html icon('back')}</Button.Root>
+   <Button.Root class="icon-button settings-close" aria-label={$t("关闭设置")} disabled={apiBusy||busy} onclick={onClose}>{@html icon('close')}</Button.Root>
+   <Button.Root class="icon-button settings-back" aria-label={$t("返回上一层")} disabled={apiBusy||busy} onclick={onClose}>{@html icon('back')}</Button.Root>
   </div>
   <form on:submit|preventDefault={()=>{if(page!=='api')void save();}} class="settings-form">
    <nav class="settings-nav" aria-label={$t("设置分类")}>
@@ -146,38 +160,57 @@
      </section>
      {#if onShowGuide}<section class="settings-group"><div class="setting-row"><div><strong>{$t('快速入门')}</strong><p>{$t('重新查看文件接入、搜索与问答教程')}</p></div><Button.Root type="button" class="outline" onclick={onShowGuide}>{$t('查看教程')}</Button.Root></div></section>{/if}
     {:else if page==='appearance'}
-     <h3 class="appearance-section-title">{$t('视觉风格')}</h3>
+     <h3 class="settings-section-title">{$t('视觉风格')}</h3>
      <section class="settings-group">
       <div class="setting-row appearance-theme-row"><div><strong>{$t('模式')}</strong><p>{$t("设置应用的明暗外观")}</p></div><ThemePicker bind:value={settings.theme}/></div>
       <div class="setting-row"><div><strong>{$t("文档字号")}</strong><p>{$t("调整正文大小")}</p></div><Select label={$t("文档字号")} value={String(settings.editor_size)} onValueChange={value=>settings.editor_size=Number(value)} items={[14,15,16,18].map(n=>({value:String(n),label:`${n} px`}))}/></div>
      </section>
-     <section class="settings-type-preview"><span>{$t("正文预览")}</span><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
+     <h3 class="settings-section-title">{$t('正文预览')}</h3>
+     <section class="settings-type-preview"><p style:font-size={`${settings.editor_size}px`}>{$t("你的文件，直接成为知识库。")}</p></section>
     {:else if page==='files'}
-     <div class="settings-info-box">{$t("支持 Markdown、纯文本、RTF、常见代码及 JSON / YAML / TOML 等配置文件，并内置转换 PDF、Office、EPUB 等文档。首次加入无需模型预处理。")}</div>
+     <h3 class="settings-section-title">{$t('文档解析')}</h3>
+     <section class="settings-group conversion-storage">
+      <div class="setting-row parser-setting">
+       <div><strong>{$t('优先解析方式')}</strong>{#if documentParser==='mineru'&&!remoteParsing}<p>{$t('未配置密钥，暂用本地解析。')}</p>{/if}</div>
+       <div class="parser-actions">
+        <Select label={$t('优先解析方式')} value={documentParser} disabled={busy} onValueChange={next=>settings.document_parser=next as DocumentParser} items={[{value:'docling',label:'Docling'},{value:'mineru',label:'MinerU'}]}/>
+        <Button.Root type="button" class="outline" disabled={busy} onclick={()=>documentParser==='docling'?documentFormats.showDetails(true):mineruConfigOpen=true}>{$t(documentParser==='docling'?'配置 Docling':'配置 MinerU')}</Button.Root>
+       </div>
+      </div>
+      <div class="setting-row">
+       <div><strong>{$t('转换结果存放位置')}</strong>{#if storageChanged}<p>{$t('保存后迁移已有转换结果，无需重新识别。')}</p>{/if}</div>
+       <Select class="conversion-storage-select" label={$t('转换结果存放位置')} value={storage.mode} disabled={busy} onValueChange={mode=>storage=mode==='custom'?{mode,directory:customDirectory}:{mode:mode as 'app_data'|'library'}} items={[{value:'app_data',label:$t('应用数据目录')},{value:'library',label:$t('资料文件夹内')},{value:'custom',label:$t('自定义目录')}]}/>
+      </div>
+      {#if storage.mode==='custom'}
+       <div class="setting-row"><div><strong>{$t('自定义目录')}</strong><p class="conversion-directory">{storage.directory?displayPath(storage.directory):$t('请选择资料文件夹之外的目录')}</p></div><Button.Root type="button" class="outline" disabled={busy} onclick={pickConversionDirectory}>{$t('选择目录')}</Button.Root></div>
+      {/if}
+      <RuntimeSettings group="files" bind:value={settings.runtime}/>
+     </section>
+     <header class="settings-group-heading"><div><h3>{$t('导入文件类型')}</h3><p class="settings-help">{$t('默认启用常用文本、Office、PDF 与电子书，无需下载组件。取消勾选后不再检索该类文件，原文件和文件浏览不受影响。')}</p></div></header>
      <section class="settings-group file-types">
       <IndexSettings settingsChanged={indexSettingsChanged}/>
       {#each fileTypeOptions as [kind,label,description]}
        <div class="setting-row"><label for={`file-type-${kind}`}><strong>{label}</strong><p>{description}</p></label><Checkbox.Root id={`file-type-${kind}`} class="ui-checkbox" aria-label={$t("导入 {value0}",{value0:label})} checked={settings.file_types[kind]} onCheckedChange={checked=>settings.file_types={...settings.file_types,[kind]:checked}}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root></div>
       {/each}
-      <OtherFormats remoteParsing={settings.mineru?.enabled??false} bind:workers={settings.conversion_workers} bind:enabled={settings.convert_other_formats} bind:formats={settings.conversion_formats} disabled={busy}/>
+      <OtherFormats bind:this={documentFormats} {remoteParsing} remoteProvider={settings.mineru?.provider} bind:workers={settings.conversion_workers} bind:enabled={settings.convert_other_formats} bind:formats={settings.conversion_formats} disabled={busy}/>
+      <div class="setting-row"><div><strong>{$t("Office 仅提取文字")}</strong><p>{$t("仅适用于 DOCX/PPTX。跳过图片和内嵌对象。")}</p></div><Switch bind:checked={settings.runtime.office_text_only} label={$t("Office 仅提取文字")}/></div>
      </section>
-     <section class="settings-group"><div class="setting-row"><div><strong>{$t("Office 仅提取文字")}</strong><p>{$t("仅适用于 DOCX/PPTX。跳过图片和内嵌对象，不识别图片文字；回退也必须遵守此限制。修改后重新检查相关文档。")}</p></div><Switch bind:checked={settings.runtime.office_text_only} label={$t("Office 仅提取文字")}/></div></section>
+     <h3 class="settings-section-title">{$t('索引与显示')}</h3>
      <section class="settings-group">
       <div class="setting-row"><div><strong>{$t("自动监听文件变化")}</strong><p>{$t("新增、修改、删除和重命名后自动更新索引；退出应用后停止监听")}</p></div><Switch bind:checked={settings.watch} label={$t("自动监听文件变化")}/></div>
       <div class="setting-row hidden-folder-settings"><div><strong>{$t("显示隐藏文件夹")}</strong><p>{$t("仅在右侧文件列表显示，左侧始终隐藏；不影响索引。")}</p></div><Switch bind:checked={settings.show_hidden} label={$t("显示隐藏文件夹")}/></div>
       <div class="setting-row"><label for="index-workers"><strong>{$t("索引并行数")}</strong><p>{$t("默认 8，可设为 1–64；下次索引任务生效，不会重建已有索引")}</p></label><Input id="index-workers" aria-label={$t("索引并行数")} type="number" min="1" max="64" required bind:value={settings.index_workers}/></div>
+      <div class="settings-fields file-excluded"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p><p class="settings-help">{$t("项目忽略规则自动读取 .gitignore 和 .sagignore。可用 *.log、目录名/ 和 !文件名 编写规则；.sagignore 优先。修改后自动更新索引，原文件仍可浏览。")}</p></div>
+      {#if onIndexHistory}<div class="setting-row index-history-settings"><div><strong>{$t('索引历史')}</strong></div><Button.Root type="button" class="outline settings-index-history" onclick={onIndexHistory}>{$t('查看')}</Button.Root></div>{/if}
      </section>
-     <section class="settings-group settings-fields"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p><p class="settings-help">{$t("项目忽略规则自动读取 .gitignore 和 .sagignore。可用 *.log、目录名/ 和 !文件名 编写规则；.sagignore 优先。修改后自动更新索引，原文件仍可浏览。")}</p></section>
      <RemovedDirectories/>
-     <RuntimeSettings group="files" bind:value={settings.runtime}/>
-     {#if onIndexHistory}<section class="settings-group index-history-settings"><div class="setting-row"><div><strong>{$t('索引历史')}</strong><p>{$t('查看索引进度和历史记录')}</p></div><Button.Root type="button" class="outline settings-index-history" onclick={onIndexHistory}>{$t('查看')}</Button.Root></div></section>{/if}
 
     {:else if page==='models'}
      {#if value.credential_error}<p class="form-error">{$t(value.credential_error)}</p>{/if}
      <div class="settings-info-box">{$t("问答模型按需调用 SAG2 检索工具，Jev 判断原文相关性。问答模型需支持工具调用，问题和相关原文会发送至所配置的服务。")}</div>
      {#each ['answer','jev'] as kind}
+      <header class="settings-group-heading"><h3>{kind==='answer'?$t("问答模型（LLM）"):$t("Jev 模型")}</h3><span>{kind==='answer'?$t("生成回答"):$t("判断相关性")}</span></header>
       <section class="settings-group settings-fields model-settings-card" data-model={kind}>
-       <div class="settings-group-heading"><h3>{kind==='answer'?$t("问答模型（LLM）"):$t("Jev 模型")}</h3><span>{kind==='answer'?$t("生成回答"):$t("判断相关性")}</span></div>
        <label class="field-label provider-field">{$t('供应商')}<Select label={kind==='answer'?$t('LLM 供应商'):$t('Jev 供应商')} value={providerChoice[kind as ModelKind]} placeholder={kind==='jev'?$t('已保存的接口'):''} items={providers[kind as ModelKind].map(provider=>({value:provider.value,label:$t(provider.label)}))} onValueChange={id=>changeProvider(kind as ModelKind,id)}/></label>
        <label class="field-label">{$t("接口地址")}<Input type="url" required value={settings[kind as ModelKind].url} oninput={event=>changeAddress(kind as ModelKind,event.currentTarget.value)} spellcheck="false"/></label>
        {#if kind==='answer'}
@@ -196,11 +229,10 @@
        <div class="settings-card-actions">{#if settings[kind as ModelKind].has_key&&savedKeys[kind as ModelKind]}<Button.Root type="button" class="settings-text-button" onclick={()=>clearKey(kind as 'answer'|'jev')}>{$t("移除保存的密钥")}</Button.Root>{/if}<Button.Root type="button" class="outline settings-model-test" disabled={busy} onclick={()=>test(kind as 'answer'|'jev')}>{$t("测试连接")}</Button.Root></div>
       </section>
      {/each}
-     <MineruSettings bind:value={settings.mineru} bind:apiKey={mineruKey}/>
      <RuntimeSettings group="models" bind:value={settings.runtime}/>
     {:else if page==='answer'}
+     <h3 class="settings-section-title">{$t('提示词')}</h3>
      <section class="settings-group settings-fields model-profile-settings">
-      <div class="settings-group-heading"><h3>{$t("提示词")}</h3></div>
      <div class="answer-model-selection">
       <label class="field-label">{$t("问答模型")}<Select label={$t("配置问答模型")} bind:value={profileModel} items={profileNames.map(model=>({value:model,label:model}))}/></label>
       <p class="settings-help">{$t("提示词和工具绑定按模型分别保存；上下文与请求设置对所有模型生效。")}</p>
@@ -211,20 +243,20 @@
        <p class="settings-help">{$t("此提示词只用于当前选择的模型。清空后恢复内置提示词。")}</p>
       {/if}
      </section>
+     <h3 class="settings-section-title">{$t('工具绑定')}</h3>
      <section class="settings-group settings-fields model-tools-settings">
-      <div class="settings-group-heading"><h3>{$t("工具绑定")}</h3></div>
       {#if settings.model_profiles[profileModel]}
         <McpSettings model={profileModel} bind:profile={settings.model_profiles[profileModel]} bind:servers={settings.mcp_servers} bind:drafts={mcpDrafts} onTest={testMcp} testing={mcpTesting} errors={mcpErrors} onRemove={removeMcp}/>
       {/if}
      </section>
-     <section class="settings-group settings-fields model-request-settings">
-      <div class="settings-group-heading"><h3>{$t("上下文与请求")}</h3></div>
+     <h3 class="settings-section-title">{$t('上下文与请求')}</h3>
+     <section class="settings-group model-request-settings">
       <div class="setting-row"><label for="max-tool-calls"><strong>{$t("每轮工具调用上限")}</strong><p>{$t("默认 0，表示不限制；SAG 和 MCP 合计")}</p></label><Input id="max-tool-calls" aria-label={$t("每轮工具调用上限")} type="number" min="0" max="100" required bind:value={settings.max_tool_calls}/></div>
       <div class="setting-row"><label for="answer-context"><strong>{$t("回答上下文预算（tokens）")}</strong><p>{$t("控制问题、历史、工具记录和引用的输入规模。默认 64K，无固定最大值，请按模型支持的上下文大小填写。输出长度由模型服务决定。")}</p></label><Input id="answer-context" aria-label={$t("回答上下文预算（tokens）")} type="number" min="4096" step="1" required bind:value={settings.answer_context_tokens}/></div>
       <div class="setting-row"><label for="model-timeout"><strong>{$t("请求超时")}</strong><p>{$t("单位：秒")}</p></label><Input id="model-timeout" aria-label={$t("请求超时")} type="number" min="10" max="600" bind:value={settings.timeout_secs}/></div>
      </section>
-     <section class="settings-group settings-fields note-settings">
-      <div class="settings-group-heading"><h3>{$t("笔记")}</h3></div>
+     <h3 class="settings-section-title">{$t('笔记')}</h3>
+     <section class="settings-group note-settings">
       <div class="setting-row"><label for="notes-folder"><strong>{$t("默认保存文件夹")}</strong><p>{$t("保存回答为笔记时的默认位置。留空使用文稿/sag-wiki/notes，不存在时自动创建并加入知识库。")}</p></label><Input id="notes-folder" aria-label={$t("默认保存文件夹")} placeholder={$t("文稿/sag-wiki/notes")} bind:value={settings.notes.folder}/></div>
       <div class="setting-row"><div><strong>{$t("每次询问保存位置")}</strong><p>{$t("关闭后，记住位置的保存会直接写入默认文件夹。")}</p></div><Switch bind:checked={settings.notes.ask_location} label={$t("每次询问保存位置")}/></div>
      </section>
@@ -266,10 +298,18 @@
      <AppUpdates bind:config={settings.updates} onBeforeInstall={onBeforeUpdate}/>
     {/if}
    </div>
-   {#if page==='api'}<div class="settings-footer api-settings-footer"><span class="settings-status">{$t('更改即时生效')}</span><Button.Root type="button" class="primary" disabled={apiBusy} onclick={onClose}>{$t('完成')}</Button.Root></div>{:else}
-   <div class="settings-footer"><div class="settings-feedback"><span class="form-error" role="alert">{$t(error)}</span><span class="settings-status" role="status">{$t(status)}</span></div><Button.Root type="button" class="settings-cancel" onclick={onClose}>{$t("取消")}</Button.Root><Button.Root type="submit" class="primary" disabled={busy||!!mcpTesting||cliBusy}>{$t("保存设置")}</Button.Root></div>{/if}
+   {#if page==='api'}<div class="settings-footer api-settings-footer"><span class="settings-status">{$t('更改即时生效')}</span><Button.Root type="button" class="primary" disabled={apiBusy||busy} onclick={onClose}>{$t('完成')}</Button.Root></div>{:else}
+   <div class="settings-footer"><div class="settings-feedback"><span class="form-error" role="alert">{$t(error)}</span><span class="settings-status" role="status">{$t(status)}</span></div><Button.Root type="button" class="settings-cancel" disabled={busy} onclick={onClose}>{$t("取消")}</Button.Root><Button.Root type="submit" class="primary" disabled={busy||!!mcpTesting||cliBusy}>{$t("保存设置")}</Button.Root></div>{/if}
   </form>
 </Modal>
+{#if mineruConfigOpen}
+ <Modal label={$t('配置 MinerU')} class="mineru-config-dialog" onClose={()=>mineruConfigOpen=false}>
+  <div class="dialog-head"><h2>{$t('配置 MinerU')}</h2></div>
+  <div class="dialog-body"><MineruSettings bind:value={settings.mineru} bind:apiKey={mineruKey}/></div>
+  <div class="dialog-footer"><Button.Root type="button" class="primary" onclick={()=>mineruConfigOpen=false}>{$t('完成')}</Button.Root></div>
+ </Modal>
+{/if}
+
 
 {#if modelCatalog}<Modal label={$t('模型列表')} onClose={()=>modelCatalog=null} class="model-catalog" overlayClass="model-catalog-backdrop">
  <div class="dialog-head"><h2>{$t('模型列表')}</h2></div>

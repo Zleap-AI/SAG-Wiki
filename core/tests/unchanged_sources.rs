@@ -26,7 +26,7 @@ fn unchanged_sources_are_not_read_again() {
     store.scan(&registered, |_| {}).unwrap();
     let first = store.roots().unwrap().remove(0);
     assert_eq!(first.status, "ready", "{:?}", first.error);
-    assert!(root.join(".sag-converted/report.docx.md").is_file());
+    assert!(Path::new(&store.document(&source).unwrap().path).is_file());
 
     // Still stat-able, but any attempt to read or hash it fails.
     set_mode(&source, 0o000);
