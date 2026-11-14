@@ -162,7 +162,12 @@ async fn authentication_keys_private_storage_and_stop_restore() {
     assert!(listed[0].get("key").is_none());
     assert!(!listed.to_string().contains(secret));
     let stored = std::fs::read_to_string(f.service.data_dir.join("http-api.json")).unwrap();
-    assert!(!stored.contains(secret));
+    assert!(stored.contains(secret));
+    assert_eq!(listed[0]["copyable"], true);
+    let reopened = ApiService::open(&f.service.data_dir).unwrap();
+    for id in [None, Some(key["id"].as_str().unwrap().into())] {
+        assert_eq!(reopened.manage(ApiAction::CopyKey { id }, &f.service).await.unwrap()["key"], secret);
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -193,6 +198,7 @@ async fn authentication_keys_private_storage_and_stop_restore() {
         .await
         .unwrap();
     assert_eq!(f.get("/v1/status", secret).await.status(), 401);
+    assert_eq!(f.service.api.manage(ApiAction::CopyKey { id: None }, &f.service).await.unwrap_err().to_string(), "请先创建 API Key");
     let status = f.service.api.status().unwrap();
     assert_eq!(status["enabled"], true);
     assert_eq!(status["running"], true);
@@ -214,6 +220,50 @@ async fn authentication_keys_private_storage_and_stop_restore() {
             .unwrap()["enabled"],
         false
     );
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn mcp_reuses_api_authentication_search_scope_and_lifecycle() {
+    let f = Fixture::new().await;
+    let key = f.key("MCP").await;
+    let secret = key["key"].as_str().unwrap();
+    let client = reqwest::Client::new();
+    let post = || client.post(format!("{}/mcp", f.url)).bearer_auth(secret)
+        .header("accept", "application/json, text/event-stream");
+    let init = json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{
+        "protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"test","version":"1"}
+    }});
+    assert_eq!(f.get("/mcp", "invalid").await.status(), 401);
+    assert_eq!(post().header("origin", "https://example.com").json(&init).send().await.unwrap().status(), 403);
+    assert_eq!(post().header("host", "example.com").json(&init).send().await.unwrap().status(), 403);
+    let response = post().json(&init).send().await.unwrap();
+    assert_eq!(response.status(), 200);
+    let init = response.json::<Value>().await.unwrap();
+    assert_eq!(init["result"]["serverInfo"]["name"], "sag-wiki");
+    let version = init["result"]["protocolVersion"].as_str().unwrap();
+    let request = || post().header("MCP-Protocol-Version", version);
+    let response = request().json(&json!({"jsonrpc":"2.0","method":"notifications/initialized"})).send().await.unwrap();
+    assert_eq!(response.status(), 202);
+    let listed = request().json(&json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).send().await.unwrap().json::<Value>().await.unwrap();
+    let names = listed["result"]["tools"].as_array().unwrap().iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>();
+    assert_eq!(names, ["search", "folders"]);
+    let call = |name: &'static str, arguments: Value| async move {
+        request().json(&json!({"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":name,"arguments":arguments}})).send().await.unwrap().json::<Value>().await.unwrap()
+    };
+    let folders = call("folders", json!({"path":f.a})).await;
+    assert_eq!(folders["result"]["structuredContent"]["folders"][0]["name"], "sub");
+    let search = call("search", json!({"query":"deploymarker","mode":"fast","paths":[f.a]})).await;
+    let results = search["result"]["structuredContent"]["results"].as_array().unwrap();
+    assert_eq!(results.len(), 2);
+    assert!(results.iter().all(|item| Path::new(item["path"].as_str().unwrap()).starts_with(&f.a)));
+    let outside = call("folders", json!({"path":f.dir.path()})).await;
+    assert_eq!(outside["result"]["isError"], true);
+    assert_eq!(outside["result"]["structuredContent"]["code"], "path_not_allowed");
+    f.service.api.manage(ApiAction::RevokeKey { id: key["id"].as_str().unwrap().into() }, &f.service).await.unwrap();
+    assert_eq!(f.get("/mcp", secret).await.status(), 401);
+    f.service.api.manage(ApiAction::Stop, &f.service).await.unwrap();
+    assert!(client.get(format!("{}/mcp", f.url)).send().await.is_err());
     f.finish().await;
 }
 #[tokio::test]

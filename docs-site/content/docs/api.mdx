@@ -3,7 +3,7 @@ title: "API 文档"
 description: "搜索、文件夹与服务状态接口的参数、响应和错误码。"
 ---
 
-首次接入请先阅读 [API 说明](/zh/docs/api-guide)，完成服务开启和 Key 配置。
+首次接入请先阅读 [开启 API 服务](/zh/docs/api-guide#开启服务)，完成服务开启和 Key 配置。
 
 ## 认证
 
@@ -216,4 +216,6 @@ JSON 请求体上限为 32 KiB，接收限时 30 秒。搜索 JSON 响应上限�
 | 504 | `search_timeout` | 整次搜索请求超时 |
 | 500 | `internal_error` | 检索期间原文件变化或其他内部错误 |
 
-上游模型的认证失败不等同于调用方的 API Key 未授权。失败返回明确错误，不以空结果掩盖。安装、启停和自启操作见 [API 说明](/zh/docs/api-guide)。
+上游模型的认证失败不等同于调用方的 API Key 未授权。失败返回明确错误，不以空结果掩盖。安装、启停和自启操作见 [API 说明](/zh/docs/api-guide#开启服务)。
+
+需要使用 MCP 客户端接入时，见 [MCP 说明](/zh/docs/mcp-guide)。

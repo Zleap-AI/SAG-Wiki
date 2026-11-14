@@ -1,5 +1,21 @@
 # 更新日志 / Changelog
 
+## 0.2.13
+
+- **远程服务**：提供本机和局域网网页入口，支持文件浏览、Markdown 编辑、搜索和问答。
+- **CLI 随桌面端升级**：修复受管的旧版 `sag` 未同步更新的问题，替换前会备份校验不一致的旧文件。
+
+- **MCP 接入**：通过 API 服务连接外部 MCP 客户端，支持搜索知识库和浏览文件夹；可从设置页复制连接配置，也可用 CLI 导出。
+- **API Key 管理**：新建的 Key 可在桌面设置中再次复制，旧 Key 仍可使用。
+
+### English
+
+- **Remote services**: Open the workspace from a browser on the host or LAN to browse files, edit Markdown, search and ask questions.
+- **CLI updates with the desktop app**: Fix an older managed `sag` being left behind. The app backs up an old executable if its checksum no longer matches.
+
+- **MCP access**: Connect external MCP clients through the API service to search the knowledge base and browse folders. Copy the configuration from desktop settings or export it with the CLI.
+- **API key management**: Copy newly created keys again from desktop settings. Existing keys continue to work.
+
 ## 0.2.12
 
 - **基础文字先可搜索**：PDF 先发布可提取的文字，混合或扫描 PDF 在后台继续 OCR 和表格增强；文件列表明确显示可搜索范围及增强状态。纯文字 PDF 保持快速完成。

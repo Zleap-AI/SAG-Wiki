@@ -4,6 +4,7 @@
  import Input from './ui/Input.svelte';
  import Tree from './Tree.svelte';
  import {api} from '../lib/api';
+ import {web} from '../lib/web-connection';
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
  import {basename,displayPath,fileName} from '../lib/domain';
@@ -36,7 +37,7 @@
   try{file=fileName(name);}catch(e){error=$t(String(e));return;}
   saving=true;error='';
   try{
-   const note=await api<NoteDetail>('save_note',{conversationId,messageIndex,target:folder||null,fileName:file,expectedHash:null,remember:remember&&!!folder});
+   const note=await api<NoteDetail>('save_note',{conversationId,messageIndex,target:folder||(web?roots[0]?.path:null),fileName:file,expectedHash:null,remember:remember&&!!folder});
    onSaved(note,{conversationId,messageIndex});
   }catch(e){error=$t(String(e));}
   finally{saving=false;}
@@ -50,7 +51,7 @@
    <label class="save-document-name"><span>{$t('文件名')}</span><Input data-autofocus aria-label={$t('文件名')} bind:value={name} required onfocus={event=>event.currentTarget.select()} oninput={()=>error=''}/></label>
    <p class="save-note-summary">{$t('将写入回答正文')}{#if citedCount} · {$t('{value0} 条引用，来自 {value1} 个文件',{value0:citedCount,value1:citedFiles})}{:else} · {$t('此回答没有引用，保存后不会校验')}{/if}</p>
    {#if roots.length}
-    <p class="save-note-location"><span>{$t('保存位置')}</span><strong>{folder?basename(folder):$t('默认笔记文件夹')}</strong>{#if folder}<small title={folder}>{displayPath(folder)}</small>{:else}<small>{$t('文稿 / sag-wiki / notes，不存在时自动创建并加入知识库')}</small>{/if}</p>
+    <p class="save-note-location"><span>{$t('保存位置')}</span><strong>{folder?basename(folder):(web?basename(roots[0].path):$t('默认笔记文件夹'))}</strong>{#if folder}<small title={folder}>{displayPath(folder)}</small>{:else}<small>{$t('文稿 / sag-wiki / notes，不存在时自动创建并加入知识库')}</small>{/if}</p>
     <div class="save-folder-tree" role="group" aria-label={$t('保存位置')}><Tree nodes={roots} {expanded} {cache} mode="folder" selected={folder} onbrowse={path=>folder=folder===path?'':path} ontoggle={toggle}/></div>
     <label class="save-note-remember"><Checkbox.Root class="ui-checkbox" bind:checked={remember} disabled={!folder} aria-label={$t('记住此位置，下次直接保存')}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root><span>{$t('记住此位置，下次直接保存')}</span></label>
    {:else}
@@ -59,7 +60,7 @@
    {/if}
    {#if error}<p class="form-error" role="alert">{error}</p>{/if}
   </div>
-  <div class="dialog-footer"><Button.Root type="button" onclick={onClose} disabled={saving}>{$t('取消')}</Button.Root><Button.Root type="submit" class="primary" disabled={saving||!name.trim()}>{$t(saving?'正在保存…':'保存')}</Button.Root></div>
+  <div class="dialog-footer"><Button.Root type="button" onclick={onClose} disabled={saving}>{$t('取消')}</Button.Root><Button.Root type="submit" class="primary" disabled={saving||!name.trim()||(web&&!roots.length)}>{$t(saving?'正在保存…':'保存')}</Button.Root></div>
  </form>
 </Modal>
 

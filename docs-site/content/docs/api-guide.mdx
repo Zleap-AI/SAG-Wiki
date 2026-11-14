@@ -5,15 +5,17 @@ description: "开启搜索服务，连接本机与局域网程序。"
 
 ## 使用方式
 
-运行服务的电脑只需安装独立 CLI，无需桌面端。API 与桌面端、CLI 共用知识库、索引和决策模型配置。开启后，本机和局域网同时可以调用。
+Linux（Ubuntu 24.04、Debian 12，x86_64 / ARM64）只需安装独立 CLI，即可运行 HTTP API，无需桌面端或图形界面。API 与桌面端、CLI 共用知识库、索引和决策模型配置。默认允许本机和局域网连接。
 
 API 提供搜索、文件夹浏览和服务状态查询。检索结果按原文片段返回，不生成问答或总结。具体参数、响应和错误码见 [API 文档](/zh/docs/api)。
+
+通过 MCP 客户端接入知识库，请阅读 [MCP 说明](/zh/docs/mcp-guide)。
 
 ## 开启服务
 
 macOS、Windows 和 Linux 均可运行 API 服务，供本机和局域网中的程序调用。
 
-已安装桌面端时，在 **设置 → API 服务** 中创建 Key 并开启服务。
+已安装桌面端时，在 **设置 → 远程服务** 中点击 **创建 Key**，再打开 **API 和 MCP**。API 可单独启停。
 
 通过独立 CLI 开启时，先安装 Node.js/npm，再运行以下命令。本页命令示例使用 macOS/Linux 终端语法，目录替换为运行服务的电脑上的实际完整路径。Windows 可在 PowerShell 中运行相同的 `sag` 命令，使用 Windows 完整路径。
 
@@ -26,15 +28,13 @@ sag api key create --name "业务程序A"
 sag api start
 ```
 
-Linux 支持 ARM64 和 x86_64，验证环境为 Ubuntu 24.04、Debian 12。
-
 `sag config` 配置深入检索使用的决策模型。`sag api key create` 创建其他程序调用 HTTP API 所用的密钥，两种密钥分别管理。快速搜索无需配置决策模型。
 
-完整 API Key 仅在创建时显示一次，请保存到调用程序的私有配置中。多个 Key 都可以搜索全部知识库，默认长期有效，可单独撤销。
+新建的 API Key 保存在本机，可在桌面端的 Key 列表中再次复制。旧版本创建的 Key 仍可使用；如需从设置中复制，请创建新 Key。每个 Key 都可搜索全部知识库，可单独撤销。
 
 ## 发起搜索
 
-将地址替换为运行服务的电脑地址，Key 替换为创建时保存的值。默认端口为 `24681`，实际地址以 CLI 输出或 **设置 → API 服务** 显示的内容为准。
+将地址替换为运行服务的电脑地址，Key 替换为创建时保存的值。默认端口为 `24681`，实际地址以 CLI 输出或 **设置 → 远程服务** 显示的内容为准。
 
 ```sh
 export SAG_API_URL='http://192.168.1.10:24681'
@@ -86,10 +86,11 @@ curl --fail-with-body --get \
 | --- | --- |
 | `sag api start` | 开启 API，并保存启用状态 |
 | `sag api start --host HOST --port PORT` | 按指定 IP 地址和端口开启 |
-| `sag api status --json` | 以 JSON 查看状态，不自动启动后台 |
+| `sag api status --json` | 输出状态和地址 JSON，不显示密钥或启动后台 |
 | `sag api stop` | 关闭 API，取消 API 搜索，保留共享后台 |
-| `sag api status` | 查看 API 实际运行状态和地址 |
-| `sag api key create --name NAME` | 创建并命名 Key，完整展示一次 |
+| `sag api status` | 查看运行状态及本机和局域网的 API、MCP 地址 |
+| `sag api mcp config` | 导出含地址和 Key 的配置，选项见 [MCP 说明](/zh/docs/mcp-guide) |
+| `sag api key create --name NAME` | 创建并显示完整 Key |
 | `sag api key list` | 查看 Key 名称、ID 和部分标识 |
 | `sag api key revoke KEY_ID` | 撤销 Key，取消该 Key 的搜索 |
 | `sag api autostart enable` | 开启平台自启机制 |
@@ -100,13 +101,12 @@ curl --fail-with-body --get \
 
 ## 后台运行与桌面设置
 
-关闭终端后，服务继续运行。桌面端 **设置 → API 服务** 使用网络连接图标，按纵向分组展示服务开关、本机与局域网地址、连接配置、Key 和开机自启。绿色状态点表示服务正在运行；标题右侧的 **API 文档** 打开接口参考页。
+关闭终端后，服务继续运行。桌面端 **设置 → 远程服务** 仅在 API 运行时显示本机和局域网的 API 与 MCP 地址，可复制 API 地址或 MCP 配置。绿色状态点表示服务正在运行；标题右侧的 **API 文档** 打开接口参考页。
+展开 **API 和 MCP** 板块底部的 **调用示例**，可查看和复制请求命令。
 
-![API 服务设置](/images/product-api-settings-cn.png)
+**API 和 MCP** 下方的 **连接配置** 始终显示，可选择 **仅本机** 或 **本机与局域网**（默认）。两种服务共用此设置，修改前需关闭网页服务和 API。保存并启动后，选择 **仅本机** 只显示本机地址；选择 **本机与局域网** 还会列出可用的局域网地址。启停、Key 和自启操作即时生效。
 
-连接配置和调用示例默认折叠。修改监听地址或端口前先关闭 API。启停、Key 和自启操作即时生效。
-
-打开桌面端时按已保存的 API 启用状态恢复；手动停止后，再打开桌面端仍保持关闭。开机自启默认关闭，需显式开启。Linux 开启后无需登录即可运行；macOS、Windows 在用户登录后启动。
+打开桌面端时按已保存的 API 启用状态恢复；手动停止后，再打开桌面端仍保持关闭。**开机自启** 位于连接配置下方的独立板块，默认关闭。开启后，Linux 无需登录即可运行；macOS、Windows 在用户登录后启动。
 
 API 与桌面端、CLI 共享现有的 20 个耗时任务额度，满额后等待。索引尚未完成时，可以搜索已有内容。HTTP 默认关闭浏览器跨域访问，普通本机和局域网程序不受影响。
 
