@@ -102,6 +102,4 @@ SAG_DATA_DIR=/path/to/dev-data ./src-tauri/bin/development/sag service status
 
 ## 自动构建与发布
 
-推送 main 后，Rust 原生测试与正式安装包构建在独立运行器上并行。版本标签发布可按平台和检查阶段复用同一提交的有效结果，失败后优先重新运行失败任务；仍在执行的来源采用有界等待。macOS 检查通过即可签名、公证，不等待 Windows。一次受保护环境审批覆盖签名至草稿创建，最终仍要求两平台测试、安装包检查、前端和文档全部通过。流程只创建 Release 草稿，不自动正式发布。
-
-操作与故障恢复见[应用内更新发布说明](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/zh-CN/应用内更新发布.md)。
+main 的产品改动自动准备一致的版本元数据，生成发布子提交和 tag，完成必要检查后自动签名、公证并正式发布。纯文档、CI 和发布工具调整不发版，不需要逐版人工审批。Rust 原生测试与正式编译保持并行；macOS 可以提前签名，最终发布仍要求两平台、前端、文档及制品检查通过。重试接续同一版本和已验证阶段。现有仓库须由管理员一次性迁移 release 环境后启用自动发布，详见[发布与恢复指南](https://github.com/Zleap-AI/SAG-Wiki/blob/main/docs/zh-CN/应用内更新发布.md)。
