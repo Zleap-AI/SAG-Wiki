@@ -28,7 +28,7 @@ it('从设置开始安装后可关闭详情和设置，进度继续更新，再�
  let current={...initial};await start(()=>current);
  const base=invoke.getMockImplementation()!;
  invoke.mockImplementation(async(command,args)=>{
-  if(command==='install_docling'){current={...initial,running:true,stage:'dependencies',downloaded:38,total:100,message:'Downloading components'};return current;}
+  if(command==='install_docling_from_resource'){current={...initial,running:true,stage:'dependencies',downloaded:38,total:100,message:'Downloading components'};return current;}
   return base(command,args);
  });
  [...document.querySelectorAll<HTMLButtonElement>('.sidebar-tools button')].find(node=>node.textContent==='设置')!.click();await tick();
@@ -51,7 +51,7 @@ it('从设置开始安装后可关闭详情和设置，进度继续更新，再�
  expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
  await new Promise(resolve=>setTimeout(resolve,850));
  expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
- expect(invoke.mock.calls.filter(([command])=>command==='install_docling')).toHaveLength(1);
+ expect(invoke.mock.calls.filter(([command])=>command==='install_docling_from_resource')).toHaveLength(1);
  expect(invoke.mock.calls.some(([command])=>command==='cancel_docling_install')).toBe(false);
  current={...initial,installed:true,stage:'done'};
  await vi.waitFor(()=>expect(document.querySelector('.docling-progress')).toBeNull(),{timeout:1800});

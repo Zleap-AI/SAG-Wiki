@@ -38,13 +38,35 @@ it('已有 302 配置默认显示 302，打开设置不覆盖地址',async()=>{
 });
 it('302 密钥入口打开指定网页，切换供应商后隐藏',async()=>{
  await setup();
- const link=()=>card('answer').querySelector<HTMLAnchorElement>('.settings-key-link');
+ const link=()=>card('answer').querySelector<HTMLAnchorElement>('a.settings-key-link');
  expect(link()?.textContent).toBe('获取 API Key');
  expect(link()?.href).toBe('https://302.ai/api-keys/list');
  link()!.click();await tick();
  expect(api).toHaveBeenCalledWith('open_about_link',{target:'302-api-keys'});
  await choose('answer','openai');expect(link()).toBeNull();
  expect(card('jev').querySelector('.settings-key-link')).not.toBeNull();
+});
+it('获取问答模型列表后可筛选并追加，保留已有模型直到保存',async()=>{
+ const answer={...value.answer,has_key:true};
+ const onSave=await setup({...value,answer});
+ api.mockResolvedValue(['first','demo-fast','demo-reasoning']);
+ const button=card('answer').querySelector<HTMLButtonElement>('button.settings-key-link')!;
+ button.click();
+ const dialog=()=>document.querySelector<HTMLElement>('[role=dialog][aria-label="模型列表"]')!;
+ await vi.waitFor(()=>expect(dialog()?.querySelectorAll('input[type=checkbox]')).toHaveLength(3));
+ expect(api).toHaveBeenCalledWith('list_answer_models',{config:answer,key:''});
+ expect(dialog().querySelector<HTMLInputElement>('input[type=checkbox]')?.disabled).toBe(true);
+ await input(dialog().querySelector<HTMLInputElement>('input[type=search]')!,'FAST');
+ const option=dialog().querySelector<HTMLInputElement>('input[type=checkbox]')!;
+ option.click();await tick();
+ expect(card('answer').querySelector('textarea')?.value).toBe('first\nsecond\ndemo-fast');
+ expect(onSave).not.toHaveBeenCalled();
+ option.click();await tick();
+ expect(card('answer').querySelector('textarea')?.value).toBe('first\nsecond');
+ option.click();await tick();
+ Array.from(dialog().querySelectorAll('button')).find(button=>button.textContent==='完成')!.click();
+ await tick();await save();
+ expect(onSave.mock.calls[0][0].answer.models).toEqual(['first','second','demo-fast']);
 });
 it('LLM 六个供应商自动填入地址，自定义地址与模型列表可以保存',async()=>{
  const onSave=await setup();
@@ -53,12 +75,23 @@ it('LLM 六个供应商自动填入地址，自定义地址与模型列表可以
  expect(onSave.mock.calls[0][0].answer).toMatchObject({url:'https://proxy.example/v1',model:'first',models:['first','second']});
 });
 it('Jev 预设供应商填入对应评分接口，并提供自定义选项',async()=>{
- expect(providers.jev.map(provider=>provider.label)).toEqual(['Zleap','302.AI','OpenRouter','Typesafe','自定义']);
+ expect(providers.jev.map(provider=>provider.label)).toEqual(['Zleap','OpenAI','302.AI','OpenRouter','Typesafe','自定义']);
  await setup();
  for(const provider of providers.jev.filter(provider=>provider.value!=='custom')){await choose('jev',provider.value);expect(address('jev').value).toBe(provider.url);}
  trigger('jev').dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
- await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(5));
+ await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(6));
  expect(document.querySelector('[role=option][data-value=custom]')).not.toBeNull();
+});
+it('切换到 OpenAI 决策模型后使用官方接口和新密钥',async()=>{
+ const onSave=await setup({...value,jev:{...value.jev,url:'http://127.0.0.1:8000/v1',auth_mode:'none'}});
+ await choose('jev','openai');
+ expect(address('jev').value).toBe('https://api.openai.com/v1/decisions');
+ await input(key('jev'),'test-decisions-key');api.mockResolvedValue('连接成功');
+ card('jev').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
+ const model={url:'https://api.openai.com/v1/decisions',model:'gpt-6-luna',auth_mode:'bearer'};
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'jev',key:'test-decisions-key',config:expect.objectContaining(model)})));
+ await save();expect(onSave.mock.calls[0][0].jev).toMatchObject(model);
+ expect(onSave.mock.calls[0][0].answer).toEqual(value.answer);
 });
 it('Jev 自定义地址用于测试连接，保存后重新打开仍显示该地址',async()=>{
  const onSave=await setup();await choose('jev','custom');

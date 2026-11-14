@@ -298,6 +298,7 @@ pub struct Settings {
     /// Maximum tool calls per turn; 0 leaves the number unlimited.
     pub max_tool_calls: usize,
     pub search_summary_enabled: bool,
+    pub search_summary_model: String,
     pub search_summary_sources: usize,
     pub model_profiles: BTreeMap<String, ModelProfile>,
     pub mcp_servers: Vec<McpServer>,
@@ -350,6 +351,7 @@ impl Default for Settings {
             answer_output_tokens: 2048,
             max_tool_calls: 0,
             search_summary_enabled: true,
+            search_summary_model: String::new(),
             search_summary_sources: 10,
             model_profiles: BTreeMap::new(),
             mcp_servers: vec![],

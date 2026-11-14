@@ -55,7 +55,7 @@
   uninstalling=true;uninstallError='';
   try{
    const next=await api<DoclingStatus>('uninstall_docling');
-   updateDoclingStatus(next);enabled=false;closeDetails();confirmUninstall=false;
+   updateDoclingStatus(next);enabled=false;confirmUninstall=false;await showDetails();
   }catch(e){uninstallError=String(e);}finally{uninstalling=false;}
  }
  async function applyFormats(){
@@ -101,32 +101,71 @@
 {#if details}<Modal label={$t(status.installed?'选择其他格式':'全部支持格式')} onClose={()=>{if(!uninstalling&&!applying)closeDetails()}} class="docling-dialog docling-formats-dialog">
  <div class="dialog-head"><h2>{$t(status.installed?'选择其他格式':'全部支持格式')}</h2><Button.Root type="button" class="icon-button" disabled={uninstalling||applying} aria-label={$t('关闭格式选择')} onclick={closeDetails}>{@html icon('close')}</Button.Root></div>
  <div class="dialog-body formats-list">
-  <div class="docling-component"><div><a href="https://docling.ai/" target="_blank" rel="noreferrer" on:click={openDocling}>Docling ↗</a><p>{$t('本地转换组件')}</p></div><Button.Root type="button" class="outline uninstall-docling" disabled={status.running||uninstalling||(!status.installed&&!status.profiles?.some(profile=>profile.installed))} onclick={()=>{uninstallError='';confirmUninstall=true;}}>{$t('卸载相关组件')}</Button.Root></div>
+  <div class="docling-component">
+   <a href="https://docling.ai/" target="_blank" rel="noreferrer" on:click={openDocling}>Docling {@html icon('externalLink')}</a>
+   <div class="docling-component-actions">
+    {#if !profileInstalled(status,'documents')}
+     {#if status.running}
+      <Button.Root type="button" class="outline" onclick={()=>openDoclingDownload(['documents'],[])}>{$t('查看安装进度')}</Button.Root>
+     {:else}
+      <Button.Root type="button" class="primary" aria-label={$t('安装 Docling')} onclick={()=>openDoclingDownload(['documents'],[],undefined,'resource')}>{$t('安装')}</Button.Root>
+     {/if}
+    {/if}
+    {#if status.installed||status.profiles?.some(profile=>profile.installed)}
+     <Button.Root type="button" class="outline uninstall-docling" disabled={status.running||uninstalling} onclick={()=>{uninstallError='';confirmUninstall=true;}}>{$t('卸载相关组件')}</Button.Root>
+    {/if}
+   </div>
+  </div>
   {#if status.builtin_formats?.length}<section class="builtin-formats" aria-label={$t('内置转换格式')}>
-   <h3>{$t('内置转换格式')}<span class="format-readiness">{$t('无需下载')}</span></h3>
+   <div class="formats-heading">
+    <h3>{$t('内置转换格式')}</h3>
+    <span class="builtin-note">{$t('无需下载 Docling')}</span>
+   </div>
    <p>{status.builtin_formats.map(([label,extensions])=>`${$t(label)}（${extensions.map(extension=>`.${extension}`).join(' ')}）`).join('；')}</p>
   </section>{/if}
-  <section class="conversion-info" aria-label={$t('转换与保存方式')}>
-   <h3>{$t('转换与保存方式')}</h3>
-   <p>{$t('先索引 Markdown、文本等文件，再并行解析 Office、PDF 与电子书。已安装 Docling 时，还可处理扫描 PDF 和选中的其他格式。')}</p>
-   <p>{$t('转换文件保存在已添加文件夹根目录的 .sag-converted 文件夹内，保留原有子目录结构，原文件不变。')}</p>
+  {#if status.formats.length}
+   <section class="optional-formats">
+    <div class="formats-heading">
+     <h3>{$t('可选格式')}</h3>
+     <div class="format-selection-actions">
+      <Button.Root type="button" onclick={()=>changeSelection(status.formats.flatMap(([,extensions])=>extensions))}>{$t('全选')}</Button.Root>
+      <Button.Root type="button" onclick={()=>changeSelection([])}>{$t('清空选择')}</Button.Root>
+     </div>
+    </div>
+    {#if legacyAll&&!selectionChanged}
+     <p>{$t('沿用原有全部格式范围；仅调整并行数不会安装组件。修改格式选择后，才会确认所需组件。')}</p>
+    {/if}
+    {#each status.formats as [label,extensions]}
+     <div class="format-group">
+      <h4>{$t(label)}</h4>
+      <div class="format-extensions">{#each extensions as extension}<label class="format-extension"><Checkbox.Root class="ui-checkbox" aria-label={$t('转换 .{value0}',{value0:extension})} checked={selected.includes(extension)} onCheckedChange={checked=>changeSelection(checked?[...selected,extension]:selected.filter(value=>value!==extension))}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root><span>.{extension}</span></label>{/each}</div>
+     </div>
+    {/each}
+   </section>
+  {/if}
+  <div class="conversion-workers">
+   <label for="conversion-workers"><strong>{$t('转换并行数')}</strong><p>{$t('默认 1，可设为 1–16。受共享资源预算限制，下次索引生效。')}</p></label>
+   <Input id="conversion-workers" aria-label={$t('转换并行数')} type="number" min="1" max="16" required disabled={workersLoading||applying} oninput={invalidateInstall} bind:value={draftWorkers}/>
+  </div>
+  <section class="conversion-info" aria-label={$t('保存位置')}>
+   <h3>{$t('保存位置')}</h3>
+   <p>{$t('输出保存在已添加文件夹根目录的 .sag-converted 中，保留子目录，原文件不变。')}</p>
    <code>{$t('资料/报告.pdf → .sag-converted/资料/报告.pdf.md')}</code>
-   <p class="conversion-note">{$t('上例路径相对于已添加的文件夹；.sag-converted 在 macOS 中默认隐藏。')}</p>
   </section>
-  <div class="conversion-workers"><label for="conversion-workers"><strong>{$t('转换并行数')}</strong><p>{$t('默认 1，可设为 1–16；实际并行数受共享资源预算约束，所有文件夹共用，下次索引任务生效。')}</p></label><Input id="conversion-workers" aria-label={$t('转换并行数')} type="number" min="1" max="16" required disabled={workersLoading||applying} oninput={invalidateInstall} bind:value={draftWorkers}/></div>
-  {#if selectionError}<p class="form-error" role="alert">{$t(selectionError)}</p>{/if}
-  {#if uninstallError&&!confirmUninstall}<p class="form-error" role="alert">{$t(uninstallError)}</p>{/if}
-  {#if legacyAll&&!selectionChanged}<p class="settings-help">{$t('沿用原有全部格式范围；仅调整并行数不会安装组件。修改格式选择后，才会确认所需组件。')}</p>
-  {:else}<p class="settings-help">{$t('以下格式需要下载识别组件：图片和扫描件对应图片识别组件，音视频对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。')}</p>{/if}
-  <div class="format-selection-actions"><Button.Root type="button" class="outline" onclick={()=>changeSelection(status.formats.flatMap(([,extensions])=>extensions))}>{$t('全选')}</Button.Root><Button.Root type="button" onclick={()=>changeSelection([])}>{$t('清空选择')}</Button.Root></div>
-  {#each status.formats as [label,extensions]}
-   <div class="format-group"><strong>{$t(label)}</strong><span class="format-readiness">{$t(extensions.every(extension=>profileInstalled(status,profileForExtension(status,extension)!))?'已就绪':'需安装组件')}</span>
-    <div class="format-extensions">{#each extensions as extension}<label class="format-extension"><Checkbox.Root class="ui-checkbox" aria-label={$t('转换 .{value0}',{value0:extension})} checked={selected.includes(extension)} onCheckedChange={checked=>changeSelection(checked?[...selected,extension]:selected.filter(value=>value!==extension))}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root><span>.{extension}</span></label>{/each}</div>
-   </div>
-  {/each}
-  <p class="settings-help">{$t('未安装的文件格式会在应用时确认下载；扫描文件不会自动下载。')}</p>
  </div>
- <div class="dialog-footer"><Button.Root type="button" disabled={applying} onclick={closeDetails}>{$t('取消')}</Button.Root><Button.Root type="button" class="primary" disabled={workersLoading||applying||!workersReady||(!preserveLegacyAll&&selected.length===0&&!enabled)} onclick={applyFormats}>{$t(needsInstall?'安装并应用':'应用')}</Button.Root></div>
+ {#if selectionError||uninstallError&&!confirmUninstall}<p class="format-dialog-error form-error" role="alert">{$t(selectionError||uninstallError)}</p>{/if}
+ <div class="dialog-footer formats-footer">
+  {#if !profileInstalled(status,'documents')&&!status.running}
+   <div class="format-install-options">
+    <Button.Root type="button" class="docling-component-link" disabled={uninstalling||applying} onclick={()=>openDoclingDownload(['documents'],[],undefined,'command')}>{$t('通过命令行安装')}</Button.Root>
+    <Button.Root type="button" class="docling-component-link" disabled={uninstalling||applying} onclick={()=>openDoclingDownload(['documents'],[],undefined,'import')}>{$t('导入离线组件')}</Button.Root>
+   </div>
+  {/if}
+  <div class="formats-footer-actions">
+   <Button.Root type="button" disabled={applying} onclick={closeDetails}>{$t('取消')}</Button.Root>
+   <Button.Root type="button" class="primary" disabled={workersLoading||applying||!workersReady||(!preserveLegacyAll&&selected.length===0&&!enabled)} onclick={applyFormats}>{$t(needsInstall?'安装并应用':'应用')}</Button.Root>
+  </div>
+ </div>
 </Modal>{/if}
 
 {#if confirmUninstall}<Modal label={$t('卸载 Docling 相关组件')} class="docling-uninstall-dialog" onClose={()=>{if(!uninstalling)confirmUninstall=false}}>
@@ -138,35 +177,48 @@
 
 <style>
  .other-formats-actions{display:flex;gap:8px;flex-shrink:0}
- .format-readiness{font-size:11px;color:var(--color-muted);margin-left:10px}
- .builtin-formats{margin:4px 0 12px}.builtin-formats h3{font-size:13px;font-weight:500;display:flex;align-items:center}.builtin-formats p{font-size:12px;line-height:1.7;color:var(--color-muted);margin-top:4px;overflow-wrap:anywhere}
  :global(.other-formats-action){flex-shrink:0;font-size:13px;line-height:1.4;padding:6px 12px;min-height:30px}
- :global(.docling-formats-dialog){width:560px;max-width:calc(100vw - 40px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
+ :global(.docling-formats-dialog){width:600px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
  .dialog-head,.dialog-footer{flex-shrink:0}
- .formats-list{min-height:0}
- .docling-component{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}
- .docling-component a{font-size:14px;font-weight:600;color:var(--color-ink);text-underline-offset:3px}
- .docling-component p{font-size:12px;color:var(--color-muted);margin:4px 0 0}
+ .formats-list{min-height:0;overflow:auto;padding:4px 24px 20px;scrollbar-gutter:stable}
+ .docling-component{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:8px 12px;background:var(--color-panel);border-radius:8px}
+ .docling-component a{display:inline-flex;align-items:center;gap:4px;font-size:14px;line-height:20px;font-weight:600;color:var(--color-ink);text-decoration:none}
+ .docling-component a:hover{text-decoration:underline;text-underline-offset:3px}
+ .docling-component a :global(.icon){width:14px;height:14px;color:var(--color-secondary)}
+ .docling-component-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px;max-width:62%}
+ .docling-component-actions :global(button){min-height:32px;font-size:13px;padding:4px 12px}
  :global(.uninstall-docling){font-size:12px;white-space:nowrap;padding:6px 10px}
- .conversion-info{padding:12px 14px;border:1px solid var(--color-rule);border-radius:9px;background:var(--color-panel)}
- .conversion-info h3{font-size:13px;line-height:1.5;margin:0;font-weight:600}
- .conversion-info p{font-size:12px;line-height:1.7;color:var(--color-secondary);margin:8px 0 0}
- .conversion-info code{display:block;font-size:11px;line-height:1.7;overflow-wrap:anywhere;white-space:normal;margin-top:8px}
- .conversion-info .conversion-note{color:var(--color-muted);font-size:11px}
- .conversion-workers{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:16px 0;border-bottom:1px solid var(--color-rule)}
- .conversion-workers strong{font-size:13px;font-weight:600}
- .conversion-workers p{margin:5px 0 0;font-size:12px;line-height:1.6;color:var(--color-muted)}
- .conversion-workers :global(input){width:76px;flex-shrink:0}
- :global(.docling-uninstall-dialog){width:500px;max-width:calc(100vw - 40px)}
-
- .format-selection-actions{display:flex;gap:8px;margin-top:14px}
- .format-selection-actions :global(button){font-size:12px;padding:5px 10px}
- .format-group>strong{font-size:13px;font-weight:600}
- .format-extensions{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px 12px;margin-top:12px}
- .format-extensions .format-extension{display:flex;align-items:center;gap:7px;margin:0;font-size:12px;line-height:1.5;cursor:pointer;min-width:0}
+ .builtin-formats,.optional-formats,.conversion-workers,.conversion-info{padding:12px 0;border-bottom:1px solid var(--color-rule)}
+ .formats-heading{display:flex;flex-wrap:wrap;align-items:center;column-gap:8px;row-gap:4px}
+ .formats-heading h3,.conversion-info h3,.conversion-workers strong{margin:0;color:var(--color-ink);font-size:14px;line-height:20px;font-weight:600}
+ .builtin-note{color:var(--color-secondary);font-size:12px;line-height:16px}
+ .builtin-formats p,.optional-formats>p,.conversion-info p,.conversion-workers p{font-size:12px;line-height:20px;color:var(--color-secondary);margin:4px 0 0;overflow-wrap:anywhere}
+ .format-selection-actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:auto}
+ .format-selection-actions :global(button){min-height:28px;font-size:12px;padding:4px 8px;white-space:nowrap}
+ .format-group{padding:8px 0;border-top:1px solid var(--color-rule)}
+ .optional-formats>p{margin-bottom:8px}
+ .format-group h4{margin:0;font-size:13px;line-height:20px;font-weight:500}
+ .format-extensions{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,92px),1fr));gap:4px 12px;margin-top:4px}
+ .format-extensions .format-extension{display:flex;align-items:center;gap:8px;margin:0;min-height:28px;font:12px/16px var(--font-mono);cursor:pointer;min-width:0}
  .format-extension>span{overflow-wrap:anywhere}
- @media(max-width:560px){.format-extensions{grid-template-columns:repeat(3,minmax(0,1fr))}}
+ .conversion-workers{display:flex;align-items:center;justify-content:space-between;gap:12px}
+ .conversion-workers>label{min-width:0;margin:0}
+ .conversion-workers :global(input){width:68px;min-height:32px;flex-shrink:0;font-variant-numeric:tabular-nums}
+ .conversion-info{border-bottom:0;padding-bottom:0}
+ .conversion-info code{display:block;color:var(--color-secondary);font:12px/20px var(--font-mono);overflow-wrap:anywhere;margin-top:4px}
+ .format-dialog-error{flex-shrink:0;margin:0;padding:8px 24px}
+ .formats-footer{display:flex;justify-content:flex-end;align-items:center;flex-wrap:wrap;gap:8px 16px;padding:8px 24px}
+ .format-install-options,.formats-footer-actions{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px}
+ .format-install-options{margin-right:auto}
+ .formats-footer-actions{justify-content:flex-end;margin-left:auto;gap:8px}
+ :global(.docling-component-link){font-size:12px;color:var(--color-secondary);min-height:32px;padding:4px 0;text-decoration:underline;text-underline-offset:3px}
+ :global(.docling-component-link:hover:not(:disabled)){color:var(--color-ink);background:transparent}
+ .formats-footer-actions :global(button){min-height:32px;font-size:13px;padding:4px 12px}
+ :global(.docling-uninstall-dialog){width:500px;max-width:calc(100vw - 40px)}
  .description{min-width:0}
- .formats-list{max-height:60vh;overflow:auto}.format-group{padding:12px 0;border-bottom:1px solid var(--color-rule)}
+ @media(max-width:520px){
+  .formats-list,.formats-footer,.format-dialog-error{padding-inline:16px}
+  .format-install-options{width:100%}
+ }
 
 </style>

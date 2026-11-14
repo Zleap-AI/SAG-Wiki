@@ -32,7 +32,6 @@ fn fixture_with_queue() -> (tempfile::TempDir, Arc<CliService>, PathBuf, std::sy
     let remove_root = Arc::new(move |path: &Path| remove_store.remove_path(path));
     let service = CliService::start(
         store,
-        reqwest::Client::new(),
         dir.path().into(),
         lock_instance(dir.path()).unwrap(),
         add_root,

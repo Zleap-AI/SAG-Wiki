@@ -1,5 +1,6 @@
 use crate::protocol::*;
 use crate::{
+    model_http::ModelHttp,
     models,
     sag_mcp::SagTools,
     store::{self, Store},
@@ -25,7 +26,7 @@ pub use sag_protocol::Access;
 
 pub struct CliService {
     store: Arc<Store>,
-    client: reqwest::Client,
+    model_http: Arc<ModelHttp>,
     data: PathBuf,
     access: RwLock<Access>,
     token: String,
@@ -49,12 +50,12 @@ pub fn lock_instance(data: &Path) -> Result<File> {
 }
 impl CliService {
     pub(crate) fn shared(
-        store: Arc<Store>, client: reqwest::Client, data: PathBuf,
+        store: Arc<Store>, model_http: Arc<ModelHttp>, data: PathBuf,
         add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
         remove_root: Arc<dyn Fn(&Path) -> Result<()> + Send + Sync>,
     ) -> Result<Arc<Self>> {
         Ok(Arc::new(Self {
-            store, client, access: RwLock::new(Self::load_access(&data)?), data,
+            store, model_http, access: RwLock::new(Self::load_access(&data)?), data,
             token: String::new(), stop: CancellationToken::new(), _instance: None,
             preparation: None, add_root, remove_root, standalone: false,
         }))
@@ -75,7 +76,7 @@ impl CliService {
         let remove_store = store.clone();
         Ok(Arc::new(Self {
             store,
-            client: reqwest::Client::new(),
+            model_http: Arc::new(ModelHttp::default()),
             access: RwLock::new(Self::load_access(&data)?),
             data,
             token: String::new(),
@@ -120,7 +121,6 @@ impl CliService {
     #[cfg(test)]
     fn start(
         store: Arc<Store>,
-        client: reqwest::Client,
         data: PathBuf,
         instance: File,
         add_root: Arc<dyn Fn(&Path) -> Result<String> + Send + Sync>,
@@ -142,7 +142,7 @@ impl CliService {
         };
         let service = Arc::new(Self {
             store,
-            client,
+            model_http: Arc::new(ModelHttp::default()),
             data,
             access: RwLock::new(access),
             token,
@@ -427,7 +427,7 @@ impl CliService {
                 }
                 self.release_preparation()?;
                 let tools = SagTools {
-                    store: self.store.clone(), client: self.client.clone(), data_dir: self.data.clone(),
+                    store: self.store.clone(), http: self.model_http.clone(), data_dir: self.data.clone(),
                     settings: self.store.settings()?, scope: scopes, references: vec![],
                     enabled: vec![], cancel: cancel.clone(), progress: Arc::new(|_, _| {}),
                 };
@@ -462,7 +462,7 @@ impl CliService {
                     let scope = store::path_text(&path)?;
                     let tools = SagTools {
                         store: self.store.clone(),
-                        client: self.client.clone(),
+                        http: self.model_http.clone(),
                         data_dir: self.data.clone(),
                         settings: self.store.settings()?,
                         scope: scopes.clone(),

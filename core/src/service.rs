@@ -56,6 +56,7 @@ pub struct Service {
     pub store: Arc<Store>,
     explorer: Arc<explore::Explorer>,
     client: reqwest::Client,
+    model_http: Arc<crate::model_http::ModelHttp>,
     tasks: Mutex<HashMap<(String, String), CancellationToken>>,
     sessions: Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
     conversation_access: tokio::sync::RwLock<()>,
@@ -411,6 +412,7 @@ fn save_settings(
     let old = state.store.settings().map_err(error)?;
     Store::validate_settings(&settings).map_err(error)?;
     settings.mineru.validate().map_err(error)?;
+    crate::mineru::validate_base_url(settings.mineru.base_url()).map_err(error)?;
     settings.mineru.enabled = !mineru_key.trim().is_empty()
         || crate::mineru::has_key(&state.data_dir, &settings.mineru).map_err(error)?;
     if settings.convert_other_formats
@@ -563,11 +565,11 @@ async fn request_tool_approval(
         .remove(&(app.owner.clone(), id));
     result
 }
-async fn test_model(
-    kind: String,
-    config: ModelConfig,
+fn model_request_key(
+    kind: &str,
+    config: &ModelConfig,
     key: String,
-    state: &Arc<Service>,
+    state: &Service,
 ) -> CommandResult<String> {
     if kind != "answer" && kind != "jev" {
         return Err("模型类型不正确".into());
@@ -575,8 +577,8 @@ async fn test_model(
     if kind == "answer" && config.auth_mode != ModelAuthMode::Bearer {
         return Err("问答模型需要 API Key 鉴权；无需鉴权选项仅适用于 Jev".into());
     }
-    let key = if kind == "jev" && config.auth_mode == ModelAuthMode::None {
-        String::new()
+    if kind == "jev" && config.auth_mode == ModelAuthMode::None {
+        Ok(String::new())
     } else if key.trim().is_empty() {
         let saved = state.store.settings().map_err(error)?;
         let previous = if kind == "answer" {
@@ -586,17 +588,25 @@ async fn test_model(
         };
         models::check_key_provider(
             previous,
-            &config,
+            config,
             &key,
-            models::has_secret(&state.data_dir, &kind).map_err(error)?,
+            models::has_secret(&state.data_dir, kind).map_err(error)?,
         )
         .map_err(error)?;
-        models::secret(&state.data_dir, &kind).map_err(error)?
+        models::secret(&state.data_dir, kind).map_err(error)
     } else {
-        key
-    };
+        Ok(key)
+    }
+}
+async fn test_model(
+    kind: String,
+    config: ModelConfig,
+    key: String,
+    state: &Arc<Service>,
+) -> CommandResult<String> {
+    let key = model_request_key(&kind, &config, key, state)?;
     models::test_connection(
-        &state.client,
+        &state.model_http.client().map_err(error)?,
         &kind,
         &config,
         &key,
@@ -664,6 +674,9 @@ async fn summarize_search(
             state.store.authorize(Path::new(&candidate.path))?;
         }
         let mut config = settings.answer.clone();
+        if !settings.search_summary_model.is_empty() {
+            config.model.clone_from(&settings.search_summary_model);
+        }
         config.reasoning_effort = settings.model_profiles.get(&config.model)
             .and_then(|profile| profile.reasoning_effort);
         let key = models::secret(&state.data_dir, "answer")?;
@@ -671,7 +684,7 @@ async fn summarize_search(
             &config, &question, results, settings.answer_context_tokens,
             settings.answer_output_tokens.min(settings.answer_context_tokens / 4),
         )?;
-        let answer = models::answer_with_runtime(&state.client, &config, &key, &plan,
+        let answer = models::answer_with_runtime(&state.model_http.client()?, &config, &key, &plan,
             settings.timeout_secs, &settings.runtime, &cancel, |delta| {
                 emit(app, "query-progress", Progress {
                     id: id.clone(), stage: "正在总结搜索结果".into(),
@@ -679,7 +692,10 @@ async fn summarize_search(
                     replace: false, count: plan.evidence.len(), tool: None,
                 });
             }).await?;
-        Ok(sag_protocol::SearchSummary { text: answer.text, evidence: plan.evidence })
+        let mut context = plan.context;
+        context.input_tokens = answer.input_tokens;
+        context.output_tokens = answer.output_tokens;
+        Ok(sag_protocol::SearchSummary { text: answer.text, evidence: plan.evidence, context })
     }.await;
     state.tasks.lock().unwrap().remove(&(app.owner.clone(), id));
     result.map_err(|e: anyhow::Error| e.to_string())
@@ -749,6 +765,7 @@ async fn execute_query(
             pagination: Some(pagination),
         });
     }
+    let http = state.model_http.client()?;
     let mut settings = state.store.settings()?;
     if !settings.answer.models.contains(&q.model) && q.model != settings.answer.model {
         bail!("请先在设置中添加这个问答模型")
@@ -875,7 +892,7 @@ async fn execute_query(
                     let query_id = q.id.clone();
                     mcp.attach_sag(sag_mcp::SagTools {
                         store: state.store.clone(),
-                        client: state.client.clone(),
+                        http: state.model_http.clone(),
                         data_dir: state.data_dir.clone(),
                         settings: settings.clone(),
                         scope: q.scope.clone(),
@@ -904,7 +921,7 @@ async fn execute_query(
             }
             let message = c.messages.last_mut().unwrap();
             let trace = agent::answer(
-                &state.client,
+                &http,
                 &settings.answer,
                 &answer_key,
                 message,
@@ -985,9 +1002,10 @@ async fn execute_query(
                 |candidates, evidence| {
                     let key = &jev_key;
                     let settings = &settings;
+                    let http = &http;
                     async move {
                         models::score_with_runtime(
-                            &state.client,
+                            http,
                             &settings.jev,
                             key,
                             &q.question,
@@ -1242,6 +1260,7 @@ impl Service {
             }
         });
         let client = reqwest::Client::builder().build()?;
+        let model_http = Arc::new(crate::model_http::ModelHttp::default());
 
         let add_store = store.clone();
         let add_tx = tx.clone();
@@ -1262,7 +1281,7 @@ impl Service {
         });
         let cli = cli_service::CliService::shared(
             store.clone(),
-            client.clone(),
+            model_http.clone(),
             data.clone(),
             add_root,
             remove_root,
@@ -1273,6 +1292,7 @@ impl Service {
             explorer: Arc::new(explore::Explorer::new(store.clone())),
             store,
             client,
+            model_http,
             tasks: Mutex::new(HashMap::new()),
             sessions: Mutex::new(HashMap::new()),
             conversation_access: tokio::sync::RwLock::new(()),
@@ -1316,7 +1336,7 @@ impl Service {
             data_directory: self.data_dir.display().to_string(),
         })
     }
-    pub(crate) fn http_client(&self) -> reqwest::Client { self.client.clone() }
+    pub(crate) fn model_http(&self) -> Arc<crate::model_http::ModelHttp> { self.model_http.clone() }
     pub async fn handle(
         self: &Arc<Self>,
         operation: sag_protocol::Operation,
@@ -1492,6 +1512,10 @@ impl Service {
                 self.store.docling.start_profiles(profiles).map_err(error)?;
                 Out::Docling(self.store.docling.status())
             }
+            Op::InstallDoclingFromResource { profiles } => {
+                self.store.docling.start_from_resource(profiles).map_err(error)?;
+                Out::Docling(self.store.docling.status())
+            }
             Op::CancelDoclingInstall => {
                 self.store.docling.cancel();
                 Out::Unit
@@ -1523,6 +1547,15 @@ impl Service {
             }
             Op::TestModel { kind, config, key } => {
                 Out::Text(test_model(kind, config, key, self).await?)
+            }
+            Op::ListAnswerModels { config, key } => {
+                let key = model_request_key("answer", &config, key, self)?;
+                Out::Strings(models::list_answer_models(
+                    &self.model_http.client().map_err(error)?,
+                    &config.url,
+                    &key,
+                    self.store.settings().map_err(error)?.timeout_secs,
+                ).await.map_err(error)?)
             }
             Op::TestMcp {
                 server,
@@ -1564,7 +1597,7 @@ impl Service {
                 self.tasks.lock().unwrap().insert((app.owner.clone(), id.clone()), cancel.clone());
                 let result = async {
                     let settings = self.store.settings()?;
-                    crate::document_fold::generate(&self.client, &self.data_dir, &settings, &document, &cancel, |stage, percent| {
+                    crate::document_fold::generate(&self.model_http.client()?, &self.data_dir, &settings, &document, &cancel, |stage, percent| {
                         emit(app, "document-fold-progress", sag_protocol::FoldProgress { id: id.clone(), stage: stage.into(), percent });
                     }).await
                 }.await;

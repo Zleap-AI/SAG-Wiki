@@ -338,6 +338,45 @@ async fn jev_auth_mode_cannot_disable_answer_provider_key_protection() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn answer_model_catalog_uses_the_configured_provider_and_protects_its_saved_key() {
+    let (dir, client, server) = start().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.answer.url = format!("{origin}/proxy/v1/chat/completions");
+    call(&client, Operation::SaveSettings {
+        settings: settings.clone(), answer_key: "fixture-saved-key".into(), jev_key: String::new(),
+        mineru_key: String::new(), mcp_credentials: None,
+    }).await;
+    let fixture = tokio::spawn(async move {
+        let body = r#"{"data":[{"id":"test-b"},{"id":"test-a"},{"id":"test-b"}]}"#;
+        for (path, key) in [("/proxy/v1/models", "fixture-saved-key"), ("/proxy/v1/models?project=demo", "fixture-draft-key")] {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = Vec::new();
+            while !request.ends_with(b"\r\n\r\n") {
+                request.push(stream.read_u8().await.unwrap());
+            }
+            let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
+            assert!(request.starts_with(&format!("get {path} http/1.1\r\n")));
+            assert!(request.contains(&format!("\r\nauthorization: bearer {key}\r\n")));
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let fetch = |config, key: &str| client.call(Operation::ListAnswerModels {config, key: key.into()}, Duration::from_secs(5));
+    let Output::Strings(models) = fetch(settings.answer.clone(), "").await.unwrap() else { panic!("model list") };
+    assert_eq!(models, ["test-a", "test-b"]);
+    let mut config = settings.answer;
+    config.url = format!("{origin}/proxy/v1/responses?project=demo");
+    assert!(matches!(fetch(config.clone(), "fixture-draft-key").await.unwrap(), Output::Strings(_)));
+    config.url = "http://127.0.0.1:1/v1".into();
+    let error = fetch(config, "").await.err().unwrap().to_string();
+    assert!(error.contains("切换供应商后"));
+    assert_eq!(crate::models::secret(&dir.path().join("data"), "answer").unwrap(), "fixture-saved-key");
+    fixture.await.unwrap();
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn invalid_local_jev_settings_do_not_remove_the_saved_key() {
     let (dir, client, server) = start().await;
     crate::models::save_secret(&dir.path().join("data"), "jev", "previous-jev-key").unwrap();
@@ -592,12 +631,15 @@ async fn model_server(
                         .any(|message| message["role"] == "tool")
                 {
                     serde_json::json!({"tool_calls":[{"index":0,"id":"approval-call","type":"function","function":{"name":"mcp_0_0","arguments":"{\"text\":\"hello\"}"}}]})
+                } else if body["model"] == "summary-test" {
+                    serde_json::json!({"content":"独立总结"})
                 } else {
                     serde_json::json!({"content":"完成"})
                 };
                 let data = format!(
-                    "data: {}\n\ndata: [DONE]\n\n",
-                    serde_json::json!({"choices":[{"delta":delta}]})
+                    "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
+                    serde_json::json!({"choices":[{"delta":delta}]}),
+                    serde_json::json!({"choices":[],"usage":{"prompt_tokens":742,"completion_tokens":18}})
                 );
                 let response=format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",data.len(),data);
                 let _ = stream.write_all(response.as_bytes()).await;
@@ -812,6 +854,11 @@ async fn search_summary_streams_without_history_and_respects_limit_disable_and_c
     let arrived = Arc::new(AtomicUsize::new(0));
     let (url, model) = model_server(false, hold.clone(), arrived.clone()).await;
     configure(&client, url, false).await;
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert!(settings.search_summary_model.is_empty());
+    settings.answer.models.push("summary-test".into());
+    settings.search_summary_model = "summary-test".into();
+    call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     let notes = dir.path().join("notes");
     std::fs::create_dir(&notes).unwrap();
     for index in 0..6 {
@@ -838,13 +885,16 @@ async fn search_summary_streams_without_history_and_respects_limit_disable_and_c
     assert_eq!(arrived.load(Ordering::SeqCst), 0);
     let mut events = client.subscribe();
     let Output::SearchSummary(summary) = call(&client, request("summary", 6)).await else { panic!("summary") };
-    assert_eq!(summary.text, "完成");
+    assert_eq!(summary.text, "独立总结");
     assert_eq!(summary.evidence.len(), 6);
+    assert_eq!(summary.context.input_tokens, Some(742));
+    assert_eq!(summary.context.output_tokens, Some(18));
+    assert!(summary.context.estimated_input > 0);
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {
             if let ServiceEvent::QueryProgress(progress) = events.recv().await.unwrap().event {
                 if progress.id == "summary" {
-                    assert_eq!(progress.delta.as_deref(), Some("完成")); break;
+                    assert_eq!(progress.delta.as_deref(), Some("独立总结")); break;
                 }
             }
         }
@@ -862,6 +912,8 @@ async fn search_summary_streams_without_history_and_respects_limit_disable_and_c
     hold.store(false, Ordering::SeqCst);
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert!(settings.search_summary_enabled);
+    assert_eq!(settings.answer.model, "test");
+    assert_eq!(settings.search_summary_model, "summary-test");
     settings.search_summary_enabled = false;
     call(&client, Operation::SaveSettings { mineru_key:String::new(), settings, answer_key: String::new(), jev_key: String::new(), mcp_credentials: None }).await;
     assert!(client.call(request("disabled", 5), Duration::from_secs(5)).await.err().unwrap().to_string().contains("已关闭"));
@@ -1362,6 +1414,13 @@ async fn mineru_settings_keep_provider_secrets_separate_and_validate_before_savi
     assert!(saved.mineru.has_key);
     assert!(saved.mineru.enabled);
     assert!(!serde_json::to_string(&saved).unwrap().contains("302-test-secret"));
+    settings.mineru.base_url = "https://mineru.example.com/proxy".into();
+    call(&client, Operation::SaveSettings { settings:settings.clone(), answer_key:String::new(),jev_key:String::new(),mineru_key:String::new(),mcp_credentials:None }).await;
+    let Output::Settings(saved) = call(&client,Operation::GetSettings).await else {panic!("settings")};
+    assert_eq!(saved.mineru.base_url(), "https://mineru.example.com/proxy");
+    assert!(saved.mineru.has_key && saved.mineru.enabled);
+    assert_ne!(saved.mineru.content_identity(), MineruConfig::default().content_identity());
+    settings.mineru.base_url.clear();
     settings.mineru.provider=MineruProvider::Official;
     let result=client.call(Operation::SaveSettings {settings:settings.clone(),answer_key:String::new(),jev_key:String::new(),mineru_key:String::new(),mcp_credentials:None},Duration::from_secs(5)).await;
     assert!(result.is_ok());

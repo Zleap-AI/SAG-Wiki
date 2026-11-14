@@ -13,6 +13,16 @@ use std::{
 pub const VERSION: &str = "2.140.0-documents.1";
 pub const PROFILE: &str = "documents";
 pub const MEDIA_VERSION: &str = "2.140.0-media.1";
+pub(super) fn compatible_version(profile: DoclingProfile, version: &str) -> bool {
+    match profile {
+        DoclingProfile::Documents => version.rsplit_once('.').is_some_and(|(series, revision)| {
+            series == VERSION.rsplit_once('.').unwrap().0
+                && revision.bytes().all(|byte| byte.is_ascii_digit())
+                && revision.parse::<u32>().is_ok_and(|revision| revision > 0)
+        }),
+        DoclingProfile::Media => version == MEDIA_VERSION,
+    }
+}
 fn identity(profile: DoclingProfile) -> (&'static str, &'static str) {
     match profile {
         DoclingProfile::Documents => (PROFILE, VERSION),
@@ -76,13 +86,13 @@ fn inside(root: &Path, path: &str) -> Result<PathBuf> {
     }
     Ok(path)
 }
-fn manifest(root: &Path, profile: DoclingProfile) -> Result<Manifest> {
+pub(super) fn manifest(root: &Path, profile: DoclingProfile) -> Result<Manifest> {
     let path = root.join("manifest.json");
     let data = read_control(&path, 16 * 1024 * 1024, "组件清单")?;
     let m: Manifest = serde_json::from_slice(&data)?;
-    let (name, version) = identity(profile);
+    let (name, _) = identity(profile);
     if m.schema != 1
-        || m.component_version != version
+        || !compatible_version(profile, &m.component_version)
         || m.profile != name
         || m.platform != platform()
     {
@@ -94,7 +104,9 @@ pub fn runtime(root: &Path) -> Result<Runtime> {
     runtime_for(root, DoclingProfile::Documents)
 }
 pub fn runtime_for(root: &Path, profile: DoclingProfile) -> Result<Runtime> {
-    let m = manifest(root, profile)?;
+    runtime_from_manifest(root, &manifest(root, profile)?)
+}
+fn runtime_from_manifest(root: &Path, m: &Manifest) -> Result<Runtime> {
     let python = inside(root, &m.python)?;
     let site_packages = inside(root, &m.site_packages)?;
     let models = inside(root, &m.models)?;
@@ -112,18 +124,21 @@ pub fn active(home: &Path) -> Result<Runtime> {
     active_for(home, DoclingProfile::Documents)
 }
 pub fn active_for(home: &Path, profile: DoclingProfile) -> Result<Runtime> {
-    let (_, version) = identity(profile);
     let data = read_control(&home.join("active.json"), 8192, "组件激活记录")?;
     let active: Active = serde_json::from_slice(&data)?;
-    if active.schema != 1 || active.component_version != version {
+    if active.schema != 1 || !compatible_version(profile, &active.component_version) {
         bail!("组件激活记录版本不匹配")
     }
     let root = inside(home, &active.directory)?;
     let ready = read_control(&root.join("ready"), 256, "组件就绪标记")?;
-    if std::str::from_utf8(&ready)?.trim() != version {
+    if std::str::from_utf8(&ready)?.trim() != active.component_version {
         bail!("组件尚未通过文档转换验收")
     }
-    runtime_for(&root, profile)
+    let manifest = manifest(&root, profile)?;
+    if manifest.component_version != active.component_version {
+        bail!("组件激活记录版本不匹配")
+    }
+    runtime_from_manifest(&root, &manifest)
 }
 pub fn verify(root: &Path, cancel: &dyn Fn() -> bool) -> Result<()> {
     verify_for(root, cancel, DoclingProfile::Documents)
@@ -427,13 +442,13 @@ pub fn activate_for(
     probe: impl FnOnce(&Runtime) -> Result<()>,
     profile: DoclingProfile,
 ) -> Result<()> {
-    let (_, version) = identity(profile);
+    let version = manifest(staging.path(), profile)?.component_version;
     verify_for(staging.path(), cancel, profile)?;
     probe(&runtime_for(staging.path(), profile)?).context("组件离线转换验收失败，已保留原组件")?;
     if cancel() {
         bail!("已取消组件安装")
     }
-    fs::write(staging.path().join("ready"), version)?;
+    fs::write(staging.path().join("ready"), &version)?;
     // Keep the version directory in place: Python distributions can contain
     // path-sensitive files. No venv/shebang relocation is involved.
     let directory = staging
@@ -447,7 +462,7 @@ pub fn activate_for(
         &Active {
             schema: 1,
             directory,
-            component_version: version.into(),
+            component_version: version,
         },
     )?;
     active.as_file().sync_all()?;

@@ -67,6 +67,7 @@ pub struct QueryOutput {
 pub struct SearchSummary {
     pub text: String,
     pub evidence: Vec<Candidate>,
+    pub context: AnswerContext,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct FoldDocument {
@@ -256,6 +257,9 @@ pub enum Operation {
     InstallDoclingProfiles {
         profiles: Vec<DoclingProfile>,
     },
+    InstallDoclingFromResource {
+        profiles: Vec<DoclingProfile>,
+    },
     CancelDoclingInstall,
     UninstallDocling,
     Info,
@@ -350,6 +354,10 @@ pub enum Operation {
     },
     TestModel {
         kind: String,
+        config: ModelConfig,
+        key: String,
+    },
+    ListAnswerModels {
         config: ModelConfig,
         key: String,
     },

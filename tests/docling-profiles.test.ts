@@ -34,7 +34,7 @@ it('音频选择先确认媒体组件，不把文档已安装当作媒体已就�
 
 it('首次未安装默认不选任何格式，勾选PDF只安装documents且完成按钮应用本次选择',async()=>{
  let current={...initial,installed:false,profiles:initial.profiles.map(profile=>({...profile,installed:false}))};
- invoke.mockImplementation(async command=>{if(command==='install_docling_profiles')current={...current,running:true,stage:'runtime'};return current;});
+ invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource')current={...current,running:true,stage:'runtime'};return current;});
  app=mount(Harness,{target:document.body});
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
  find('选择其他格式').click();await tick();
@@ -46,12 +46,13 @@ it('首次未安装默认不选任何格式，勾选PDF只安装documents且完�
  const pdfChoice=find('转换 .pdf');
  expect(find('转换 .mp3').getAttribute('aria-checked')).toBe('false');
  expect(find('转换 .mp4').getAttribute('aria-checked')).toBe('false');
- expect(invoke.mock.calls.some(([name])=>name==='install_docling_profiles')).toBe(false);
+ expect(invoke.mock.calls.some(([name])=>name==='install_docling_from_resource')).toBe(false);
  button('安装并应用').click();await tick();
  expect(document.querySelector('.selected-formats')?.textContent).toContain('PDF');
  expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog) [role="checkbox"]')).toBeNull();
- button('安装').click();
- await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling_profiles',{profiles:['documents']}));
+ document.querySelector<HTMLButtonElement>('.docling-dialog:not(.docling-formats-dialog) .install-actions .primary')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling_from_resource',{profiles:['documents']}));
+ await vi.waitFor(()=>expect(button('后台下载')).toBeDefined());
  expect(invoke.mock.calls.some(([name])=>name==='install_docling')).toBe(false);
  current={...current,running:false,stage:'done',installed:true,profiles:initial.profiles};doclingStatus.set(current);await tick();
  expect(applied().enabled).toBe(false);expect(find('转换 .pdf')).toBe(pdfChoice);await vi.waitFor(()=>expect(button('应用所选格式')?.disabled).toBe(false));button('应用所选格式').click();await tick();
@@ -142,7 +143,7 @@ it('旧状态读取晚于卸载结果返回时，不能把组件重新显示为�
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('get_docling_status',undefined));
  updateDoclingStatus({...initial,installed:false,stage:'uninstalled',profiles:initial.profiles.map(profile=>({...profile,installed:false}))});await tick();
  finish(initial);await tick();await Promise.resolve();await tick();
- find('选择其他格式').click();await tick();expect(document.querySelector<HTMLButtonElement>('.uninstall-docling')?.disabled).toBe(true);
+ find('选择其他格式').click();await tick();expect(document.querySelector('.uninstall-docling')).toBeNull();expect(find('安装 Docling')?.disabled).toBe(false);
  expect(applied().enabled).toBe(false);
 });
 

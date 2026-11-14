@@ -1,5 +1,19 @@
 # 更新日志 / Changelog
 
+## 0.2.14
+
+- **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答布局。
+- **模型与搜索总结**：可获取并多选问答模型，支持 OpenAI Decisions，并可为搜索总结单独选择模型、查看用量。
+- **系统代理**：Windows 和 macOS 上的模型请求支持手动配置的系统代理，切换后无需重启。
+- **文档解析设置**：Docling 文档组件可从资源站下载安装，保留手动导入入口；MinerU 支持自定义接口地址。
+
+### English
+
+- **Narrow layouts**: Improve the sidebar, settings, search and chat on mobile browsers and in narrow desktop windows.
+- **Models and search summaries**: Fetch and select chat models, use OpenAI Decisions, and choose a separate model for search summaries with usage shown.
+- **System proxy**: Model requests use manually configured system proxies on Windows and macOS. Changes apply without restarting.
+- **Document parsing settings**: Install the Docling document component from the resource site or import it manually. Set a custom endpoint for MinerU.
+
 ## 0.2.13
 
 - **升级缓存与索引统计**：启动或升级后的检查复用未变化的索引和兼容的转换结果；索引详情区分已检查、已复用、已更新和失败，避免将检查文件数误认为重新构建数。内容、解析设置或必要迁移变化时，仍会更新受影响文档。

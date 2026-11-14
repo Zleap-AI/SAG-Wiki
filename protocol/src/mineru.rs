@@ -42,6 +42,7 @@ pub enum MineruModel {
 pub struct MineruConfig {
     pub enabled: bool,
     pub provider: MineruProvider,
+    pub base_url: String,
     pub has_key: bool,
     pub request_timeout_secs: u64,
     pub task_timeout_secs: u64,
@@ -59,6 +60,7 @@ impl Default for MineruConfig {
         Self {
             enabled: false,
             provider: MineruProvider::Ai302,
+            base_url: String::new(),
             has_key: false,
             request_timeout_secs: 60,
             task_timeout_secs: 1800,
@@ -74,6 +76,11 @@ impl Default for MineruConfig {
     }
 }
 impl MineruConfig {
+    pub fn base_url(&self) -> &str {
+        let base = self.base_url.trim();
+        if base.is_empty() { self.provider.base_url() } else { base.trim_end_matches('/') }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if !["2.0", "2.5"].contains(&self.version.as_str()) || !["auto", "txt", "ocr"].contains(&self.parse_method.as_str()) {
             return Err("MinerU 版本或解析方式无效".into());
@@ -94,10 +101,12 @@ impl MineruConfig {
     }
     /// Settings which change the document content, not transport scheduling.
     pub fn content_identity(&self) -> String {
-        format!(
+        let identity = format!(
             "mineru-v2:{}:{:?}:{}:{}:{}:{}:{}",
             match self.provider {MineruProvider::Ai302=>"Ai302OpenSource",MineruProvider::Official=>"Official"}, self.model_version, self.ocr, self.table, self.formula, self.version, self.parse_method
-        )
+        );
+        if self.base_url() == self.provider.base_url() { identity }
+        else { format!("{identity}:base-url:{}", self.base_url()) }
     }
 }
 

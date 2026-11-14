@@ -879,7 +879,7 @@ async fn search(
     } else {
         let tools = SagTools {
             store: service.store.clone(),
-            client: service.http_client(),
+            http: service.model_http(),
             data_dir: service.data_dir.clone(),
             settings,
             scope: scope.clone(),

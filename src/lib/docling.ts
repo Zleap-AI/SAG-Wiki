@@ -4,7 +4,8 @@ import type {DoclingProfile,DoclingStatus} from './types';
 
 export const doclingStatus=writable<DoclingStatus|null>(null);
 export const doclingDownloadOpen=writable(false);
-export type DoclingInstallRequest={profiles:DoclingProfile[];formats:string[];apply?:(valid:()=>boolean)=>Promise<void>;valid:boolean;pending:boolean;started:boolean};
+export type DoclingInstallAction='resource'|'command'|'import';
+export type DoclingInstallRequest={profiles:DoclingProfile[];formats:string[];apply?:(valid:()=>boolean)=>Promise<void>;valid:boolean;pending:boolean;started:boolean;action?:DoclingInstallAction};
 export const doclingInstallRequest=writable<DoclingInstallRequest|null>(null);
 const legacyMedia=new Set(['wav','mp3','m4a','aac','ogg','flac','mp4','avi','mov','mkv','webm']);
 export function profileForExtension(status:DoclingStatus,extension:string):DoclingProfile|undefined{
@@ -28,10 +29,10 @@ export function openDoclingProgress(){
  }
  doclingDownloadOpen.set(true);
 }
-export function openDoclingDownload(profiles:DoclingProfile[],formats:string[],apply:(valid:()=>boolean)=>Promise<void>){
+export function openDoclingDownload(profiles:DoclingProfile[],formats:string[],apply?:(valid:()=>boolean)=>Promise<void>,action?:DoclingInstallAction){
  if(get(doclingStatus)?.running||get(doclingInstallRequest)?.pending){openDoclingProgress();return()=>{};}
  const previous=get(doclingInstallRequest);if(previous){previous.valid=false;previous.apply=undefined;}
- const context:DoclingInstallRequest={profiles:[...profiles],formats:[...formats],apply,valid:true,pending:false,started:false};
+ const context:DoclingInstallRequest={profiles:[...profiles],formats:[...formats],apply,valid:true,pending:false,started:false,action};
  doclingInstallRequest.set(context);doclingDownloadOpen.set(true);
  return()=>{context.valid=false;context.apply=undefined;if(get(doclingInstallRequest)===context)doclingInstallRequest.set(context);};
 }

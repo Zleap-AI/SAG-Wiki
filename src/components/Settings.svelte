@@ -25,6 +25,7 @@
  import QuickSearchSettings from './QuickSearchSettings.svelte';
  import {defaultUpdateSettings} from '../lib/updates';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
+ export let narrowLayout=false;
  export let onShowGuide:(()=>void)|undefined=undefined;
  export let onIndexHistory:(()=>void)|undefined=undefined;
  export let onBeforeUpdate:(()=>Promise<boolean>)|undefined=undefined;
@@ -39,8 +40,26 @@
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>,mineruKey?:string)=>Promise<void>;
- let settings={...structuredClone(value),runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=web?'general':initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??1,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=web?'general':initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false,apiBusy=false;
+ let modelCatalog:{items?:string[];error?:string;existing:Set<string>}|null=null,modelFilter='';
+ $: visibleModels=modelCatalog?.items?.filter(model=>model.toLowerCase().includes(modelFilter.trim().toLowerCase()));
+ $: answerModels=[...new Set(models.split('\n').map(model=>model.trim()).filter(Boolean))];
+ async function fetchModels(){
+  const catalog={existing:new Set(models.split('\n').map(model=>model.trim()))};
+  modelFilter='';modelCatalog=catalog;
+  try{
+   checkProviderKey('answer');
+   const items=await api<string[]>('list_answer_models',{config:structuredClone(settings.answer),key:answerKey});
+   if(modelCatalog===catalog)modelCatalog={...catalog,items};
+  }catch(e){if(modelCatalog===catalog)modelCatalog={...catalog,error:$t(String(e))};}
+ }
+ function toggleModel(model:string,checked:boolean){
+  const current=models.split('\n');
+  if(checked){
+   if(!current.some(line=>line.trim()===model))models=[models.trimEnd(),model].filter(Boolean).join('\n');
+  }else models=current.filter(line=>line.trim()!==model).join('\n');
+ }
  let cliConnection='',cliConnectionOpen=false,cliConnectionSuccessUntil=0;
  async function openAboutLink(event:MouseEvent,target:'project'|'company'|'302-api-keys'|'zleap-console'){event.preventDefault();error='';try{await api('open_about_link',{target})}catch(e){error=String(e)}}
  let languageSaved=false;
@@ -59,7 +78,7 @@
   }
  }
  function changeAddress(kind:ModelKind,address:string){if(!sameProviderOrigin(settings[kind].url,address)){if(kind==='answer')answerKey='';else jevKey='';autoFilledKey=null;}settings[kind].url=address;if(providerChoice[kind]!=='custom')providerChoice[kind]=providerFor(kind,address);status='';error='';}
- function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id===current)return;if(kind==='jev')settings.jev.model=id==='zleap'?'Zev-1':id==='302'||id==='official'?'jev-latest':'';if(id==='custom')return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
+ function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id===current)return;if(kind==='jev'){settings.jev.model=id==='zleap'?'Zev-1':id==='openai'?'gpt-6-luna':id==='302'||id==='official'?'jev-latest':'';if(id==='openai'&&settings.jev.auth_mode==='none')changeJevAuth('bearer');}if(id==='custom')return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  $:applyTheme(settings.theme);
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN');applyTheme(value.theme)});
  $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['api',$t('远程服务'),'network'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']].filter(([id])=>!web||id==='general'||id==='appearance');
@@ -94,19 +113,28 @@
    settings={...settings};
   };
  }
- async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=[...new Set(models.split('\n').map(s=>s.trim()).filter(Boolean))];if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials,mineruKey);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
+ async function save(){busy=true;error='';try{checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=answerModels;if(!answerModels.includes(settings.search_summary_model))settings.search_summary_model='';if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials,mineruKey);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false}}
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
 </script>
 
 <Modal label={$t("设置")} class="settings-dialog settings-window" overlayClass="settings-backdrop" onClose={()=>{if(!apiBusy)onClose();}}>
-  <div class="dialog-head"><h2>{$t("设置")}</h2><Button.Root class="icon-button" aria-label={$t("关闭设置")} disabled={apiBusy} onclick={onClose}>{@html icon('close')}</Button.Root></div>
+  <div class="dialog-head">
+   <h2>{$t("设置")}</h2>
+   <Button.Root class="icon-button settings-close" aria-label={$t("关闭设置")} disabled={apiBusy} onclick={onClose}>{@html icon('close')}</Button.Root>
+   <Button.Root class="icon-button settings-back" aria-label={$t("返回上一层")} disabled={apiBusy} onclick={onClose}>{@html icon('back')}</Button.Root>
+  </div>
   <form on:submit|preventDefault={()=>{if(page!=='api')void save();}} class="settings-form">
    <nav class="settings-nav" aria-label={$t("设置分类")}>
     {#each pages as [id,label,glyph]}
      <Button.Root type="button" disabled={cliBusy||apiBusy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
     {/each}
    </nav>
+   {#if narrowLayout&&!web}
+    <div class="settings-category-picker">
+     <Select label={$t("设置分类")} value={page} items={pages.map(([value,label])=>({value,label}))} disabled={cliBusy||apiBusy} onValueChange={next=>{page=next;status='';error=''}}/>
+    </div>
+   {/if}
    <div class="settings-content">
     {#if page!=='api'}<header class="settings-page-heading"><h2>{pages.find(p=>p[0]===page)?.[1]}</h2><p>{descriptions[page]}</p></header>{/if}
     {#if page==='general'}
@@ -152,7 +180,10 @@
        <label class="field-label provider-field">{$t('供应商')}<Select label={kind==='answer'?$t('LLM 供应商'):$t('Jev 供应商')} value={providerChoice[kind as ModelKind]} placeholder={kind==='jev'?$t('已保存的接口'):''} items={providers[kind as ModelKind].map(provider=>({value:provider.value,label:$t(provider.label)}))} onValueChange={id=>changeProvider(kind as ModelKind,id)}/></label>
        <label class="field-label">{$t("接口地址")}<Input type="url" required value={settings[kind as ModelKind].url} oninput={event=>changeAddress(kind as ModelKind,event.currentTarget.value)} spellcheck="false"/></label>
        {#if kind==='answer'}
-        <label class="field-label">{$t("可选模型 · 每行一个")}<Textarea required bind:value={models} rows={3} spellcheck="false"/></label>
+        <div class="field-label">
+         <div class="key-field-label"><label for="answer-models">{$t("可选模型 · 每行一个")}</label><Button.Root type="button" class="settings-key-link" disabled={busy} onclick={fetchModels}>{$t('获取模型列表')}</Button.Root></div>
+         <Textarea id="answer-models" required bind:value={models} rows={3} spellcheck="false"/>
+        </div>
         <label class="field-label"><span class="key-field-label">{$t("API 密钥")}{#if providerChoice.answer==='302'}<a class="settings-key-link" href="https://302.ai/api-keys/list" target="_blank" rel="noreferrer" on:click={event=>openAboutLink(event,'302-api-keys')}>{$t("获取 API Key")}</a>{/if}</span><div class="key-field"><Input type={showAnswer?'text':'password'} value={answerKey} oninput={event=>changeKey('answer',event.currentTarget.value)} placeholder={savedKeys.answer?$t("已保存在本机；留空保持原密钥"):$t("填写 API 密钥")} autocomplete="off" spellcheck="false"/><Button.Root type="button" onclick={()=>showAnswer=!showAnswer}>{showAnswer?$t("隐藏"):$t("显示")}</Button.Root></div></label>
        {:else}
         <label class="field-label">{$t("模型名称")}<Input required bind:value={settings.jev.model} spellcheck="false"/></label>
@@ -199,7 +230,11 @@
 
      <RuntimeSettings group="answer" bind:value={settings.runtime}/>
     {:else if page==='retrieval'}
-     <section class="settings-group"><div class="setting-row"><div><strong>{$t("搜索结果自动总结")}</strong><p>{$t("搜索后使用问答模型，根据问题和参考结果生成简短总结。")}</p></div><Switch bind:checked={settings.search_summary_enabled} label={$t("搜索结果自动总结")}/></div><div class="setting-row"><div><strong>{$t("自动总结参考数量")}</strong><p>{$t("默认 10 条，不设最大值；超过模型上下文预算时自动裁剪。")}</p></div><Input type="number" min="1" step="1" required bind:value={settings.search_summary_sources} aria-label={$t("自动总结参考数量")}/></div></section>
+     <section class="settings-group">
+      <div class="setting-row"><strong>{$t("搜索结果自动总结")}</strong><Switch bind:checked={settings.search_summary_enabled} label={$t("搜索结果自动总结")}/></div>
+      <div class="setting-row"><strong>{$t("总结模型")}</strong><Select class="summary-model-select" label={$t("总结模型")} bind:value={settings.search_summary_model} items={[{value:'',label:$t("跟随默认问答模型")},...answerModels.map(model=>({value:model,label:model}))]}/></div>
+      <div class="setting-row"><div><strong>{$t("自动总结参考数量")}</strong><p>{$t("默认 10 条，不设最大值；超过模型上下文预算时自动裁剪。")}</p></div><Input type="number" min="1" step="1" required bind:value={settings.search_summary_sources} aria-label={$t("自动总结参考数量")}/></div>
+     </section>
      <section class="settings-group">{#each parameters as [key,title,desc,min,max]}<div class="setting-row"><div><strong>{title}</strong><p>{desc}</p></div><Input type="number" {min} {max} required bind:value={settings.retrieval[key]} aria-label={title}/></div>{/each}</section>
      <div class="settings-section-actions"><Button.Root type="button" class="outline" onclick={()=>settings.retrieval={candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512}}>{$t("恢复默认参数")}</Button.Root></div>
      <details class="settings-limits"><summary>{$t("算法固定规则")}</summary><p>{$t("每次检索最多 3 轮 Jev 评分，本地排序不增加模型请求。单轮预算为 64,000 tokens，单候选与共享证据合计不超过 32,000 tokens；超限时提示调整候选数量，原文不截断。")}</p></details>
@@ -235,11 +270,42 @@
   </form>
 </Modal>
 
+{#if modelCatalog}<Modal label={$t('模型列表')} onClose={()=>modelCatalog=null} class="model-catalog" overlayClass="model-catalog-backdrop">
+ <div class="dialog-head"><h2>{$t('模型列表')}</h2></div>
+ <div class="dialog-body">
+  {#if modelCatalog.error}<p class="form-error" role="alert">{modelCatalog.error}</p>
+  {:else if !visibleModels}<p role="status">{$t('正在获取模型列表…')}</p>
+  {:else if !modelCatalog.items?.length}<p role="status">{$t('供应商未返回模型。')}</p>
+  {:else}
+   <Input type="search" data-autofocus aria-label={$t('搜索模型')} placeholder={$t('搜索模型')} bind:value={modelFilter}/>
+   {#if visibleModels.length}
+    <div class="model-options">
+     {#each visibleModels as model (model)}
+      <label><input type="checkbox" checked={models.split('\n').some(line=>line.trim()===model)} disabled={modelCatalog.existing.has(model)} on:change={event=>toggleModel(model,event.currentTarget.checked)}/><span>{model}</span></label>
+     {/each}
+    </div>
+   {:else}<p role="status">{$t('没有匹配的模型。')}</p>{/if}
+  {/if}
+ </div>
+ <div class="dialog-footer"><Button.Root type="button" class="primary" onclick={()=>modelCatalog=null}>{$t('完成')}</Button.Root></div>
+</Modal>{/if}
+
 {#if confirmClear}<Modal label={$t("清空所有对话")} onClose={()=>{if(!clearing)confirmClear=false}}>
  <div class="dialog-head"><h2>{$t("清空所有对话")}</h2></div>
  <div class="dialog-body"><p>{$t("所有问答历史、思考过程和工具调用日志将被永久删除，无法恢复。原文件、知识库索引、模型设置和密钥会保留。")}</p>{#if clearError}<p class="form-error clear-history-error" role="alert">{clearError}</p>{/if}</div>
  <div class="dialog-footer"><Button.Root type="button" aria-label={$t("取消清空对话")} disabled={clearing} onclick={()=>confirmClear=false}>{$t("取消")}</Button.Root><Button.Root type="button" class="clear-conversations-button" aria-label={$t("确认清空所有对话")} disabled={clearing} onclick={clearConversations}>{clearing?$t("正在清空…"):$t("确认清空")}</Button.Root></div>
 </Modal>{/if}
+
+<style>
+ :global(.model-catalog-backdrop){z-index:45}
+ :global(.model-catalog.dialog-panel){display:flex;flex-direction:column;max-height:calc(100dvh - 48px)}
+ :global(.model-catalog .dialog-body){display:flex;flex-direction:column;min-height:0;gap:12px}
+ .model-options{min-height:0;max-height:320px;overflow-y:auto}
+ .model-options label{display:flex;align-items:center;gap:10px;min-height:36px;margin:0;padding:4px 8px;cursor:pointer}
+ .model-options label:hover{background:var(--color-hover)}
+ .model-options input{flex:none;width:16px;height:16px;margin:0;accent-color:var(--color-accent)}
+ .model-options span{min-width:0;overflow-wrap:anywhere}
+</style>
 
 {#if confirmRemoveRoots}<Modal label={$t("移除所有文件夹")} onClose={()=>{if(!removingRoots)confirmRemoveRoots=false}}>
  <div class="dialog-head"><h2>{$t("移除所有文件夹")}</h2></div>

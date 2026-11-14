@@ -451,8 +451,9 @@ impl Drop for Fixture {
 
 #[tokio::test]
 async fn connection_probe_uses_only_the_parser_endpoint_without_upload_or_dashboard() {
-    let server=Fixture::new(|_|vec![Step{method:"GET",path:"/302/v2/mineru/task",status:422,body:vec![]}]);
-    let message=test_connection_at(&MineruConfig::default(),"secret",&server.base).await.unwrap();assert!(message.contains("尚未验证"));server.finish(1);
+    let server=Fixture::new(|_|vec![Step{method:"GET",path:"/proxy/302/v2/mineru/task",status:422,body:vec![]}]);
+    let config=MineruConfig{base_url:format!("{}/proxy/",server.base),..Default::default()};
+    let message=test_connection(&config,"secret").await.unwrap();assert!(message.contains("尚未验证"));server.finish(1);
 }
 #[tokio::test]
 async fn connection_probe_auth_failure_is_redacted() {
@@ -533,10 +534,11 @@ fn official_upload_resumes_task_and_never_sends_key_to_storage() {
     std::fs::write(&source, pdf(1)).unwrap();
     let config = MineruConfig {
         provider: MineruProvider::Official,
+        base_url: server.base.clone(),
         ..Default::default()
     };
-    convert_at(&source, &output, &config, "secret", &|| false, &server.base).unwrap();
-    convert_at(&source, &output, &config, "secret", &|| false, &server.base).unwrap();
+    convert_with_runtime(&source, &output, &config, "secret", &RuntimeSettings::default(), &|| false, &|_| {}).unwrap();
+    convert_with_runtime(&source, &output, &config, "secret", &RuntimeSettings::default(), &|| false, &|_| {}).unwrap();
     assert!(std::fs::read_to_string(output)
         .unwrap()
         .contains("# parsed"));
