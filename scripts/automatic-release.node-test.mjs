@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
-import {copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
+import {chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync} from 'node:fs';
 import {dirname, join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
 import {changedPaths, compareVersions, createPreparedCommit, gitAt, hasProductChanges, isProductPath, latestPublished,
   nextVersion, hasNewerPreparedSource, preparedContents, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
-import {assertNoPendingReleaseDeployments} from './migrate-release-environment.mjs';
+import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-release-environment.mjs';
 import {validateVersions} from './release.mjs';
 
 const root = resolve(import.meta.dirname, '..');
@@ -242,4 +242,21 @@ test('workflows dispatch the exact tag and publish only after all final checks w
   assert.match(desktop, /publish:\n\s+name: Publish verified desktop release\n\s+needs: \[validate, release\]/);
   assert.match(desktop, /group: desktop-release-publication\n\s+cancel-in-progress: false\n\s+queue: max/);
   assert.match(desktop, /run: node scripts\/automatic-release.mjs publish/);
+});
+
+
+test('migration uses the canonical repository endpoint without a trailing slash', () => {
+  assert.equal(releaseApiPath(''), 'repos/Zleap-AI/SAG-Wiki');
+  assert.equal(releaseApiPath('environments/release'), 'repos/Zleap-AI/SAG-Wiki/environments/release');
+});
+
+
+test('migration dry-run handles large API responses without writes', {skip: process.platform === 'win32'}, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'sag-migration-api-'));
+  try {
+    const shim = `#!${process.execPath}\nconst args=process.argv.slice(2), path=args.at(-1); if(args.includes('--method') || path.endsWith('/')) process.exit(9); let data;if(path==='repos/Zleap-AI/SAG-Wiki') data={permissions:{admin:true},description:'x'.repeat(2*1024*1024)};else if(path.endsWith('/deployment-branch-policies')) data={branch_policies:[{name:'v*',type:'tag'}]};else if(path.endsWith('/environments/release')) data={can_admins_bypass:false,protection_rules:[]};else process.exit(8);process.stdout.write(JSON.stringify(data));\n`;
+    writeFileSync(join(directory, 'gh'), shim); chmodSync(join(directory, 'gh'), 0o755);
+    const result = spawnSync(process.execPath, [join(root, 'scripts/migrate-release-environment.mjs')], {encoding:'utf8',env:{...process.env,PATH:directory+':'+process.env.PATH}});
+    assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /dry-run/);
+  } finally { rmSync(directory, {recursive:true,force:true}); }
 });

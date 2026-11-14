@@ -7,6 +7,8 @@ import {pathToFileURL} from 'node:url';
 import {validateEnvironment} from './release.mjs';
 
 const repository = 'Zleap-AI/SAG-Wiki';
+export const releaseApiPath = path => `repos/${repository}${path ? `/${path}` : ''}`;
+
 export function assertNoPendingReleaseDeployments(deployments) {
   assert.ok(!deployments.some(deployment => deployment.environment?.name === 'release'),
     'Resolve or cancel existing pending release deployments before removing reviewer requirements');
@@ -16,9 +18,9 @@ function main() {
   const args = process.argv.slice(2);
   assert.ok(args.length === 0 || (args.length === 1 && args[0] === '--apply'), 'Use migrate-release-environment.mjs [--apply]');
   const request = (path, method, body, paginate = false) => {
-    const result = spawnSync('gh', ['api', ...(paginate ? ['--paginate', '--slurp'] : []), ...(method ? ['--method', method] : []), `repos/${repository}/${path}`,
-      ...(body ? ['--input', '-'] : [])], {encoding: 'utf8', input: body && JSON.stringify(body)});
-    assert.equal(result.status, 0, `GitHub request failed: ${result.stderr?.trim()}`);
+    const result = spawnSync('gh', ['api', ...(paginate ? ['--paginate', '--slurp'] : []), ...(method ? ['--method', method] : []), releaseApiPath(path),
+      ...(body ? ['--input', '-'] : [])], {encoding: 'utf8', input: body && JSON.stringify(body), maxBuffer: 64 * 1024 * 1024, timeout: 120000});
+    assert.equal(result.status, 0, `GitHub request failed: ${result.stderr?.trim() || result.error?.message}`);
     return JSON.parse(result.stdout);
   };
   const project = request('');
