@@ -101,14 +101,39 @@ impl Store {
         );
         let fingerprint = crate::docling::fingerprint(source)?;
         let output = crate::docling::output_path(Path::new(root), source)?;
-        let previous: Option<String> = self
+        let previous: Option<(String, String, bool)> = self
             .connection()
             .query_row(
-                "SELECT output_hash FROM conversions WHERE source=?",
+                "SELECT source_hash,output_hash,valid FROM conversions WHERE source=?",
                 [path_text(source)?],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             )
             .optional()?;
+        let identity = crate::conversion::identity(source, settings);
+        let hash = if identity.is_empty() {
+            fingerprint.clone()
+        } else {
+            format!("{identity}:{fingerprint}")
+        };
+        // Stat changes alone do not justify parsing and replacing a successful
+        // owned output. Validate both contents before refreshing its stat cache.
+        if let Some((source_hash, output_hash, true)) = &previous {
+            if *source_hash == hash
+                && output.is_file()
+                && crate::docling::fingerprint(&output)? == *output_hash
+            {
+                let prepared = self.prepare_indexed_file(
+                    root, &output, settings.retrieval.chunk_chars, false, &settings.runtime,
+                )?;
+                self.accept_prepared(root, &output, prepared)?;
+                self.connection().execute(
+                    "UPDATE conversions SET mtime=?2,size=?3 WHERE source=?1",
+                    params![path_text(source)?, stat.0, stat.1],
+                )?;
+                self.conversion_state(&path_text(source)?, root, "complete", None)?;
+                return Ok(true);
+            }
+        }
         fs::create_dir_all(output.parent().unwrap())?;
         let staged = tempfile::Builder::new()
             .prefix(".sag-basic-")
@@ -121,12 +146,6 @@ impl Store {
             crate::anydoc::Outcome::NeedsOcr(_) => return Ok(false),
             crate::anydoc::Outcome::Converted => {}
         }
-        let identity = crate::conversion::identity(source, settings);
-        let hash = if identity.is_empty() {
-            fingerprint.clone()
-        } else {
-            format!("{identity}:{fingerprint}")
-        };
         self.publish_converted_file(
             root,
             source,
@@ -135,7 +154,7 @@ impl Store {
             stat,
             &output,
             staged,
-            previous.as_deref(),
+            previous.as_ref().map(|(_, hash, _)| hash.as_str()),
             settings.retrieval.chunk_chars,
             &settings.runtime,
         )?;
@@ -176,6 +195,7 @@ impl Store {
                     let source = path_text(source)?;
                     self.conversion_state(&source, root, "enhancement_failed", Some(&error))?;
                     self.connection().execute("INSERT INTO index_issues(path,root,error) VALUES(?,?,?) ON CONFLICT(path) DO UPDATE SET root=excluded.root,error=excluded.error", params![source,root,error])?;
+                    self.indexing.record_file(root, &crate::docling::output_path(Path::new(root), Path::new(&source))?, IndexOutcome::Failed);
                     continue;
                 }
             }
@@ -256,35 +276,30 @@ impl Store {
                     )?;
                     self.remove_indexed(&path_text(&output)?)?;
                 }
-                // Imported ownership journals lack stat fields. Reuse an unchanged
-                // complete structured result rather than downgrading it to basic text.
+                // Imported ownership journals and compatible legacy contracts need
+                // source and output validation before adopting the current identity.
                 if let Some((previous_source, previous_output, true, _, _)) = &previous {
-                    let expected = if identity.is_empty() {
-                        fingerprint.clone()
-                    } else {
-                        format!("{identity}:{fingerprint}")
-                    };
-                    if *previous_source == expected
+                    let compatible = crate::conversion::compatible_success_hash(
+                        source, settings, previous_source,
+                    );
+                    if previous_source.rsplit(':').next() == Some(fingerprint.as_str())
+                        && compatible.is_some()
                         && output.is_file()
                         && crate::docling::fingerprint(&output)? == *previous_output
                     {
-                        if let Some(file) = self.prepare_indexed_file(
-                            root,
-                            &output,
-                            settings.retrieval.chunk_chars,
-                            false,
-                            &settings.runtime,
-                        )? {
-                            let mut db = self.connection();
-                            let tx = db.transaction()?;
-                            Self::write_prepared(&tx, root, file)?;
-                            tx.commit()?;
-                        }
-                        self.connection().execute(
-                            "UPDATE conversions SET mtime=?2,size=?3 WHERE source=?1",
-                            params![&source_text, mtime, size],
+                        let prepared = self.prepare_indexed_file(
+                            root, &output, settings.retrieval.chunk_chars, false, &settings.runtime,
                         )?;
-                        self.conversion_state(&source_text, root, "complete", None)?;
+                        self.accept_prepared(root, &output, prepared)?;
+                        self.connection().execute(
+                            "UPDATE conversions SET source_hash=?4,mtime=?2,size=?3 WHERE source=?1",
+                            params![&source_text, mtime, size, compatible],
+                        )?;
+                        self.conversion_state(
+                            &source_text, root,
+                            if previous_source.starts_with("basic-") { "basic" } else { "complete" },
+                            None,
+                        )?;
                         return Ok(());
                     }
                 }

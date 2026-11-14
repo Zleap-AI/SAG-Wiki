@@ -11,6 +11,12 @@ Markdown, plain text, RTF, Word, PowerPoint, Excel, OpenDocument, CSV, EPUB and 
 
 ![The example folder after indexing](/images/product-folders-en.png)
 
+## Startup, upgrades and index reuse
+
+When the background service starts, it checks registered folders against existing files, settings and indexes. “Checking text index”, “Checking basic text”, “Checking file conversions” or “Checking converted index” does not mean every file is being parsed or rebuilt. Unchanged indexes and compatible successful conversions are reused. New, changed or migration-affected content is updated as needed.
+
+If file metadata such as its modification time changes while its content stays the same, SAG validates the source content and reuses compatible built-in non-PDF conversions. A complete, successful PDF conversion can also be reused when its source content and parsing rules remain compatible. Changes to optional parser component packages alone do not invalidate these complete results. An upgrade that requires a parsing-rule or index migration may still update affected documents once. Manually edited conversion files are preserved during normal parser upgrades.
+
 ## Progressive indexing and search availability
 
 PDFs first attempt to extract their basic text layer. Mixed text/scanned PDFs and image-only scans continue with background OCR and table structure processing. PDFs with usable text on every page retain built-in anydoc completion without an additional Docling enhancement pass. Once basic text is indexed, it can be searched while enhancement continues. Search coverage increases as background processing finishes. Basic indexing and enhancement use separate background workers. New or changed files in the same folder can continue extracting and indexing basic text while an older PDF undergoes OCR or table enhancement. Index details list basic indexing and background enhancement progress separately. Actual concurrency remains subject to memory budgets, parsers and source-change validation. The file list shows:
@@ -188,11 +194,20 @@ The card shows progress while rebuilding and prevents duplicate submissions. Bot
 
 Global **Reindex** checks all registered directories using saved types and exclusions, updating changed indexes. Save relevant changes before running it.
 
-Open **Index history → View** to inspect progress, completion and failures. Check error paths and messages rather than assuming a total file count means everything succeeded.
+Open **Index history → View** to inspect progress, completion and failures. The sidebar, task details and newly recorded history distinguish checks from actual index updates:
+
+| Count | Meaning |
+| --- | --- |
+| Checked | Index targets checked during this task |
+| Reused | Targets with no update or failure in this task whose existing indexes or compatible conversions remain usable |
+| Updated | Targets whose indexes were actually written, updated or removed during this task |
+| Failed | Targets that failed during this task; inspect failure details for the cause |
+
+A document may publish searchable basic text and then fail enhancement. It counts as both Updated and Failed, so the four numbers must not be added as a file total. These counts deduplicate index targets within the current task across processing stages. PDF parts do not count separately. “Current stage: processed … files” still describes only the current stage; it is not the number of documents rebuilt. Older history without this summary keeps its original processed counts and does not estimate reuse or updates. Check error paths and messages rather than assuming a total file count means everything succeeded.
 
 Exceptionally long table rows are indexed in smaller passages without editing the original file or its line breaks. Results still point to the original locations. File size and memory budgets remain enforced; exceeding them reports an error instead of writing an incomplete index.
 
-The bottom of the sidebar shows the current stage, progress and partial failures. During file conversion, a separate **Parser** line identifies the parser actually in use, such as MinerU, anydoc or Docling. When concurrent files use different parsers, their names appear together. The label updates when a failed attempt falls back to another parser. Before a parser starts, it shows “Preparing conversion…”; the line disappears outside conversion stages. Index details also identify the parser for each active file. After pausing, a file that is still finishing continues to show its parser until that work ends.
+The bottom of the sidebar shows the current stage, progress and partial failures. During file conversion, a separate **Parser** line identifies the parser actually in use, such as MinerU, anydoc or Docling. When concurrent files use different parsers, their names appear together. Parser and PDF-part labels describe only the task shown in the status card, without mixing in another task's parsing activity. The label updates when a failed attempt falls back to another parser. Before a parser starts, it shows “Checking conversion status…”; the line disappears outside conversion stages. Index details also identify the parser for each active file. After pausing, a file that is still finishing continues to show its parser until that work ends.
 
 During long-PDF conversion, the sidebar also shows the current document’s part number, total parts, and original page range. Parts do not count as separate files; cached parts also advance the indicator. The status card stays visible between parts and during parser fallback, showing “Processing document parts…” while waiting for the next parser. Index details show part progress for each document.
 
@@ -202,13 +217,13 @@ Longer text wraps while keeping the close button available. Click the status to 
 
 After you dismiss a failure notice, the app remembers the current failure details and keeps that notice hidden when you reopen the interface. New indexing runs still show progress, and changed failure details trigger a new notice. You can still inspect dismissed failures through the index status card on the Files page or **Index history → View**.
 
-![Sidebar conversion progress and active parsers](/images/product-index-status-en.png)
+![Sidebar startup checks and index reuse counts](/images/product-index-status-en.png)
 
 ![After dismissal and reopening, the sidebar notice stays hidden while index details remain available on the Files page](/images/product-index-status-dismissed-en.png)
 
 **Removed files and folders → Restore** adds an excluded path back and starts indexing. Restore only content you want searchable again.
 
-![Completed indexing history and file counts](/images/product-index-history-en.png)
+![Completed indexing history with checked, reused, updated and failed counts](/images/product-index-history-en.png)
 
 ### Recent indexing and failures
 
@@ -216,7 +231,7 @@ Index details shows the latest record for each folder. Expand older records to i
 
 ![Index failure details](/images/product-index-failure-en.png)
 
-Indexing details show the **Text indexing → File conversion → Index converted files** stages, with progress for the current stage. Already indexed content remains searchable. Select **Pause indexing** to pause after in-progress files finish, or **Resume indexing** to continue.
+Indexing details check text indexes, file conversions and converted indexes in turn, with progress for the current stage. Actual parsing shows “Parsing files” and the active parser. Already indexed content remains searchable. Select **Pause indexing** to pause after in-progress files finish, or **Resume indexing** to continue.
 
 ## Per-folder index settings
 
@@ -240,7 +255,7 @@ First-time initialization creates `Documents/sag-wiki/clippings` and adds `Docum
 
 ## Follow import progress
 
-Open an imported folder to see a persistent status above its file list: queued, scanning, converting documents or indexing converted results. It includes current filenames and counts for the current stage, rather than a misleading overall percentage. Unknown totals have no percentage. Use **View indexing details** to inspect active tasks and errors. If another folder is being processed, the waiting state is explicit; completed folders retain their indexed-file count.
+Open an imported folder to see a persistent status above its file list: queued, checking indexes and conversions, or actually parsing files. It includes current filenames and counts for the current stage. Unknown totals have no percentage. Stage counts are neither overall progress nor the number of documents rebuilt. Use **View indexing details** to inspect active tasks and errors. If another folder is being processed, the waiting state is explicit; completed folders retain their indexed-file count.
 
 ![Conversion progress and current file in a folder](/images/product-folder-progress-en.png)
 
@@ -248,4 +263,4 @@ Adding a folder restores the sidebar status. The app also checks backend snapsho
 
 Selecting a sidebar file switches directly to the document once its content is ready, keeping the current content during loading without an intermediate folder list. Rapid selections honor the latest file; a failed read preserves the previous page and displays an error.
 
-Previously failed files display “Retrying failed conversions” while being retried. First conversions retain “Converting files”. This status distinction does not change reuse of successful results.
+Previously failed files display “Retrying failed conversions” while being retried. A regular conversion stage starts with “Checking file conversions” and switches to “Parsing files” when the current task begins actual parsing. These states do not change reuse of successful results.

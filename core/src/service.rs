@@ -1165,10 +1165,11 @@ impl Service {
                     && !worker_store.indexing.is_active(&root,crate::index_status::IndexLane::Enhancement);
                 let last_update = std::cell::Cell::new(std::time::Instant::now());
                 let result = indexer::apply_foreground_request(&worker_store, request, |progress| {
+                    let task = worker_store.indexing.task(&root);
                     emit(
                         &handle,
                         "index-progress",
-                        serde_json::json!({"path":root,"count":progress.count,"total":progress.total,"stage":worker_store.indexing.task(&root).stage}),
+                        serde_json::json!({"id":task.id,"kind":task.kind,"path":root,"count":progress.count,"total":progress.total,"stage":task.stage,"summary":task.summary}),
                     );
                     if progress.count > 0 && last_update.get().elapsed() >= std::time::Duration::from_secs(1) {
                         last_update.set(std::time::Instant::now());
@@ -1207,9 +1208,10 @@ impl Service {
                     if enhancement_store.indexing.is_active(&root,crate::index_status::IndexLane::Primary) { continue; }
                     let last_update = std::cell::Cell::new(std::time::Instant::now());
                     let result = enhancement_store.enhance(&root, |progress| {
+                        let task = enhancement_store.indexing.task(&root);
                         emit(&enhancement_events,"index-progress",serde_json::json!({
-                            "path":root,"count":progress.count,"total":progress.total,
-                            "stage":enhancement_store.indexing.task(&root).stage,
+                            "id":task.id,"kind":task.kind,"path":root,"count":progress.count,"total":progress.total,
+                            "stage":task.stage,"summary":task.summary,
                         }));
                         if progress.count > 0 && last_update.get().elapsed() >= std::time::Duration::from_secs(1) {
                             last_update.set(std::time::Instant::now());
