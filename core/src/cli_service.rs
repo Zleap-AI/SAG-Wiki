@@ -441,6 +441,7 @@ impl CliService {
                 Ok(Response::Matches(output))
             }
             Command::Search {
+                exclude,
                 query,
                 max_results,
                 content,
@@ -460,6 +461,10 @@ impl CliService {
                 let operation = async {
                     let (path, scopes) = self.authorized(&request.path)?;
                     let scope = store::path_text(&path)?;
+                    let scopes = self.store.search_scopes_excluding(&path, &scopes, &exclude)?;
+                    if scopes.is_empty() {
+                        return Ok(Response::Search(SearchOutput { protocol_version: VERSION, scope, results: vec![], truncated: false }));
+                    }
                     let tools = SagTools {
                         store: self.store.clone(),
                         client: self.client.clone(),
@@ -471,12 +476,12 @@ impl CliService {
                         cancel,
                         progress: Arc::new(|_, _| {}),
                     };
-                    let output = tools
-                        .execute(
-                            "search",
-                            serde_json::json!({"query":query,"top_k":max_results}),
-                        )
-                        .await?;
+                    let arguments = serde_json::json!({"query":query,"top_k":max_results});
+                    let output = if exclude.is_empty() {
+                        tools.execute("search", arguments).await?
+                    } else {
+                        tools.execute_with_file_scope("search", arguments).await?
+                    };
                     // Recheck authorization after awaiting remote requests, including revocation.
                     self.authorized(&request.path)?;
                     let mut result = SearchOutput {
@@ -496,7 +501,9 @@ impl CliService {
                             bail!("文件已修改，请重新搜索：{}", candidate_path)
                         }
                         let canonical = Path::new(&candidate_path).canonicalize()?;
-                        if !canonical.starts_with(&path) || !scopes.iter().any(|scope| canonical.starts_with(scope)) {
+                        if !canonical.starts_with(&path) || !scopes.iter().any(|scope| {
+                            if exclude.is_empty() { canonical.starts_with(scope) } else { canonical == Path::new(scope) }
+                        }) {
                             bail!("搜索结果超出授权目录")
                         }
                         // Merge selected source ranges before rendering overlap or repeated table headers.

@@ -84,3 +84,7 @@ Select **Import JSON**, paste the configuration in the dialog and select **Impor
 ![Add an MCP server](/images/product-mcp-add-en.png)
 
 ![Import MCP configuration](/images/product-mcp-import-en.png)
+
+The search tool accepts an `exclude` array, e.g. `{"query":"authentication flow","path":"F:/project","exclude":[".git/**","archive/","*.zip"]}`. Patterns are relative to the selected directory, or to each search root when no path is supplied. They apply before retrieval and JEV scoring and do not modify the index. For a selected file, patterns are relative to its parent directory. Converted documents use the original filename and extension, such as `report.csv` rather than `report.csv.md`; selecting a converted-output directory preserves its relative subdirectories.
+
+With exclusions, each search uses the files allowed when filtering runs; newly added files are included on the next search.

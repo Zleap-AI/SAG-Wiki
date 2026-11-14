@@ -181,8 +181,19 @@ impl Corpus {
         references: &[String],
         excluded: &[i64],
     ) -> Result<()> {
+        self.resolve_terms_in_scope(store, terms, crate::store::SearchScope::Paths(scope), references, excluded)
+    }
+
+    pub(crate) fn resolve_terms_in_scope(
+        &self,
+        store: &Store,
+        terms: &mut [Term],
+        scope: crate::store::SearchScope<'_>,
+        references: &[String],
+        excluded: &[i64],
+    ) -> Result<()> {
         let has_hits = |term: &str| {
-            store.has_candidate_match(&quote(term), scope, references, excluded)
+            store.has_candidate_match_in_scope(&quote(term), scope, references, excluded)
         };
         for term in terms {
             if has_hits(&term.term)? {

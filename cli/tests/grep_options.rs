@@ -12,6 +12,16 @@ struct Project {
     root: PathBuf,
     data: PathBuf,
 }
+#[test]
+fn exclude_relative_subdirectories_with_default_cwd_and_explicit_path() {
+    let p = Project::new(&[("keep.txt","needle"),("archive/old.txt","needle"),("nested/keep.txt","needle")]);
+    let result = p.json(&["-F","needle","--exclude","archive/**","--json"]);
+    assert_eq!(result["results"].as_array().unwrap().len(),2);
+    let result = p.json(&["-F","needle","--path","nested","--exclude","keep.txt","--json"]);
+    assert!(result["results"].as_array().unwrap().is_empty());
+    let output = p.run(&["needle","--exclude","archive/**","--json"]);
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("--fixed-strings"));
+}
 impl Project {
     fn new(files: &[(&str, &str)]) -> Self {
         let dir = tempfile::tempdir().unwrap();

@@ -40,6 +40,7 @@ fn tools() -> [Tool; 2] {
                 "query":{"type":"string","minLength":1,"maxLength":2000},
                 "mode":{"type":"string","enum":["deep","fast"],"default":"deep"},
                 "paths":{"type":"array","items":{"type":"string"},"description":"Absolute paths on the server, within indexed folders."},
+                "exclude":{"type":"array","items":{"type":"string"},"description":"Glob exclusions relative to each selected directory, e.g. [\".git/**\",\"archive/\",\"*.zip\"]. Applied before retrieval and decision scoring; does not modify the index."},
                 "limit":{"type":"integer","minimum":1,"maximum":100,"default":10}
             }
         }).as_object().unwrap().clone()),

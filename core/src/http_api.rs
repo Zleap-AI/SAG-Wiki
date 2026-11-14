@@ -591,6 +591,8 @@ async fn handle_http(
 #[serde(deny_unknown_fields)]
 struct SearchRequest {
     query: String,
+    #[serde(default)]
+    exclude: Vec<String>,
     #[serde(default = "deep")]
     mode: String,
     #[serde(default)]
@@ -839,7 +841,12 @@ async fn search(
 ) -> std::result::Result<Value, ApiError> {
     let store = service.store.clone();
     let paths = input.paths.clone();
-    let scope = tokio::task::spawn_blocking(move || scopes(&store, &paths))
+    let exclude = input.exclude.clone();
+    let files_only = !exclude.is_empty();
+    let scope = tokio::task::spawn_blocking(move || {
+        let scopes = scopes(&store, &paths)?;
+        store.search_scopes_excluding_each(&scopes, &exclude).map_err(ApiError::bad)
+    })
         .await
         .map_err(ApiError::internal)??;
     let canonical_scope = scope.iter().map(|path| Path::new(path).canonicalize())
@@ -870,7 +877,8 @@ async fn search(
             if expression.is_empty() {
                 Ok(vec![])
             } else {
-                store.candidate_query(&expression, None, &scope, &[], &[], limit)
+                let scope = if files_only { store::SearchScope::Files(&scope) } else { store::SearchScope::Paths(&scope) };
+                store.candidate_query_in_scope(&expression, None, scope, &[], &[], limit)
             }
         })
         .await
@@ -888,7 +896,12 @@ async fn search(
             cancel: cancel.clone(),
             progress: Arc::new(|_, _| {}),
         };
-        tokio::select! {_=cancel.cancelled()=>return Err(ApiError::stopped()),result=tools.execute("search",json!({"query":input.query.trim(),"top_k":input.limit}))=>result.map_err(|e| {
+        let operation = async {
+            let arguments = json!({"query":input.query.trim(),"top_k":input.limit});
+            if files_only { tools.execute_with_file_scope("search", arguments).await }
+            else { tools.execute("search", arguments).await }
+        };
+        tokio::select! {_=cancel.cancelled()=>return Err(ApiError::stopped()),result=operation=>result.map_err(|e| {
             if e.downcast_ref::<crate::models::DecisionRequestError>().is_some() {
                 ApiError::new(StatusCode::BAD_GATEWAY,"decision_request_failed",e)
             } else { ApiError::internal(e) }
@@ -911,7 +924,7 @@ async fn search(
             let document=store.document(Path::new(&path)).map_err(ApiError::internal)?;
             if document.hash!=hash{return Err(ApiError::internal("文件已修改，请重新搜索"))}
             let canonical=store.authorize(Path::new(&path)).map_err(ApiError::internal)?;
-            if !canonical_scope.iter().any(|s|canonical.starts_with(s)){return Err(ApiError::internal("结果超出搜索范围"))}
+            if !canonical_scope.iter().any(|s|if files_only {canonical==*s}else{canonical.starts_with(s)}){return Err(ApiError::internal("结果超出搜索范围"))}
             ranges.sort_unstable();let mut merged:Vec<(usize,usize)>=vec![];
             for (start,end) in ranges{if let Some(last)=merged.last_mut().filter(|last|start<=last.1){last.1=last.1.max(end)}else{merged.push((start,end))}}
             let lines=crate::text::Lines::new(&document.body);
