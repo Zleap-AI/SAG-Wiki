@@ -161,7 +161,7 @@ it('其他格式可保留并保存已配置的转换并行数，输入错误后�
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('2'));
 });
 
-it('旧设置缺少转换并行数时使用单个转换，并说明实际并行受资源预算约束',async()=>{
+it('旧设置缺少转换并行数时默认使用 4，并说明实际并行受资源预算约束',async()=>{
  invoke.mockImplementation(async command=>{
   if(command==='get_docling_status')return {...initial,installed:true};
   if(command==='get_settings')return {};
@@ -171,7 +171,7 @@ it('旧设置缺少转换并行数时使用单个转换，并说明实际并行�
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
  find('选择其他格式').click();
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.disabled).toBe(false));
- expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('1');
+ expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('4');
  expect(document.querySelector('.conversion-workers')?.textContent).toContain('资源预算');
 });
 

@@ -2,6 +2,7 @@ import {get,writable} from 'svelte/store';
 import {api} from './api';
 import type {DoclingProfile,DoclingStatus} from './types';
 
+export const defaultConversionWorkers=4;
 export const doclingStatus=writable<DoclingStatus|null>(null);
 export const doclingDownloadOpen=writable(false);
 export type DoclingInstallAction='resource'|'command'|'import';

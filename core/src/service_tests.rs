@@ -928,7 +928,7 @@ async fn search_summary_streams_without_history_and_respects_limit_disable_and_c
 async fn index_details_support_pause_resume_and_shutdown_over_rpc() {
     let (dir, client, server) = start().await;
     let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
-    assert_eq!(settings.conversion_workers, 1);
+    assert_eq!(settings.conversion_workers, 4);
     call(&client, Operation::SetConversionWorkers { workers: 2 }).await;
     let Output::Settings(settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
     assert_eq!(settings.conversion_workers, 2);

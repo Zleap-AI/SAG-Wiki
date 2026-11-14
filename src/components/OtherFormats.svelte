@@ -1,6 +1,6 @@
 <script lang="ts">
  import {onMount,onDestroy} from 'svelte';
- import {doclingStatus,openDoclingDownload,refreshDoclingStatus,updateDoclingStatus,profileForExtension,profileInstalled} from '../lib/docling';
+ import {defaultConversionWorkers,doclingStatus,openDoclingDownload,refreshDoclingStatus,updateDoclingStatus,profileForExtension,profileInstalled} from '../lib/docling';
  import {Button,Checkbox} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
  import Input from './ui/Input.svelte';
@@ -16,7 +16,7 @@
  export let formats:string[]|null|undefined=undefined;
  export let disabled=false;
  export let workers:number|undefined=undefined;
- let draftWorkers=1,savedWorkers=1,workersLoading=false,workersReady=false,applying=false,selectionError='';
+ let draftWorkers=defaultConversionWorkers,savedWorkers=defaultConversionWorkers,workersLoading=false,workersReady=false,applying=false,selectionError='';
  let selected:string[]=[];
  let legacyAll=false,selectionChanged=false;
  let revokeInstall=()=>{},selectionVersion=0,disposed=false;
@@ -39,10 +39,10 @@
   // Nothing is preselected: a ticked component format would install gigabytes on one click.
   // A legacy "all formats" preference stays in force until the user changes the selection.
   selected=formats==null?[]:[...formats];
-  selectionError='';draftWorkers=workers??1;savedWorkers=draftWorkers;workersReady=workers!==undefined;details=true;
+  selectionError='';draftWorkers=workers??defaultConversionWorkers;savedWorkers=draftWorkers;workersReady=workers!==undefined;details=true;
   if(workers===undefined||remoteParsing===undefined){
    workersLoading=true;
-   try{const settings=await api<Settings>('get_settings');if(workers===undefined){draftWorkers=settings.conversion_workers??1;savedWorkers=draftWorkers;}savedRemoteParsing=settings.mineru?.enabled??false;workersReady=true;}
+   try{const settings=await api<Settings>('get_settings');if(workers===undefined){draftWorkers=settings.conversion_workers??defaultConversionWorkers;savedWorkers=draftWorkers;}savedRemoteParsing=settings.mineru?.enabled??false;workersReady=true;}
    catch(e){selectionError=String(e);}
    finally{workersLoading=false;}
   }
@@ -144,7 +144,7 @@
    </section>
   {/if}
   <div class="conversion-workers">
-   <label for="conversion-workers"><strong>{$t('转换并行数')}</strong><p>{$t('默认 1，可设为 1–16。受共享资源预算限制，下次索引生效。')}</p></label>
+   <label for="conversion-workers"><strong>{$t('转换并行数')}</strong><p>{$t('默认 {value0}，可设为 1–16。受共享资源预算限制，下次索引生效。',{value0:defaultConversionWorkers})}</p></label>
    <Input id="conversion-workers" aria-label={$t('转换并行数')} type="number" min="1" max="16" required disabled={workersLoading||applying} oninput={invalidateInstall} bind:value={draftWorkers}/>
   </div>
   <section class="conversion-info" aria-label={$t('保存位置')}>

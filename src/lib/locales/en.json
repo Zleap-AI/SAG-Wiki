@@ -1297,7 +1297,7 @@
   "内置转换格式": "Built-in conversion",
   "无需下载 Docling": "No Docling download needed",
   "可选格式": "Optional formats",
-  "默认 1，可设为 1–16。受共享资源预算限制，下次索引生效。": "Default: 1. Range: 1–16, subject to the shared resource budget. Takes effect on the next indexing run.",
+  "默认 {value0}，可设为 1–16。受共享资源预算限制，下次索引生效。": "Default: {value0}. Range: 1–16, subject to the shared resource budget. Takes effect on the next indexing run.",
   "输出保存在已添加文件夹根目录的 .sag-converted 中，保留子目录，原文件不变。": "Output goes to .sag-converted at the root of the added folder. Subfolders and original files stay unchanged.",
   "无需下载": "No download needed",
   "以下格式需要下载识别组件：图片和扫描件对应图片识别组件，音视频对应音视频组件，各占数 GB。只勾选需要的格式可以明显缩短安装时间。": "The formats below need a downloaded component: images and scanned pages use the image recognition component, audio and video use the media component, each several GB. Selecting only what you need shortens the install noticeably.",
