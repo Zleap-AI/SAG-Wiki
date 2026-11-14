@@ -94,9 +94,10 @@ jobs:
       - name: Exercise the real browser workspace and independent service switches
         env:
           PLAYWRIGHT_BROWSER_CHANNEL: chromium
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/sag-web-browser/node_modules/playwright
         run: |
-          npm install --no-save --package-lock=false playwright@1.65.1
-          npx playwright install chromium
+          npm install --prefix "$RUNNER_TEMP/sag-web-browser" --no-save --package-lock=false playwright@1.65.1
+          node "$RUNNER_TEMP/sag-web-browser/node_modules/playwright/cli.js" install chromium
           python tests/web-service-e2e.py --binary "${{ matrix.binary }}"
 
   qpdf-linux:
