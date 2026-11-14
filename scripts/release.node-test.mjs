@@ -107,12 +107,15 @@ test('requires both platforms from one commit and detects tampered transfer arti
   }
 });
 
-test('fails closed when release environment protection is incomplete', () => {
-  const environment = {can_admins_bypass: false, deployment_branch_policy: {custom_branch_policies: true, protected_branches: false}, protection_rules: [{type: 'required_reviewers', prevent_self_review: true, reviewers: [{reviewer: {login: 'release-owner'}}]}]};
+test('requires unattended releases while preserving strict tag and admin restrictions', () => {
+  const environment = {can_admins_bypass: false, deployment_branch_policy: {custom_branch_policies: true, protected_branches: false}, protection_rules: []};
   const policies = [{type: 'tag', name: 'v*'}];
   assert.doesNotThrow(() => validateEnvironment(environment, policies));
+  assert.doesNotThrow(() => validateEnvironment({...environment, protection_rules: [{type: 'wait_timer', wait_timer: 0}, {type: 'required_reviewers', reviewers: []}]}, policies));
   assert.throws(() => validateEnvironment({...environment, can_admins_bypass: true}, policies), /bypass/);
-  assert.throws(() => validateEnvironment({...environment, protection_rules: []}, policies));
+  for (const rule of [{type: 'required_reviewers', reviewers: [{}]}, {type: 'wait_timer', wait_timer: 1}, {type: 'custom_protection'}]) {
+    assert.throws(() => validateEnvironment({...environment, protection_rules: [rule]}, policies));
+  }
   assert.throws(() => validateEnvironment(environment, [{type: 'branch', name: 'main'}]));
   assert.throws(() => validateEnvironment(environment, [...policies, {type: 'branch', name: '*'}]));
   assert.throws(() => validateEnvironment(environment, []));

@@ -148,7 +148,7 @@ test('mocked gh CLI reuses an older failed tag platform, ignores newer runs and 
  }finally{rmSync(directory,{recursive:true,force:true});}
 });
 
-test('workflow has independent native stages, one protected deployment and a final draft-only gate',()=>{
+test('workflow has independent native stages, one protected signing deployment and checked automatic publication',()=>{
  const workflow=readFileSync(new URL('../.github/workflows/desktop-release.yml',import.meta.url),'utf8');
  for(const name of ['Test Rust macos','Test Rust windows','Build macos','Build windows'])assert.match(workflow,new RegExp(`job_name: ${name}`));
  assert.equal((workflow.match(/^    environment:$/gm)||[]).length,1);
@@ -157,7 +157,7 @@ test('workflow has independent native stages, one protected deployment and a fin
  assert.ok(release.indexOf('wait macos')<release.indexOf('APPLE_CERTIFICATE_BASE64'));
  assert.ok(release.indexOf('APPLE_CERTIFICATE_BASE64')<release.indexOf('wait all'));
  assert.ok(release.indexOf('wait all')<release.indexOf('TAURI_SIGNING_PRIVATE_KEY'));
- assert.match(release,/--draft/);assert.match(workflow,/checkpoint-\$\{\{ matrix.component \}\}/);
+ assert.match(release,/automatic-release\.mjs create-draft/);assert.match(workflow,/needs: \[validate, release\]/);assert.match(workflow,/checkpoint-\$\{\{ matrix.component \}\}/);
  assert.match(workflow,/desktop-\$\{\{ matrix.platform \}\}-\$\{\{ github.sha \}\}-\$\{\{ github.run_attempt \}\}/);
  assert.doesNotMatch(workflow.slice(0,workflow.indexOf('\n  release:')),/secrets\.|contents: write|id-token: write/);
 });

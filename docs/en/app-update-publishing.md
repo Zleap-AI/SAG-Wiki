@@ -2,119 +2,56 @@
 
 [简体中文](../zh-CN/应用内更新发布.md) · [Documentation index](README.md)
 
-Official desktop releases use one protected GitHub Actions signing environment. Developers can build and test locally without the release private key. The client embeds the public key, downloads an update, verifies its signature and signed version, then offers **Restart and update**. Update signing is separate from Apple notarization and Windows code signing.
+Product changes on main automatically prepare a version, create a tag, run checks, sign, and publish an official release. Documentation-only, CI-only, and release-tooling changes do not publish. Per-release human approval and manual draft publication are removed; PR checks and main branch protection remain.
 
-## One-time signing setup
+## One-time activation and signing setup
 
-The repository administrator must configure the `release` Environment before the first signed release:
-
-- Allow deployment from version tags matching `v*` only; the workflow also validates the exact `vX.Y.Z` format and that the tagged commit belongs to `main`.
-- Require a release reviewer and prevent the person starting the deployment from approving it.
-- Store `TAURI_SIGNING_PRIVATE_KEY` and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` as **Environment secrets**. Workflow YAML contains only Secret references; private values must never enter Git, logs, artifacts or installers.
-- Keep an independent, encrypted recovery backup of the private key and password under the organization's access controls. GitHub Secrets is the release runtime store, not the only recovery copy.
-
-Generate a key pair once in a secure administrator session if there is no existing release key:
+The `release` Environment retains signing-secret isolation and access restricted to `v*` tags, with no required reviewers or wait timer. An administrator must migrate an existing environment after these changes are merged:
 
 ```sh
-node scripts/generate-updater-key.mjs --output /secure/signing-recovery
-```
-
-The script refuses repository paths and existing output directories. It creates an encrypted `updater.key`, separate `updater.password`, and public key file without placing the password in process arguments or shell history. Directory permissions are `700`, files `600`. Transfer recovery material to the organization's approved vault. Commit only the matching public key in `src-tauri/tauri.conf.json`. Future releases reuse this pair; a new version does not need a new key.
-
-With the private key and its password available as restricted local files, run:
-
-```sh
-node scripts/configure-release.mjs \
-  --key-file /secure/updater.key \
-  --password-file /secure/updater.password \
-  --reviewer luoshuai990529
-```
-
-This administrator operation configures environment protection and uploads the secret values from files without printing them. A repository Maintain role is insufficient to configure protected environments. If GitHub returns 403, an administrator must complete this step; a successful local build does not establish that the signing environment is ready.
-
-In **Settings → Environments → release**, the administrator should also uncheck **Allow administrators to bypass configured protection rules**. GitHub's public REST API does not expose this switch, so inspect it in the UI. The automated preflight below checks reviewers, prevention of self-approval, and tag restrictions.
-
-The release job checks environment protection before signing. You can also inspect it with:
-
-```sh
+node scripts/migrate-release-environment.mjs
+node scripts/migrate-release-environment.mjs --apply
 node scripts/release.mjs verify-environment
 ```
 
-The configured single-maintainer policy lets `luoshuai990529` request a release and manually approve the bot-started signing job. Keep prevention of self-approval enabled: the deployment initiator is the bot. This is one human confirmation, not independent two-person review. For two-person review, configure a separate reachable maintainer as reviewer.
+The first command previews the change. Migration does not create tags, dispatch builds, publish releases, or read/rotate existing secrets. Apply is refused while older release runs or pending deployments exist. Cancel those runs first, migrate the environment, then retry failed jobs as needed. Preparing this PR does not change the live environment.
 
-## Build and release flow
-
-1. Update desktop and CLI versions, lock files and Changelog in a PR. Merge the PR into `main` only after review and unsigned CI checks pass.
-2. PR checks compile the CLI and run the local Jev protocol E2E on macOS and Windows. They do not build desktop installers. After a push to `main`, or on manual dispatch, **Desktop build and release** runs release validation, documentation builds, unit/component tests, desktop packaging and installer checks from the same commit. Build jobs receive no signing secrets. PR E2E does not replace desktop installation, upgrade and data-preservation acceptance.
-3. Create `vX.Y.Z` at the validated `main` commit, then run **Request desktop release** from `main` with that tag. Pushing a tag alone does not start signing. The request dispatches the tag workflow as `github-actions[bot]`; it never creates or moves tags. The workflow rejects mismatched versions and tags outside `main`.
-4. After both platforms pass, the protected `release` job requires its reviewer. It signs the exact built update packages with Environment secrets, binds signatures to the release version, verifies signatures, checks platform metadata has the same commit/version, and generates checksums and update manifests.
-5. The workflow creates a **draft** GitHub Release with installers, signed update packages, manifests and build provenance. It does not automatically promote a partially built release.
-
-Actions are pinned to full commit SHAs. Checkout does not persist credentials. Build jobs have read-only repository permissions; signing, publishing and provenance permissions are limited to the jobs that need them. Dependencies use committed npm and Cargo lock files. Do not overwrite published artifacts to repair a failed build; fix the source and release a higher version.
-
-For example, from the reviewed, clean `main` checkout:
+Reuse existing signing keys. Generate a pair only when none exists:
 
 ```sh
-git fetch origin main --tags
-node scripts/release.mjs validate
-release_commit=$(git rev-parse origin/main)
-test "$(git rev-parse HEAD)" = "$release_commit" || exit 1
-release_version=$(node -p "require('./package.json').version")
-release_tag="v${release_version}"
-git tag -a "$release_tag" "$release_commit" -m "SAG Wiki $release_version"
-git push origin "refs/tags/$release_tag"
-gh workflow run request-release.yml --repo Zleap-AI/SAG-Wiki --ref main -f tag="$release_tag"
+node scripts/generate-updater-key.mjs --output /secure/signing-recovery
+node scripts/configure-release.mjs --key-file /secure/updater.key --password-file /secure/updater.password
 ```
 
-If the tag already exists, keep it unchanged and run only the request command. Inspect the resulting run actor before approval; it must be `github-actions[bot]`.
+If initial environment verification reports that administrators can bypass protection, disable administrator bypass in Settings → Environments → release and verify again. This is one-time environment setup, not per-release approval.
 
-The macOS `.dmg` is for manual installation; its `.app.tar.gz` is the updater payload. Windows uses the NSIS `.exe` for both purposes. The central signing step generates `.sig` files with the release version included in the signed comment. `requireSignedVersion` remains enabled.
+Keep restricted key files outside the repository and maintain an independent encrypted recovery backup. GitHub Secrets must not be the only recovery copy. The client public key must match and `requireSignedVersion` remains enabled. Apple Developer ID and notarization credentials also belong in environment secrets; private values must not enter source, logs, or artifacts.
 
-## Build reuse and compilation caches
+## Automatic releases from main
 
-Tag releases first look for a successful push build on `main` from the exact same commit and the same repository/workflow. Both platform jobs, source validation and documentation must have passed in their latest respective attempts, and both artifacts must still be available. When found, the release skips duplicate tests and packaging. Otherwise it runs the full build. Lookup API failures also fall back to a full build; normal main builds do not query the reuse API.
+1. After a product change reaches main, the preparation workflow classifies the push. Documentation, CI, and release-tooling-only changes skip publication; mixed product changes qualify.
+2. Serialized preparation allocates the next patch version, updates desktop/CLI manifests, locks, and Tauri configuration consistently, and generates deterministic release notes. It creates a release child commit of the captured main commit without writing back to protected main.
+3. Create the version tag and explicitly dispatch the desktop workflow. A tag pushed using `GITHUB_TOKEN` cannot be relied upon to start another push workflow. Retries resume the existing tag for the source commit instead of moving or replacing it.
+4. Source validation accepts normal version commits on main or strictly validated generated release children. Generated children must match their main parent and deterministic metadata changes; a tag name or commit message alone cannot authorize arbitrary branch code.
+5. macOS/Windows native Rust tests and production builds run in parallel. Frontend, documentation, real installer, and bundled CLI/Jev checks remain required. macOS signing and notarization start once its own checks pass, independently of Windows.
+6. After all required checks and provenance/digest validation, assemble and sign updates, attest the artifacts, and publish automatically. Final publication serializes version ordering so an older run finishing late cannot take the Latest mark.
 
-Before signing, the source run and jobs are checked again. Each archive is downloaded by artifact ID, verified against GitHub's SHA256 digest, and checked against its internal commit, version, platform and file digests. Expired or missing artifacts after selection stop publication; rerun the workflow to resolve a new source or rebuild. The protected `release` environment and signed-version enforcement remain required.
+The version in main may lag behind the latest generated release because release metadata is committed in a child rather than written back to main. Downloads and updates follow published releases. Routine changes no longer require manually editing every version file; both platforms and update manifests must still agree.
 
-Rust caches are isolated by runner OS/architecture, target, Rust version, manifests, lockfiles and workflow content. Only trusted `main` push builds save them. Debug outputs are saved after native tests and removed before restoring release outputs to limit disk use. Cache hits accelerate compilation; they do not skip tests. Signing jobs do not restore compilation caches or save key material.
+## Failure recovery and artifact reuse
 
-## Review and promote the draft
+Prefer **Re-run failed jobs** in Actions. If preparation created a tag but dispatch failed, retry the same source/tag. Do not delete/recreate tags, replace published artifacts, or force-move versions.
 
-Before publishing, confirm both platform jobs, the Windows NSIS installation smoke check and bundled CLI E2E passed, and both platform entries and signatures exist. Download draft assets and verify their SHA256 checksums and build provenance. For a downloaded artifact:
+Reuse is scoped to the same source commit and individual platform/check stages. Verify the original producer and its latest attempt; a failed platform does not invalidate the other platform's valid output. Wait for earlier running producers with a bounded timeout and execute missing/invalid stages locally. A compilation-cache hit never substitutes for a passed test or installer check.
+
+Verify macOS input archives before signing. After signing, still wait for Windows and all shared checks. Final validation binds the signed output to its original input rather than switching producers. Drafts are only an internal upload/validation stage: incomplete checks, corrupt artifacts, signing failures, or failed notarization cannot publish an incomplete release. Fix a published version with a higher version, not replacement bytes.
+
+## Download verification and recovery
+
+Use the macOS DMG for manual installation and the notarized app archive for updates; Windows NSIS EXE serves both installation and updating. Update signatures bind the version and remain mandatory in the client.
 
 ```sh
-gh attestation verify /path/to/downloaded-installer -R Zleap-AI/SAG-Wiki
+gh attestation verify /path/to/downloaded-installer --repo Zleap-AI/SAG-Wiki
 ```
 
-Checksums establish byte identity; an attestation identifies build source and workflow. Neither replaces signature validation or an installation check. Hosted-runner smoke checks do not establish acceptance on every supported customer machine.
-
-After an authorized release reviewer inspects the assets and release notes, reuse the reviewed `release_tag` from the creation step. In a new shell, explicitly set it to that reviewed tag; do not derive it again from a potentially changed checkout:
-
-```sh
-: "${release_tag:?Set release_tag to the reviewed release tag before publishing}"
-gh release view "$release_tag" --repo Zleap-AI/SAG-Wiki
-gh release edit "$release_tag" --repo Zleap-AI/SAG-Wiki --draft=false --latest
-```
-
-After promotion, verify public installer URLs and update manifests. README links to the latest stable Release, and the installation page reads its version, download URLs and actual asset sizes when opened. No version configuration or download-documentation PR is required.
-
-## 0.1.9 key migration
-
-Version 0.1.9 introduces a new updater key because the prior private key was unavailable. **Users on 0.1.8 or older clients that trust the previous key must manually download and install 0.1.9 once.** The old public key cannot validate packages signed by the new key. After this installation, future versions signed with the new key can use the in-app updater.
-
-| Manifest | Intended clients | Behavior |
-| --- | --- | --- |
-| `latest-v2.json` | 0.1.9 and later with the new public key | Lists the current release and new signatures. |
-| `latest.json` | Clients with the old public key | Preserves the original 0.1.8 manifest, URLs and signatures verbatim. A 0.1.8 client reports no newer version; older compatible clients may still install 0.1.8. |
-
-Each latest Release retains the legacy `latest.json` so old clients do not encounter a missing manifest or an untrusted update. Do not relabel the old manifest as 0.1.9, replace old signatures, or disable verification. Release notes must state that old users need one manual upgrade; the retained legacy manifest does not notify them about 0.1.9.
-
-Existing GitHub repository settings continue to work: the new binary selects `latest-v2.json` for the configured repository. A custom **Website** source keeps its explicit URL. Its operator must serve the new manifest at a separate URL and update that setting for migrated clients, while keeping the old channel intact where required.
-
-## Failure handling and validation limits
-
-- Missing signing secrets, insufficient environment protection, mixed source commits, a missing platform package, a corrupt signature or a signed-version mismatch must stop release creation. Do not publish an unsigned fallback as an in-app update.
-- A valid newer manifest can display an update notification before package signature verification. The client refuses an untrusted package during download/verification and keeps the installed version.
-- Frontend tests cover progress, failures and retries, unsaved-document protection and repeated clicks. Native tests download signed fixtures over local HTTP, reject corrupt content and replace only temporary application files.
-- The Jev E2E uses the actual service, CLI, persisted settings, indexing and retrieval against a loopback protocol fixture. It verifies integration, not real Jev inference quality or remote deployment availability.
-- Closing settings does not interrupt an update download; quitting the app requires downloading again. Updates replace program files without intentionally clearing knowledge bases, conversations or original files. Keep normal user-data backups and validate representative upgrade installations before publishing.
+Provenance, SHA256, and update signatures serve different purposes; none replaces installation/data-preservation checks. Hosted-runner checks do not establish acceptance on every customer device. Measure actual release latency from runs after activation.

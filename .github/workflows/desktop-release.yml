@@ -1,8 +1,6 @@
 name: Desktop build and release
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 # Main builds need no signing secrets or repository write token.
@@ -14,6 +12,7 @@ permissions:
 concurrency:
   group: desktop-${{ github.ref }}
   cancel-in-progress: false
+  queue: max
 
 defaults:
   run:
@@ -52,7 +51,7 @@ jobs:
         id: source
         run: node scripts/release.mjs validate
       - name: Test release validation and signing
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/automatic-release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs
 
 
   documentation:
@@ -225,7 +224,7 @@ jobs:
         run: npm ci
       - name: Regress release assembly, signatures and artifact transfer on this platform
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/automatic-release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
       - name: Test Safari native saving and build development installer
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
         run: |
@@ -429,6 +428,8 @@ jobs:
 
   release:
     name: Sign and create a draft release
+    outputs:
+      checksums: ${{ steps.draft.outputs.checksums }}
     needs: validate
     if: >-
       !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
@@ -459,16 +460,13 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13.9'
-      - name: Require protected release environment and an unpublished tag
+      - name: Require automatic release restrictions and an unpublished tag
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           node scripts/release.mjs verify-environment
           node scripts/release.mjs validate
-          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
-            echo 'An existing release must be inspected and removed explicitly before retrying.' >&2
-            exit 1
-          fi
+          node scripts/automatic-release.mjs check-draft
       - name: Wait only for verified macOS build and tests and download its input
         env:
           GH_TOKEN: ${{ github.token }}
@@ -508,19 +506,42 @@ jobs:
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: releases/${{ needs.validate.outputs.version }}/updates/*
-      - name: Create a draft release without replacing existing assets
+      - name: Create or recover only this exact automation-owned draft
+        id: draft
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "$RELEASE_TAG" \
-            --repo "$GITHUB_REPOSITORY" \
-            --verify-tag \
-            --target "$RELEASE_COMMIT" \
-            --draft \
-            --title "SAG Wiki $RELEASE_VERSION" \
-            --notes-file "releases/$RELEASE_VERSION/updates/release-notes.md" \
-            "releases/$RELEASE_VERSION/updates/"*
-          {
-            echo "Draft release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
-            echo 'Review both platform installers, signatures and provenance before publishing.'
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: node scripts/automatic-release.mjs create-draft
+
+
+  publish:
+    name: Publish verified desktop release
+    needs: [validate, release]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # Publishing is short and serialized across versions. Recheck public versions
+    # inside this lock so an older slow build can never roll back latest.
+    concurrency:
+      group: desktop-release-publication
+      cancel-in-progress: false
+      queue: max
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_CHECKSUMS: ${{ needs.release.outputs.checksums }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - name: Publish the checked draft without rolling back latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/automatic-release.mjs publish
