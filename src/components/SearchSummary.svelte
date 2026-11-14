@@ -3,20 +3,24 @@
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import {answerHtml} from '../lib/answer-html';
- import type {Candidate} from '../lib/types';
+ import {compactNumber} from '../lib/domain';
+ import type {AnswerContext,Candidate} from '../lib/types';
  export let text:string;
  export let running:boolean;
  export let error:string;
  export let evidence:Candidate[];
+ export let context:AnswerContext|null=null;
  export let rendered:ReturnType<typeof import('../lib/markdown').renderAnswer>|null=null;
  export let onSource:(candidate:Candidate)=>void;
  export let onCopy:(text:string)=>void;
+ export let onBack:()=>void;
  let open=true;
 </script>
 
 <section class="search-answer" aria-label={$t('搜索总结')} aria-busy={running}>
  <Collapsible.Root bind:open>
  <div class="search-answer-header">
+ <Button.Root class="icon-button search-summary-back" aria-label={$t('返回结果列表')} title={$t('返回结果列表')} onclick={onBack}>{@html icon('back')}</Button.Root>
  <Collapsible.Trigger class="search-answer-heading" aria-label={open?$t('折叠搜索总结'):$t('展开搜索总结')}>
   <strong>{$t('搜索总结')}</strong><span class="search-answer-state">{running?$t('正在总结…'):$t('基于 {value0} 条参考结果',{value0:evidence.length})}</span><span class="search-answer-chevron" aria-hidden="true">{@html icon('chevron')}</span>
  </Collapsible.Trigger>
@@ -31,6 +35,9 @@
    <div class="answer-text" role="presentation" on:click={event=>{const target=(event.target as HTMLElement).closest<HTMLElement>('[data-citation]');if(target)onSource(evidence[Number(target.dataset.citation)])}} use:answerHtml={(rendered??markdown.renderAnswer(text,evidence)).html}></div>
   {/await}
  {:else if running}<p class="muted" role="status">{$t('正在根据问题整理搜索结果…')}</p>{/if}
+ {#if !running&&text&&context}
+  <p class="answer-context search-answer-usage">{$t('{value0} 输入 tokens{value1} · ',{value0:compactNumber(context.input_tokens??context.estimated_input),value1:context.input_tokens===null?$t('（估算）'):''})}{context.output_tokens===null?$t('输出 tokens 未返回'):$t('{value0} 输出 tokens',{value0:compactNumber(context.output_tokens)})}</p>
+ {/if}
  {#if error}<p class="form-error" role="alert">{error}</p>{/if}
  {/if}
  </Collapsible.Content>

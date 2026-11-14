@@ -25,7 +25,7 @@ Enter words from your documents to search locally. Quick search needs no model k
 
 ![Search results and source highlights](/images/product-search-en.png)
 
-Results are grouped by file. Select a result to read its source on the right. Use the Back button at the top left of the reader to return to the search summary, or open related passages to choose a match within that file. Use match navigation to move through the source. The document actions menu lets you open the document or reveal it in its folder.
+Results are grouped by file. Select a result to read its source. The Back button at the top left of the reader returns to the results list in a narrow window or to the search summary in a two-column layout. Open related passages to choose a match within that file, or use match navigation to move through the source. The document actions menu lets you open the document or reveal it in its folder.
 
 Edit the query in the input above and submit it to search again. Use the top-left Back button to clear the query and view recent searches.
 
@@ -80,9 +80,13 @@ Location: **Settings → Search settings**. Read [Technical overview](/en/docs/s
 
 On by default. When a search finds results, Search summary opens and expands automatically, using the question and selected results to generate a short summary. Select a result on the left to read its source, then select Search summary to return. If automatic summaries are disabled or no answer model is configured, the first file opens instead.
 
+In a narrow window, use the arrow beside the Search summary title to return to the results list.
+
 ![Search summary opens automatically](/images/product-search-summary-en.png)
 
-Configure an [answer model](/en/docs/models) first. Provider charges may apply. Summary time is separate from pure retrieval time.
+Choose a model under **Search settings → Summary model**. The default follows the saved answer model. You can select a different model from the list in [Model settings](/en/docs/models) without changing the answer model. Both use the same endpoint and API key.
+
+When the summary finishes, its input and output token counts appear below the text. If the provider omits input usage, the count is marked as estimated. If it omits output usage, the count is marked as unavailable. Provider charges may apply. The time above the results covers retrieval only.
 
 ### Summary source count
 

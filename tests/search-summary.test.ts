@@ -34,8 +34,10 @@ it('默认展开搜索总结，使用完整问题和前十个文件，流式文�
  events.get('query-progress')!({payload:{id:requests[0].id,delta:'**共同协作** [1]',replace:false}});await tick();
  await vi.waitFor(()=>expect(document.querySelector('.search-answer strong')?.textContent).toBe('搜索总结'));
  await vi.waitFor(()=>expect(document.querySelector('.search-answer .answer-text strong')?.textContent).toBe('共同协作'));
- requests[0].resolve({text:'共同协作 [1]',evidence:requests[0].results});
+ expect(document.querySelector('.search-answer-usage')).toBeNull();
+ requests[0].resolve({text:'共同协作 [1]',evidence:requests[0].results,context:{input_tokens:742,output_tokens:18,estimated_input:700}});
  await vi.waitFor(()=>expect(document.querySelector('.search-answer[aria-busy="false"]')).not.toBeNull());
+ expect(document.querySelector('.search-answer-usage')?.textContent).toBe('742 输入 tokens · 18 输出 tokens');
  expect(document.querySelector('.search-preview .search-answer')).not.toBeNull();
  document.querySelector<HTMLButtonElement>('.search-answer .citation')!.click();await tick();
  // A citation opens its passage in the reader beside the results, not in a dialog.
@@ -117,16 +119,25 @@ it('总结失败保留结果列表，显示错误',async()=>{
 });
 it('搜索设置开关默认开启，关闭状态随设置保存',async()=>{
  const save=vi.fn().mockResolvedValue(undefined);
- app=mount(SettingsPanel,{target:document.body,props:{value:settings,initial:'retrieval',onClose:()=>{},onSave:save}});
+ const value={...settings,answer:{...settings.answer,models:['test','summary-test']}};
+ app=mount(SettingsPanel,{target:document.body,props:{value,initial:'retrieval',onClose:()=>{},onSave:save}});
  await vi.waitFor(()=>expect(document.querySelector('[role="switch"][aria-label="搜索结果自动总结"]')).not.toBeNull());
  const toggle=document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="搜索结果自动总结"]')!;
  expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('搜索设置');
  const count=document.querySelector<HTMLInputElement>('[aria-label="自动总结参考数量"]')!;
+ const model=document.querySelector<HTMLButtonElement>('[aria-label="总结模型"]')!;
+ expect(model.textContent).toContain('跟随默认问答模型');
+ model.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ const option=()=>document.querySelector('[role="option"][data-value="summary-test"]');
+ await vi.waitFor(()=>expect(option()).not.toBeNull());
+ option()!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
  expect(count.value).toBe('10');expect(count.max).toBe('');
  count.value='100000';count.dispatchEvent(new Event('input',{bubbles:true}));await tick();expect(count.checkValidity()).toBe(true);
  expect(toggle.getAttribute('aria-checked')).toBe('true');toggle.click();await tick();
  document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(save).toHaveBeenCalled());expect(save.mock.calls[0][0].search_summary_enabled).toBe(false);expect(save.mock.calls[0][0].search_summary_sources).toBe(100000);
+ expect(save.mock.calls[0][0].search_summary_model).toBe('summary-test');
+ expect(save.mock.calls[0][0].answer.model).toBe('test');
 });
 
 it('按设置的参考数量提交，不改变搜索结果列表',async()=>{

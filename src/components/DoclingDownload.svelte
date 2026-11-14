@@ -30,15 +30,24 @@
   finally{if(!disposed){clearTimeout(timer);timer=setTimeout(refresh,status.running?700:3000);}}
  }
  onMount(()=>{void refresh();return()=>{disposed=true;clearTimeout(timer);};});
- async function install(){
+ $:if($doclingDownloadOpen&&context?.action&&!loading){
+  const action=context.action;
+  context.action=undefined;
+  if(action==='import')void importComponent();
+  else void install(action==='command');
+ }
+ async function install(commandLine=false){
   const request=context;
   if(!request||request.pending||status.running)return;
   request.pending=true;doclingInstallRequest.set(request);
   error='';
   try{
    if(!request.profiles.length)throw Error('请先选择要解析的文件格式');
-   if(!status.profiles?.length&&request.profiles.includes('media'))throw Error('当前服务不支持按需安装音视频组件，请更新后台服务后重试');
-   await api(status.profiles?.length?'install_docling_profiles':'install_docling',status.profiles?.length?{profiles:[...request.profiles]}:undefined);
+   if(!commandLine&&documentsPending)await api('install_docling_from_resource',{profiles:[...request.profiles]});
+   else{
+    if(!status.profiles?.length&&request.profiles.includes('media'))throw Error('当前服务不支持按需安装音视频组件，请更新后台服务后重试');
+    await api(status.profiles?.length?'install_docling_profiles':'install_docling',status.profiles?.length?{profiles:[...request.profiles]}:undefined);
+   }
    request.started=true;
    await refresh(true);
   }catch(e){if(get(doclingInstallRequest)===request)error=String(e);}finally{request.pending=false;if(get(doclingInstallRequest)===request)doclingInstallRequest.set(request);}
@@ -79,7 +88,7 @@
  <div class="dialog-head"><h2>{dialogTitle}</h2><Button.Root type="button" class="icon-button" aria-label={$t('关闭下载详情')} onclick={()=>close()}>{@html icon('close')}</Button.Root></div>
  <div class="dialog-body">
   {#if loading}<p role="status">{$t('正在读取下载状态…')}</p>{/if}
-  <p>{$t('将为所选文件格式下载解析工具。文件仅在本机处理，原文件不会修改。')}</p>
+  <p>{$t(context?.formats.length?'将为所选文件格式下载解析工具。文件仅在本机处理，原文件不会修改。':'安装后可在本机识别扫描 PDF 和图片。原文件不会修改。')}</p>
   {#if context?.formats.length}<p class="selected-formats"><strong>{$t('所选格式')}</strong> {context.formats.map(extension=>extension.toUpperCase()).join('、')}</p>{/if}
   <p class="settings-help">{$t('首次下载可能需要几分钟，并占用数 GB 磁盘空间。')}</p>
   {#if status.running||status.stage==='done'||status.stage==='cancelled'||status.error}
@@ -92,7 +101,7 @@
     {/if}
     {#if status.total}<p>{(status.downloaded/1048576).toFixed(1)} / {(status.total/1048576).toFixed(1)} MB{#if status.packages_total}　{$t('已完成 {value0} / {value1} 个包',{value0:status.packages_done??0,value1:status.packages_total})}{/if}</p>{/if}
     <p class="download-log">{status.running?(steps[Math.min(2,Math.max(0,step))]):complete?$t('文件解析支持已就绪'):$t('安装未完成，可重试。')}</p>
-    {#if activity}<p class="download-activity" aria-label={$t('最近活动')}>{activity}</p>{/if}
+    {#if activity}<p class="download-activity" aria-label={$t('最近活动')}>{$t(activity)}</p>{/if}
     {#if status.running||status.error}<Button.Root type="button" class="download-log-link" onclick={openLog}>{$t('打开安装日志')}</Button.Root>{/if}
    </div>
   {/if}
@@ -107,7 +116,13 @@
  <div class="dialog-footer">
   {#if status.running}<Button.Root type="button" disabled={cancelling} onclick={cancel}>{$t(cancelling?'正在取消…':'取消下载')}</Button.Root><Button.Root type="button" class="primary" onclick={()=>close(true)}>{$t('后台下载')}</Button.Root>
   {:else if complete}<Button.Root type="button" class="primary" disabled={finishing||context?.pending} onclick={finish}>{$t(context?.apply?'应用所选格式':'完成')}</Button.Root>
-  {:else}<Button.Root type="button" onclick={()=>close()}>{$t('取消')}</Button.Root><Button.Root type="button" class="primary" disabled={!targets.length||context?.pending} onclick={install}>{$t(context?.pending?'正在安装…':status.error||status.stage==='cancelled'||error?'重试安装':'安装')}</Button.Root>{/if}
+  {:else}
+   <Button.Root type="button" onclick={()=>close()}>{$t('取消')}</Button.Root>
+   <div class="install-actions">
+    <Button.Root type="button" class="primary" disabled={loading||!targets.length||context?.pending} onclick={()=>install()}>{$t(context?.pending?'正在安装…':status.error||status.stage==='cancelled'||error?'重试安装':'安装')}</Button.Root>
+    {#if documentsPending}<Button.Root type="button" class="install-command" disabled={loading||context?.pending} onclick={()=>install(true)}>{$t('通过命令行安装')}</Button.Root>{/if}
+   </div>
+  {/if}
  </div>
 </Modal>{/if}
 
@@ -117,6 +132,8 @@
  .offline-component :global(button){padding:7px 12px;border:1px solid var(--color-rule);border-radius:7px;color:var(--color-ink);background:var(--color-panel)}
  .offline-component :global(button:hover:not(:disabled)){background:var(--color-hover)}
  .offline-component :global(button:disabled){opacity:.5}
+ .install-actions{display:flex;flex-direction:column;align-items:stretch;gap:6px}
+ :global(.install-command){font-size:12px;color:var(--color-secondary);padding:4px 0;text-decoration:underline}
 
  .selected-formats{font-size:13px;line-height:1.7;overflow-wrap:anywhere}.selected-formats strong{font-weight:600;margin-right:8px}
  :global(.docling-dialog:not(.docling-formats-dialog)){width:560px;max-width:calc(100vw - 40px);max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}

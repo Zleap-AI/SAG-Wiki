@@ -1,4 +1,4 @@
-export type MineruConfig={enabled:boolean;provider:'302'|'official';has_key:boolean;request_timeout_secs:number;task_timeout_secs:number;poll_interval_secs:number;concurrency:number;model_version:'vlm'|'pipeline';version?:'2.0'|'2.5';parse_method?:'auto'|'txt'|'ocr';ocr:boolean;table:boolean;formula:boolean};
+export type MineruConfig={enabled:boolean;provider:'302'|'official';base_url?:string;has_key:boolean;request_timeout_secs:number;task_timeout_secs:number;poll_interval_secs:number;concurrency:number;model_version:'vlm'|'pipeline';version?:'2.0'|'2.5';parse_method?:'auto'|'txt'|'ocr';ocr:boolean;table:boolean;formula:boolean};
 import type {ReasoningEffort} from './reasoning';
 import type {Language} from './i18n';
 export type Root={path:string;name:string;status:string;count:number;error:string|null};
@@ -8,6 +8,7 @@ export type FileInfo={id:number;path:string;name:string;index_status?:'basic'|'e
 export type SourceSpan={start_byte:number;end_byte:number;start_line:number;start_column:number;end_line:number;end_column:number};
 export type AnswerContext={limit:number;reserved_output:number;estimated_input:number;omitted_sources:number;omitted_history:number;input_tokens:number|null;output_tokens:number|null;elapsed_ms?:number|null;generation_ms?:number|null;summary?:{text:string;covered_turns:number}|null};
 export type Candidate={id:number;document_id:number;path:string;title:string;heading:string;content:string;start_line:number;end_line:number;source_ranges:[number,number][];source_spans?:SourceSpan[];bm25:number;score:number;order:number;hash:string};
+export type SearchSummaryResult={text:string;evidence:Candidate[];context:AnswerContext};
 export type ModelConfig={reasoning_effort?:ReasoningEffort|null;auth_mode?:'bearer'|'none';url:string;model:string;models:string[];has_key:boolean};
 export type McpServer={id:string;name:string;transport:'http'|'stdio';url:string;command:string;args:string[];require_confirmation:boolean;has_credentials:boolean;tools?:McpToolInfo[]|null};
 export type McpCredentials={env:Record<string,string>;headers:Record<string,string>};
@@ -20,7 +21,7 @@ export type UpdateSettings={source:'github'|'website';github_url:string;website_
 export type UpdateInfo={current_version:string;latest_version:string;available:boolean;notes:string;download_url:string|null};
 export type UpdateProgress={stage:'downloading'|'verifying';downloaded:number;total:number|null};
 export type NoteSettings={folder?:string|null;ask_location?:boolean};
-export type Settings={mineru?:MineruConfig;runtime?:Record<string,number|boolean>;notes?:NoteSettings;updates?:UpdateSettings;conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
+export type Settings={mineru?:MineruConfig;runtime?:Record<string,number|boolean>;notes?:NoteSettings;updates?:UpdateSettings;conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_model?:string;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
 export type ReasoningBlock={answer_offset:number;tool_count:number;content:string};
 export type Message={created_at?:number|null;question:string;answer:string;reasoning?:string;reasoning_blocks?:ReasoningBlock[];evidence:Candidate[];model:string;scope:string[];references:string[];status:string;error:string|null;retrieval_question:string;tool_calls?:ToolCallRecord[];context?:AnswerContext|null;note_path?:string|null};
 export type Conversation={id:string;title:string;messages:Message[];updated:number;deleted:boolean};

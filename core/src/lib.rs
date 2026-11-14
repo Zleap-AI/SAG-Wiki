@@ -16,6 +16,7 @@ pub mod folder_index;
 pub mod ignore_rules;
 pub mod mcp;
 pub mod models;
+mod model_http;
 mod document_fold;
 pub mod notes;
 pub mod retrieval;

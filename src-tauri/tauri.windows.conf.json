@@ -6,7 +6,7 @@
         "title": "SAG Wiki",
         "width": 1280,
         "height": 850,
-        "minWidth": 960,
+        "minWidth": 440,
         "minHeight": 600,
         "decorations": false
       },

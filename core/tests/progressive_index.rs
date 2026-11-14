@@ -224,6 +224,9 @@ printf 'enhancedtoken\n' > "$output"
 #[cfg(unix)]
 fn enhancement_turn_preserves_unselected_basic_documents() {
     let (dir, store, root, key) = setup();
+    let mut settings = store.settings().unwrap();
+    settings.conversion_workers = 1;
+    store.save_settings(&settings).unwrap();
     pdf(&root.join("a.pdf"), true, true);
     pdf(&root.join("b.pdf"), true, true);
     store.scan_basic(&key, |_| {}).unwrap();
@@ -451,6 +454,9 @@ fn removing_and_readding_library_recovers_owned_pending_basic_output() {
 #[cfg(unix)]
 fn partially_enhanced_library_recovers_completed_and_basic_outputs_after_readd() {
     let (dir, store, root, key) = setup();
+    let mut settings = store.settings().unwrap();
+    settings.conversion_workers = 1;
+    store.save_settings(&settings).unwrap();
     pdf(&root.join("a.pdf"), true, true);
     pdf(&root.join("b.pdf"), true, true);
     store.scan_basic(&key, |_| {}).unwrap();
@@ -1432,6 +1438,9 @@ printf 'enhancedtoken\n' > "$output"
 #[cfg(unix)]
 fn converted_scan_keeps_results_published_after_its_snapshot() {
     let (dir, store, root, key) = setup();
+    let mut settings = store.settings().unwrap();
+    settings.conversion_workers = 1;
+    store.save_settings(&settings).unwrap();
     pdf(&root.join("a-scan.pdf"), false, true);
     pdf(&root.join("b-text.pdf"), true, true);
     store.scan_basic(&key, |_| {}).unwrap();

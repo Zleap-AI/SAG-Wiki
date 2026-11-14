@@ -20,9 +20,9 @@ async function choose(extensions:string[]){
 function ready(status:DoclingStatus):DoclingStatus{return {...status,installed:true,running:false,stage:'done',error:null,profiles:status.profiles?.map(profile=>({...profile,installed:true}))};}
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();doclingStatus.set(null);doclingDownloadOpen.set(false);doclingInstallRequest.set(null)});
 
-it('格式选择是唯一入口，PDF安装确认只读且完成后仅应用本次草稿',async()=>{
+it('PDF 安装默认走资源站，完成后仅应用本次草稿',async()=>{
  let current=structuredClone(initial);
- invoke.mockImplementation(async command=>{if(command==='install_docling_profiles')current={...current,running:true,stage:'dependencies',requested_profiles:['documents']};return current;});
+ invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource')current={...current,running:true,stage:'dependencies',requested_profiles:['documents']};return current;});
  app=mount(Harness,{target:document.body});
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
  expect(document.querySelectorAll('.other-formats-actions button')).toHaveLength(1);
@@ -33,9 +33,9 @@ it('格式选择是唯一入口，PDF安装确认只读且完成后仅应用本�
  expect(confirmation().querySelector('[role="checkbox"]')).toBeNull();
  expect(confirmation().textContent).toContain('PDF');
  expect(confirmation().textContent).not.toMatch(/文档组件|音视频组件|Python|FFmpeg|\.sag-converted/);
- expect(invoke.mock.calls.some(([name])=>name==='install_docling_profiles'||name==='install_docling')).toBe(false);
+ expect(invoke.mock.calls.some(([name])=>name.startsWith('install_docling'))).toBe(false);
  button('安装',confirmation()).click();
- await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling_profiles',{profiles:['documents']}));
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling_from_resource',{profiles:['documents']}));
  expect(applied()).toEqual({enabled:false});
  current={...current,running:false,stage:'done',installed:true,profiles:initial.profiles!.map(profile=>({...profile,installed:profile.id==='documents'}))};doclingStatus.set(current);await tick();
  expect(applied()).toEqual({enabled:false});
@@ -51,10 +51,10 @@ it.each([
  {name:'两个支持均缺失的混合选择',selected:['pdf','mp3'],documents:false,profiles:['documents','media']}
 ])('$name只安装所缺支持，摘要保留完整选择',async({selected,documents,profiles})=>{
  let current={...structuredClone(initial),installed:documents,profiles:initial.profiles!.map(profile=>({...profile,installed:documents&&profile.id==='documents'}))};
- invoke.mockImplementation(async command=>{if(command==='install_docling_profiles')current={...current,running:true};return current;});
+ invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource'||command==='install_docling_profiles')current={...current,running:true};return current;});
  app=mount(Harness,{target:document.body});await choose(selected);
  for(const extension of selected)expect(confirmation().querySelector('.selected-formats')?.textContent).toContain(extension.toUpperCase());
- button('安装',confirmation()).click();await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling_profiles',{profiles}));
+ button('安装',confirmation()).click();await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith(profiles.includes('documents')?'install_docling_from_resource':'install_docling_profiles',{profiles}));
 });
 
 it('取消安装确认不启用也不保存，保留格式草稿',async()=>{
@@ -79,7 +79,7 @@ it('安装失败不应用，进度重开与重试仍使用原缺失目标',async
 
 it('进度入口以服务当前失败任务为准，不能沿用较早完成的文档请求',async()=>{
  let current=structuredClone(initial);
- invoke.mockImplementation(async command=>{if(command==='install_docling_profiles')current={...current,running:true,requested_profiles:['documents']};return current;});
+ invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource')current={...current,running:true,requested_profiles:['documents']};return current;});
  app=mount(Harness,{target:document.body});await choose(['pdf']);button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());current=ready(current);doclingStatus.set(current);await tick();await vi.waitFor(()=>expect(button('应用所选格式',confirmation())?.disabled).toBe(false));button('应用所选格式',confirmation()).click();await tick();
  current={...current,stage:'error',error:'media failed',requested_profiles:['media'],profiles:initial.profiles!.map(profile=>({...profile,installed:profile.id==='documents'}))};doclingStatus.set(current);await tick();find('查看 Docling 安装进度').click();await tick();
@@ -90,7 +90,7 @@ it('进度入口以服务当前失败任务为准，不能沿用较早完成的�
 
 it.each(['关闭格式选择','关闭发起设置','关闭下载详情'])('%s后完成不能回写旧草稿',async closeLabel=>{
  let current=structuredClone(initial);
- invoke.mockImplementation(async command=>{if(command==='install_docling_profiles')current={...current,running:true};return current;});
+ invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource')current={...current,running:true};return current;});
  app=mount(Harness,{target:document.body,props:{removable:true}});await choose(['pdf']);button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());
  if(closeLabel!=='关闭下载详情'){button('后台下载',confirmation()).click();await tick();}
@@ -103,7 +103,7 @@ it.each(['关闭格式选择','关闭发起设置','关闭下载详情'])('%s后
 it('安装RPC未返回时第二控件不能接管目标或完成回调，重复进度保持原请求',async()=>{
  let current=structuredClone(initial),accept!:(value:DoclingStatus)=>void;
  invoke.mockImplementation(async command=>{
-  if(command==='install_docling_profiles')return new Promise<DoclingStatus>(resolve=>{accept=resolve;});return current;
+  if(command==='install_docling_from_resource')return new Promise<DoclingStatus>(resolve=>{accept=resolve;});return current;
  });
  app=mount(Harness,{target:document.body,props:{second:true}});await choose(['pdf']);button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(accept).toBeDefined());find('关闭下载详情').click();await tick();
@@ -112,7 +112,7 @@ it('安装RPC未返回时第二控件不能接管目标或完成回调，重复�
  expect(confirmation().querySelector('.selected-formats')?.textContent).toContain('PDF');expect(confirmation().querySelector('.selected-formats')?.textContent).not.toContain('MP3');
  current={...current,running:true,requested_profiles:['documents']};accept(current);
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());find('查看 Docling 安装进度').click();await tick();
- expect(invoke.mock.calls.filter(([name])=>name==='install_docling_profiles')).toHaveLength(1);
+ expect(invoke.mock.calls.filter(([name])=>name==='install_docling_from_resource')).toHaveLength(1);
  current=ready(current);doclingStatus.set(current);await tick();
  // Closing the first confirmation explicitly abandoned its completion action.
  expect(button('应用所选格式',confirmation())).toBeUndefined();button('完成',confirmation()).click();await tick();
@@ -121,7 +121,7 @@ it('安装RPC未返回时第二控件不能接管目标或完成回调，重复�
 
 it('后台下载的完成按钮只应用原发起控件，另一控件保持自己的未应用草稿',async()=>{
  let current=structuredClone(initial);
- invoke.mockImplementation(async command=>{if(command==='install_docling_profiles')current={...current,running:true,requested_profiles:['documents']};return current;});
+ invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource')current={...current,running:true,requested_profiles:['documents']};return current;});
  app=mount(Harness,{target:document.body,props:{second:true}});await choose(['pdf']);button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());button('后台下载',confirmation()).click();await tick();
  document.querySelectorAll<HTMLButtonElement>('[aria-label="选择其他格式"]')[1].click();await tick();
@@ -130,7 +130,7 @@ it('后台下载的完成按钮只应用原发起控件，另一控件保持自�
  current={...current,running:false,installed:true,stage:'done',profiles:initial.profiles!.map(profile=>({...profile,installed:profile.id==='documents'}))};doclingStatus.set(current);await tick();await vi.waitFor(()=>expect(button('应用所选格式',confirmation())?.disabled).toBe(false));button('应用所选格式',confirmation()).click();
  await vi.waitFor(()=>expect(applied()).toEqual({enabled:true,formats:['pdf']}));
  expect(JSON.parse(document.querySelector('[aria-label="另一文件夹转换设置"]')!.textContent!)).toEqual({enabled:false});expect(find('转换 .mp3').getAttribute('aria-checked')).toBe('true');
- expect(invoke.mock.calls.filter(([name])=>name==='install_docling_profiles')).toEqual([['install_docling_profiles',{profiles:['documents']}]]);
+ expect(invoke.mock.calls.filter(([name])=>name==='install_docling_from_resource')).toEqual([['install_docling_from_resource',{profiles:['documents']}]]);
 });
 
 it('取消正在下载的支持后不能再应用旧草稿，重试仍只安装原目标',async()=>{
@@ -151,7 +151,7 @@ it('应用所选格式等待并行数提交时关闭确认，返回后不能再�
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {conversion_workers:4};
   if(command==='set_conversion_workers')return new Promise<void>(resolve=>{finishWorkers=resolve;});
-  if(command==='install_docling_profiles')current={...current,running:true};return current;
+  if(command==='install_docling_from_resource')current={...current,running:true};return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true}});
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
@@ -167,7 +167,7 @@ it('旧完成动作等待并行数返回时，不能关闭另一控件的新安�
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {conversion_workers:4};
   if(command==='set_conversion_workers')return new Promise<void>(resolve=>{finishWorkers=resolve;});
-  if(command==='install_docling_profiles')current={...current,running:true};return current;
+  if(command==='install_docling_from_resource')current={...current,running:true};return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true,second:true}});
  await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
@@ -185,7 +185,7 @@ it('后台安装时修改并行数会撤销旧完成回写，保留当前草稿'
  let current=structuredClone(initial);
  invoke.mockImplementation(async command=>{
   if(command==='get_settings')return {conversion_workers:4};
-  if(command==='install_docling_profiles')current={...current,running:true,requested_profiles:['documents']};
+  if(command==='install_docling_from_resource')current={...current,running:true,requested_profiles:['documents']};
   return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true}});

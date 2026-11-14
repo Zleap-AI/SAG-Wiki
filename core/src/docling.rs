@@ -16,6 +16,8 @@ use std::{
 
 #[path = "docling_pdf_session.rs"]
 mod pdf_session;
+#[path = "docling_resource.rs"]
+mod resource;
 pub(crate) use pdf_session::PdfSession;
 
 pub const OUTPUT_DIRECTORY: &str = ".sag-converted";
@@ -191,9 +193,10 @@ fn uv_download_url() -> Result<String> {
     ))
 }
 
-enum OfflineImport {
+enum InstallSource {
     Component(PathBuf),
     Uv(PathBuf),
+    Resource,
 }
 
 pub struct Docling {
@@ -376,7 +379,7 @@ impl Docling {
     /// steps still install online.
     pub fn import_component(self: &Arc<Self>, path: PathBuf) -> Result<()> {
         if path.join("manifest.json").is_file() {
-            let source = OfflineImport::Component(path.canonicalize()?);
+            let source = InstallSource::Component(path.canonicalize()?);
             return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
         }
         // Extracting the archive may add one folder level, e.g. uv-<platform>/uv.
@@ -389,16 +392,19 @@ impl Docling {
         let Some(uv) = uv else {
             bail!("所选目录既不是完整组件（缺少 manifest.json），也不包含 {UV_EXECUTABLE}，请选择解压后的目录")
         };
-        let source = OfflineImport::Uv(uv.path().canonicalize()?);
+        let source = InstallSource::Uv(uv.path().canonicalize()?);
         self.start_profiles_from(vec![DoclingProfile::Documents], Some(source))
     }
     pub fn start_profiles(self: &Arc<Self>, profiles: Vec<DoclingProfile>) -> Result<()> {
         self.start_profiles_from(profiles, None)
     }
+    pub fn start_from_resource(self: &Arc<Self>, profiles: Vec<DoclingProfile>) -> Result<()> {
+        self.start_profiles_from(profiles, Some(InstallSource::Resource))
+    }
     fn start_profiles_from(
         self: &Arc<Self>,
         profiles: Vec<DoclingProfile>,
-        offline: Option<OfflineImport>,
+        source: Option<InstallSource>,
     ) -> Result<()> {
         let profiles: Vec<_> = [DoclingProfile::Documents, DoclingProfile::Media]
             .into_iter()
@@ -430,12 +436,15 @@ impl Docling {
                     return Ok(());
                 }
                 let view = this.profile_view(profile);
-                match &offline {
-                    Some(OfflineImport::Component(source)) => {
+                match &source {
+                    Some(InstallSource::Component(source)) => {
                         *view.source.lock().unwrap() = Some(source.clone());
                     }
-                    Some(OfflineImport::Uv(uv)) => view.import_uv(uv)?,
-                    None => {}
+                    Some(InstallSource::Uv(uv)) => view.import_uv(uv)?,
+                    Some(InstallSource::Resource) if profile == DoclingProfile::Documents => {
+                        return view.install_resource();
+                    }
+                    _ => {}
                 }
                 view.install()
             });

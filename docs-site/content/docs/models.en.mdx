@@ -20,7 +20,7 @@ Local indexing and quick search need neither model. A decision model alone enabl
 
 ### Provider
 
-Selecting a provider fills its endpoint. Answer providers include OpenAI, DeepSeek, GLM, OpenRouter, 302.AI and Custom. Decision model providers include Zleap, 302.AI, OpenRouter, Typesafe and Custom. New installations default to Zleap; existing endpoint and model settings are preserved.
+Selecting a provider fills its endpoint. Answer providers include OpenAI, DeepSeek, GLM, OpenRouter, 302.AI and Custom. Decision model providers include Zleap, OpenAI, 302.AI, OpenRouter, Typesafe and Custom. New installations default to Zleap; existing endpoint and model settings are preserved.
 
 Answer generation and decision models use different APIs. Endpoints are not interchangeable simply because they share a provider. A custom service must support the relevant API.
 
@@ -45,7 +45,11 @@ The service must implement the decision model API. For the CLI, use `sag config 
 
 **Available models · one per line** controls the answer models shown in the UI. Enter an exact supported model ID on each line, without commas. Duplicates are removed on save. Connection testing uses the first entry.
 
-For the decision model, enter one model ID in **Model name**. New installations use `Zev-1` on the Zleap Open Platform; switching to Zleap also automatically fills in `Zev-1`. The base URL is `https://api.zleap.com/v1`, requesting `/v1/systemone` with API key authentication. See the [decision model documentation](https://platform.zleap.com/docs/decision). Switching providers also updates the model name: `Zev-1` for Zleap, `jev-latest` for 302.AI and Typesafe, and an empty field for other providers (including Custom) that must be filled manually. Opening Settings preserves the saved model name.
+Click **Fetch model list** to load model IDs using the current API address and key. Search the list and select one or more models to append them to your existing entries. Click **Done**, then **Save settings** to apply the changes. You can still enter model IDs manually if your provider does not offer a model list.
+
+For the decision model, enter one model ID in **Model name**. New installations use `Zev-1` on the Zleap Open Platform at `https://api.zleap.com/v1`, which requests `/v1/systemone`. See the [decision model documentation](https://platform.zleap.com/docs/decision). Switching providers fills in `Zev-1` for Zleap, `gpt-6-luna` for OpenAI, and `jev-latest` for 302.AI and Typesafe. Enter the model name manually for other providers. Opening Settings preserves the saved model name.
+
+To use [OpenAI Decisions](https://developers.openai.com/api/docs/guides/decisions), select **OpenAI** as the decision model provider, confirm the endpoint is `https://api.openai.com/v1/decisions`, enter your OpenAI API key, test the connection, and save. Retrieval that uses the decision model then sends the question and relevant source passages to OpenAI.
 
 <Callout title="Promotion">
 [Zleap Open Platform](https://platform.zleap.com) now offers **Zev-1**, a decision model developed and deployed in-house. It outperforms Jev models across the board. Everyone is welcome to try it.
@@ -75,6 +79,8 @@ The answer-model test asks for a short reply; output length follows the model se
 
 ## Connection problems
 
+Model requests from the desktop app and CLI follow the manual HTTP and HTTPS system proxy settings on Windows and macOS. `localhost`, loopback IPs, and addresses covered by the system bypass rules (such as listed intranet addresses) connect directly. A proxy change takes effect on the next model operation without a restart. When set, `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` take precedence for their applicable requests, and `NO_PROXY` adds bypass addresses. PAC scripts and automatic proxy discovery are currently unsupported.
+
 - Authentication failure: check the provider, key and expiry.
 - Unknown model: verify the exact ID and account access.
 - Invalid endpoint: check the API URL and required path.
@@ -85,15 +91,15 @@ Keys are stored in the current user's application data directory. macOS uses own
 
 ## MinerU document parsing
 
-Open **Settings → Model settings → Document parsing · MinerU**. Choose **302.AI** or **MinerU official**. Saving the matching key/token makes MinerU the preferred parser; clearing it restores local parsing.
+Open **Settings → Model settings → Document parsing · MinerU**. Choose **302.AI** or **MinerU official**, then edit the **API endpoint** below or leave it blank to use the provider's default. A custom endpoint must support the selected provider's API. Editing the address keeps the saved key for that provider; switching providers restores the new provider's default address and uses its own key. Saving a key makes MinerU the preferred parser. Click **Remove saved key** to immediately delete the selected provider's key and return to local parsing.
 
-302.AI uses the enterprise knowledge base's MinerU 2.x contract: Base URL `https://api.302ai.cn`, upload at `/302/upload-file`, create with `POST /302/v2/mineru/task`, and poll with `GET /302/v2/mineru/task?task_id=…`. Authentication is `Authorization: Bearer <API Key>`; enter only the key, without the Bearer prefix.
+302.AI uses the enterprise knowledge base's MinerU 2.x contract: default endpoint `https://api.302ai.cn`, upload at `/302/upload-file`, create with `POST /302/v2/mineru/task`, and poll with `GET /302/v2/mineru/task?task_id=…`. Authentication is `Authorization: Bearer <API Key>`; enter only the key, without the Bearer prefix.
 
 302 parses PDFs only. Defaults are version **2.5**, **Automatic** parsing, a 60-second request timeout, a 2-second polling interval and a 30-minute task deadline. Advanced settings offer versions **2.0 / 2.5** and **Automatic / Text / OCR**. Time limits are client-side controls. Other formats use the applicable built-in parser or installed Docling; components are not installed automatically.
 
 ![MinerU provider, key and connection test](/images/product-mineru-en.png)
 
-**Test connection** checks only the selected parser endpoint. It accesses no account API logs, uploads no files and creates no task. A 400 / 422 response for missing task parameters establishes reachability only, not parsing permission; 401 / 403 means the request was rejected. Results appear beside the button. Validate actual parsing with a small PDF.
+**Test connection** uses the endpoint currently entered. It accesses no account API logs, uploads no files and creates no task. A 400 / 422 response for missing task parameters establishes reachability only, not parsing permission; 401 / 403 means the request was rejected. Results appear above the button. Validate actual parsing with a small PDF.
 
 302 responses support task identifiers, result URLs, direct Markdown and JSON-encoded strings. Split PDF results must preserve page mappings before publication; otherwise parsing falls back locally without truncating content. Both previous 302 choices migrate to this single configuration and retain the saved key.
 
@@ -106,7 +112,7 @@ When a local multi-part PDF needs Docling, its parts reuse one conversion proces
 
 Cloud parts are merged from their structured results with the original page markers kept. Repeated headers, footers and page numbers are dropped; code blocks become fenced code with their language, caption and footnote; charts keep their description and footnote; other named types keep their text as paragraphs. A type with nothing readable fails the conversion with its name and page number, then falls back to local parsing.
 
-MinerU official continues to use `https://mineru.net/api/v4` and its official token, with separate VLM / Pipeline options. Keys are never reused across providers and providers are not switched automatically. Remote parsing sends the original document; see [Data and privacy](/en/docs/privacy).
+The official MinerU service defaults to `https://mineru.net/api/v4`, uses an official token, and offers VLM and Pipeline options. Keys are never reused across providers and providers are not switched automatically. Remote parsing sends the original document; see [Data and privacy](/en/docs/privacy).
 
 When resuming a MinerU task, SAG first checks for an existing result. If it is still queued, parsing or converting, its time limit is measured from the original submission and is not reset by reindexing. Expired tasks fall back to local parsing, with the timeout recorded in index history. Task journals are retained to avoid duplicate submissions; a result completed later can still be retrieved on the next indexing run. Cloud queue times depend on the provider.
 

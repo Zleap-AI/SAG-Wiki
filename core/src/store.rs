@@ -551,6 +551,7 @@ impl Store {
             bail!("问答模型需要 API Key 鉴权；无需鉴权选项仅适用于 Jev")
         }
         anyhow::ensure!(s.search_summary_sources > 0, "自动问答参考数量必须大于 0");
+        anyhow::ensure!(s.search_summary_model.is_empty() || s.answer.models.contains(&s.search_summary_model), "总结模型必须从可选问答模型中选择");
         if !matches!(s.language.as_str(), "zh-CN" | "en") {
             bail!("不支持的界面语言")
         }

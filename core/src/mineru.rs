@@ -46,6 +46,16 @@ pub fn has_key(dir: &Path, config: &MineruConfig) -> Result<bool> {
 pub fn clear_key(dir: &Path, config: &MineruConfig) -> Result<()> {
     crate::models::clear_secret(dir, config.provider.credential_kind())
 }
+pub(crate) fn validate_base_url(base: &str) -> Result<()> {
+    let url = Url::parse(base).context("MinerU 接口地址无效")?;
+    ensure!(
+        matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+            && url.username().is_empty() && url.password().is_none()
+            && url.query().is_none() && url.fragment().is_none(),
+        "MinerU 接口地址必须为不含凭据、查询参数或片段的 HTTP(S) 地址"
+    );
+    Ok(())
+}
 fn safe_url(value: &str) -> Result<Url> {
     let url = Url::parse(value).context("MinerU 返回的地址无效")?;
     let secure = url.scheme() == "https";
@@ -189,10 +199,11 @@ async fn finish_302(client:&Client,result:&Value,part:&Part,require_pages:bool,l
 
 /// This is a reachability/authentication probe, not a document conversion.
 pub async fn test_connection(config: &MineruConfig, key: &str) -> Result<String> {
-    test_connection_at(config, key, config.provider.base_url()).await
+    test_connection_at(config, key, config.base_url()).await
 }
 async fn test_connection_at(config: &MineruConfig, key: &str, base: &str) -> Result<String> {
     config.validate().map_err(anyhow::Error::msg)?;
+    validate_base_url(base)?;
     ensure!(!key.trim().is_empty(), "请填写 MinerU API Key");
     let result = async {
         let response = client(config.request_timeout_secs.min(15))?
@@ -1065,7 +1076,7 @@ pub fn convert_with_progress(
         config,
         key,
         cancel,
-        config.provider.base_url(),
+        config.base_url(),
         &RuntimeSettings::default(),
         progress,
     )
@@ -1085,7 +1096,7 @@ pub fn convert_with_runtime(
         config,
         key,
         cancel,
-        config.provider.base_url(),
+        config.base_url(),
         runtime,
         progress,
     )
@@ -1126,7 +1137,7 @@ pub(crate) fn convert_pdf_segment_with_runtime(
         config,
         key,
         cancel,
-        config.provider.base_url(),
+        config.base_url(),
         runtime,
         progress,
         Some(original_start),
@@ -1163,6 +1174,7 @@ fn convert_range_at_with_progress(
         ensure!(source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")),"302.AI 开源部署版仅支持 PDF，尝试本地解析");
     }
     config.validate().map_err(anyhow::Error::msg)?;
+    validate_base_url(base)?;
     ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
     ensure!(!key.trim().is_empty(), "请填写 MinerU API Key");
     let _admission = admission(config, cancel)?;

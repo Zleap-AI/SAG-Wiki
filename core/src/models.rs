@@ -1,3 +1,4 @@
+mod decisions;
 mod responses;
 
 use sag_protocol::runtime::RuntimeSettings;
@@ -117,9 +118,15 @@ pub fn endpoint(config: &ModelConfig, jev: bool) -> String {
     let path = url.path().trim_end_matches('/');
     let complete = if jev { path.ends_with("/decisions") || path.ends_with("/systemone") }
         else { path.ends_with("/chat/completions") || path.ends_with("/responses") };
-    let path = if complete { path.to_owned() }
-        else { format!("{path}/{}", if jev { "systemone" } else { "chat/completions" }) };
-    url.set_path(&path);
+    let normalized = if complete {
+        path.to_owned()
+    } else {
+        let suffix = if !jev { "chat/completions" }
+            else if path == "/v1" && decisions::official_origin(&url) { "decisions" }
+            else { "systemone" };
+        format!("{path}/{suffix}")
+    };
+    url.set_path(&normalized);
     url.into()
 }
 fn redact(message: &str, key: &str) -> String {
@@ -324,10 +331,10 @@ pub async fn score_with_runtime(
 ) -> Result<Vec<Candidate>> {
     let key = if config.auth_mode == ModelAuthMode::None { "" } else { key };
     let batches = jev_batches_with_runtime(query, candidates, evidence, &config.model, runtime)?;
-    let url = endpoint(config, true);
+    let endpoint = decisions::Endpoint::new(config);
     let result: Vec<Vec<Candidate>> = stream::iter(batches.into_iter().map(|(payload, items)| {
-        let url = &url;
-        async move { score_batch(client, url, key, payload, items, timeout, runtime, cancel).await }
+        let endpoint = &endpoint;
+        async move { score_batch(client, endpoint, key, payload, items, timeout, runtime, cancel).await }
     }))
     .buffered(runtime.jev_concurrency)
     .try_collect()
@@ -337,7 +344,7 @@ pub async fn score_with_runtime(
 
 async fn score_batch(
     client: &Client,
-    url: &str,
+    endpoint: &decisions::Endpoint,
     key: &str,
     payload: Value,
     items: Vec<Candidate>,
@@ -348,7 +355,7 @@ async fn score_batch(
     let mut pending = std::collections::VecDeque::from([(payload, items)]);
     let mut scored = vec![];
     while let Some((payload, mut items)) = pending.pop_front() {
-        let response = match request_with_runtime(client, url, key, &payload, timeout, runtime, cancel).await {
+        let data = match endpoint.request(client, key, &payload, timeout, runtime, cancel).await {
             Ok(response) => response,
             Err(error) => {
                 if items.len() == 1 || !batch_limit_error(&error) {
@@ -366,8 +373,6 @@ async fn score_batch(
                 continue;
             }
         };
-        let data: Value =
-            tokio::select! {_=cancel.cancelled()=>return Err(cancelled()),r=response.json()=>r?};
         let answers = data
             .get("answers")
             .and_then(Value::as_object)
@@ -834,6 +839,38 @@ async fn chat_turn_inner(
         response_output: vec![],
     })
 }
+pub(crate) async fn list_answer_models(
+    client: &Client,
+    base: &str,
+    key: &str,
+    timeout: u64,
+) -> Result<Vec<String>> {
+    let mut url = reqwest::Url::parse(base.trim()).context("问答模型接口地址无效")?;
+    anyhow::ensure!(matches!(url.scheme(), "http" | "https") && url.host().is_some(), "问答模型接口地址无效");
+    let path = url.path().trim_end_matches('/');
+    let base = path.strip_suffix("/chat/completions")
+        .or_else(|| path.strip_suffix("/responses"))
+        .or_else(|| path.strip_suffix("/models"))
+        .unwrap_or(path);
+    url.set_path(&format!("{base}/models"));
+    let response = client.get(url)
+        .bearer_auth(key.trim())
+        .timeout(std::time::Duration::from_secs(timeout))
+        .send().await.map_err(|error| error.without_url())
+        .context("无法获取模型列表")?;
+    anyhow::ensure!(response.status().is_success(), "获取模型列表失败（HTTP {}）", response.status().as_u16());
+    #[derive(serde::Deserialize)]
+    struct Catalog { data: Vec<CatalogModel> }
+    #[derive(serde::Deserialize)]
+    struct CatalogModel { id: String }
+    let catalog: Catalog = response.json().await.map_err(|error| error.without_url())
+        .context("模型列表的返回格式不正确")?;
+    Ok(catalog.data.into_iter().filter_map(|model| {
+        let id = model.id.trim();
+        (!id.is_empty() && !id.contains(['\r', '\n'])).then(|| id.to_owned())
+    }).collect::<std::collections::BTreeSet<_>>().into_iter().collect())
+}
+
 pub async fn test_connection(
     client: &Client,
     kind: &str,
@@ -847,16 +884,22 @@ pub async fn test_connection(
         anyhow::ensure!(turn.tool_calls.is_empty() && !turn.text.trim().is_empty(), "接口连通，但未返回回答");
         return Ok("连接成功".into());
     }
-    let key = if kind == "jev" && config.auth_mode == ModelAuthMode::None { "" } else { key };
     let cancel = CancellationToken::new();
-    let payload = if kind == "jev" {
-        json!({"model":config.model,"state":"Connection test","questions":{"test":{"type":"noul","instructions":{"question":"Is this a connection test?"},"criteria":{"true":"It is a connection test.","false":"It is not a connection test."}}}})
-    } else {
-        json!({"model":config.model,"messages":[{"role":"user","content":"Reply with OK."}]})
-    };
+    if kind == "jev" {
+        let key = if config.auth_mode == ModelAuthMode::None { "" } else { key };
+        let payload = json!({"model":config.model,"state":"Connection test","questions":{"test":{"type":"noul","instructions":{"question":"Is this a connection test?"},"criteria":{"true":"It is a connection test.","false":"It is not a connection test."}}}});
+        let data = decisions::Endpoint::new(config)
+            .request(client, key, &payload, timeout, &Default::default(), &cancel)
+            .await?;
+        if data["answers"]["test"]["noul"].as_f64().is_none() {
+            bail!("接口连通，但未返回 Jev Noul 评分")
+        }
+        return Ok("连接成功".into());
+    }
+    let payload = json!({"model":config.model,"messages":[{"role":"user","content":"Reply with OK."}]});
     let data: Value = request(
         client,
-        &endpoint(config, kind == "jev"),
+        &endpoint(config, false),
         key,
         &payload,
         timeout,
@@ -865,11 +908,7 @@ pub async fn test_connection(
     .await?
     .json()
     .await?;
-    if kind == "jev" {
-        if data["answers"]["test"]["noul"].as_f64().is_none() {
-            bail!("接口连通，但未返回 Jev Noul 评分")
-        }
-    } else if data["choices"][0]["message"]["content"].as_str().is_none() {
+    if data["choices"][0]["message"]["content"].as_str().is_none() {
         bail!("接口连通，但未返回回答")
     };
     Ok("连接成功".into())

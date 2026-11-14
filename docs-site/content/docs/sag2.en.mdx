@@ -49,7 +49,7 @@ Here, “multi-hop” means following intermediate facts: identify the session's
 | Jev | Judge whether a source passage provides necessary evidence | No |
 | Answer model (LLM) | Compose answers from retrieved material and call available tools | Yes |
 
-**Indexing does not call an LLM. SAG2 retrieval does not call the answer LLM, but does call your configured Jev judging service.** Q&A and automatic search summaries additionally use the answer model. Not using the answer LLM does not make deep search fully offline or remove its service configuration requirements.
+**Indexing does not call an LLM. SAG2 retrieval calls your configured Jev judging service.** Q&A and automatic search summaries each use the selected model to generate text.
 
 ## Choose the right workflow
 

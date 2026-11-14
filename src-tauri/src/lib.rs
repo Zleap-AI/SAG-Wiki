@@ -318,6 +318,7 @@ remote!(get_docling_status() => DoclingStatus);
 remote!(install_docling() => InstallDocling);
 remote!(import_docling_component(path:String) => ImportDoclingComponent);
 remote!(install_docling_profiles(profiles:Vec<DoclingProfile>) => InstallDoclingProfiles);
+remote!(install_docling_from_resource(profiles:Vec<DoclingProfile>) => InstallDoclingFromResource);
 remote!(cancel_docling_install() => CancelDoclingInstall);
 remote!(uninstall_docling() => UninstallDocling);
 remote!(clear_model_key(kind:String) => ClearModelKey);
@@ -326,6 +327,7 @@ remote!(test_mineru(config:sag_protocol::mineru::MineruConfig,key:String) => Tes
 remote!(clear_mineru_key(config:sag_protocol::mineru::MineruConfig) => ClearMineruKey);
 remote!(runtime_schema() => RuntimeSchema);
 remote!(test_model(kind:String,config:ModelConfig,key:String) => TestModel);
+remote!(list_answer_models(config:ModelConfig,key:String) => ListAnswerModels);
 remote!(test_mcp(server:McpServer,credentials:Option<McpCredentials>) => TestMcp);
 remote!(resolve_tool_approval(id:String,allow:bool) => ResolveToolApproval);
 remote!(list_conversations() => ListConversations);
@@ -659,10 +661,12 @@ pub fn run() {
             install_docling,
             import_docling_component,
             install_docling_profiles,
+            install_docling_from_resource,
             cancel_docling_install,
             uninstall_docling,
             save_settings,
             test_model,
+            list_answer_models,
             runtime_schema,
             mineru_schema,
             test_mineru,
