@@ -222,9 +222,11 @@ jobs:
       - name: Install locked JavaScript dependencies
         if: steps.reuse.outputs.reuse != 'true'
         run: npm ci
+      # Automatic release orchestration runs on Ubuntu in preparation and validate.
+      # Keep platform-sensitive assembly, signing, transfer and CLI checks here.
       - name: Regress release assembly, signatures and artifact transfer on this platform
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
-        run: node --test scripts/release.node-test.mjs scripts/automatic-release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
+        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
       - name: Test Safari native saving and build development installer
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
         run: |

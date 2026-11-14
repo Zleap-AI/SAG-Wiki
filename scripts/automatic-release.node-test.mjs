@@ -11,7 +11,7 @@ import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-relea
 import {validateVersions} from './release.mjs';
 
 const root = resolve(import.meta.dirname, '..');
-function fixture() {
+function fixture(documentationPath = 'docs/zh-CN/中文 更新 说明.md') {
   const directory = mkdtempSync(join(tmpdir(), 'sag-automatic-release-'));
   for (const name of [...versionFiles, 'CHANGELOG.md']) {
     mkdirSync(dirname(join(directory, name)), {recursive: true});
@@ -35,7 +35,7 @@ function fixture() {
   const originalVersion = validateVersions(directory);
   git('tag', `v${originalVersion}`);
   const product = save('src/product.txt', 'A real product change\n', 'fix: restore document indexing');
-  const source = save('docs/zh-CN/中文 更新\n说明.md', 'Documentation\n', 'docs: explain indexing');
+  const source = save(documentationPath, 'Documentation\n', 'docs: explain indexing');
   git('update-ref', 'refs/remotes/origin/main', source);
   const version = nextVersion([originalVersion], [`v${originalVersion}`]);
   const provenance = {schema: 1, source, baseline, version};
@@ -53,7 +53,7 @@ test('classifies docs/CI-only pushes independently of cumulative unreleased prod
   const f = fixture();
   try {
     const paths = (a, b) => changedPaths(f.git, a, b);
-    assert.deepEqual(paths(f.product, f.source), ['docs/zh-CN/中文 更新\n说明.md']);
+    assert.deepEqual(paths(f.product, f.source), ['docs/zh-CN/中文 更新 说明.md']);
     assert.equal(hasProductChanges(paths(f.product, f.source)), false, 'Docs push must not release even with earlier product backlog');
     assert.equal(hasProductChanges(paths(f.baseline, f.source)), true, 'Next product release retains older failed/skipped product changes');
     const mixed = f.save('src/another.txt', 'New feature\n', 'feat: add document previews');
@@ -62,6 +62,17 @@ test('classifies docs/CI-only pushes independently of cumulative unreleased prod
     assert.match(notes['CHANGELOG.md'], /restore document indexing/);
     assert.match(notes['CHANGELOG.md'], /add document previews/);
     assert.doesNotMatch(notes['CHANGELOG.md'].split('## ')[1], /docs: explain indexing/);
+  } finally { f.close(); }
+});
+
+// Newlines are legal Unix filenames; keep NUL-delimited Git path coverage
+// separate from the shared fixture, which must also be creatable on Windows.
+test('classifies a newline-containing Git path as one documentation change', {skip: process.platform === 'win32'}, () => {
+  const f = fixture('docs/zh-CN/中文 更新\n说明.md');
+  try {
+    const paths = changedPaths(f.git, f.product, f.source);
+    assert.deepEqual(paths, ['docs/zh-CN/中文 更新\n说明.md']);
+    assert.equal(hasProductChanges(paths), false);
   } finally { f.close(); }
 });
 
@@ -224,25 +235,27 @@ test('migration refuses pending release deployments and imports without contacti
   assert.equal(imported.stdout, '');
 });
 
-test('workflows dispatch the exact tag and publish only after all final checks with queued serialization', () => {
-  const automatic = readFileSync(join(root, '.github/workflows/automatic-release.yml'), 'utf8');
-  const desktop = readFileSync(join(root, '.github/workflows/desktop-release.yml'), 'utf8');
-  const helper = readFileSync(join(root, 'scripts/automatic-release.mjs'), 'utf8');
-  assert.match(automatic, /push:\n\s+branches: \[main\]/);
-  assert.doesNotMatch(automatic, /pull_request|workflow_dispatch/);
-  assert.match(automatic, /needs: classify\n\s+if: needs\.classify\.outputs\.eligible == 'true'/);
-  assert.match(automatic, /group: automatic-desktop-release-preparation\n\s+cancel-in-progress: false\n\s+queue: max/);
-  assert.match(desktop, /on:\n  workflow_dispatch:/);
-  assert.doesNotMatch(desktop.slice(0, desktop.indexOf('permissions:')), /push:/);
-  assert.match(helper, /gh\('workflow', 'run', 'desktop-release.yml', '--repo', repository, '--ref', tag\)/);
-  assert.doesNotMatch(helper, /git\('push'.*(?:main|--force)/);
-  assert.ok(desktop.indexOf('release-build-cache.mjs wait all') < desktop.indexOf('release.mjs assemble'));
-  assert.ok(desktop.indexOf('release.mjs assemble') < desktop.indexOf('actions/attest-build-provenance'));
-  assert.ok(desktop.indexOf('actions/attest-build-provenance') < desktop.indexOf('automatic-release.mjs create-draft'));
-  assert.match(desktop, /publish:\n\s+name: Publish verified desktop release\n\s+needs: \[validate, release\]/);
-  assert.match(desktop, /group: desktop-release-publication\n\s+cancel-in-progress: false\n\s+queue: max/);
-  assert.match(desktop, /run: node scripts\/automatic-release.mjs publish/);
-});
+for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
+  test(`workflows dispatch the exact tag and publish only after all final checks with ${label}`, () => {
+    const automatic = readFileSync(join(root, '.github/workflows/automatic-release.yml'), 'utf8').replace(/\r?\n/g, newline);
+    const desktop = readFileSync(join(root, '.github/workflows/desktop-release.yml'), 'utf8').replace(/\r?\n/g, newline);
+    const helper = readFileSync(join(root, 'scripts/automatic-release.mjs'), 'utf8');
+    assert.match(automatic, /push:\r?\n\s+branches: \[main\]/);
+    assert.doesNotMatch(automatic, /pull_request|workflow_dispatch/);
+    assert.match(automatic, /needs: classify\r?\n\s+if: needs\.classify\.outputs\.eligible == 'true'/);
+    assert.match(automatic, /group: automatic-desktop-release-preparation\r?\n\s+cancel-in-progress: false\r?\n\s+queue: max/);
+    assert.match(desktop, /on:\r?\n  workflow_dispatch:/);
+    assert.doesNotMatch(desktop.slice(0, desktop.indexOf('permissions:')), /push:/);
+    assert.match(helper, /gh\('workflow', 'run', 'desktop-release.yml', '--repo', repository, '--ref', tag\)/);
+    assert.doesNotMatch(helper, /git\('push'.*(?:main|--force)/);
+    assert.ok(desktop.indexOf('release-build-cache.mjs wait all') < desktop.indexOf('release.mjs assemble'));
+    assert.ok(desktop.indexOf('release.mjs assemble') < desktop.indexOf('actions/attest-build-provenance'));
+    assert.ok(desktop.indexOf('actions/attest-build-provenance') < desktop.indexOf('automatic-release.mjs create-draft'));
+    assert.match(desktop, /publish:\r?\n\s+name: Publish verified desktop release\r?\n\s+needs: \[validate, release\]/);
+    assert.match(desktop, /group: desktop-release-publication\r?\n\s+cancel-in-progress: false\r?\n\s+queue: max/);
+    assert.match(desktop, /run: node scripts\/automatic-release.mjs publish/);
+  });
+}
 
 
 test('migration uses the canonical repository endpoint without a trailing slash', () => {
