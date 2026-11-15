@@ -59,6 +59,19 @@ test('dependency archive round trip excludes app/test outputs and rejects traver
     const result = call('restore',restored);assert.equal(result.status,0,result.stderr);
     assert.equal(readFileSync(join(restored,'debug/deps/libthird_party.rlib'),'utf8'),'debug/deps/libthird_party.rlib');
     for (const file of ['debug/deps/libsag_core.rlib','debug/deps/test-executable','debug/.fingerprint/sag-core-123/lib-sag','debug/sag']) assert.equal(existsSync(join(restored,file)),false);
+    const interrupted = spawnSync(python,['-c',`import importlib.util,pathlib,sys
+spec=importlib.util.spec_from_file_location("archive",sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+root=pathlib.Path(sys.argv[2]);old=root/"debug/deps/libthird_party.rlib"
+def fail_copy(source,destination):
+ pathlib.Path(destination).write_bytes(b"partial")
+ raise OSError("injected disk failure")
+m.shutil.copy2=fail_copy
+try:m.transfer("restore",str(root),sys.argv[3],"test","aarch64-apple-darwin")
+except OSError:pass
+else:raise AssertionError("copy must fail")
+assert old.read_text()=="debug/deps/libthird_party.rlib"
+assert not list(root.rglob(".sag-cache-*"))`,script,restored,archive],{encoding:'utf8'});
+    assert.equal(interrupted.status,0,interrupted.stderr);
     for (const [name,type] of [['../escape', 'file'],['debug/deps/libsag_core.rlib','file'],['debug/deps/libevil.rlib','symlink']]) {
       const evil = join(directory,'evil.tar.gz');
       const made = spawnSync(python,['-c','import tarfile,sys,io\nwith tarfile.open(sys.argv[1],"w:gz") as t:\n i=tarfile.TarInfo(sys.argv[2]);i.size=1\n if sys.argv[3]=="symlink":i.type=tarfile.SYMTYPE;i.linkname="../../escape";i.size=0\n t.addfile(i,io.BytesIO(b"x"))',evil,name,type],{encoding:'utf8'});

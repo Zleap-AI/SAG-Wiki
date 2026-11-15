@@ -60,7 +60,15 @@ def transfer(command, directory, archive, kind, target):
         for member in members:
             destination = directory / member.name
             destination.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(stage / member.name, destination)
+            # An optional restore may be interrupted. Never truncate an existing
+            # dependency before its complete replacement is ready on this volume.
+            with tempfile.NamedTemporaryFile(dir=destination.parent, prefix=".sag-cache-", delete=False) as temporary:
+                replacement = Path(temporary.name)
+            try:
+                shutil.copy2(stage / member.name, replacement)
+                os.replace(replacement, destination)
+            finally:
+                replacement.unlink(missing_ok=True)
         return len(members)
 
 
