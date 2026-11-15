@@ -152,6 +152,10 @@ In **Settings → File settings**, select **Docling** and click **Configure Docl
 
 **Built-in conversion** formats need no Docling download. At the bottom of the dialog, **Install via command line** uses the original online installer. SAG Wiki downloads Python, dependencies and models in the background without opening a terminal. Audio and video components still install online after you select the relevant formats.
 
+Completed document component downloads are cached after verification. If extraction or conversion verification fails, retrying checks the release information and reuses the cached package when its size and checksum match. Interrupted downloads, damaged caches, and changed packages are downloaded again. Uninstalling related components also removes the download cache.
+
+If Windows installation verification cannot read `additional.dat` or `tm_config.json` and the path starts with `\\?\`, update the desktop app and retry installation. The desktop app handles document component resource paths, model paths and conversion file paths consistently. Failed verification keeps the previous component.
+
 ![File formats and Docling installation options](/images/product-docling-formats-en.png)
 
 ### Import an offline document component
@@ -174,7 +178,7 @@ The remaining steps still need network access. If those addresses are also unrea
 
 Dependencies are checked against pinned hashes, so a mirror serving different files fails the installation instead of installing altered files. If the computer is fully offline, use a complete offline component instead.
 
-Environment variables only affect newly started processes. The installation runs in the background service, and the app reuses a service that is already running, so quitting and reopening the app alone does not apply them; after setting the variables run `sag service restart` from a new terminal, or confirm the restart with `sag service status`.
+Environment variables only affect newly started processes. After setting them, run `sag service restart` from a new terminal so the service inherits that terminal’s environment. The desktop connects to the restarted service. Use `sag service status` to confirm the restart.
 
 While the recognition models download and the runtime is unpacked, the installer commits about 2.5 GiB of memory; when memory is tight the installation stops and the error shows a message such as `memory allocation ... failed`. Close memory-hungry programs and retry; if it keeps failing, open **Open install log** for the last lines, or switch to a complete offline component.
 

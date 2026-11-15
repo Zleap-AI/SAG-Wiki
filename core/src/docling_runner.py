@@ -10,6 +10,25 @@ import platform
 import sys
 from pathlib import Path
 
+def runtime_path(value):
+    """Use compatible paths at the boundary with document/OCR libraries.
+
+    These libraries append forward slashes to package and model paths, which
+    Windows does not normalize after a verbatim prefix. Rust retains its
+    original paths for component validation.
+    """
+    value = os.fspath(value)
+    if sys.platform == "win32":
+        if value.startswith("\\\\?\\UNC\\"):
+            value = "\\\\" + value[8:]
+        elif value.startswith("\\\\?\\"):
+            value = value[4:]
+    return Path(value)
+
+
+if sys.platform == "win32":
+    sys.path[:] = [str(runtime_path(path)) if path else path for path in sys.path]
+
 os.environ["HF_HUB_OFFLINE"] = "1"
 os.environ["TRANSFORMERS_OFFLINE"] = "1"
 os.environ["HF_DATASETS_OFFLINE"] = "1"
@@ -74,8 +93,8 @@ def run_image_worker(artifacts_path):
         try:
             request = json.loads(line)
             request_id = request["id"]
-            source = Path(request["source"])
-            output_file = Path(request["output"])
+            source = runtime_path(request["source"])
+            output_file = runtime_path(request["output"])
             text = convert_image(source, artifacts_path, ocr)
             if text is None:
                 print(json.dumps({"id": request_id, "status": "fallback"}), flush=True)
@@ -105,12 +124,12 @@ def run_pdf_worker(convert_one):
         try:
             request = json.loads(line)
             request_id = request["id"]
-            source = Path(request["source"])
-            output = Path(request["output"])
+            source = runtime_path(request["source"])
+            output = runtime_path(request["output"])
             if source.suffix.lower() != ".pdf":
                 raise ValueError("PDF session only accepts PDF segments")
             with tempfile.NamedTemporaryFile(prefix=".sag-pdf-output-", dir=output.parent, delete=False) as file:
-                temporary = Path(file.name)
+                temporary = runtime_path(file.name)
             with contextlib.redirect_stdout(sys.stderr):
                 code = convert_one(source, temporary)
             if code:
@@ -211,9 +230,9 @@ def convert_document(converter, source, output_file, runtime, probe=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("source", nargs="?", type=Path)
-    parser.add_argument("--output-file", type=Path)
-    parser.add_argument("--artifacts-path", required=True, type=Path)
+    parser.add_argument("source", nargs="?", type=runtime_path)
+    parser.add_argument("--output-file", type=runtime_path)
+    parser.add_argument("--artifacts-path", required=True, type=runtime_path)
     parser.add_argument("--pdf-backend", choices=["pypdfium2"])
     parser.add_argument("--probe", action="store_true")
     workers = parser.add_mutually_exclusive_group()
@@ -237,6 +256,7 @@ def main():
         import logging
         logging.basicConfig(level=logging.INFO)
         print("Offline probe: loading document conversion libraries", flush=True)
+        print(f"Offline probe: model directory {args.artifacts_path}", flush=True)
 
     if args.source is not None and args.source.suffix.lower() in IMAGE_EXTENSIONS:
         try:

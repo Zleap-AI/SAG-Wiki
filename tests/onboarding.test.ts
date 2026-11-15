@@ -46,6 +46,67 @@ it('remembers dismissal and closes settings when reopening the guide',async()=>{
  expect(invoke.mock.calls.some(([name])=>['save_settings','add_root','run_query','save_document'].includes(name))).toBe(false);
 });
 
+it('shows the first-run guide on Windows while workspace loading is pending and keeps dismissal after loading',async()=>{
+ vi.spyOn(navigator,'userAgent','get').mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+ localStorage.removeItem('sag.onboarding.seen');
+ let finishSettings!:(value:typeof settings)=>void;
+ const pendingSettings=new Promise<typeof settings>(resolve=>finishSettings=resolve);
+ invoke.mockImplementation(async(command)=>command==='get_settings'?pendingSettings:[]);
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.onboarding-dialog')).not.toBeNull());
+ expect(localStorage.getItem('sag.onboarding.seen')).toBeNull();
+ click('关闭教程');await tick();
+ finishSettings(settings);
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('list_drafts',undefined));
+ await tick();
+ expect(document.querySelector('.onboarding-dialog')).toBeNull();
+ expect(localStorage.getItem('sag.onboarding.seen')).toBe('1');
+});
+
+it.each(['quick_search_main_ready','list_drafts'])('shows the Windows first-run guide even if %s fails',async(failedCommand)=>{
+ vi.spyOn(navigator,'userAgent','get').mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+ localStorage.removeItem('sag.onboarding.seen');
+ invoke.mockImplementation(async(command)=>{
+  if(command===failedCommand)throw new Error('启动步骤失败');
+  return command==='get_settings'?settings:[];
+ });
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.startup-error')?.textContent).toContain('启动步骤失败'));
+ expect(document.querySelector('.onboarding-dialog')).not.toBeNull();
+ expect(localStorage.getItem('sag.onboarding.seen')).toBeNull();
+ click('关闭教程');await tick();
+ expect(localStorage.getItem('sag.onboarding.seen')).toBe('1');
+});
+
+it.each([false,true])('preserves Windows quick-search guide behavior (previously seen: %s)',async(previouslySeen)=>{
+ vi.spyOn(navigator,'userAgent','get').mockReturnValue('Mozilla/5.0 (Windows NT 10.0; Win64; x64)');
+ if(!previouslySeen)localStorage.removeItem('sag.onboarding.seen');
+ let openSearch!:()=>void;
+ const {listen}=await import('@tauri-apps/api/event');
+ vi.mocked(listen).mockImplementation(async(name,callback)=>{
+  if(name==='quick-search-open')openSearch=()=>callback({event:name,id:0,payload:undefined});
+  return ()=>{};
+ });
+ invoke.mockImplementation(async(command)=>{
+  if(command==='get_settings')return settings;
+  if(command==='take_quick_search_request')return{query:'',candidate:null,deep:false};
+  if(command==='get_quick_search')return{preferences:{enabled:false,shortcut:'Control+Shift+Space'},error:null};
+  return [];
+ });
+ app=mount(App,{target:document.body});
+ if(previouslySeen){
+  await vi.waitFor(()=>expect(document.querySelector('.welcome')).not.toBeNull());
+  click('设置');await tick();click('查看教程');await tick();
+ }
+ await vi.waitFor(()=>expect(document.querySelector('.onboarding-dialog')).not.toBeNull());
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('list_drafts',undefined));
+ openSearch();
+ await vi.waitFor(()=>expect(document.querySelector('.search-page')).not.toBeNull());
+ if(previouslySeen)expect(document.querySelector('.onboarding-dialog')).toBeNull();
+ else expect(document.querySelector('.onboarding-dialog')).not.toBeNull();
+ expect(localStorage.getItem('sag.onboarding.seen')).toBe(previouslySeen?'1':null);
+});
+
 it('supports navigation, keyboard boundaries, native swiping, and mouse dragging',async()=>{
  app=mount(Onboarding,{target:document.body,props:{onClose:vi.fn()}});await tick();
  const node=track();

@@ -82,7 +82,7 @@ SAG_DATA_DIR=/path/to/dev-data npm run tauri dev
 SAG_DATA_DIR=/path/to/dev-data ./src-tauri/bin/development/sag service status
 ```
 
-桌面与 CLI 共用同一份开发数据时，设置相同的 `SAG_DATA_DIR`。服务退出后会按需启动，退出桌面不会停止服务；测试结束可执行 `sag service stop`。需要模型服务的功能使用开发者自行配置的凭据；纯索引和本地匹配不需要 API 密钥。
+桌面与 CLI 共用同一份开发数据时，设置相同的 `SAG_DATA_DIR`。服务退出后会按需启动，macOS 退出桌面客户端后保留服务，Windows 从托盘或应用菜单退出时停止服务；测试结束可执行 `sag service stop`。需要模型服务的功能使用开发者自行配置的凭据；纯索引和本地匹配不需要 API 密钥。
 
 ## 文档与仓库边界
 

@@ -432,6 +432,9 @@ jobs:
       - name: Regress release assembly, signatures and artifact transfer on this platform
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
         run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs scripts/rust-dependency-cache.node-test.mjs scripts/parallel-cli.node-test.mjs
+      - name: Regress document workers and Windows resource loading
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
+        run: python -m unittest discover -s tests -p docling_pdf_session_test.py -v
       - name: Test Safari native saving and build development installer
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
         run: |
