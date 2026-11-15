@@ -110,3 +110,9 @@ test('a mismatched local artifact channel is rejected', t => {
   writeFileSync(plan.source, 'wrong channel fixture');
   assert.throws(() => buildCli({cwd, env: {}, platform: 'linux', run: command => command === 'cargo' ? {status: 0} : {status: 0, stdout: '{"channel":"development"}'}}), /channel does not match/);
 });
+
+
+test('production timing collection preserves the locked target build plan',()=>{
+ const plan=cliBuildPlan({env:{TAURI_ENV_TARGET_TRIPLE:'x86_64-pc-windows-msvc',SAG_CARGO_TIMINGS:'1'},platform:'win32'});
+ assert.ok(plan.args.includes('--locked'));assert.ok(plan.args.includes('--release'));assert.equal(plan.args.at(-1),'--timings');
+});

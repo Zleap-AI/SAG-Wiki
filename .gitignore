@@ -10,6 +10,7 @@ src-tauri/target/
 
 releases/
 /release-artifacts/
+/release-compile/
 /signed-release-artifacts/
 **/__pycache__/
 .ruff_cache/

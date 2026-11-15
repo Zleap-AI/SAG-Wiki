@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {appendFileSync, mkdirSync, mkdtempSync, openSync, closeSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {appendFileSync, mkdirSync, mkdtempSync, openSync, closeSync, readSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -42,6 +42,15 @@ export function latestJob(jobs, name) {
   return matches[0];
 }
 
+export function compilerJobMode(job) {
+  assert.equal(job?.conclusion,'success','CLI compiler did not pass');
+  const compile=job.steps?.find(step=>step.name==='Compile the production CLI with its real embedded web assets');
+  if(compile?.conclusion==='success')return 'compiled';
+  const probe=job.steps?.find(step=>step.name==='Skip compilation when the complete platform build is reusable');
+  assert.ok(compile?.conclusion==='skipped'&&probe?.conclusion==='success','CLI compiler has no verified compilation or reuse probe');
+  return 'reuse-skipped';
+}
+
 export function componentState(run, jobs, component) {
   assert.ok(components.includes(component), 'Unknown component');
   const validation = latestJob(jobs, 'Validate release source');
@@ -54,7 +63,7 @@ export function componentState(run, jobs, component) {
   return {state:'success', job};
 }
 
-function selectArchive(artifacts, run, name, job, now = Date.now()) {
+export function selectArchive(artifacts, run, name, job, now = Date.now()) {
   const matches = artifacts.filter(a => a.name === name);
   assert.equal(matches.length, 1, `Missing or duplicate artifact: ${name}`);
   const a = matches[0];
@@ -76,6 +85,17 @@ export function selectArtifact(artifacts, run, platform, job, now = Date.now()) 
 
 export function verifyArchive(bytes, expected) {
   assert.equal(`sha256:${createHash('sha256').update(bytes).digest('hex')}`, expected, 'Artifact archive digest mismatch');
+}
+
+export function hashFile(path) {
+  const hash = createHash('sha256');
+  const buffer = Buffer.alloc(4 * 1024 * 1024);
+  const fd = openSync(path, 'r');
+  try {
+    let count;
+    while ((count = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, count));
+    return hash.digest('hex');
+  } finally { closeSync(fd); }
 }
 
 function context() {
@@ -109,7 +129,7 @@ function snapshots(ctx, includeCurrent) {
 }
 
 export function validateReceipt(receipt, source, component, job) {
-  assert.equal(receipt.schema, 1, 'Unknown checkpoint schema');
+  assert.ok([1,2].includes(receipt.schema), 'Unknown checkpoint schema');
   assert.equal(receipt.commit, source.run.head_sha, 'Wrong checkpoint commit');
   assert.equal(receipt.component, component, 'Wrong checkpoint component');
   assert.ok(Number.isSafeInteger(receipt.producer_run) && receipt.producer_run > 0 && receipt.producer_run <= source.run.id, 'Invalid checkpoint producer');
@@ -118,6 +138,12 @@ export function validateReceipt(receipt, source, component, job) {
   if (receipt.producer_run === source.run.id) {
     assert.equal(receipt.producer_job, job.id, 'Local checkpoint job mismatch');
     assert.equal(receipt.producer_attempt, job.run_attempt, 'Local checkpoint attempt mismatch');
+  }
+  if (receipt.schema === 2) {
+    assert.ok(component.startsWith('build-'), 'Parallel compile receipt must describe a build');
+    assert.equal(receipt.cli_producer?.run,receipt.producer_run,'CLI compiler run mismatch');
+    for (const field of ['job','attempt']) assert.ok(Number.isSafeInteger(receipt.cli_producer[field])&&receipt.cli_producer[field]>0,'Invalid CLI compiler identity');
+    if(Object.hasOwn(receipt.cli_producer,'inline'))assert.equal(receipt.cli_producer.inline,true,'Invalid inline CLI compiler marker');
   }
   return receipt;
 }
@@ -164,6 +190,22 @@ export function selectComponent(sources, component, {currentRunId, gate = false,
         job = actual.job;
         assert.equal(job.id, receipt.producer_job, 'Checkpoint producer job was superseded');
         assert.equal(job.run_attempt, receipt.producer_attempt, 'Checkpoint producer attempt was superseded');
+        // Legacy aggregate producers predate receipts. A modern producer must be
+        // the flattened original, never another forwarded checkpoint chain.
+        const actualReceipt = job.name===jobNames[component] ? (producer===source?receipt:validateReceipt(receiptReader(producer,component,job),producer,component,job)) : undefined;
+        if(actualReceipt){
+          assert.equal(actualReceipt.producer_run,producer.run.id,'Original producer receipt is not canonical');
+          assert.equal(actualReceipt.producer_job,job.id,'Original producer job is not canonical');
+          assert.equal(actualReceipt.producer_attempt,job.run_attempt,'Original producer attempt is not canonical');
+        }
+        if(component.startsWith('build-')&&latestJob(producer.jobs,`Compile CLI ${component.slice(6)}`))assert.equal(actualReceipt?.schema,2,'Parallel build requires schema 2 checkpoint');
+        if (actualReceipt?.schema === 2) {
+          const compiler=latestJob(producer.jobs,`Compile CLI ${component.slice(6)}`);
+          assert.equal(compiler?.conclusion,'success','CLI compiler latest attempt did not pass');
+          assert.equal(compiler.id,actualReceipt.cli_producer.job,'CLI compiler job was superseded');
+          assert.equal(compiler.run_attempt,actualReceipt.cli_producer.attempt,'CLI compiler attempt was superseded');
+          assert.equal(compilerJobMode(compiler),actualReceipt.cli_producer.inline?'reuse-skipped':'compiled','CLI compiler execution does not match the package receipt');
+        }
       }
       const result = {state:'success', run:producer.run, job};
       if (component.startsWith('build-')) result.artifact = selectArtifact(producer.artifacts, producer.run, component.slice(6), job);
@@ -217,10 +259,24 @@ async function reuseComponent(component) {
   console.log(producer ? `Reuse ${component} checkpoint from run ${producer.run.id}` : `Execute ${component} locally`);
 }
 
-async function waitForRelease(platform) {
+async function probeComponent(component) {
+  assert.ok(components.includes(component),'Unknown component');
+  const ctx=context();
+  validateRun(api(`actions/runs/${ctx.currentRunId}`),[],ctx);
+  let reuse=false;
+  try { reuse=(await awaitComponents(ctx,[component],{gate:false}))[0].state==='success'; }
+  catch(error) { console.log(`Reuse probe unavailable; compile locally: ${error.message}`); }
+  appendFileSync(process.env.GITHUB_OUTPUT,`reuse=${reuse}\n`);
+}
+
+export function releaseComponents(platform) {
   assert.ok(['macos', 'all'].includes(platform), 'Use wait macos or wait all');
+  return platform === 'macos' ? ['build-macos'] : components;
+}
+
+async function waitForRelease(platform) {
+  const requested = releaseComponents(platform);
   const ctx = context();
-  const requested = platform === 'macos' ? ['rust-macos', 'build-macos'] : components;
   const budget = Number(process.env.RELEASE_WAIT_TIMEOUT_MS ?? 210 * 60 * 1000);
   assert.ok(Number.isSafeInteger(budget) && budget >= 0 && budget <= 210 * 60 * 1000, 'Invalid wait timeout');
   const deadlinePath = '.release-wait-deadline';
@@ -239,7 +295,7 @@ async function waitForRelease(platform) {
   console.log(`Verified ${requested.join(', ')}`);
 }
 
-function downloadArtifacts(artifacts, destination) {
+export function downloadArtifacts(artifacts, destination) {
   const temp = mkdtempSync(join(tmpdir(), 'sag-release-'));
   try {
     for (const artifact of artifacts) {
@@ -249,7 +305,7 @@ function downloadArtifacts(artifacts, destination) {
       try { result = spawnSync('gh', ['api', `repos/${repository}/actions/artifacts/${artifact.id}/zip`], {stdio:['ignore', fd, 'pipe'], timeout:180000}); }
       finally { closeSync(fd); }
       assert.equal(result.status, 0, `Artifact download failed: ${result.stderr}`);
-      verifyArchive(readFileSync(zip), artifact.digest);
+      assert.equal(`sha256:${hashFile(zip)}`, artifact.digest, 'Artifact archive digest mismatch');
       const target = resolve(destination, artifact.platform);
       mkdirSync(target, {recursive:true});
       // Validate archive paths and reject symlinks before extracting into the signing workspace.
@@ -262,7 +318,8 @@ function downloadArtifacts(artifacts, destination) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [command, argument] = process.argv.slice(2);
-  assert.ok(['reuse', 'wait'].includes(command), 'Use reuse COMPONENT or wait macos|all');
+  assert.ok(['reuse', 'probe', 'wait'].includes(command), 'Use reuse|probe COMPONENT or wait macos|all');
   if (command === 'reuse') await reuseComponent(argument);
+  else if (command === 'probe') await probeComponent(argument);
   else await waitForRelease(argument);
 }
