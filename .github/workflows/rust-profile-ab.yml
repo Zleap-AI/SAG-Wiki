@@ -1,0 +1,72 @@
+name: Rust test profile A/B
+
+on:
+  workflow_dispatch:
+    inputs:
+      rounds:
+        description: Paired rounds per platform (three for an adoption decision)
+        type: choice
+        options: ['3', '1']
+        default: '3'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-profile-ab-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  compare:
+    name: Profile A/B ${{ matrix.platform }} round ${{ matrix.round }}
+    if: startsWith(github.ref, 'refs/heads/')
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [macos, windows]
+        round: ${{ fromJSON(inputs.rounds == '3' && '[1,2,3]' || '[1]') }}
+    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || 'windows-2025' }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      AB_PLATFORM: ${{ matrix.platform }}
+      AB_ROUND: ${{ matrix.round }}
+      PYTHONUTF8: '1'
+      RUST_BACKTRACE: '1'
+    steps:
+      - name: Check out the exact dispatch commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13.9'
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.98.1'
+      - name: Verify A/B measurement policy
+        run: node --test scripts/test-profile-ab.node-test.mjs
+      - name: Prepare the same QPDF runtime used by native tests
+        run: node scripts/prepare-qpdf.mjs
+      # The three profiles run on the same VM in a rotated order. Each gets a
+      # fresh target, warms its own matching dependencies, then cleans ONLY core.
+      # No dependency cache or release checkpoint is written by this workflow.
+      - name: Measure compilation and execute all core tests for every profile
+        run: node scripts/test-profile-ab.mjs run
+      - name: Upload timing reports and named-test inventories
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: profile-ab-${{ matrix.platform }}-round-${{ matrix.round }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/profile-ab-results/
+          if-no-files-found: warn
+          retention-days: 7

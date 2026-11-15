@@ -1,0 +1,110 @@
+name: Replay Windows CLI concurrency
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  replay:
+    name: Windows CLI replay ${{ matrix.round }}
+    runs-on: windows-2025
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        round: [1, 2, 3]
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13.9'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.98.1'
+      # Restore the same trusted-main debug dependency cache; PRs never save it.
+      - name: Restore trusted Rust E2E dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target/debug/.fingerprint/*
+            src-tauri/target/debug/build/*
+            src-tauri/target/debug/deps/*.rlib
+            src-tauri/target/debug/deps/*.rmeta
+            src-tauri/target/debug/deps/*.d
+            src-tauri/target/debug/deps/*.a
+            src-tauri/target/debug/deps/*.lib
+            src-tauri/target/debug/deps/*.so
+            src-tauri/target/debug/deps/*.dylib
+            src-tauri/target/debug/deps/*.dll
+            !src-tauri/target/debug/.fingerprint/sag-*
+            !src-tauri/target/debug/build/sag-*
+            !src-tauri/target/debug/deps/libsag_*
+            !src-tauri/target/debug/deps/sag_*
+          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-x86_64-pc-windows-msvc-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
+          restore-keys: |
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-x86_64-pc-windows-msvc-1.98.1-debug-
+      - name: Verify relocatable QPDF runtime package
+        run: node --test scripts/qpdf-packaging.node-test.mjs
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - name: Embed the browser workspace in the E2E executable
+        run: |
+          npm ci
+          node --input-type=module -e "import {buildWebAssets} from './scripts/build-web-assets.mjs'; buildWebAssets();"
+          echo "SAG_WEB_DIST=$GITHUB_WORKSPACE/dist-web" >> "$GITHUB_ENV"
+      # Only compile the CLI needed by E2E, without Tauri or installers.
+      - name: Prepare E2E executable
+        run: cargo build --locked --manifest-path cli/Cargo.toml
+      - name: Verify service shutdown synchronization
+        run: cargo test --locked --manifest-path client/Cargo.toml shutdown_tests
+      - name: Replay the complete CLI suite with paired outer concurrency
+        env:
+          REPLAY_ROUND: ${{ matrix.round }}
+        run: |
+          mkdir -p standalone-replay
+          if [[ "$REPLAY_ROUND" == 2 ]]; then
+            order=(2 4 4 2)
+          else
+            order=(4 2 2 4)
+          fi
+          printf 'trial\tthreads\texit_code\n' > standalone-replay/results.tsv
+          trial=0
+          for threads in "${order[@]}"; do
+            trial=$((trial + 1))
+            log="standalone-replay/trial-$trial-threads-$threads.log"
+            pwsh -NoProfile -Command '@(Get-Process -Name sag -ErrorAction SilentlyContinue | Select-Object Id,CPU,StartTime) | ConvertTo-Json' > "standalone-replay/before-$trial.json" || true
+            set +e
+            cargo test --locked --manifest-path cli/Cargo.toml -- --nocapture --test-threads="$threads" > "$log" 2>&1
+            result=$?
+            set -e
+            pwsh -NoProfile -Command '@(Get-Process -Name sag -ErrorAction SilentlyContinue | Select-Object Id,CPU,StartTime) | ConvertTo-Json' > "standalone-replay/after-$trial.json" || true
+            printf '%s\t%s\t%s\n' "$trial" "$threads" "$result" >> standalone-replay/results.tsv
+            # Show only test outcomes; retain complete subprocess diagnostics in artifacts.
+            rg 'test result:|FAILED|panicked|exit=|stderr=' "$log" || true
+          done
+          cat standalone-replay/results.tsv
+          # This workflow records controls as well as candidates. A failed control
+          # is evidence, not a reason to skip the remaining paired executions.
+      - name: Upload all paired replay outcomes and diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: standalone-replay-${{ matrix.round }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: standalone-replay/
+          if-no-files-found: error
+          retention-days: 7
