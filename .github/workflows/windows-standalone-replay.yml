@@ -1,20 +1,12 @@
 name: Replay Windows CLI concurrency
 
 on:
-  push:
-    branches: [feat/parallel-signing-trusted-tag-cache]
-    paths: [.github/workflows/windows-standalone-replay.yml]
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  register:
-    if: github.event_name == 'push'
-    runs-on: ubuntu-24.04
-    steps:
-      - run: echo 'Register manual feature-branch experiment without compiling or publishing'
   replay:
     if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')
     name: Windows CLI replay ${{ matrix.round }}

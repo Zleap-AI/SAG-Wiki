@@ -10,7 +10,7 @@ const commit = 'a'.repeat(40);
 const ctx = {commit, workflowId:4, currentRunId:20};
 const names = {documentation:'Build bilingual documentation', frontend:'Test frontend', 'rust-macos':'Test Rust macos', 'rust-windows':'Test Rust windows', 'build-macos':'Build macos', 'build-windows':'Build windows'};
 const run = (id=10, patch={}) => ({id, repository:{id:3, full_name:'Zleap-AI/SAG-Wiki'}, head_repository:{full_name:'Zleap-AI/SAG-Wiki'}, head_sha:commit, workflow_id:4, path:'.github/workflows/desktop-release.yml', head_branch:'main', event:'push', status:'completed', conclusion:'success', ...patch});
-const job = (name, id=1, patch={}) => ({id, name, conclusion:'success', status:'completed', run_attempt:1, started_at:'2026-01-01T00:00:00Z', completed_at:'2026-01-01T00:10:00Z', ...patch});
+const job = (name, id=1, patch={}) => ({id, name, conclusion:'success', status:'completed', run_attempt:1, started_at:'2026-01-01T00:00:00Z', completed_at:'2026-01-01T00:10:00Z', ...(name.startsWith('Compile CLI ')?{steps:[{name:'Compile the production CLI with its real embedded web assets',conclusion:'success'}]}:{}), ...patch});
 const artifact = (sourceRun, platform, sourceJob, patch={}) => ({id:100+sourceRun.id, name:`desktop-${platform}-${commit}-${sourceJob.run_attempt}`, expired:false, expires_at:'2099-01-01T00:00:00Z', created_at:'2026-01-01T00:05:00Z', digest:`sha256:${'b'.repeat(64)}`, workflow_run:{id:sourceRun.id, head_sha:commit, repository_id:3, head_repository_id:3}, ...patch});
 function source(id=10, patch={}) {
  const sourceRun=run(id,patch);
@@ -174,4 +174,47 @@ test('workflow has independent native stages, one protected signing deployment a
  assert.match(release,/automatic-release\.mjs create-draft/);assert.match(workflow,/needs: \[validate, release\]/);assert.match(workflow,/checkpoint-\$\{\{ matrix.component \}\}/);
  assert.match(workflow,/desktop-\$\{\{ matrix.platform \}\}-\$\{\{ github.sha \}\}-\$\{\{ github.run_attempt \}\}/);
  assert.doesNotMatch(workflow.slice(0,workflow.indexOf('\n  release:')),/secrets\.|contents: write|id-token: write/);
+});
+
+test('parallel build receipts bind the CLI compiler and reject superseding failed or pending attempts',()=>{
+ const current=source(20);
+ const compiler=job('Compile CLI macos',899);
+ current.jobs.push(compiler);
+ current.receipts['build-macos']={...current.receipts['build-macos'],schema:2,cli_producer:{run:20,job:899,attempt:1}};
+ assert.equal(choose([current],'build-macos',{gate:true}).job.name,'Build macos');
+ current.jobs.push(job('Compile CLI macos',900,{run_attempt:2,conclusion:'failure'}));
+ assert.throws(()=>choose([current],'build-macos',{gate:true}),/CLI compiler/);
+ current.jobs.at(-1).conclusion=null;current.jobs.at(-1).status='in_progress';
+ assert.throws(()=>choose([current],'build-macos',{gate:true}),/CLI compiler/);
+});
+test('reused build receipts recheck the original CLI compiler, not a passing current compiler',()=>{
+ const producer=source(10);producer.jobs.push(job('Compile CLI windows',901));
+ producer.receipts['build-windows']={...producer.receipts['build-windows'],schema:2,cli_producer:{run:10,job:901,attempt:1}};
+ const current=source(20);current.receipts['build-windows']=producer.receipts['build-windows'];
+ assert.equal(choose([current,producer],'build-windows',{gate:true}).run.id,10);
+ producer.jobs.push(job('Compile CLI windows',902,{run_attempt:2}));
+ assert.throws(()=>choose([current,producer],'build-windows',{gate:true}),/CLI compiler/);
+});
+
+test('parallel producer cannot downgrade a package checkpoint to the old inline schema',()=>{
+ const current=source(20);current.jobs.push(job('Compile CLI macos',903));
+ assert.throws(()=>choose([current],'build-macos',{gate:true}),/Parallel build.*schema/);
+});
+test('forwarded legacy aggregate producer needs no modern receipt',()=>{
+ const producer=source(10);producer.jobs=producer.jobs.filter(j=>j.name!=='Build macos');producer.jobs.push(job('Build and test macos',88));producer.artifacts[0].name=`desktop-macos-${commit}`;delete producer.receipts['build-macos'];
+ const current=source(20);current.receipts['build-macos']={schema:1,commit,component:'build-macos',producer_run:10,producer_job:88,producer_attempt:1};
+ assert.equal(choose([current,producer],'build-macos',{gate:true}).run.id,10);
+});
+test('the flattened original producer must have a self-canonical modern receipt',()=>{
+ const older=source(5);const producer=source(10);producer.receipts['build-macos']=older.receipts['build-macos'];
+ const current=source(20);current.receipts['build-macos']={schema:1,commit,component:'build-macos',producer_run:10,producer_job:producer.jobs.find(j=>j.name==='Build macos').id,producer_attempt:1};
+ assert.throws(()=>choose([current,producer,older],'build-macos',{gate:true}),/canonical/);
+});
+
+test('PR E2E bounds outer test capacity while retaining the complete CLI suite',()=>{
+ const workflow=readFileSync(new URL('../.github/workflows/pr-e2e.yml',import.meta.url),'utf8');
+ const e2e=workflow.slice(workflow.indexOf('\n  e2e:'),workflow.indexOf('\n  qpdf-linux:'));
+ assert.match(e2e,/RUST_TEST_THREADS:\s*['"]?2['"]?(?:\s|$)/);
+ assert.match(e2e,/run: cargo test --locked --manifest-path cli\/Cargo.toml\s*\n/);
+ assert.doesNotMatch(e2e,/--skip|--ignored/);
 });

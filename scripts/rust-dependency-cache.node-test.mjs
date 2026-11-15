@@ -5,7 +5,7 @@ import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync}
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {normalizeCargo, dependencyKey, trustedProducer, verifyMetadata} from './rust-dependency-cache.mjs';
+import {normalizeCargo, dependencyKey, trustedProducer, verifyMetadata, profileCompatibility} from './rust-dependency-cache.mjs';
 import {hashFile} from './release-build-cache.mjs';
 
 test('cache key ignores only local package versions, retaining dependencies, features, profiles and configuration', () => {
@@ -95,4 +95,16 @@ test('workflow cache changes retain all native tests, protected signing and fina
   assert.match(workflow,/Pack verified Rust dependency outputs[\s\S]*continue-on-error: true/);
   assert.match(workflow,/scripts\/rust-dependency-cache.mjs restore/);
   assert.match(workflow,/scripts\/rust-dependency-cache.mjs pack/);
+});
+
+test('test cache compatibility separates debug metadata and codegen settings',()=>{
+ assert.notDeepEqual(profileCompatibility('test',{}),profileCompatibility('test',{CARGO_PROFILE_TEST_DEBUG:'line-tables-only'}));
+ assert.notDeepEqual(profileCompatibility('test',{}),profileCompatibility('test',{CARGO_PROFILE_TEST_CODEGEN_UNITS:'64'}));
+ assert.notDeepEqual(profileCompatibility('build',{CACHE_ROLE:'cli'}),profileCompatibility('build',{CACHE_ROLE:'desktop'}));
+});
+test('CLI dependency cache checks its own validated compiler latest attempt',()=>{
+ const run={id:10,head_sha:'a'.repeat(40),head_branch:'v0.3.0',event:'workflow_dispatch',path:'.github/workflows/desktop-release.yml',workflow_id:4,repository:{full_name:'Zleap-AI/SAG-Wiki'},head_repository:{full_name:'Zleap-AI/SAG-Wiki'}};
+ const jobs=[{id:1,name:'Validate release source',run_attempt:1,conclusion:'success'},{id:2,name:'Compile CLI macos',run_attempt:1,conclusion:'success'}];
+ assert.equal(trustedProducer(run,jobs,{currentRunId:20,workflowId:4,kind:'build',platform:'macos',role:'cli'}).id,2);
+ assert.throws(()=>trustedProducer(run,[...jobs,{...jobs[1],id:3,run_attempt:2,conclusion:'failure'}],{currentRunId:20,workflowId:4,kind:'build',platform:'macos',role:'cli'}));
 });

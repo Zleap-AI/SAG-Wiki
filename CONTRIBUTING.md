@@ -33,9 +33,13 @@ checks. macOS signing starts after its verified installer build, while Rust test
 Windows work continue. Publication still requires the exact commit whose
 frontend, documentation and both platforms' tests and builds succeeded.
 
-CI sets `CARGO_TARGET_DIR` to `src-tauri/target` so the CLI and desktop reuse
-compatible dependencies. Standalone local builds keep their existing default
-locations. Rust dependency caches are partitioned by OS, architecture, target,
+CI sets `CARGO_TARGET_DIR` to `src-tauri/target` in each worker. CLI and desktop
+production compilation run on independent workers for each platform, then join
+before packaging. Desktop compilation temporarily omits resource copying while
+preserving its original embedded configuration; packaging restores the actual,
+verified CLI and QPDF resources. No placeholder executable is accepted. Each
+platform waits only for its own CLI producer. Standalone local builds retain
+their existing commands and output locations. Rust dependency caches are partitioned by OS, architecture, target,
 toolchain, profile, manifests, lockfiles and Cargo configuration, rather than
 commit SHA or workflow text. Trusted main dispatches save ordinary Actions
 caches; PR E2E restores the identical debug cache without writing it. Because
@@ -45,7 +49,8 @@ tag and main ancestry (including deterministic release children), latest passed
 validation/native job attempt, artifact lifetime and digest, and payload
 metadata before extraction. Compatibility ignores only local SAG package version
 changes; third-party versions, features, profiles, Cargo configuration, platform
-and exact Rust compiler remain part of the key. App/test executables and local
+and exact Rust compiler remain part of the key. CLI/desktop compilation caches
+are partitioned by role, and test debug/codegen settings are part of compatibility. App/test executables and local
 SAG libraries are excluded. An unavailable or rejected cache falls back to
 compilation and never substitutes for tests or installer validation. Artifacts
 expire after 14 days; a compatible hit avoids exporting the same dependencies
@@ -58,3 +63,12 @@ Safari development installers and signed intermediate artifacts are retained for
 3 days. Public Release assets are unchanged.
 
 Dependency archives use the runner's existing zstd with multithreaded compression and streaming tar I/O. Restore validates the complete staged content and decompressor result before atomically replacing dependency files. Cache failure remains a normal-compilation fallback.
+
+The manual `Rust test profile A/B` workflow compares debug=1/CGU=16,
+line-tables-only/CGU=16 and line-tables-only/CGU=64 on the same runner in rotated
+order, with three paired rounds per platform. Each profile warms matching
+dependencies before measuring local core compilation. Reports include Cargo
+unit timings, warm-up and execution times, and named-test/ignored inventories;
+all core tests execute. Assertions and overflow checks remain enabled, and
+production release profiles are independent. Compare matched medians rather
+than treating a single hosted-runner measurement as a release-speed guarantee.

@@ -33,6 +33,9 @@ jobs:
         shell: bash
     env:
       CARGO_INCREMENTAL: '0'
+      # Match Desktop's outer fixture budget. Individual concurrency scenarios
+      # still launch their full set of client processes.
+      RUST_TEST_THREADS: '2'
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       PYTHONUTF8: '1'
     steps:
@@ -138,7 +141,7 @@ jobs:
           import {execFileSync} from 'node:child_process';
           const paths = execFileSync('git', ['diff', '--name-only', '-z', process.env.BASE_SHA, 'HEAD', '--'], {encoding: 'utf8'}).split('\0').filter(Boolean);
           const relevant = paths.some(path => /^(?:\.github\/workflows\/|config\/|src-tauri\/src\/update-fixtures\/)/.test(path) ||
-            /^scripts\/(?:automatic-release|release|configure-release|migrate-release-environment|sign-macos-release|build-cli|package-updates|verify-update|rust-dependency-cache)[^/]*\.mjs$/.test(path) ||
+            /^scripts\/(?:automatic-release|release|configure-release|migrate-release-environment|sign-macos-release|build-cli|package-updates|verify-update|rust-dependency-cache|parallel-cli|test-profile-ab)[^/]*\.mjs$/.test(path) ||
             path === 'scripts/rust-dependency-archive.py' ||
             /^(?:package(?:-lock)?\.json|(?:cli|src-tauri)\/Cargo\.(?:toml|lock)|src-tauri\/tauri[^/]*\.json|docs-site\/lib\/release-downloads\.ts)$/.test(path));
           appendFileSync(process.env.GITHUB_OUTPUT, `relevant=${relevant}\n`);
@@ -152,4 +155,4 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Regress preparation, trust, signing, assembly and cache gates
         if: steps.changes.outputs.relevant == 'true'
-        run: node --test scripts/automatic-release.node-test.mjs scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs scripts/rust-dependency-cache.node-test.mjs
+        run: node --test scripts/automatic-release.node-test.mjs scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs scripts/rust-dependency-cache.node-test.mjs scripts/parallel-cli.node-test.mjs scripts/test-profile-ab.node-test.mjs

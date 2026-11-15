@@ -38,6 +38,8 @@ Keep restricted key files outside the repository and maintain an independent enc
 
 The version in main may lag behind the latest generated release because release metadata is committed in a child rather than written back to main. Downloads and updates follow published releases. Routine changes no longer require manually editing every version file; both platforms and update manifests must still agree.
 
+For each platform, compile the CLI and desktop on independent workers, then join verified inputs before producing the real installer. Desktop compilation temporarily suppresses resource copying while retaining the original embedded configuration. Final packaging includes the actual CLI/QPDF resources and retains installer and CLI/Jev checks. macOS waits only for its own CLI producer. A packaged-build checkpoint binds its CLI producer and latest attempt, so a failed or superseded CLI retry cannot authorize stale output. CLI and desktop dependency archives are separated by role.
+
 ## Failure recovery and artifact reuse
 
 Prefer **Re-run failed jobs** in Actions. If preparation created a tag but dispatch failed, retry the same source/tag. Do not delete/recreate tags, replace published artifacts, or force-move versions.

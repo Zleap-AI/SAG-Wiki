@@ -6,7 +6,7 @@ import {resolve, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
 import {gitAt, validateReleaseSource} from './automatic-release.mjs';
-import {validateRun, componentState, selectArchive, downloadArtifacts, hashFile} from './release-build-cache.mjs';
+import {validateRun, componentState, selectArchive, downloadArtifacts, hashFile,latestJob} from './release-build-cache.mjs';
 
 const repository = 'Zleap-AI/SAG-Wiki';
 const localPackages = new Set(['sag-protocol', 'sag-client', 'sag-core', 'sag-cli', 'sag-desktop']);
@@ -40,10 +40,22 @@ export function trustedProducer(run, jobs, context) {
   assert.match(run.head_branch ?? '', /^v\d+\.\d+\.\d+$/, 'Only version tags may supply dependency archives');
   assert.ok(run.id < context.currentRunId, 'Only older producers may be reused');
   validateRun(run, jobs, {...context, commit:run.head_sha});
+  if (context.kind === 'build' && context.role === 'cli') {
+    assert.equal(latestJob(jobs,'Validate release source')?.conclusion,'success','Producer validation did not pass');
+    const job=latestJob(jobs,`Compile CLI ${context.platform}`);
+    assert.equal(job?.conclusion,'success','Producer CLI compiler did not pass');
+    return job;
+  }
   const component = `${context.kind === 'test' ? 'rust' : 'build'}-${context.platform}`;
   const state = componentState(run, jobs, component);
   assert.equal(state.state, 'success', 'Producer checks did not pass');
   return state.job;
+}
+
+export function profileCompatibility(kind,env=process.env) {
+  if(kind==='test') return {profile:`test-debug-${env.CARGO_PROFILE_TEST_DEBUG??'1'}-cgu-${env.CARGO_PROFILE_TEST_CODEGEN_UNITS??'16'}-assert-${env.CARGO_PROFILE_TEST_DEBUG_ASSERTIONS??'true'}-overflow-${env.CARGO_PROFILE_TEST_OVERFLOW_CHECKS??'true'}`};
+  const role=env.CACHE_ROLE??'desktop';assert.ok(['cli','desktop'].includes(role),'Unknown build cache role');
+  return {profile:'release',role};
 }
 
 export function verifyMetadata(metadata, expected, payloadHash) {
@@ -61,13 +73,13 @@ function context() {
   assert.match(commit ?? '', /^[a-f0-9]{40}$/);
   const currentRunId = Number(process.env.GITHUB_RUN_ID);
   assert.ok(Number.isSafeInteger(currentRunId) && currentRunId > 0);
-  const compatibility = {platform, kind, target, os:process.platform, arch:process.arch, rust:execute('rustc', ['--version']), profile:kind === 'test' ? 'debug1' : 'release'};
+  const compatibility = {platform, kind, target, os:process.platform, arch:process.arch, rust:execute('rustc', ['--version']), ...profileCompatibility(kind)};
   const git = gitAt(process.cwd());
   const key = dependencyKey(git, commit, compatibility);
-  return {kind, platform, target, commit, currentRunId, compatibility, key, git};
+  return {kind, platform, target, commit, currentRunId, compatibility, key, git,role:compatibility.role};
 }
 
-const name = (ctx, attempt, validation = false) => `${validation ? 'validation' : 'trusted'}-rust-deps-${ctx.platform}-${ctx.kind}-${ctx.key}-${attempt}`;
+const name = (ctx, attempt, validation = false) => `${validation ? 'validation' : 'trusted'}-rust-deps-${ctx.platform}-${ctx.kind}${ctx.role==='cli'?'-cli':''}-${ctx.key}-${attempt}`;
 const metadataFor = (ctx, run, job) => ({schema:1, commit:run.head_sha, ref:run.head_branch, run:run.id, job:job.id, attempt:job.run_attempt, key:ctx.key, compatibility:ctx.compatibility});
 const archive = (command, directory, file, ctx) => execute(process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'), [resolve('scripts/rust-dependency-archive.py'), command, directory, file, ctx.kind, ctx.target], {timeout:300000});
 const output = (key, value) => appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
@@ -107,7 +119,7 @@ function pack(ctx) {
   if (tag) validateReleaseSource(ctx.git, ctx.commit, process.env.GITHUB_REF_NAME);
   const run = api(`actions/runs/${ctx.currentRunId}`);
   const jobs = pages(`actions/runs/${ctx.currentRunId}/jobs?filter=all`, 'jobs');
-  const job = jobs.find(job => job.name === `${ctx.kind === 'test' ? 'Test Rust' : 'Build'} ${ctx.platform}` && job.run_attempt === Number(process.env.GITHUB_RUN_ATTEMPT));
+  const job = jobs.find(job => job.name === `${ctx.kind === 'test' ? 'Test Rust' : ctx.role === 'cli' ? 'Compile CLI' : 'Build'} ${ctx.platform}` && job.run_attempt === Number(process.env.GITHUB_RUN_ATTEMPT));
   assert.ok(job, 'Current producing job unavailable');
   if (tag) validateRun(run, jobs, {commit:ctx.commit, currentRunId:ctx.currentRunId, workflowId:api('actions/workflows/desktop-release.yml').id});
   const directory = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'rust-dependency-export-'));
