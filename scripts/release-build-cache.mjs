@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {appendFileSync, mkdirSync, mkdtempSync, openSync, closeSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
+import {appendFileSync, mkdirSync, mkdtempSync, openSync, closeSync, readSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -54,7 +54,7 @@ export function componentState(run, jobs, component) {
   return {state:'success', job};
 }
 
-function selectArchive(artifacts, run, name, job, now = Date.now()) {
+export function selectArchive(artifacts, run, name, job, now = Date.now()) {
   const matches = artifacts.filter(a => a.name === name);
   assert.equal(matches.length, 1, `Missing or duplicate artifact: ${name}`);
   const a = matches[0];
@@ -76,6 +76,17 @@ export function selectArtifact(artifacts, run, platform, job, now = Date.now()) 
 
 export function verifyArchive(bytes, expected) {
   assert.equal(`sha256:${createHash('sha256').update(bytes).digest('hex')}`, expected, 'Artifact archive digest mismatch');
+}
+
+export function hashFile(path) {
+  const hash = createHash('sha256');
+  const buffer = Buffer.alloc(4 * 1024 * 1024);
+  const fd = openSync(path, 'r');
+  try {
+    let count;
+    while ((count = readSync(fd, buffer, 0, buffer.length, null)) > 0) hash.update(buffer.subarray(0, count));
+    return hash.digest('hex');
+  } finally { closeSync(fd); }
 }
 
 function context() {
@@ -217,10 +228,14 @@ async function reuseComponent(component) {
   console.log(producer ? `Reuse ${component} checkpoint from run ${producer.run.id}` : `Execute ${component} locally`);
 }
 
-async function waitForRelease(platform) {
+export function releaseComponents(platform) {
   assert.ok(['macos', 'all'].includes(platform), 'Use wait macos or wait all');
+  return platform === 'macos' ? ['build-macos'] : components;
+}
+
+async function waitForRelease(platform) {
+  const requested = releaseComponents(platform);
   const ctx = context();
-  const requested = platform === 'macos' ? ['rust-macos', 'build-macos'] : components;
   const budget = Number(process.env.RELEASE_WAIT_TIMEOUT_MS ?? 210 * 60 * 1000);
   assert.ok(Number.isSafeInteger(budget) && budget >= 0 && budget <= 210 * 60 * 1000, 'Invalid wait timeout');
   const deadlinePath = '.release-wait-deadline';
@@ -239,7 +254,7 @@ async function waitForRelease(platform) {
   console.log(`Verified ${requested.join(', ')}`);
 }
 
-function downloadArtifacts(artifacts, destination) {
+export function downloadArtifacts(artifacts, destination) {
   const temp = mkdtempSync(join(tmpdir(), 'sag-release-'));
   try {
     for (const artifact of artifacts) {
@@ -249,7 +264,7 @@ function downloadArtifacts(artifacts, destination) {
       try { result = spawnSync('gh', ['api', `repos/${repository}/actions/artifacts/${artifact.id}/zip`], {stdio:['ignore', fd, 'pipe'], timeout:180000}); }
       finally { closeSync(fd); }
       assert.equal(result.status, 0, `Artifact download failed: ${result.stderr}`);
-      verifyArchive(readFileSync(zip), artifact.digest);
+      assert.equal(`sha256:${hashFile(zip)}`, artifact.digest, 'Artifact archive digest mismatch');
       const target = resolve(destination, artifact.platform);
       mkdirSync(target, {recursive:true});
       // Validate archive paths and reject symlinks before extracting into the signing workspace.

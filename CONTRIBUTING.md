@@ -29,17 +29,29 @@ Windows SDK manifest tool (`mt.exe`). macOS uses the regular `cargo test` comman
 
 Frontend unit tests run once on Linux in the main desktop workflow. Both native
 platforms retain Rust tests, installer builds and real packaged/installed CLI
-checks. Release signing accepts only the exact commit whose frontend,
-documentation and both platform jobs succeeded.
+checks. macOS signing starts after its verified installer build, while Rust tests and
+Windows work continue. Publication still requires the exact commit whose
+frontend, documentation and both platforms' tests and builds succeeded.
 
 CI sets `CARGO_TARGET_DIR` to `src-tauri/target` so the CLI and desktop reuse
 compatible dependencies. Standalone local builds keep their existing default
 locations. Rust dependency caches are partitioned by OS, architecture, target,
 toolchain, profile, manifests, lockfiles and Cargo configuration, rather than
-commit SHA or workflow text. Only trusted main pushes
-save caches; PR E2E restores the identical debug cache without writing it. Cache
-entries omit application/test executables and local SAG libraries. A cache miss
-always falls back to compilation.
+commit SHA or workflow text. Trusted main dispatches save ordinary Actions
+caches; PR E2E restores the identical debug cache without writing it. Because
+Actions caches are tag-scoped, successful tag jobs also export dependency-only
+artifacts for subsequent tags. Consumers verify the repository, workflow, live
+tag and main ancestry (including deterministic release children), latest passed
+validation/native job attempt, artifact lifetime and digest, and payload
+metadata before extraction. Compatibility ignores only local SAG package version
+changes; third-party versions, features, profiles, Cargo configuration, platform
+and exact Rust compiler remain part of the key. App/test executables and local
+SAG libraries are excluded. An unavailable or rejected cache falls back to
+compilation and never substitutes for tests or installer validation. Artifacts
+expire after 14 days; a compatible hit avoids exporting the same dependencies
+again. Feature-branch dispatches exercise a local archive round trip and upload
+only `validation-rust-deps-*` artifacts, which trusted consumers reject. Export
+and upload are bounded, optional steps; include their overhead in CI timings.
 
 Tested main installers remain available for 14 days so a release can reuse them;
 Safari development installers and signed intermediate artifacts are retained for

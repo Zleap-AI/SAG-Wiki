@@ -5,7 +5,7 @@ import {chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync}
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {validateRun, latestJob, componentState, selectArtifact, selectComponent, validateReceipt, verifyArchive, awaitComponents, components} from './release-build-cache.mjs';
+import {validateRun, latestJob, componentState, selectArtifact, selectComponent, validateReceipt, verifyArchive, awaitComponents, components, releaseComponents} from './release-build-cache.mjs';
 const commit = 'a'.repeat(40);
 const ctx = {commit, workflowId:4, currentRunId:20};
 const names = {documentation:'Build bilingual documentation', frontend:'Test frontend', 'rust-macos':'Test Rust macos', 'rust-windows':'Test Rust windows', 'build-macos':'Build macos', 'build-windows':'Build windows'};
@@ -20,6 +20,19 @@ function source(id=10, patch={}) {
 }
 const receiptReader=(s,c)=>s.receipts[c];
 const choose=(sources,c,options={})=>selectComponent(sources,c,{...ctx,receiptReader,...options});
+
+test('signing can start after the verified macOS build while native tests remain pending',async()=>{
+ const s=source(20,{status:'in_progress',conclusion:null});
+ const rust=s.jobs.find(j=>j.name==='Test Rust macos');
+ Object.assign(rust,{status:'in_progress',conclusion:null});
+ const result=await awaitComponents(ctx,releaseComponents('macos'),{
+  gate:true,snapshot:()=>[s],receiptReader,pause:()=>{throw new Error('Signing unnecessarily waited for native tests');}
+ });
+ assert.deepEqual(result.map(r=>r.artifact?.platform),['macos']);
+ assert.deepEqual(releaseComponents('all'),components);
+ rust.status='completed';rust.conclusion='failure';
+ await assert.rejects(awaitComponents(ctx,releaseComponents('all'),{gate:true,snapshot:()=>[s],receiptReader}),/checkpoint failed: rust-macos/);
+});
 
 test('trusts exact-SHA main and version-tag components even when whole run failed or running',()=>{
  for(const patch of [{conclusion:'failure'},{status:'in_progress',conclusion:null},{head_branch:'v0.2.5',event:'workflow_dispatch',conclusion:'failure'}]){
@@ -141,9 +154,10 @@ test('mocked gh CLI reuses an older failed tag platform, ignores newer runs and 
   const unavailableOutput=join(directory,'unavailable-output');
   const unavailable=spawnSync(process.execPath,[cli,'reuse','build-macos'],{cwd:directory,env:{...env,CACHE_FAIL_API:'1',GITHUB_OUTPUT:unavailableOutput},encoding:'utf8'});assert.notEqual(unavailable.status,0);assert.equal(existsSync(unavailableOutput),false);
   current.run.head_branch='v0.2.5';current.run.event='workflow_dispatch';
-  current.jobs.find(j=>j.name==='Test Rust macos').conclusion='failure';writeFileSync(join(directory,'fixture.json'),JSON.stringify([producer,current,newer]));
-  const failed=spawnSync(process.execPath,[cli,'wait','macos'],{cwd:directory,env,encoding:'utf8'});assert.notEqual(failed.status,0);assert.match(failed.stderr,/checkpoint failed: rust-macos/);
-  current.jobs.find(j=>j.name==='Test Rust macos').conclusion=null;current.jobs.find(j=>j.name==='Test Rust macos').status='in_progress';writeFileSync(join(directory,'fixture.json'),JSON.stringify([producer,current,newer]));
+  current.jobs.find(j=>j.name==='Build macos').conclusion='failure';writeFileSync(join(directory,'fixture.json'),JSON.stringify([producer,current,newer]));
+  writeFileSync(join(directory,'.release-wait-deadline'),String(Date.now()+60000));
+  const failed=spawnSync(process.execPath,[cli,'wait','macos'],{cwd:directory,env,encoding:'utf8'});assert.notEqual(failed.status,0);assert.match(failed.stderr,/checkpoint failed: build-macos/);
+  current.jobs.find(j=>j.name==='Build macos').conclusion=null;current.jobs.find(j=>j.name==='Build macos').status='in_progress';writeFileSync(join(directory,'fixture.json'),JSON.stringify([producer,current,newer]));
   const pending=spawnSync(process.execPath,[cli,'wait','macos'],{cwd:directory,env,encoding:'utf8'});assert.notEqual(pending.status,0);assert.match(pending.stderr,/Timed out/);
  }finally{rmSync(directory,{recursive:true,force:true});}
 });
