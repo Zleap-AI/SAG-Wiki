@@ -394,23 +394,29 @@ pub fn process_alive(pid: u32) -> bool {
 pub async fn wait_stopped(data: &Path) -> Result<()> {
     // Stopping waits for in-progress indexing or conversion to finish.
     for _ in 0..1200 {
-        if !data.join("sag-service.json").try_exists()? {
-            // The endpoint is removed before the server's final fields are dropped.
-            // Restart must also wait for the instance lock, otherwise the new
-            // daemon can exit immediately while the old one is still tearing down.
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .open(data.join("cli-instance.lock"))
-            {
-                Ok(instance) => match instance.try_lock() {
-                    Ok(()) => return Ok(()),
-                    Err(std::fs::TryLockError::WouldBlock) => {}
-                    Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
-                },
-                Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-                Err(error) => return Err(error.into()),
-            }
+        let instance = match std::fs::OpenOptions::new()
+            .write(true)
+            .open(data.join("cli-instance.lock"))
+        {
+            Ok(instance) => Some(instance),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+            Err(error) => return Err(error.into()),
+        };
+        let released = match &instance {
+            Some(instance) => match instance.try_lock() {
+                Ok(()) => true,
+                Err(std::fs::TryLockError::WouldBlock) => false,
+                Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+            },
+            None => true,
+        };
+        // The service removes its endpoint before releasing its instance lock.
+        // On Windows, probing the endpoint during deletion can return AccessDenied.
+        // Check only after cleanup has released the lock, retaining our lock until done.
+        if released && !data.join("sag-service.json").try_exists()? {
+            return Ok(());
         }
+        drop(instance);
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
     bail!("SAG 服务停止超时，连接记录或实例锁仍未释放")
