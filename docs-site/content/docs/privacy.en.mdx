@@ -34,7 +34,7 @@ Keys are kept in files accessible to the current user. Other processes running a
 | Clear all data | Conversations, folders and indexes, search history, model settings, keys and drafts; resets settings | Original files |
 | Uninstall conversion components | SAG-managed Docling, its runtime, recognition models and download cache | Original files, converted files and existing indexes |
 
-The first three actions are under Data and privacy and each requests confirmation. Conversion removal is under **File settings → Other formats**. Cancelling the settings dialog cannot undo a confirmed cleanup.
+The first three actions are under Data and privacy and each requests confirmation. Conversion removal is under **File settings → More file formats**. Cancelling the settings dialog cannot undo a confirmed cleanup.
 
 ![Data cleanup controls and retained data](/images/product-privacy-en.png)
 
@@ -47,3 +47,5 @@ Do not manually delete database or log files while the application or shared ser
 ## Limit data access
 
 Add only folders you need, exclude sensitive files with `.sagignore`, and narrow the query scope when appropriate. Bind only necessary external MCP tools to each model. See [Folders and indexing](/en/docs/folders) and [MCP and tool bindings](/en/docs/mcp).
+
+Note import processes Notion, Evernote and Google Keep exports locally. Apple Notes is read through a local read-only database snapshot. Import does not upload notes or modify source data. Imported Markdown and attachments are stored under the library’s normal rules.

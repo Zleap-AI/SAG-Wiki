@@ -1,0 +1,606 @@
+import { BlobReader, configure, Reader, ZipReader } from '@zip.js/zip.js';
+import { base64ToArrayBuffer, Platform } from 'obsidian';
+import { decodeChunks, decodeText } from './encoding';
+import { configureWebWorker } from './z-worker-inline';
+
+type NodeFS = typeof import('node:fs');
+type Dirent = import('node:fs').Dirent;
+type FileHandle = import('node:fs').promises.FileHandle;
+
+configureWebWorker(configure);
+
+export interface PickedFile {
+	readonly type: 'file';
+	/** Full path, including container zip names, for debugging/reporting purposes */
+	readonly fullpath: string;
+	/** File name, including extension */
+	readonly name: string;
+	/** Base file name, without extension */
+	readonly basename: string;
+	/** Lowercase extension */
+	readonly extension: string;
+
+	/** Read the file as text, in whatever encoding it declares. */
+	readText(): Promise<string>;
+
+	/** Read that text incrementally, without splitting a character. */
+	readChunks(): AsyncIterable<string>;
+
+	/** Read the file as binary */
+	read(): Promise<ArrayBuffer>;
+
+	/** Read the file as zip, processing the zip in the callback */
+	readZip(callback: (zip: ZipReader<unknown>) => Promise<void>): Promise<void>;
+
+	toString(): string;
+}
+
+export interface PickedFolder {
+	readonly type: 'folder';
+	/** Folder name */
+	readonly name: string;
+	/** List files in this folder */
+	list: () => Promise<(PickedFile | PickedFolder)[]>;
+
+	toString(): string;
+}
+
+interface AndroidFileInfo {
+	name: string;
+	type: 'file' | 'directory';
+	size?: number;
+	ctime?: number;
+	mtime?: number;
+}
+
+export interface AndroidFilesystem {
+	choose(): Promise<{ path: string, uri: string, isRoot: boolean }>;
+	checkPerms(): Promise<void>;
+	requestPerms(): Promise<void>;
+	readdir(options: { path: string }): Promise<{ files: AndroidFileInfo[] }>;
+	readFile(options: { path: string }): Promise<{ data: string }>;
+}
+
+type CapacitorWindow = Window & {
+	Capacitor?: {
+		Plugins?: {
+			Filesystem?: AndroidFilesystem;
+		};
+	};
+};
+
+function androidFilesystem(): AndroidFilesystem | null {
+	if (typeof window === 'undefined') return null;
+	return (window as CapacitorWindow).Capacitor?.Plugins?.Filesystem ?? null;
+}
+
+export function hasAndroidFolderPicker(filesystem: AndroidFilesystem | null = androidFilesystem()): boolean {
+	return Platform.isAndroidApp && filesystem !== null;
+}
+
+// Tests replace these bindings to run conversion code outside Obsidian.
+// Named nodeCrypto so it does not shadow the global Web Crypto `crypto`.
+export let nodeCrypto: typeof import('node:crypto') = Platform.isDesktopApp ? window.require('node:crypto') : null;
+export let fs: NodeFS = Platform.isDesktopApp ? window.require('node:original-fs') : null;
+export let fsPromises: NodeFS['promises'] = Platform.isDesktopApp ? fs.promises : null!;
+export let os: typeof import('node:os') = Platform.isDesktopApp ? window.require('node:os') : null;
+export let path: typeof import('node:path') = Platform.isDesktopApp ? window.require('node:path') : null;
+export let url: typeof import('node:url') = Platform.isDesktopApp ? window.require('node:url') : null;
+export let zlib: typeof import('node:zlib') = Platform.isDesktopApp ? window.require('node:zlib') : null;
+
+export interface NodeModules {
+	nodeCrypto?: typeof import('node:crypto');
+	fs?: NodeFS;
+	os?: typeof import('node:os');
+	path?: typeof import('node:path');
+	url?: typeof import('node:url');
+	zlib?: typeof import('node:zlib');
+}
+
+export function provideNodeModules(modules: NodeModules): void {
+	if (modules.nodeCrypto) nodeCrypto = modules.nodeCrypto;
+	if (modules.fs) {
+		fs = modules.fs;
+		fsPromises = modules.fs.promises;
+	}
+	if (modules.os) os = modules.os;
+	if (modules.path) path = modules.path;
+	if (modules.url) url = modules.url;
+	if (modules.zlib) zlib = modules.zlib;
+}
+
+// Wide enough to hold any charset declaration the first chunk is read for.
+const READ_CHUNK = 1 << 16;
+
+export function nodeBufferToArrayBuffer(buffer: Buffer<ArrayBuffer>, offset = 0, length = buffer.byteLength - offset): ArrayBuffer {
+	return buffer.buffer.slice(buffer.byteOffset + offset, buffer.byteOffset + offset + length);
+}
+
+export class NodePickedFile implements PickedFile {
+	readonly type = 'file' as const;
+	readonly filepath: string;
+
+	readonly fullpath: string;
+	readonly name: string;
+	readonly basename: string;
+	readonly extension: string;
+
+	constructor(filepath: string) {
+		this.filepath = filepath;
+		let name = this.name = path.basename(filepath);
+		// Use only the name here since the parent folder isn't relevant
+		this.fullpath = name;
+		// Extension with dot
+		let extension = path.extname(name);
+		// Extension without dot
+		this.extension = extension.substring(1).toLowerCase();
+		this.basename = path.basename(name, extension);
+	}
+
+	async readText(): Promise<string> {
+		return decodeText(await fsPromises.readFile(this.filepath));
+	}
+
+	async read(): Promise<ArrayBuffer> {
+		let buffer = await fsPromises.readFile(this.filepath);
+		return nodeBufferToArrayBuffer(buffer);
+	}
+
+	async *readChunks(): AsyncIterable<string> {
+		const handle = await fsPromises.open(this.filepath, 'r');
+		try {
+			yield* decodeChunks(async function* () {
+				const buffer = Buffer.alloc(READ_CHUNK);
+
+				for (;;) {
+					const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+					if (bytesRead === 0) return;
+
+					yield buffer.subarray(0, bytesRead);
+				}
+			}());
+		}
+		finally {
+			await handle.close();
+		}
+	}
+
+	async readZip(callback: (zip: ZipReader<unknown>) => Promise<void>): Promise<void> {
+		let fd: FileHandle | null = null;
+		try {
+			fd = await fsPromises.open(this.filepath, 'r');
+			let stat = await fd.stat();
+			return await callback(new ZipReader(new FSReader(fd, stat.size)));
+		}
+		finally {
+			await fd?.close();
+		}
+	}
+
+	createReadStream() {
+		return fs.createReadStream(this.filepath);
+	}
+
+	toString(): string {
+		return this.filepath;
+	}
+}
+
+export class NodePickedFolder implements PickedFolder {
+	readonly type = 'folder' as const;
+	readonly filepath: string;
+
+	readonly name: string;
+
+	constructor(filepath: string) {
+		this.filepath = filepath;
+		this.name = path.basename(filepath);
+	}
+
+	async list(): Promise<(PickedFile | PickedFolder)[]> {
+		let { filepath } = this;
+		let files: Dirent[] = await fsPromises.readdir(filepath, { withFileTypes: true });
+		let results = [];
+
+		for (let file of files) {
+			if (file.isFile()) {
+				results.push(new NodePickedFile(path.join(filepath, file.name)));
+			}
+			else if (file.isDirectory()) {
+				results.push(new NodePickedFolder(path.join(filepath, file.name)));
+			}
+		}
+
+		return results;
+	}
+
+	toString(): string {
+		return this.filepath;
+	}
+}
+
+function joinNativePath(parent: string, name: string): string {
+	return `${parent}/${name}`;
+}
+
+export class AndroidFolderPickerError extends Error {
+	constructor(readonly reason: 'root' | 'unavailable') {
+		super(reason);
+	}
+}
+
+export class AndroidPickedFile implements PickedFile {
+	readonly type = 'file' as const;
+
+	readonly fullpath: string;
+	readonly name: string;
+	readonly basename: string;
+	readonly extension: string;
+	readonly size?: number;
+	readonly ctime?: number;
+	readonly mtime?: number;
+
+	constructor(
+		readonly filepath: string,
+		private readonly filesystem: AndroidFilesystem,
+		fullpath?: string,
+		info?: AndroidFileInfo,
+	) {
+		this.fullpath = fullpath ?? parseFilePath(filepath).name;
+		const { name, basename, extension } = parseFilePath(filepath);
+		this.name = name;
+		this.basename = basename;
+		this.extension = extension;
+		this.size = info?.size;
+		this.ctime = info?.ctime;
+		this.mtime = info?.mtime;
+	}
+
+	async readText(): Promise<string> {
+		return decodeText(new Uint8Array(await this.read()));
+	}
+
+	async *readChunks(): AsyncIterable<string> {
+		// The bridge reads whole files; chunks only limit decoding work.
+		const data = new Uint8Array(await this.read());
+
+		yield* decodeChunks(async function* () {
+			for (let at = 0; at < data.byteLength; at += READ_CHUNK) {
+				yield data.subarray(at, at + READ_CHUNK);
+			}
+		}());
+	}
+
+	async read(): Promise<ArrayBuffer> {
+		const { data } = await this.filesystem.readFile({ path: this.filepath });
+		return base64ToArrayBuffer(data);
+	}
+
+	async readZip(callback: (zip: ZipReader<unknown>) => Promise<void>): Promise<void> {
+		return callback(new ZipReader(new BlobReader(new Blob([await this.read()]))));
+	}
+
+	toString(): string {
+		return this.filepath;
+	}
+}
+
+export class AndroidPickedFolder implements PickedFolder {
+	readonly type = 'folder' as const;
+
+	readonly filepath: string;
+	readonly fullpath: string;
+	readonly name: string;
+
+	constructor(filepath: string, private readonly filesystem: AndroidFilesystem, fullpath?: string) {
+		this.filepath = filepath.replace(/\/+$/, '');
+		this.name = parseFilePath(this.filepath).name;
+		this.fullpath = fullpath ?? this.name;
+	}
+
+	async list(): Promise<(PickedFile | PickedFolder)[]> {
+		const { files } = await this.filesystem.readdir({ path: this.filepath });
+		const items: (PickedFile | PickedFolder)[] = [];
+
+		for (const file of files) {
+			const filepath = joinNativePath(this.filepath, file.name);
+			const fullpath = joinNativePath(this.fullpath, file.name);
+			if (file.type === 'file') items.push(new AndroidPickedFile(filepath, this.filesystem, fullpath, file));
+			else if (file.type === 'directory') items.push(new AndroidPickedFolder(filepath, this.filesystem, fullpath));
+		}
+
+		return items;
+	}
+
+	toString(): string {
+		return this.filepath;
+	}
+}
+
+function canceled(error: unknown): boolean {
+	return error instanceof Error && /cancell?ed/i.test(error.message);
+}
+
+export async function chooseAndroidFolder(
+	filesystem: AndroidFilesystem | null = androidFilesystem(),
+): Promise<AndroidPickedFolder | null> {
+	if (!filesystem) throw new AndroidFolderPickerError('unavailable');
+
+	try {
+		await filesystem.checkPerms();
+	}
+	catch {
+		await filesystem.requestPerms();
+	}
+
+	try {
+		const result = await filesystem.choose();
+		if (!result?.path) return null;
+		if (result.isRoot) throw new AndroidFolderPickerError('root');
+		return new AndroidPickedFolder(result.path, filesystem);
+	}
+	catch (error) {
+		if (canceled(error)) return null;
+		throw error;
+	}
+}
+
+export class WebPickedFile implements PickedFile {
+	readonly type = 'file' as const;
+	readonly file: File;
+
+	readonly fullpath: string;
+	readonly name: string;
+	readonly basename: string;
+	readonly extension: string;
+
+	constructor(file: File, fullpath: string = file.name) {
+		this.file = file;
+		let name = this.name = file.name;
+		this.fullpath = fullpath;
+
+		let { basename, extension } = parseFilePath(name);
+
+		this.basename = basename;
+		this.extension = extension;
+	}
+
+	async readText(): Promise<string> {
+		// File.text and readAsText decode as UTF-8 before detection can run.
+		return decodeText(new Uint8Array(await this.read()));
+	}
+
+	async *readChunks(): AsyncIterable<string> {
+		const { file } = this;
+
+		yield* decodeChunks(async function* () {
+			for (let at = 0; at < file.size; at += READ_CHUNK) {
+				yield new Uint8Array(await file.slice(at, at + READ_CHUNK).arrayBuffer());
+			}
+		}());
+	}
+
+	async read(): Promise<ArrayBuffer> {
+		let { file } = this;
+		if (file.arrayBuffer) {
+			return file.arrayBuffer();
+		}
+		return new Promise((resolve, reject) => {
+			let reader = new FileReader();
+			reader.addEventListener('load', () => resolve(reader.result as ArrayBuffer));
+			reader.addEventListener('error', reject);
+			reader.readAsArrayBuffer(this.file);
+		});
+	}
+
+	async readZip(callback: (zip: ZipReader<unknown>) => Promise<void>): Promise<void> {
+		return callback(new ZipReader(new BlobReader(this.file)));
+	}
+
+	toString(): string {
+		return this.fullpath;
+	}
+}
+
+export class ListedFolder implements PickedFolder {
+	readonly type = 'folder' as const;
+
+	constructor(
+		readonly name: string,
+		readonly fullpath: string,
+		private readonly items: (PickedFile | PickedFolder)[],
+	) {}
+
+	async list(): Promise<(PickedFile | PickedFolder)[]> {
+		return this.items;
+	}
+
+	toString(): string {
+		return this.fullpath;
+	}
+}
+
+/** Rebuild a folder tree from paths attached to a flat file list. */
+export function pickedTree(entries: { path: string, file: PickedFile }[]): (PickedFile | PickedFolder)[] {
+	const top: (PickedFile | PickedFolder)[] = [];
+	const inside = new Map<string, (PickedFile | PickedFolder)[]>();
+
+	const folderAt = (path: string): (PickedFile | PickedFolder)[] => {
+		const existing = inside.get(path);
+		if (existing) return existing;
+
+		const items: (PickedFile | PickedFolder)[] = [];
+		inside.set(path, items);
+
+		const cut = path.lastIndexOf('/');
+		const parent = cut < 0 ? top : folderAt(path.slice(0, cut));
+		parent.push(new ListedFolder(path.slice(cut + 1), path, items));
+
+		return items;
+	};
+
+	for (const { path, file } of entries) {
+		const cut = path.lastIndexOf('/');
+		const into = cut < 0 ? top : folderAt(path.slice(0, cut));
+		into.push(file);
+	}
+
+	return top;
+}
+
+export function webPickedTree(files: File[]): (PickedFile | PickedFolder)[] {
+	return pickedTree(files.map(file => {
+		const path = file.webkitRelativePath || file.name;
+		return { path, file: new WebPickedFile(file, path) };
+	}));
+}
+
+export function dataTransferHasFiles(dataTransfer: DataTransfer): boolean {
+	return Array.from(dataTransfer.items).some(item => item.kind === 'file');
+}
+
+/** Read during the drop event because its DataTransfer items do not survive an await. */
+export function droppedItems(dataTransfer: DataTransfer): (PickedFile | PickedFolder)[] {
+	const results: (PickedFile | PickedFolder)[] = [];
+
+	for (const item of Array.from(dataTransfer.items)) {
+		if (item.kind !== 'file') continue;
+
+		const file = item.getAsFile();
+		if (!file) continue;
+
+		const filepath = localPath(file);
+		if (!filepath) {
+			results.push(new WebPickedFile(file));
+			continue;
+		}
+
+		results.push(isDirectory(filepath) ? new NodePickedFolder(filepath) : new NodePickedFile(filepath));
+	}
+
+	return results;
+}
+
+function localPath(file: File): string {
+	if (!Platform.isDesktopApp) return '';
+
+	// Electron 32+ throws when there is no local path; older versions used File.path.
+	try {
+		const { webUtils } = window.electron;
+		if (webUtils) return webUtils.getPathForFile(file);
+	}
+	catch {
+		return '';
+	}
+
+	return (file as File & { path?: string }).path ?? '';
+}
+
+function isDirectory(filepath: string): boolean {
+	try {
+		return fs.statSync(filepath).isDirectory();
+	}
+	catch {
+		return false;
+	}
+}
+
+const PACKAGE_EXTENSIONS = ['textbundle'];
+
+export async function expandDropped(items: (PickedFile | PickedFolder)[]): Promise<PickedFile[]> {
+	const files: PickedFile[] = [];
+
+	for (const item of items) {
+		try {
+			if (item.type === 'file') {
+				files.push(item);
+				continue;
+			}
+
+			const asPackage = packagedAsFile(item);
+			if (asPackage) {
+				files.push(asPackage);
+				continue;
+			}
+
+			files.push(...await expandDropped(await item.list()));
+		}
+		catch (e) {
+			console.error('Skipping path: ', item.name, e);
+		}
+	}
+
+	return files;
+}
+
+function packagedAsFile(folder: PickedFolder): PickedFile | null {
+	if (!(folder instanceof NodePickedFolder)) return null;
+
+	return PACKAGE_EXTENSIONS.includes(splitext(folder.name)[1]) ? new NodePickedFile(folder.filepath) : null;
+}
+
+export async function getAllFiles(files: (PickedFolder | PickedFile)[], filter?: (file: PickedFile) => boolean): Promise<PickedFile[]> {
+	let results: PickedFile[] = [];
+	for (let file of files) {
+		try {
+			if (file.type === 'folder') {
+				results.push(...await getAllFiles(await file.list(), filter));
+			}
+			else if (file.type === 'file') {
+				if (!filter || filter(file)) {
+					results.push(file);
+				}
+			}
+		}
+		catch (e) {
+			console.error('Skipping path: ', file.name, e);
+		}
+	}
+	return results;
+}
+
+/**
+ * Parse a filepath to get a file's parent path, name, basename (name without extension), and extension (lowercase).
+ * For example, "path/to/my/file.md" would become `{parent: "path/to/my", name: "file.md", basename: "file", extension: "md"}`
+ */
+export function parseFilePath(filepath: string): { parent: string, name: string, basename: string, extension: string } {
+	let lastIndex = Math.max(filepath.lastIndexOf('/'), filepath.lastIndexOf('\\'));
+	let name = filepath;
+	let parent = '';
+	if (lastIndex >= 0) {
+		name = filepath.substring(lastIndex + 1);
+		parent = filepath.substring(0, lastIndex);
+	}
+
+	let [basename, extension] = splitext(name);
+	return { parent, name, basename, extension };
+}
+
+export function splitext(name: string) {
+	let dotIndex = name.lastIndexOf('.');
+	let basename = name;
+	let extension = '';
+	
+	if (dotIndex > 0) {
+		basename = name.substring(0, dotIndex);
+		extension = name.substring(dotIndex + 1).toLowerCase();
+	}
+	
+	return [basename, extension];
+}
+
+class FSReader extends Reader<FileHandle> {
+	fd: FileHandle;
+
+	constructor(fd: FileHandle, size: number) {
+		super(fd);
+		this.fd = fd;
+		this.size = size;
+	}
+
+	async readUint8Array(offset: number, length: number) {
+		let buffer = Buffer.alloc(length);
+		let result = await this.fd.read(buffer, 0, length, offset);
+		return new Uint8Array(nodeBufferToArrayBuffer(buffer, 0, result.bytesRead));
+	}
+}

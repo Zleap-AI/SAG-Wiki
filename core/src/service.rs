@@ -1356,6 +1356,7 @@ impl Service {
                 | Op::SaveFolderIndexOptions { .. }
                 | Op::RemoveRoot { .. }
                 | Op::SaveDocument { .. }
+                | Op::ImportChatSessions { .. }
                 | Op::ReindexAll
                 | Op::RetryFailedIndexes
                 | Op::SetIndexPaused { .. }
@@ -1408,6 +1409,29 @@ impl Service {
             Op::ListEntries { path } => Out::Entries(list_entries(path, self).await?),
             Op::ListFiles => Out::Files(list_files(self)?),
             Op::ReadDocument { path } => Out::Document(read_document(path, self).await?),
+            Op::GetChatImportFolder => {
+                let documents = dirs::document_dir().context("无法获取文稿目录").map_err(error)?;
+                Out::Text(crate::chat_import::destination_path(&documents, &self.store.settings().map_err(error)?).to_string_lossy().into_owned())
+            }
+            Op::SetChatImportFolder { path } => {
+                let path = crate::chat_import::set_destination(&self.store, Path::new(&path)).map_err(error)?;
+                emit(&app, "settings-changed", ());
+                Out::Text(path)
+            }
+            Op::ListChatSessions { source, source_root, query } => Out::ChatCatalog(tokio::task::spawn_blocking(move || crate::chat_import::list_page(source, source_root.as_deref(), &query)).await.map_err(error)?.map_err(error)?),
+            Op::PreviewChatImport { source, source_root, paths, include_tools } => Out::ChatPreview(tokio::task::spawn_blocking(move || crate::chat_import::preview(source, &source_root, &paths, include_tools)).await.map_err(error)?.map_err(error)?),
+            Op::ImportChatSessions { source, source_root, sessions, include_tools } => {
+                let store = self.store.clone();
+                let scan = self.scan.clone();
+                Out::ChatImports(tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<sag_protocol::ChatImportItem>> {
+                    let documents = dirs::document_dir().context("无法获取文稿目录")?;
+                    let folder = crate::chat_import::destination(&store, &scan, &documents, &store.settings()?)?;
+                    Ok(sessions.iter().map(|session| {
+                        crate::chat_import::import(&store, &scan, source, &source_root, session, &folder.to_string_lossy(), include_tools)
+                            .unwrap_or_else(|error| sag_protocol::ChatImportItem { path: session.title.clone(), status: "failed".into(), error: Some(error.to_string()) })
+                    }).collect())
+                }).await.map_err(error)?.map_err(error)?)
+            }
             Op::SaveDocument {
                 path,
                 body,

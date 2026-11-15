@@ -30,7 +30,7 @@ Keep restricted key files outside the repository and maintain an independent enc
 ## Automatic releases from main
 
 1. After a product change reaches main, the preparation workflow classifies the push. Documentation, CI, and release-tooling-only changes skip publication; mixed product changes qualify.
-2. Serialized preparation allocates the next patch version, updates desktop/CLI manifests, locks, and Tauri configuration consistently, and generates deterministic release notes. It creates a release child commit of the captured main commit without writing back to protected main.
+2. Serialized preparation retains a manually selected version (such as `0.3.0`) when it has reviewed release notes and exceeds every occupied tag; otherwise it allocates the next patch version, updates desktop/CLI manifests, locks, and Tauri configuration consistently, and generates deterministic release notes. It creates a release child commit of the captured main commit without writing back to protected main.
 3. Create the version tag and explicitly dispatch the desktop workflow. A tag pushed using `GITHUB_TOKEN` cannot be relied upon to start another push workflow. Retries resume the existing tag for the source commit instead of moving or replacing it.
 4. Source validation accepts normal version commits on main or strictly validated generated release children. Generated children must match their main parent and deterministic metadata changes; a tag name or commit message alone cannot authorize arbitrary branch code.
 5. macOS/Windows native Rust tests and production builds run in parallel. Frontend, documentation, real installer, and bundled CLI/Jev checks remain required. macOS signing and notarization start once its own checks pass, independently of Windows.

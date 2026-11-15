@@ -41,3 +41,8 @@ dist-bench/
 
 /dist-docs/
 /qa/
+
+/public/importer/
+
+/importer/generated-protobuf.js
+/importer/schema.json

@@ -1453,3 +1453,33 @@ async fn mineru_settings_keep_provider_secrets_separate_and_validate_before_savi
     assert!(crate::mineru::has_key(&data,&MineruConfig::default()).unwrap());
     stop(&client,server).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chat_import_uses_remembered_folder_through_service() {
+    let (dir, client, server) = start().await;
+    let transcripts = dir.path().join("transcripts");
+    std::fs::create_dir(&transcripts).unwrap();
+    let source = transcripts.join("conversation.jsonl");
+    std::fs::write(&source, [
+        serde_json::json!({"type":"user","sessionId":"service-chat","uuid":"u","timestamp":"2026-11-15T01:00:00Z","cwd":"/demo/project","message":{"role":"user","content":"chatimportmarker question"}}),
+        serde_json::json!({"type":"assistant","sessionId":"service-chat","uuid":"a","timestamp":"2026-11-15T01:00:01Z","message":{"role":"assistant","content":[{"type":"text","text":"Answer from imported chat"},{"type":"tool_use","name":"Read","input":{"path":"hidden-tool-marker"}}]}}),
+    ].into_iter().map(|v|format!("{v}\n")).collect::<String>()).unwrap();
+    let Output::ChatCatalog(catalog) = call(&client, Operation::ListChatSessions { source:ChatSource::Claude, source_root:Some(transcripts.display().to_string()), query:Default::default() }).await else {panic!("catalog response")};
+    assert_eq!(catalog.sessions.len(),1);
+    let Output::ChatPreview(preview) = call(&client, Operation::PreviewChatImport { source:ChatSource::Claude, source_root:catalog.source_root.clone(), paths:catalog.sessions[0].paths.clone(), include_tools:false }).await else {panic!("preview response")};
+    assert!(!preview.body.contains("hidden-tool-marker"));
+    let folder = dir.path().join("Custom Chats");
+    std::fs::create_dir(&folder).unwrap();
+    let Output::Text(saved) = call(&client, Operation::SetChatImportFolder { path: folder.display().to_string() }).await else { panic!("saved folder") };
+    let Output::Text(remembered) = call(&client, Operation::GetChatImportFolder).await else { panic!("remembered folder") };
+    assert_eq!(saved, remembered);
+    let Output::ChatImports(imported) = call(&client, Operation::ImportChatSessions {source:ChatSource::Claude, source_root:catalog.source_root.clone(), sessions:catalog.sessions.clone(), include_tools:false}).await else {panic!("import response")};
+    assert_eq!(imported[0].status, "imported");
+    assert_eq!(Path::new(&imported[0].path).parent().unwrap(), Path::new(&saved).join("claude code"));
+    assert_eq!(std::fs::read_to_string(&imported[0].path).unwrap(), preview.body);
+    let Output::ChatImports(repeated) = call(&client, Operation::ImportChatSessions {source:ChatSource::Claude, source_root:catalog.source_root, sessions:catalog.sessions, include_tools:true}).await else {panic!("repeat response")};
+    assert_eq!(repeated[0].path, imported[0].path);
+    assert_eq!(repeated[0].status, "updated");
+    call(&client,Operation::Shutdown).await;
+    server.await.unwrap().unwrap();
+}

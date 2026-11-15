@@ -1,4 +1,6 @@
 pub mod about_links;
+pub mod chat_import;
+pub use chat_import::*;
 pub mod runtime;
 pub mod mineru;
 mod build;
@@ -285,6 +287,11 @@ pub enum Operation {
         body: String,
         expected_hash: Option<String>,
     },
+    GetChatImportFolder,
+    SetChatImportFolder { path: String },
+    ListChatSessions { source: ChatSource, source_root: Option<String>, #[serde(default)] query: ChatListQuery },
+    PreviewChatImport { source: ChatSource, source_root: String, paths: Vec<String>, include_tools: bool },
+    ImportChatSessions { source: ChatSource, source_root: String, sessions: Vec<ChatSession>, include_tools: bool },
     AddRoot {
         path: String,
     },
@@ -449,6 +456,9 @@ pub enum Operation {
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Output {
+    ChatCatalog(ChatCatalog),
+    ChatPreview(ChatPreview),
+    ChatImports(Vec<ChatImportItem>),
     Api(serde_json::Value),
     Docling(DoclingStatus),
     IndexStatus(IndexStatus),

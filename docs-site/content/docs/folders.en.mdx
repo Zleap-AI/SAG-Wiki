@@ -5,7 +5,11 @@ description: "Control search scope, file types and ignore rules."
 
 ## Add and index
 
-Use the sidebar to add a directory in folder management. SAG Wiki indexes the selected file types while applying ignore rules. Later changes trigger incremental indexing. Indexing runs in the background: adding a large folder returns immediately, progress appears at the bottom of the sidebar, and search and Q&A stay available during indexing. During file-monitor setup, a preparation status is shown; large folders may take a few minutes before file scanning starts. If file monitoring fails, scanning continues and the completed index retains a warning that automatic updates are limited. Rebuild the index in indexing settings to retry. Explicitly adding a folder again resets its previous monitor before registering a new one. After the directory is restored, new file changes continue to update the index automatically.
+Click **+** in the sidebar, select directories in **Add folder**, then click **Add to knowledge base**. You can select multiple folders across directories.
+
+![Select folders to add to the knowledge base](/images/product-add-folder-en.png)
+
+ SAG Wiki indexes the selected file types while applying ignore rules. Later changes trigger incremental indexing. Indexing runs in the background: adding a large folder returns immediately, progress appears at the bottom of the sidebar, and search and Q&A stay available during indexing. During file-monitor setup, a preparation status is shown; large folders may take a few minutes before file scanning starts. If file monitoring fails, scanning continues and the completed index retains a warning that automatic updates are limited. Rebuild the index in indexing settings to retry. Explicitly adding a folder again resets its previous monitor before registering a new one. After the directory is restored, new file changes continue to update the index automatically.
 
 Markdown, plain text, RTF, Word, PowerPoint, Excel, OpenDocument, CSV, EPUB and text-based PDFs are enabled by default. Built-in anydoc parses Office, RTF, tables, ebooks and PDFs locally without downloading components. Code and configuration files follow their type settings. Install Docling when needed for scanned PDFs and other formats.
 
@@ -84,7 +88,7 @@ sag add --types md,txt,html,py,js,ts,tsx,json,yaml
 
 Location: **Settings → File settings**. Global settings apply to folders without their own overrides. Save file-type, exclusion or chunking changes first, then check that indexing completes.
 
-### File types
+### File types to index
 
 | Option | Contents | Default |
 | --- | --- | --- |
@@ -108,11 +112,11 @@ In **Settings → File settings → Document parsing**, choose **Docling** or **
 
 Switching parsers keeps your MinerU configuration and key. Existing installations retain their previous parsing behavior on upgrade.
 
-### Other formats and conversion
+### More file formats and conversion
 
 Text and documents is one setting, enabled by default. TXT and RST are read directly; the following documents use built-in anydoc first when MinerU is disabled: Word (`.doc`, `.docx`, `.docm`), PowerPoint (`.ppt`, `.pps`, `.pot`, `.pptx`, `.pptm`, `.ppsx`, `.ppsm`), Excel (`.xls`, `.xlsx`, `.xlsm`, `.xlsb`), OpenDocument (`.odt`, `.ods`, `.odp`), RTF, CSV, EPUB and text-based PDFs.
 
-Other formats lists scanned PDFs, images, audio, video, email, Apple iWork and some document templates. With MinerU disabled, text-based PDFs use the built-in parser. Choose Select and pick the formats you need. With MinerU enabled, its supported image formats can be applied without installing Docling. If other local support is missing, choose Install and apply, confirm installation, then apply the selection. Document and media components are installed separately according to the selected formats. Scanning files never downloads components automatically.
+More file formats lists scanned PDFs, images, audio, video, email, Apple iWork and some document templates. With MinerU disabled, text-based PDFs use the built-in parser. Choose Select and pick the formats you need. With MinerU enabled, its supported image formats can be applied without installing Docling. If other local support is missing, choose Install and apply, confirm installation, then apply the selection. Document and media components are installed separately according to the selected formats. Scanning files never downloads components automatically.
 
 With MinerU disabled, an installed Docling handles PDFs requiring OCR or content unsupported by the built-in parser. With MinerU enabled, use the [MinerU-first flow](/en/docs/models#mineru-document-parsing). If Docling is absent, indexing details explain the required action; those files are not parsed again until the component is installed or the file changes, so install it and reindex. Damaged and encrypted documents report parsing errors. A failed conversion records its reason and is not parsed again on every scan until the file, the parsing engine or component, or the conversion budgets change; changing a conversion budget in file settings, or choosing Reindex, retries it.
 

@@ -40,7 +40,7 @@ async function confirmSave(){document.querySelector<HTMLButtonElement>('.new-doc
 async function cancelSave(){[...document.querySelectorAll<HTMLButtonElement>('.new-document-dialog button')].find(button=>button.textContent==='取消')!.click();await tick()}
 
 it('总览直接打开空白文档，未修改返回时不选择文件夹或写文件',async()=>{
- await start();await newDocument();
+ await start();expect(document.querySelector('.library-chat-import')).toBeNull();await newDocument();
  expect(document.querySelector('[role="dialog"]')).toBeNull();
  expect(document.querySelector('[aria-label="文件夹路径"]')).toBeNull();
  document.querySelector<HTMLButtonElement>('.editor-head [title="返回文件夹"]')!.click();

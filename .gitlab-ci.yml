@@ -1,0 +1,71 @@
+# GitLab-side GitHub -> GitLab synchronization.
+# After merging this file, configure:
+# 1. A write-enabled project deploy key allowed to push to protected main.
+# 2. Protected file-type CI/CD variable GITLAB_SYNC_SSH_KEY containing its private key.
+# 3. A pipeline schedule for main every 10 minutes.
+
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - when: never
+
+stages:
+  - sync
+
+sync_github_main:
+  stage: sync
+  image: alpine:3.22
+  resource_group: github-main-sync
+  interruptible: false
+  variables:
+    GIT_DEPTH: "0"
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_BRANCH == "main"'
+  script:
+    - |
+      set -eu
+      for attempt in 1 2 3; do
+        if apk add --no-cache git openssh-client; then
+          break
+        fi
+        if [ "$attempt" -eq 3 ]; then
+          echo "Unable to install sync tools after three attempts."
+          exit 1
+        fi
+        echo "Package source unavailable; retrying with the Alpine mirror."
+        sed -i 's#https://dl-cdn.alpinelinux.org/alpine#https://mirrors.aliyun.com/alpine#g' /etc/apk/repositories
+        sleep 5
+      done
+    - |
+      set -eu
+
+      : "${GITLAB_SYNC_SSH_KEY:?Configure the protected file variable GITLAB_SYNC_SSH_KEY}"
+      test -s "$GITLAB_SYNC_SSH_KEY"
+
+      mkdir -p "$HOME/.ssh"
+      chmod 700 "$HOME/.ssh"
+      cp "$GITLAB_SYNC_SSH_KEY" "$HOME/.ssh/id_ed25519"
+      chmod 600 "$HOME/.ssh/id_ed25519"
+      cat > "$HOME/.ssh/known_hosts" <<'KNOWN_HOSTS'
+      [192.168.110.10]:2222 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAb3d78o9yjbySq9+v/6s7gxMqSy8AaXhWimJhAXFOvO
+      KNOWN_HOSTS
+      chmod 644 "$HOME/.ssh/known_hosts"
+      export GIT_SSH_COMMAND="ssh -i $HOME/.ssh/id_ed25519 -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes"
+
+      git config user.name "SAG Wiki GitHub Sync"
+      git config user.email "sag-wiki-sync@users.noreply.gitlab.com"
+      git remote add github https://github.com/Zleap-AI/SAG-Wiki.git
+      git fetch --no-tags github main
+
+      if git merge-base --is-ancestor FETCH_HEAD HEAD; then
+        echo "GitLab main already contains GitHub main."
+        exit 0
+      fi
+
+      if ! git merge-base FETCH_HEAD HEAD >/dev/null 2>&1; then
+        echo "GitHub main and GitLab main no longer share history; refusing to merge automatically."
+        exit 1
+      fi
+
+      git merge --no-edit --no-ff FETCH_HEAD
+      git push ssh://git@192.168.110.10:2222/zleap/data/sag-wiki.git HEAD:main

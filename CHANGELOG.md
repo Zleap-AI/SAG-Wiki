@@ -1,5 +1,19 @@
 # 更新日志 / Changelog
 
+## 0.3.0
+
+- **聊天记录导入**：支持将 Claude Code 和 Codex 本地聊天记录转换为 Markdown，默认保存到 `文档/sag-wiki/agent-history`，按 `claude code` 和 `codex` 分子文件夹，也可更改保存位置。
+- **聊天预览与清洗**：支持搜索、项目筛选、分页和跨页勾选，优化 Codex 列表读取速度。过滤系统提示词、环境信息、内部通知和自动注入的 Skill 正文；开启“展示工具调用过程”后，预览和导入同时保留工具调用与结果。重复导入跳过未变化内容，更新时保留手动修改的文件。
+- **笔记导入**：支持 Notion HTML 导出包、Evernote ENEX、Google Keep Takeout 和 macOS Apple Notes，转换为 Markdown 并保留可转换的格式、内部链接与附件，完成后加入知识库。
+- **数据导入入口**：设置中的“数据导入”和添加文件夹窗口统一提供聊天与笔记导入入口；文件设置改用“索引文件类型”，区分文件索引和数据导入。
+
+### English
+
+- **Chat history imports**: Convert local Claude Code and Codex chats to Markdown. Save by default under `Documents/sag-wiki/agent-history`, in separate `claude code` and `codex` subfolders, or choose another location.
+- **Chat previews and cleanup**: Search, filter by project, browse pages and keep selections across pages, with faster Codex listing. Exclude system prompts, environment context, internal notifications and injected Skill content. Enable “Show tool calls and results” to include them in both previews and imports. Repeated imports skip unchanged content and preserve manually edited files.
+- **Note imports**: Import Notion HTML exports, Evernote ENEX, Google Keep Takeout and macOS Apple Notes as Markdown, retaining supported formatting, internal links and attachments, then add them to the knowledge base.
+- **Data import entry points**: Access chat and note imports from Data import in Settings or the add-folder dialog. “File types to index” distinguishes indexing preferences from data imports.
+
 ## 0.2.18
 
 - **转换结果存放位置**：可选择应用数据目录、资料文件夹或自定义目录，切换时迁移已有结果，无需重新识别。阅读转换结果时可直接打开原文件。
