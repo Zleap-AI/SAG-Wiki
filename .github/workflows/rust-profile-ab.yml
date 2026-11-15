@@ -1,6 +1,9 @@
 name: Rust test profile A/B
 
 on:
+  push:
+    branches: [feat/parallel-signing-trusted-tag-cache]
+    paths: [.github/workflows/rust-profile-ab.yml]
   workflow_dispatch:
     inputs:
       rounds:
@@ -17,9 +20,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  register:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'Register manual feature-branch experiment without compiling or publishing'
   compare:
     name: Profile A/B ${{ matrix.platform }} round ${{ matrix.round }}
-    if: startsWith(github.ref, 'refs/heads/')
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')
     strategy:
       fail-fast: false
       matrix:
