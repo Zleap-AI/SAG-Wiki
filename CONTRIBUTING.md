@@ -29,18 +29,72 @@ Windows SDK manifest tool (`mt.exe`). macOS uses the regular `cargo test` comman
 
 Frontend unit tests run once on Linux in the main desktop workflow. Both native
 platforms retain Rust tests, installer builds and real packaged/installed CLI
-checks. Release signing accepts only the exact commit whose frontend,
-documentation and both platform jobs succeeded.
+checks. macOS signing starts after its verified installer build, while Rust tests and
+Windows work continue. Publication still requires the exact commit whose
+frontend, documentation and both platforms' tests and builds succeeded.
 
-CI sets `CARGO_TARGET_DIR` to `src-tauri/target` so the CLI and desktop reuse
-compatible dependencies. Standalone local builds keep their existing default
-locations. Rust dependency caches are partitioned by OS, architecture, target,
+CI sets `CARGO_TARGET_DIR` to `src-tauri/target` in each worker. CLI and desktop
+production compilation run on independent workers for each platform, then join
+before packaging. Desktop compilation temporarily omits resource copying while
+preserving its original embedded configuration; packaging restores the actual,
+verified CLI and QPDF resources. No placeholder executable is accepted. Each
+platform waits only for its own CLI producer. Standalone local builds retain
+their existing commands and output locations. Rust dependency caches are partitioned by OS, architecture, target,
 toolchain, profile, manifests, lockfiles and Cargo configuration, rather than
-commit SHA or workflow text. Only trusted main pushes
-save caches; PR E2E restores the identical debug cache without writing it. Cache
-entries omit application/test executables and local SAG libraries. A cache miss
-always falls back to compilation.
+commit SHA or workflow text. Trusted main dispatches save ordinary Actions
+caches. PR E2E only restores its separate `debug` compatibility namespace and
+never writes it; Desktop uses `debug1`. They do not share fresh snapshots, and
+PRs can fall back to a legacy snapshot or normal compilation. Because
+Actions caches are tag-scoped, successful tag jobs also export dependency-only
+artifacts for subsequent tags. Consumers verify the repository, workflow, live
+tag and main ancestry (including deterministic release children), latest passed
+validation/native job attempt, artifact lifetime and digest, and payload
+metadata before extraction. Compatibility ignores only local SAG package version
+changes; third-party versions, features, profiles, Cargo configuration, platform
+and exact Rust compiler remain part of the key. CLI/desktop compilation caches
+are partitioned by role, and test debug/codegen settings are part of compatibility. App/test executables and local
+SAG libraries are excluded. An unavailable or rejected cache falls back to
+compilation and never substitutes for tests or installer validation. Artifacts
+expire after 14 days; a compatible hit avoids exporting the same dependencies
+again. Feature-branch dispatches exercise a local archive round trip and upload
+only `validation-rust-deps-*` artifacts, which trusted consumers reject. Export
+and upload are bounded, optional steps; include their overhead in CI timings.
 
 Tested main installers remain available for 14 days so a release can reuse them;
 Safari development installers and signed intermediate artifacts are retained for
 3 days. Public Release assets are unchanged.
+
+Dependency archives use the runner's existing zstd with multithreaded compression and streaming tar I/O. Restore validates the complete staged content and decompressor result before atomically replacing dependency files. Cache failure remains a normal-compilation fallback.
+
+The manual `Rust test profile A/B` workflow compares debug=1/CGU=16,
+line-tables-only/CGU=16 and line-tables-only/CGU=64 on the same runner in rotated
+order, with three paired rounds per platform. Each profile warms matching
+dependencies before measuring local core compilation. Reports include Cargo
+unit timings, warm-up and execution times, and named-test/ignored inventories;
+all core tests execute. Assertions and overflow checks remain enabled, and
+production release profiles are independent. Compare matched medians rather
+than treating a single hosted-runner measurement as a release-speed guarantee.
+
+PR E2E uses the same `RUST_TEST_THREADS=2` outer fixture budget as Desktop.
+Individual concurrency scenarios retain all client processes, including the
+20-process standalone test. This controls CI resource contention without
+changing the production service startup deadline. Failed CLI assertions include
+child exit status, stdout and stderr for diagnosis.
+
+For a focused code-generation comparison, dispatch that workflow with
+`comparison=cgu-only` and `platform=macos`: debug stays at 1 and only CGU16/64
+changes. The default `debug-and-cgu` comparison covers both debug metadata and
+codegen candidates. Use three paired rounds before adopting a setting; a lower
+single-run time is insufficient evidence. Benchmark artifacts never substitute
+for native release checks.
+
+The measured candidates have not established a material, stable net reduction
+in core compilation plus execution. Desktop native tests therefore retain
+`CARGO_PROFILE_TEST_DEBUG=1` and the existing nonincremental CGU16 baseline;
+release LTO, codegen units and optimization settings remain unchanged. Evaluate
+both compile and test execution costs rather than selecting by compiler time
+alone.
+
+For an internal/build-only PR that does not need its own release, maintainers may add `release:skip` before merging. PR checks remain required. Automatic preparation checks merged PR associations for every product commit in the captured main push (merge, squash or rebase); all must have this label to skip tag creation and publication. Mixed pushes containing an ordinary feature PR still release. API errors stop preparation without creating a tag. This is a per-push decision: a later feature release includes the accumulated changes. Labels are read when the workflow runs; adding one after preparation has started does not cancel an existing release.
+
+If GitHub has not yet indexed the merged PR, or a product push has no uniquely verifiable merged PR (for example a direct push), preparation stops without creating a tag. Retry after indexing; explicit manual releases remain available.

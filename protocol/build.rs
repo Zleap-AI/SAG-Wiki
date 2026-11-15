@@ -43,6 +43,7 @@ fn main() {
         "cli/skills",
         "src-tauri/src",
         "src-tauri/build.rs",
+        "src-tauri/build-resource-config.rs",
         "protocol/Cargo.toml",
         "client/Cargo.toml",
         "core/Cargo.toml",

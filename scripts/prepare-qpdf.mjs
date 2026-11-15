@@ -2,7 +2,7 @@ import {createHash} from 'node:crypto';
 import {mkdirSync,readFileSync,writeFileSync,existsSync,readdirSync,cpSync,chmodSync,rmSync,statSync,copyFileSync} from 'node:fs';
 import {resolve,join} from 'node:path';
 import {spawnSync} from 'node:child_process';
-const version='12.4.2';
+export const version='12.4.2';
 export async function prepareQpdf(destination, target=process.env.TAURI_ENV_TARGET_TRIPLE||`${process.arch}-${process.platform}`){
  const windows=target.includes('windows')||target.includes('win32');
  const arm=target.includes('aarch64')||target.includes('arm64');

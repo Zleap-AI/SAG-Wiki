@@ -140,7 +140,9 @@ fn standalone_cli_indexes_refreshes_and_removes_without_a_desktop() {
     let mut config = command().args(["config", "--url", &url, "--model", "test", "--key-stdin"])
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
     config.stdin.take().unwrap().write_all(b"test-key\n").unwrap();
-    assert!(config.wait_with_output().unwrap().status.success());
+    let configured = config.wait_with_output().unwrap();
+    assert!(configured.status.success(), "config exited {}: stderr={} stdout={}",
+        configured.status, String::from_utf8_lossy(&configured.stderr), String::from_utf8_lossy(&configured.stdout));
     let add: serde_json::Value = serde_json::from_str(&run(&["add", "--json"])).unwrap();
     assert_eq!(add["index_status"], "ready");
     assert!(run(&["status"]).contains("已连接 SAG 后台服务"));
@@ -181,7 +183,8 @@ fn status_does_not_start_a_service_and_later_commands_reuse_one_process(){
     assert!(status.status.success());assert!(!data.join("sag-service.json").exists());
     let root=temp.path().join("notes");fs::create_dir(&root).unwrap();fs::write(root.join("note.md"),"needle").unwrap();
     let added=Command::new(env!("CARGO_BIN_EXE_sag")).env("SAG_DATA_DIR",&data).args(["add",root.to_str().unwrap()]).output().unwrap();
-    assert!(added.status.success(),"{}",String::from_utf8_lossy(&added.stderr));
+    assert!(added.status.success(),"add exited {}: stderr={} stdout={}",added.status,
+        String::from_utf8_lossy(&added.stderr),String::from_utf8_lossy(&added.stdout));
     let endpoint=fs::read(data.join("sag-service.json")).unwrap();
     for _ in 0..3 {
         let result=Command::new(env!("CARGO_BIN_EXE_sag")).env("SAG_DATA_DIR",&data).current_dir(&root).args(["-F","needle"]).output().unwrap();

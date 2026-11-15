@@ -6,7 +6,7 @@ import {dirname, join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
 import {changedPaths, compareVersions, createPreparedCommit, gitAt, hasProductChanges, isProductPath, latestPublished,
-  nextVersion, releaseVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
+  shouldSkipRelease, nextVersion, releaseVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
 import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-release-environment.mjs';
 import {validateVersions} from './release.mjs';
 
@@ -47,7 +47,9 @@ function fixture(documentationPath = 'docs/zh-CN/中文 更新 说明.md') {
 test('classifies docs/CI-only pushes independently of cumulative unreleased product changes', () => {
   for (const path of ['docs/zh-CN/release.md', 'docs-site/package-lock.json', '.github/workflows/automatic-release.yml',
     'CHANGELOG.md', 'AGENTS.md', 'scripts/automatic-release.mjs', 'scripts/automatic-release.node-test.mjs', 'scripts/release.mjs',
-    'scripts/release-build-cache.node-test.mjs', 'scripts/configure-release.mjs', 'scripts/migrate-release-environment.mjs']) assert.equal(isProductPath(path), false, path);
+    'scripts/release-build-cache.node-test.mjs', 'scripts/test-profile-ab.mjs', 'scripts/test-profile-ab.node-test.mjs',
+    'scripts/parallel-cli.mjs', 'scripts/parallel-cli.node-test.mjs', 'scripts/rust-dependency-cache.mjs',
+    'scripts/rust-dependency-cache.node-test.mjs', 'scripts/rust-dependency-archive.py', 'scripts/configure-release.mjs', 'scripts/migrate-release-environment.mjs']) assert.equal(isProductPath(path), false, path);
   for (const path of ['src/App.svelte', 'core/src/lib.rs', 'package-lock.json', 'src-tauri/tauri.conf.json',
     'scripts/build-cli.mjs', 'scripts/sign-macos-release.mjs', 'scripts/package-updates.mjs', 'unknown/new-file']) assert.equal(isProductPath(path), true, path);
   const f = fixture();
@@ -335,4 +337,39 @@ test('migration dry-run handles large API responses without writes', {skip: proc
     const result = spawnSync(process.execPath, [join(root, 'scripts/migrate-release-environment.mjs')], {encoding:'utf8',env:{...process.env,PATH:directory+':'+process.env.PATH}});
     assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /dry-run/);
   } finally { rmSync(directory, {recursive:true,force:true}); }
+});
+
+
+test('release skip is scoped to all product commits in the captured push', () => {
+  const f = fixture();
+  try {
+    const pr = (merge, labels = ['release:skip']) => ({state:'closed', merged_at:'2026-11-15T00:00:00Z', merge_commit_sha:merge,
+      base:{ref:'main',repo:{full_name:'Zleap-AI/SAG-Wiki'}},labels:labels.map(name=>({name}))});
+    const check = (before, source, lookup) => shouldSkipRelease(f.git, before, source, lookup);
+    assert.equal(check(f.baseline,f.source,()=>[pr(f.product)]),true);
+    assert.throws(()=>check(f.baseline,f.source,()=>[]),/Cannot uniquely verify/);
+    assert.throws(()=>check(f.baseline,f.source,()=>[pr(f.product),pr(f.product)]),/Cannot uniquely verify/);
+    assert.equal(check(f.baseline,f.source,()=>[pr(f.product,[])]),false);
+    for (const patch of [{state:'open'}, {merged_at:null}, {base:{ref:'dev',repo:{full_name:'Zleap-AI/SAG-Wiki'}}},
+      {base:{ref:'main',repo:{full_name:'fork/SAG-Wiki'}}}, {merge_commit_sha:f.baseline}]) {
+      assert.throws(()=>check(f.baseline,f.source,()=>[{...pr(f.product),...patch}]),/Cannot uniquely verify/);
+    }
+    assert.throws(()=>check(f.baseline,f.source,()=>{throw Error('API unavailable');}),/API unavailable/);
+    const next=f.save('src/next.txt','next feature','feat: next feature');
+    const lookup=commit=>[pr(commit===f.product?f.product:next,commit===f.product?['release:skip']:[])];
+    assert.equal(check(f.baseline,next,lookup),false,'mixed push retains ordinary feature release');
+    assert.throws(()=>check(f.baseline,next,commit=>commit===f.product?[]:[pr(next,[])]),/Cannot uniquely verify/,'validate every product even after an ordinary feature');
+    assert.equal(check(f.source,next,lookup),false,'old skip label cannot suppress a later feature');
+    assert.equal(check(f.baseline,next,()=>[pr(next)]),true,'rebased product commits may share the final merged PR commit');
+    assert.ok(changedPaths(f.git,f.baseline,next).includes('src/product.txt'),'next release includes skipped changes');
+    assert.equal(check(f.product,f.source,()=>{throw Error('docs need no PR API');}),false);
+    f.git('checkout','--quiet','-b','skip-topic');
+    f.save('src/merged.txt','merged change','ci: parallel build input');
+    f.git('checkout','--quiet','-');
+    f.git('merge','--quiet','--no-ff','skip-topic','-m','Merge internal PR');
+    const merged=f.git('rev-parse','HEAD');
+    assert.equal(check(next,merged,()=>[pr(merged)]),true,'normal merge uses its main parent');
+    assert.equal(check(next,merged,()=>[pr(merged,['release:skip-extra'])]),false,'label match is exact');
+    assert.deepEqual(f.git('tag','--list').split('\n'),[`v${validateVersions(f.directory)}`],'classification creates no tags');
+  } finally { f.close(); }
 });

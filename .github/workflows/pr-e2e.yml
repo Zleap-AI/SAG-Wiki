@@ -33,6 +33,9 @@ jobs:
         shell: bash
     env:
       CARGO_INCREMENTAL: '0'
+      # Match Desktop's outer fixture budget. Individual concurrency scenarios
+      # still launch their full set of client processes.
+      RUST_TEST_THREADS: '2'
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       PYTHONUTF8: '1'
     steps:
@@ -45,7 +48,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: '1.98.1'
-      # Restore the same trusted-main debug dependency cache; PRs never save it.
+      # PR debug-profile compatibility cache is read-only and isolated from Desktop debug1.
       - name: Restore trusted Rust E2E dependencies
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -138,7 +141,9 @@ jobs:
           import {execFileSync} from 'node:child_process';
           const paths = execFileSync('git', ['diff', '--name-only', '-z', process.env.BASE_SHA, 'HEAD', '--'], {encoding: 'utf8'}).split('\0').filter(Boolean);
           const relevant = paths.some(path => /^(?:\.github\/workflows\/|config\/|src-tauri\/src\/update-fixtures\/)/.test(path) ||
-            /^scripts\/(?:automatic-release|release|configure-release|migrate-release-environment|sign-macos-release|build-cli|package-updates|verify-update)[^/]*\.mjs$/.test(path) ||
+            /^scripts\/(?:automatic-release|release|configure-release|migrate-release-environment|sign-macos-release|build-cli|package-updates|verify-update|rust-dependency-cache|parallel-cli|test-profile-ab|prepare-qpdf)[^/]*\.mjs$/.test(path) ||
+            path === 'scripts/rust-dependency-archive.py' ||
+            /^(?:src-tauri\/build(?:-resource-config)?|protocol\/build)\.rs$/.test(path) ||
             /^(?:package(?:-lock)?\.json|(?:cli|src-tauri)\/Cargo\.(?:toml|lock)|src-tauri\/tauri[^/]*\.json|docs-site\/lib\/release-downloads\.ts)$/.test(path));
           appendFileSync(process.env.GITHUB_OUTPUT, `relevant=${relevant}\n`);
           NODE
@@ -151,4 +156,4 @@ jobs:
         run: npm ci --ignore-scripts
       - name: Regress preparation, trust, signing, assembly and cache gates
         if: steps.changes.outputs.relevant == 'true'
-        run: node --test scripts/automatic-release.node-test.mjs scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs
+        run: node --test scripts/automatic-release.node-test.mjs scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs scripts/rust-dependency-cache.node-test.mjs scripts/parallel-cli.node-test.mjs scripts/test-profile-ab.node-test.mjs
