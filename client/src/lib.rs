@@ -423,6 +423,67 @@ mod version_tests;
 mod shutdown_tests {
     use super::*;
 
+    use sag_protocol::{self as protocol, Endpoint};
+    use tokio::{net::TcpListener, sync::Notify};
+async fn shutdown_server(
+    data: &Path,
+    reject: bool,
+) -> (tokio::task::JoinHandle<()>, Arc<Notify>, Arc<Notify>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let instance = std::fs::OpenOptions::new().create(true).truncate(false)
+        .read(true).write(true).open(data.join("cli-instance.lock")).unwrap();
+    instance.lock().unwrap();
+    let endpoint = data.join("sag-service.json");
+    let info = ServiceInfo {
+        version: Some(protocol::BUILD_VERSION.into()), protocol_version: protocol::VERSION,
+        build_id: protocol::BUILD_ID.into(), channel: protocol::BUILD_CHANNEL.into(),
+        pid: std::process::id(), executable: String::new(), data_directory: data.display().to_string(),
+    };
+    std::fs::write(&endpoint, serde_json::to_vec(&Endpoint {
+        protocol_version: protocol::VERSION, port: listener.local_addr().unwrap().port(),
+        pid: info.pid, token: "quit-test".into(),
+    }).unwrap()).unwrap();
+    let requested = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let notified = requested.clone();
+    let finish = release.clone();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut read = BufReader::new(read);
+        assert!(matches!(wire::read(&mut read).await.unwrap(), Some(Frame::Hello { .. })));
+        wire::write(&mut write, &Frame::Welcome { info }).await.unwrap();
+        let Some(Frame::Request { id, operation: Operation::Shutdown }) = wire::read(&mut read).await.unwrap() else {
+            panic!("quit did not request service shutdown");
+        };
+        let result = if reject { Err("stop refused".into()) } else { Ok(Output::Unit) };
+        wire::write(&mut write, &Frame::Response { id, result }).await.unwrap();
+        notified.notify_one();
+        finish.notified().await;
+        std::fs::remove_file(endpoint).unwrap();
+        drop(instance);
+    });
+    (server, requested, release)
+}
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn client_shutdown_waits_for_service_release() {
+        let data = tempfile::tempdir().unwrap();
+        let (server, requested, release) = shutdown_server(data.path(), false).await;
+        let path = data.path().to_path_buf();
+        let quitting = tokio::spawn(async move {
+            let client = Client::connect(&path).await?.unwrap();
+            client.call(Operation::Shutdown, Duration::from_secs(10)).await?;
+            wait_stopped(&path).await
+        });
+        tokio::time::timeout(Duration::from_secs(3), requested.notified()).await.unwrap();
+        assert!(!quitting.is_finished());
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(3), quitting).await.unwrap().unwrap().unwrap();
+        server.await.unwrap();
+    }
+
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn endpoint_removal_then_instance_release() {
         let data = tempfile::tempdir().unwrap();
