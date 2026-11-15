@@ -87,15 +87,14 @@ impl Docling {
         let components = self.home.join("components");
         fs::create_dir_all(&components)?;
         fs::write(self.home.join("install-diagnostics.log"), [])?;
-        let mut archive = tempfile::tempfile_in(&components)?;
         let cancel = || self.cancel.load(Ordering::Relaxed);
-        self.progress("runtime", "正在从资源站下载 Docling 安装包…");
-        let (version, asset) = tokio::runtime::Builder::new_current_thread()
+        self.progress("runtime", "正在检查 Docling 安装包…");
+        let (version, asset, mut archive) = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?
             .block_on(async {
                 tokio::select! {
-                    result = self.download_resource(&platform, &mut archive) => result,
+                    result = self.download_resource(ORIGIN, &platform) => result,
                     _ = async {
                         while !cancel() { tokio::time::sleep(Duration::from_millis(100)).await; }
                     } => bail!("已取消组件安装"),
@@ -122,16 +121,16 @@ impl Docling {
 
     async fn download_resource(
         &self,
+        origin: &str,
         platform: &str,
-        output: &mut fs::File,
-    ) -> Result<(String, Asset)> {
+    ) -> Result<(String, Asset, fs::File)> {
         let client = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(20))
             .read_timeout(Duration::from_secs(60))
             .redirect(reqwest::redirect::Policy::none())
             .build()?;
         let response = client
-            .get(format!("{ORIGIN}{RELEASES}"))
+            .get(format!("{origin}{RELEASES}"))
             .send()
             .await?
             .error_for_status()?;
@@ -139,8 +138,42 @@ impl Docling {
             bail!("资源站未返回 Docling 版本列表");
         }
         let (version, asset) = select_asset(response.json().await?, platform)?;
+        let cache = self.home.join("downloads");
+        fs::create_dir_all(&cache)
+            .with_context(|| format!("无法创建 Docling 下载缓存目录：{}", cache.display()))?;
+        let cached = cache.join(format!("{}.zip", asset.sha256.to_ascii_lowercase()));
+        match fs::File::open(&cached) {
+            Ok(mut archive) => {
+                self.progress("runtime", "正在校验已下载的 Docling 安装包…");
+                if archive.metadata()?.len() == asset.size {
+                    let mut hash = Sha256::new();
+                    let mut buffer = [0u8; 256 * 1024];
+                    loop {
+                        if self.cancel.load(Ordering::Relaxed) {
+                            bail!("已取消组件安装");
+                        }
+                        let count = archive.read(&mut buffer)?;
+                        if count == 0 {
+                            break;
+                        }
+                        hash.update(&buffer[..count]);
+                    }
+                    if format!("{:x}", hash.finalize()).eq_ignore_ascii_case(&asset.sha256) {
+                        archive.rewind()?;
+                        return Ok((version, asset, archive));
+                    }
+                }
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("无法读取 Docling 下载缓存：{}", cached.display()))
+            }
+        }
+        self.progress("runtime", "正在从资源站下载 Docling 安装包…");
+        let mut output = tempfile::NamedTempFile::new_in(&cache)?;
         let response = client
-            .get(format!("{ORIGIN}{}", asset.download_path))
+            .get(format!("{origin}{}", asset.download_path))
             .send()
             .await?
             .error_for_status()?;
@@ -170,7 +203,16 @@ impl Docling {
         {
             bail!("Docling 安装包校验失败");
         }
-        Ok((version, asset))
+        output.as_file().sync_all()?;
+        if self.cancel.load(Ordering::Relaxed) {
+            bail!("已取消组件安装");
+        }
+        let mut archive = output
+            .persist(&cached)
+            .map_err(|error| error.error)
+            .with_context(|| format!("无法保存 Docling 下载缓存：{}", cached.display()))?;
+        archive.rewind()?;
+        Ok((version, asset, archive))
     }
 }
 
@@ -243,6 +285,156 @@ fn unpack(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{atomic::AtomicUsize, Arc};
+
+    async fn resource_server(
+        body: &[u8],
+        expected: &[u8],
+    ) -> (String, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+        use tokio::{
+            io::{AsyncReadExt, AsyncWriteExt},
+            net::TcpListener,
+        };
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let downloads = Arc::new(AtomicUsize::new(0));
+        let count = downloads.clone();
+        let metadata = serde_json::to_vec(&serde_json::json!({
+            "items": [{
+                "version": docling_component::VERSION,
+                "variants": [{"recommended": true, "files": [{
+                    "filename": format!("Docling-{}-windows-x86_64.zip", docling_component::VERSION),
+                    "size": expected.len(), "sha256": format!("{:x}", Sha256::digest(expected)),
+                    "downloadPath": format!("/downloads/sag-wiki-docling/{}/{}", uuid::Uuid::nil(), uuid::Uuid::nil())
+                }]}]
+            }]
+        })).unwrap();
+        let body = body.to_vec();
+        let size = expected.len();
+        let task = tokio::spawn(async move {
+            loop {
+                let (mut stream, _) = listener.accept().await.unwrap();
+                let mut request = [0u8; 4096];
+                let length = stream.read(&mut request).await.unwrap();
+                let download = request[..length].starts_with(b"GET /downloads/");
+                let (payload, length) = if download {
+                    count.fetch_add(1, Ordering::Relaxed);
+                    (&body, size)
+                } else {
+                    (&metadata, metadata.len())
+                };
+                stream.write_all(format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {length}\r\nConnection: close\r\n\r\n"
+                ).as_bytes()).await.unwrap();
+                stream.write_all(payload).await.unwrap();
+                stream.shutdown().await.unwrap();
+            }
+        });
+        (origin, downloads, task)
+    }
+
+    #[tokio::test]
+    async fn retry_after_install_failure_reuses_download_across_instances() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = b"download verified, but not a valid component ZIP";
+        let (origin, downloads, server) = resource_server(bytes, bytes).await;
+        let first = Docling::new(dir.path());
+        let (_, asset, archive) = first
+            .download_resource(&origin, "windows-x86_64")
+            .await
+            .unwrap();
+        let staging = tempfile::tempdir().unwrap();
+        assert!(unpack(
+            archive,
+            Path::new(asset.filename.trim_end_matches(".zip")),
+            staging.path(),
+            &|| false
+        )
+        .is_err());
+        assert!(!first.installed());
+        drop(first);
+        let retry = Docling::new(dir.path());
+        let (_, _, mut archive) = retry
+            .download_resource(&origin, "windows-x86_64")
+            .await
+            .unwrap();
+        let mut contents = Vec::new();
+        archive.read_to_end(&mut contents).unwrap();
+        assert_eq!(contents, bytes);
+        assert_eq!(downloads.load(Ordering::Relaxed), 1);
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn damaged_cache_is_downloaded_again() {
+        let bytes = b"verified archive bytes";
+        for damaged in [&b"truncated"[..], &b"modified archive bytes"[..]] {
+            let dir = tempfile::tempdir().unwrap();
+            let converter = Docling::new(dir.path());
+            let (origin, downloads, server) = resource_server(bytes, bytes).await;
+            let (_, asset, archive) = converter
+                .download_resource(&origin, "windows-x86_64")
+                .await
+                .unwrap();
+            drop(archive);
+            let cached = converter
+                .home
+                .join("downloads")
+                .join(format!("{}.zip", asset.sha256));
+            fs::write(&cached, damaged).unwrap();
+            let (_, _, archive) = converter
+                .download_resource(&origin, "windows-x86_64")
+                .await
+                .unwrap();
+            drop(archive);
+            assert_eq!(fs::read(cached).unwrap(), bytes);
+            assert_eq!(downloads.load(Ordering::Relaxed), 2);
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn incomplete_or_bad_hash_download_is_not_cached() {
+        for body in [&b"short"[..], &b"incorrect data"[..]] {
+            let dir = tempfile::tempdir().unwrap();
+            let converter = Docling::new(dir.path());
+            let (origin, _, server) = resource_server(body, b"expected bytes").await;
+            assert!(converter
+                .download_resource(&origin, "windows-x86_64")
+                .await
+                .is_err());
+            assert_eq!(
+                fs::read_dir(converter.home.join("downloads"))
+                    .unwrap()
+                    .count(),
+                0
+            );
+            server.abort();
+        }
+    }
+
+    #[tokio::test]
+    async fn changed_asset_hash_downloads_the_new_package() {
+        let dir = tempfile::tempdir().unwrap();
+        let converter = Docling::new(dir.path());
+        let (origin, _, old_server) = resource_server(b"old package", b"old package").await;
+        let (_, _, archive) = converter
+            .download_resource(&origin, "windows-x86_64")
+            .await
+            .unwrap();
+        drop(archive);
+        old_server.abort();
+        let (origin, downloads, server) = resource_server(b"new package", b"new package").await;
+        let (_, _, mut archive) = converter
+            .download_resource(&origin, "windows-x86_64")
+            .await
+            .unwrap();
+        let mut contents = String::new();
+        archive.read_to_string(&mut contents).unwrap();
+        assert_eq!(contents, "new package");
+        assert_eq!(downloads.load(Ordering::Relaxed), 1);
+        server.abort();
+    }
 
     #[test]
     fn selects_system_package_from_the_manually_recommended_compatible_release() {

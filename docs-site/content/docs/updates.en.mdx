@@ -5,6 +5,15 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.3.1
+
+- **Docling installation and conversion**: Handle Windows document component resource paths, model directories and conversion input/output paths consistently. Fix errors reading `additional.dat` and `tm_config.json`. Cache completed, verified downloads and reuse them after installation failures. Download again when the cache is damaged or the package changes.
+- **Quick start**: Show the first-launch tutorial independently of background loading, startup errors and quick search.
+- **Windows app**: Restore the existing main window when reopening the app, avoiding duplicate windows.
+- **App exit**: On Windows, quitting from the tray or app menu stops the standalone service before exiting the client and prevents automatic restarts during shutdown. macOS retains its existing behavior: the service keeps running after the client exits, so CLI and MCP remain available. Closing the window hides the app.
+
+See [Folders and indexing](/en/docs/folders) and [Preferences and shortcuts](/en/docs/preferences) for details, and [Installation](/en/docs/installation) for installers.
+
 ## 0.3.0
 
 - **Chat history imports**: Convert local Claude Code and Codex chats to Markdown. Save by default under `Documents/sag-wiki/agent-history`, in separate `claude code` and `codex` subfolders, or choose another location.

@@ -1,6 +1,6 @@
 [package]
 name = "sag-desktop"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 [lib]
 name = "sag_desktop_lib"
@@ -31,6 +31,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["NSWork
 [dev-dependencies]
 tauri = { version = "2", features = ["test"] }
 [target.'cfg(windows)'.dependencies]
+tauri-plugin-single-instance = "=2.5.4"
 windows = { version = "0.62", features = ["Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 [profile.release]
 strip = true

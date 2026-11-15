@@ -13,7 +13,10 @@ use sag_protocol as cli_protocol;
 use sag_protocol::{self as protocol, types::*, DoclingProfile, Operation, Output, Query, ServiceEvent};
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use tauri::{
@@ -34,6 +37,7 @@ struct AppState<R: tauri::Runtime = tauri::Wry> {
     data_dir: PathBuf,
     service_binary: PathBuf,
     cli_install_error: Mutex<Option<String>>,
+    quitting: AtomicBool,
 }
 fn emit<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &str, payload: impl serde::Serialize + Clone) {
     if let Err(error) = app.emit(event, payload) {
@@ -81,9 +85,15 @@ fn output_value(output: Output) -> CommandResult<serde_json::Value> {
     Ok(value)
 }
 async fn rpc<R: tauri::Runtime>(state: &AppState<R>, operation: Operation) -> CommandResult<serde_json::Value> {
+    if state.quitting.load(Ordering::Relaxed) {
+        return Err("SAG 正在退出".into());
+    }
     let mut client = state.client.lock().unwrap().clone();
     if !client.is_connected() {
         let _guard = state.reconnect.lock().await;
+        if state.quitting.load(Ordering::Relaxed) {
+            return Err("SAG 正在退出".into());
+        }
         client = state.client.lock().unwrap().clone();
         if !client.is_connected() {
             client = sag_client::ensure(&state.data_dir, &state.service_binary)
@@ -98,6 +108,9 @@ async fn rpc<R: tauri::Runtime>(state: &AppState<R>, operation: Operation) -> Co
             emit(&state.app, "history-changed", ());
             emit(&state.app, "settings-changed", ());
         }
+    }
+    if state.quitting.load(Ordering::Relaxed) {
+        return Err("SAG 正在退出".into());
     }
     output_value(
         client
@@ -156,6 +169,10 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
     tauri::async_runtime::spawn(async move {
         let mut reported: Option<String> = None;
         loop {
+            if state.quitting.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
             let mut client = state.client.lock().unwrap().clone();
             if !client.is_connected() {
                 tokio::time::sleep(Duration::from_millis(250)).await;
@@ -281,8 +298,42 @@ fn reveal_main_window(app: tauri::AppHandle) -> CommandResult<()> {
     show_main_window(&app).map_err(error)
 }
 #[tauri::command]
+#[cfg(target_os = "macos")]
 fn quit_application(app: tauri::AppHandle) {
     app.exit(0);
+}
+
+#[tauri::command]
+#[cfg(not(target_os = "macos"))]
+async fn quit_application(app: tauri::AppHandle, state: State<'_, Arc<AppState>>) -> CommandResult<()> {
+    if let Err(message) = stop_background(&state).await {
+        show_main_window(&app).map_err(|error| format!("{message}；无法显示主窗口：{error}"))?;
+        return Err(message);
+    }
+    app.exit(0);
+    Ok(())
+}
+
+#[cfg(any(test, not(target_os = "macos")))]
+async fn stop_background<R: tauri::Runtime>(state: &AppState<R>) -> CommandResult<()> {
+    // Block automatic startup/reconnect before requesting shutdown. Reuse the
+    // reconnect lock so an already-starting service is stopped as well.
+    state.quitting.store(true, Ordering::Relaxed);
+    let result = async {
+        let _guard = state.reconnect.lock().await;
+        if let Some(client) = Client::connect(&state.data_dir).await.map_err(error)? {
+            client
+                .call(Operation::Shutdown, Duration::from_secs(10))
+                .await
+                .map_err(error)?;
+            sag_client::wait_stopped(&state.data_dir).await.map_err(error)?;
+        }
+        Ok(())
+    }.await;
+    if result.is_err() {
+        state.quitting.store(false, Ordering::Relaxed);
+    }
+    result
 }
 
 remote!(list_roots() => ListRoots);
@@ -522,7 +573,15 @@ fn reveal(path: &Path) -> anyhow::Result<()> {
 }
 
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Detect a second Windows launch before initializing shortcuts, the tray or service.
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Err(error) = show_main_window(app) {
+            emit(app, "app-error", error.to_string());
+        }
+    }));
+    let app = builder
         .plugin(tauri::plugin::Builder::<tauri::Wry>::new("external-links")
             .on_navigation(|webview, url| {
                 let app = webview.app_handle();
@@ -618,6 +677,7 @@ pub fn run() {
                 data_dir: data,
                 service_binary: source,
                 cli_install_error: Mutex::new(cli_install_error),
+                quitting: AtomicBool::new(false),
             });
             app.manage(state.clone());
             connect_on_startup(state.clone(), fresh_library);

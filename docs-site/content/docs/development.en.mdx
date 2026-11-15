@@ -82,7 +82,7 @@ SAG_DATA_DIR=/path/to/dev-data npm run tauri dev
 SAG_DATA_DIR=/path/to/dev-data ./src-tauri/bin/development/sag service status
 ```
 
-Set the same `SAG_DATA_DIR` when desktop and CLI should share development data. The service starts on demand after it exits; quitting the desktop does not stop it. Run `sag service stop` after testing when needed. Features that need a model service use credentials configured by the developer. Indexing and local matching do not require API keys.
+Set the same `SAG_DATA_DIR` when desktop and CLI should share development data. The service starts on demand after it exits. On macOS, exiting the desktop client leaves the service running. On Windows, quitting from the tray or app menu stops it. Run `sag service stop` after testing when needed. Features that need a model service use credentials configured by the developer. Indexing and local matching do not require API keys.
 
 ## Documentation and repository boundaries
 

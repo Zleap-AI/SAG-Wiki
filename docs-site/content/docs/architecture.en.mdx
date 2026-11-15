@@ -36,7 +36,7 @@ Desktop UI → Tauri → sag-client ─┐
 sag command → sag-client ───────┘      └→ SQLite / file watching / models
 ```
 
-For each data directory, one service owns the database, index watcher, retrieval caches and model clients. Desktop and CLI automatically start it when needed. Closing or quitting the desktop leaves the service running. Ordinary CLI commands connect to it without initializing the core again in their own processes.
+For each data directory, one service owns the database, index watcher, retrieval caches and model clients. Desktop and CLI automatically start it when needed. Closing the window leaves the service running. On macOS, exiting the client leaves the service running. On Windows, quitting from the tray or app menu stops the service first. Ordinary CLI commands connect to it without initializing the core again in their own processes.
 
 The local service listens only on `127.0.0.1`, using a random port and token. Connection metadata is stored in `sag-service.json` in the user data directory. A single frame is limited to 128 KiB and a complete message to 64 MiB. Large documents use chunked transfer. Tokens are not displayed in diagnostics.
 
@@ -107,7 +107,7 @@ Index preparation can run in parallel; SQLite writes use transactions. Retrieval
 
 The service supports 20 concurrent retrieval requests. Requests, timeouts and cancellations are independent. Writes to the same conversation are coordinated per conversation. Tool approvals go only to the connection that initiated the request. Disconnecting cancels that connection's tasks while other connections continue.
 
-Closing the window hides the desktop, and quitting it also leaves the background service running. `sag status` and `sag service status` inspect status without starting the service. `sag service stop` stops it; `sag service restart` restarts it. After reconnecting, desktop reloads files, settings and history state.
+Closing the window hides the desktop. On macOS, exiting the client leaves the service running, so CLI and MCP remain available. On Windows, quitting from the tray or app menu stops the service and waits for its instance lock to be released before exiting the client. Reopening the desktop or running a CLI command that needs the service starts it on demand. `sag status` and `sag service status` inspect status without starting the service. `sag service stop` stops it; `sag service restart` restarts it. After reconnecting, desktop reloads files, settings and history state.
 
 ## Dependencies and distribution
 
