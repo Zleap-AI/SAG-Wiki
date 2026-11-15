@@ -23,6 +23,17 @@ test('single-variable profiles retain assertions, overflow checks and nonincreme
   assert.deepEqual(profileOrder(2),['line-tables','line-tables-cgu64','baseline']);
 });
 
+test('CGU-only comparison changes exactly one setting and rotates two profiles', () => {
+  const baseline=profileEnvironment('baseline');
+  const candidate=profileEnvironment('baseline-cgu64');
+  assert.deepEqual(Object.keys(baseline).filter(key=>baseline[key]!==candidate[key]),['CARGO_PROFILE_TEST_CODEGEN_UNITS']);
+  assert.equal(candidate.CARGO_PROFILE_TEST_DEBUG,'1');
+  assert.deepEqual(profileOrder(1,'cgu-only'),['baseline','baseline-cgu64']);
+  assert.deepEqual(profileOrder(2,'cgu-only'),['baseline-cgu64','baseline']);
+  assert.deepEqual(profileOrder(3,'cgu-only'),['baseline','baseline-cgu64']);
+  assert.throws(()=>profileOrder(1,'unknown'));
+});
+
 test('Cargo metrics select the slow unit-test target rather than summing parallel units', () => {
   const units=[
     {name:'sag-core',target:'',start:1,duration:35,sections:[['frontend',{start:0,end:17}],['codegen',{start:17,end:35}]]},
@@ -55,11 +66,25 @@ test('paired summaries reject mixed commits/platforms or missing profiles', () =
   const coverage=[{target:'lib:sag_core',name:'one',ignored:false}];
   const reports=[1,2,3].map(round=>({schema:1,commit:'a'.repeat(40),platform:'macos',round,results:profileOrder(round).map(profile=>({profile,inventory:coverage,metrics:{unit_test_seconds:profile==='baseline'?500+round:profile==='line-tables'?400+round:300+round}}))}));
   const summary=summarize(reports);
+  assert.equal(summary.comparison,'debug-and-cgu');
   assert.equal(summary.profiles.baseline.median_unit_test_seconds,502);
   assert.equal(summary.paired['line-tables'].median_saved_seconds,100);
   assert.equal(summary.paired['line-tables-cgu64'].median_saved_seconds,100);
   assert.throws(()=>summarize([reports[0],{...reports[1],commit:'b'.repeat(40)}]));
   assert.throws(()=>summarize([{...reports[0],results:reports[0].results.slice(1)}]));
+});
+
+test('CGU-only summaries preserve legacy reports and reject mixed comparison modes', () => {
+  const inventory=[{target:'lib:sag_core',name:'one',ignored:false}];
+  const records=[1,2,3].map(round=>({schema:1,commit:'a'.repeat(40),platform:'macos',round,comparison:'cgu-only',results:[
+    {profile:'baseline',inventory,metrics:{unit_test_seconds:500+round}},
+    {profile:'baseline-cgu64',inventory,metrics:{unit_test_seconds:400+round}},
+  ]}));
+  const result=summarize(records);
+  assert.equal(result.comparison,'cgu-only');
+  assert.equal(result.paired['baseline-cgu64'].compared_with,'baseline');
+  assert.equal(result.paired['baseline-cgu64'].median_saved_seconds,100);
+  assert.throws(()=>summarize([records[0],{...records[1],comparison:'debug-and-cgu'}]),/comparison/i);
 });
 
 test('CLI performs warm/clean/measure/full-test in rotated order and never accepts a version tag', {skip:process.platform==='win32'}, () => {
@@ -103,5 +128,13 @@ if(args.includes('--no-run')){
     }
     assert.equal(new Set(trace.map(operation=>operation.target)).size,3);
     assert.equal(readdirSync(directory).filter(name=>name.startsWith('sag-profile-ab-')).length,0);
+    const focused=mkdtempSync(join(directory,'focused-'));
+    const focusedResult=spawnSync(process.execPath,[command,'run'],{cwd:directory,env:{...env,RUNNER_TEMP:focused,AB_TRACE:join(focused,'trace'),AB_COMPARISON:'cgu-only'},encoding:'utf8'});
+    assert.equal(focusedResult.status,0,focusedResult.stderr);
+    const focusedReport=JSON.parse(readFileSync(join(focused,'profile-ab-results/report.json')));
+    assert.equal(focusedReport.comparison,'cgu-only');
+    assert.deepEqual(focusedReport.order,['baseline-cgu64','baseline']);
+    assert.ok(focusedReport.results.every(result=>result.environment.CARGO_PROFILE_TEST_DEBUG==='1'));
+    assert.equal(readFileSync(join(focused,'trace'),'utf8').trim().split('\n').length,8);
   } finally {rmSync(directory,{recursive:true,force:true});}
 });

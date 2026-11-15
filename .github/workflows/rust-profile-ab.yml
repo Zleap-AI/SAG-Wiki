@@ -3,6 +3,16 @@ name: Rust test profile A/B
 on:
   workflow_dispatch:
     inputs:
+      comparison:
+        description: Single-variable comparisons to execute
+        type: choice
+        options: ['debug-and-cgu', 'cgu-only']
+        default: 'debug-and-cgu'
+      platform:
+        description: Platforms to measure
+        type: choice
+        options: ['both', 'macos', 'windows']
+        default: 'both'
       rounds:
         description: Paired rounds per platform (three for an adoption decision)
         type: choice
@@ -23,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: [macos, windows]
+        platform: ${{ fromJSON(inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
         round: ${{ fromJSON(inputs.rounds == '3' && '[1,2,3]' || '[1]') }}
     runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || 'windows-2025' }}
     timeout-minutes: 90
@@ -33,6 +43,7 @@ jobs:
     env:
       AB_PLATFORM: ${{ matrix.platform }}
       AB_ROUND: ${{ matrix.round }}
+      AB_COMPARISON: ${{ inputs.comparison }}
       PYTHONUTF8: '1'
       RUST_BACKTRACE: '1'
     steps:
@@ -57,7 +68,7 @@ jobs:
         run: node --test scripts/test-profile-ab.node-test.mjs
       - name: Prepare the same QPDF runtime used by native tests
         run: node scripts/prepare-qpdf.mjs
-      # The three profiles run on the same VM in a rotated order. Each gets a
+      # Selected profiles run on the same VM in a rotated order. Each gets a
       # fresh target, warms its own matching dependencies, then cleans ONLY core.
       # No dependency cache or release checkpoint is written by this workflow.
       - name: Measure compilation and execute all core tests for every profile

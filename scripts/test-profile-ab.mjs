@@ -6,16 +6,22 @@ import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
 export const profiles = ['baseline', 'line-tables', 'line-tables-cgu64'];
-export function profileOrder(round) {
+export function comparisonProfiles(comparison = 'debug-and-cgu') {
+  assert.ok(['debug-and-cgu','cgu-only'].includes(comparison), 'Unknown profile comparison');
+  return comparison === 'cgu-only' ? ['baseline','baseline-cgu64'] : [...profiles];
+}
+export function profileOrder(round, comparison = 'debug-and-cgu') {
   assert.ok(Number.isInteger(round) && round >= 1 && round <= 3, 'Round must be 1, 2 or 3');
-  return [...profiles.slice(round - 1), ...profiles.slice(0, round - 1)];
+  const selected = comparisonProfiles(comparison);
+  const offset = (round - 1) % selected.length;
+  return [...selected.slice(offset), ...selected.slice(0, offset)];
 }
 
 export function profileEnvironment(profile, inherited = {}) {
-  assert.ok(profiles.includes(profile), 'Unknown test profile');
+  assert.ok([...profiles,'baseline-cgu64'].includes(profile), 'Unknown test profile');
   return {...inherited, CARGO_INCREMENTAL:'0', RUST_TEST_THREADS:'2',
-    CARGO_PROFILE_TEST_DEBUG:profile === 'baseline' ? '1' : 'line-tables-only',
-    CARGO_PROFILE_TEST_CODEGEN_UNITS:profile === 'line-tables-cgu64' ? '64' : '16',
+    CARGO_PROFILE_TEST_DEBUG:profile.startsWith('baseline') ? '1' : 'line-tables-only',
+    CARGO_PROFILE_TEST_CODEGEN_UNITS:profile.endsWith('cgu64') ? '64' : '16',
     CARGO_PROFILE_TEST_DEBUG_ASSERTIONS:'true', CARGO_PROFILE_TEST_OVERFLOW_CHECKS:'true'};
 }
 
@@ -64,19 +70,23 @@ const median = values => {
 export function summarize(reports) {
   assert.ok(reports.length, 'No profile reports');
   const first = reports[0]; const seen = new Set();
+  const comparison = first.comparison ?? 'debug-and-cgu';
+  const selected = comparisonProfiles(comparison);
   for (const report of reports) {
     assert.equal(report.schema, 1); assert.equal(report.commit, first.commit, 'Mixed source commits');
     assert.equal(report.platform, first.platform, 'Compare each operating system separately');
+    assert.equal(report.comparison ?? 'debug-and-cgu', comparison, 'Mixed profile comparisons');
     assert.ok(!seen.has(report.round), 'Duplicate measurement round'); seen.add(report.round);
-    assert.deepEqual(report.results.map(result => result.profile).sort(), [...profiles].sort(), 'Incomplete profile comparison');
+    assert.deepEqual(report.results.map(result => result.profile).sort(), [...selected].sort(), 'Incomplete profile comparison');
     for (const result of report.results) assertSameCoverage(first.results[0].inventory, result.inventory);
   }
-  const result = {commit:first.commit, platform:first.platform, rounds:reports.length, profiles:{}, paired:{}};
-  for (const profile of profiles) {
+  const result = {commit:first.commit, platform:first.platform, comparison, rounds:reports.length, profiles:{}, paired:{}};
+  for (const profile of selected) {
     const samples = reports.map(report => report.results.find(result => result.profile === profile).metrics.unit_test_seconds);
     result.profiles[profile] = {samples, median_unit_test_seconds:median(samples)};
   }
-  for (const [before,after] of [['baseline','line-tables'],['line-tables','line-tables-cgu64']]) {
+  const pairs = comparison === 'cgu-only' ? [['baseline','baseline-cgu64']] : [['baseline','line-tables'],['line-tables','line-tables-cgu64']];
+  for (const [before,after] of pairs) {
     const saved = reports.map(report => report.results.find(result => result.profile === before).metrics.unit_test_seconds - report.results.find(result => result.profile === after).metrics.unit_test_seconds);
     result.paired[after] = {compared_with:before, saved_seconds:saved, median_saved_seconds:median(saved)};
   }
@@ -99,12 +109,13 @@ function runComparison() {
   assert.equal(platform, process.platform === 'win32' ? 'windows' : 'macos');
   assert.ok(process.env.RUNNER_TEMP, 'Missing dedicated runner temporary directory');
   const round = Number(process.env.AB_ROUND);
-  const order = profileOrder(round);
+  const comparison = process.env.AB_COMPARISON || 'debug-and-cgu';
+  const order = profileOrder(round,comparison);
   const directory = join(process.env.RUNNER_TEMP, 'profile-ab-results');
   mkdirSync(directory, {recursive:true});
   const commit = execute('git', ['rev-parse','HEAD'], process.env).stdout.trim();
   assert.equal(commit, process.env.GITHUB_SHA, 'Benchmark source differs from dispatch');
-  const report = {schema:1, commit, platform, round, order,
+  const report = {schema:1, commit, platform, round, comparison, order,
     runner:{name:process.env.RUNNER_NAME, os:process.env.RUNNER_OS, arch:process.env.RUNNER_ARCH, image:process.env.ImageVersion},
     rustc:execute('rustc',['--version','--verbose'],process.env).stdout.trim(),
     cargo:execute('cargo',['--version','--verbose'],process.env).stdout.trim(), results:[]};
