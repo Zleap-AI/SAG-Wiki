@@ -108,7 +108,7 @@ if(args.includes('--no-run')){
 } else if(args[0]==='test'){process.stdout.write('test result: ok. 1 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s\\n');}
 `;
     for(const name of ['git','rustc','cargo','test-binary']){writeFileSync(join(directory,name),script);chmodSync(join(directory,name),0o755);}
-    const env={...process.env,PATH:`${directory}:${process.env.PATH}`,RUNNER_TEMP:directory,GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/feature',GITHUB_SHA:'a'.repeat(40),AB_PLATFORM:'macos',AB_ROUND:'2',AB_TRACE:join(directory,'trace'),AB_SHIMS:directory};
+    const env={...process.env,PATH:`${directory}:${process.env.PATH}`,RUNNER_TEMP:directory,GITHUB_EVENT_NAME:'workflow_dispatch',GITHUB_REF:'refs/heads/feature',GITHUB_SHA:'a'.repeat(40),AB_PLATFORM:'macos',AB_ROUND:'2',AB_COMPARISON:'debug-and-cgu',AB_TRACE:join(directory,'trace'),AB_SHIMS:directory};
     const command=resolve(import.meta.dirname,'test-profile-ab.mjs');
     const rejected=spawnSync(process.execPath,[command,'run'],{cwd:directory,env:{...env,GITHUB_REF:'refs/tags/v0.3.0'},encoding:'utf8'});
     assert.notEqual(rejected.status,0);
