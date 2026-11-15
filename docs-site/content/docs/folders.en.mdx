@@ -5,9 +5,9 @@ description: "Control search scope, file types and ignore rules."
 
 ## Add and index
 
-Click **+** in the sidebar and select directories in the **Add folder** tab. Switch to **Import data** to use the same chat and note importers available in Settings. Selected directories are preserved when switching tabs.
+Click **+** in the sidebar, select directories in **Add folder**, then click **Add to knowledge base**. You can select multiple folders across directories.
 
-![Add folder and Import data tabs](/images/product-add-data-en.png)
+![Select folders to add to the knowledge base](/images/product-add-folder-en.png)
 
  SAG Wiki indexes the selected file types while applying ignore rules. Later changes trigger incremental indexing. Indexing runs in the background: adding a large folder returns immediately, progress appears at the bottom of the sidebar, and search and Q&A stay available during indexing. During file-monitor setup, a preparation status is shown; large folders may take a few minutes before file scanning starts. If file monitoring fails, scanning continues and the completed index retains a warning that automatic updates are limited. Rebuild the index in indexing settings to retry. Explicitly adding a folder again resets its previous monitor before registering a new one. After the directory is restored, new file changes continue to update the index automatically.
 
