@@ -117,6 +117,14 @@ test('releases an unused reviewed manifest version without skipping it', () => {
   } finally { f.close(); }
 });
 
+test('keeps a reviewed minor version bump above all occupied tags', () => {
+  const notes = '# 更新日志 / Changelog\n\n## 0.3.0\n\n- 新增数据导入。\n\n### English\n\n- Add data import.\n';
+  const manifests = versionFiles.map(() => '0.3.0');
+  assert.equal(releaseVersion(manifests, ['v0.2.18'], notes), '0.3.0');
+  assert.equal(releaseVersion(manifests, ['v0.3.0'], notes), '0.3.1');
+  assert.equal(releaseVersion(manifests, ['v0.3.1'], notes), '0.3.2');
+});
+
 test('allocates above every manifest and occupied remote tag without prerelease confusion', () => {
   assert.equal(nextVersion(['0.2.13', '0.2.14'], ['v0.2.16', 'v0.2.99-beta.1', 'v1.0.0-rc.1']), '0.2.17');
   assert.equal(nextVersion(['0.2.13'], ['v0.10.9', 'v0.9.100']), '0.10.10');

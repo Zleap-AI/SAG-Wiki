@@ -1,6 +1,6 @@
 [package]
 name = "sag-desktop"
-version = "0.2.18"
+version = "0.3.0"
 edition = "2021"
 [lib]
 name = "sag_desktop_lib"

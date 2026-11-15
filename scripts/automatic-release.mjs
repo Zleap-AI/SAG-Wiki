@@ -54,7 +54,7 @@ export function releaseVersion(manifests, tags, changelog) {
   const version = manifests[0];
   const occupied = tags.filter(tag => /^v/.test(tag) && stable.test(tag));
   if (version && manifests.every(value => value === version) && hasReleaseNotes(changelog, version) &&
-      occupied.length && version === nextVersion([], occupied)) {
+      occupied.length && occupied.every(tag => compareVersions(version, tag) > 0)) {
     return version;
   }
   return nextVersion(manifests, tags);
