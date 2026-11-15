@@ -71,6 +71,23 @@ export function isProductPath(path) {
 export const hasProductChanges = paths => paths.some(isProductPath);
 export const changedPaths = (git, base, source) => git.raw('diff', '--name-only', '-z', '--no-renames', base, source, '--').split('\0').filter(Boolean);
 
+// Only merged PRs covering this push may suppress its automatic release.
+// Walk main's first-parent integrations so merge, squash and rebase all work.
+export function shouldSkipRelease(git, before, source, pullRequestsForCommit) {
+  const commits = git('rev-list', '--first-parent', `${before}..${source}`).split('\n').filter(Boolean);
+  const pushed = new Set(commits);
+  const products = commits.filter(commit => hasProductChanges(changedPaths(git, `${commit}^1`, commit)));
+  const decisions = products.map(commit => {
+    const merged = pullRequestsForCommit(commit).filter(pr =>
+      pr.state === 'closed' && pr.merged_at && pr.base?.ref === 'main' &&
+      pr.base?.repo?.full_name === repository && pushed.has(pr.merge_commit_sha) &&
+      (() => { try { git('merge-base', '--is-ancestor', commit, pr.merge_commit_sha); return true; } catch { return false; } })());
+    assert.equal(merged.length, 1, `Cannot uniquely verify the merged PR for ${commit}; retry after GitHub indexes the merge. No tag was prepared.`);
+    return merged[0].labels?.some(label => label.name === 'release:skip') === true;
+  });
+  return decisions.length > 0 && decisions.every(Boolean);
+}
+
 export function updateVersionFiles(files, version) {
   assert.ok(stable.test(version) && !version.startsWith('v'), 'Expected stable version');
   const updated = {};
@@ -212,13 +229,16 @@ function classifyPush() {
   assert.match(event.before ?? '', sha);
   assert.notEqual(event.before, '0'.repeat(40), 'An existing main history is required');
   git('merge-base', '--is-ancestor', event.before, source);
-  return {source, eligible: hasProductChanges(changedPaths(git, event.before, source))};
+  const product = hasProductChanges(changedPaths(git, event.before, source));
+  const skipped = product && shouldSkipRelease(git, event.before, source, commit => pages(`commits/${commit}/pulls`));
+  return {source, eligible: product && !skipped, skipped};
 }
 
 function classify() {
-  const {eligible} = classifyPush();
+  const {eligible, skipped} = classifyPush();
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `eligible=${eligible}\n`);
-  summary(eligible ? 'Product changes: prepare a checked release.' : 'Documentation/CI-only push: no desktop release.');
+  summary(skipped ? 'release:skip: no version tag or desktop release for this push.' :
+    eligible ? 'Product changes: prepare a checked release.' : 'Documentation/CI-only push: no desktop release.');
 }
 
 export function hasNewerPreparedSource(git, source, sources) {
@@ -229,8 +249,8 @@ export function hasNewerPreparedSource(git, source, sources) {
 }
 
 function prepare() {
-  const {source, eligible} = classifyPush();
-  if (!eligible) { summary('Documentation/CI-only push: no desktop release.'); return; }
+  const {source, eligible, skipped} = classifyPush();
+  if (!eligible) { summary(skipped ? 'release:skip: no version tag or desktop release for this push.' : 'Documentation/CI-only push: no desktop release.'); return; }
   const releases = pages('releases');
   const tags = git('tag', '--list', 'v*').split('\n').filter(Boolean);
   const existing = tags.filter(tag => {

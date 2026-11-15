@@ -115,3 +115,7 @@ PR E2E and Desktop use the same outer test concurrency budget of two. The standa
 The manual Rust profile workflow accepts `comparison=cgu-only` and `platform=macos` for a focused debug=1, CGU16/64 comparison. Use three same-runner paired rounds and compare complete compilation plus test execution before adopting a setting.
 
 Desktop native tests retain the existing debug=1, nonincremental CGU16 baseline: the measured candidates have not established a material, stable net saving in compilation plus test execution. Production release optimization settings remain unchanged.
+
+For internal/build-only changes that need no separate release, add `release:skip` to the PR before merging. Required checks still run. Automatic preparation skips tags/publication only when every product commit in the main push belongs to a labeled merged PR; mixed feature pushes release normally, and lookup errors stop preparation. Merge/squash/rebase are supported. Later feature releases include accumulated changes. The label does not cancel prepared releases or affect explicit tag/manual releases.
+
+If GitHub has not yet indexed the merged PR, or a product push has no uniquely verifiable merged PR (for example a direct push), preparation stops without creating a tag. Retry after indexing; explicit manual releases remain available.

@@ -61,3 +61,9 @@ gh attestation verify /path/to/downloaded-installer --repo Zleap-AI/SAG-Wiki
 Provenance, SHA256, and update signatures serve different purposes; none replaces installation/data-preservation checks. Hosted-runner checks do not establish acceptance on every customer device. Measure actual release latency from runs after activation.
 
 Dependency archives use the runner's existing zstd with multithreaded compression and streaming tar I/O. Restore validates the complete staged content and decompressor result before atomically replacing dependency files. Cache failure remains a normal-compilation fallback.
+
+### Skip a release for an individual PR
+
+Add the `release:skip` PR label **before merging** when an internal or build change does not need a separate release. All required PR checks still run. The preparation workflow verifies every product commit in that main push against its merged PR; all must be labeled to skip version/tag creation and publication. Merge, squash and rebase merges are supported. A mixed push with an unlabeled feature PR still releases; a PR lookup error stops preparation without creating a tag. Later feature PRs release normally and include the accumulated changes. This label does not cancel releases already prepared or affect explicit tag/manual releases.
+
+If GitHub has not yet indexed the merged PR, or a product push has no uniquely verifiable merged PR (for example a direct push), preparation stops without creating a tag. Retry after indexing; explicit manual releases remain available.
