@@ -468,6 +468,7 @@ async fn shutdown_server(
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn client_shutdown_waits_for_service_release() {
+        for _ in 0..500 {
         let data = tempfile::tempdir().unwrap();
         let (server, requested, release) = shutdown_server(data.path(), false).await;
         let path = data.path().to_path_buf();
@@ -481,6 +482,7 @@ async fn shutdown_server(
         release.notify_one();
         tokio::time::timeout(Duration::from_secs(3), quitting).await.unwrap().unwrap().unwrap();
         server.await.unwrap();
+        }
     }
 
 
