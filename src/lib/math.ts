@@ -48,6 +48,9 @@ function mathToken(type:string,raw:string,tex:string):MarkdownToken{
 // A body without math syntax stays prose too: the converted books carry page
 // footers like `$.04$`, which must not turn into formulas.
 function inlineMathBody(tex:string):boolean{
+ // A fragment that starts or ends with a script marker has no base; PDF text
+ // extraction produces these when it splits one formula (e.g. `V$_{0}$`).
+ if(/^[_^]|[_^]$/.test(tex))return false;
  return !/^[0-9\s.,:\u2013\u2014-]+$/.test(tex);
 }
 

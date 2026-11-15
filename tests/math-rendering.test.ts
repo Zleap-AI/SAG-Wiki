@@ -112,6 +112,22 @@ describe('answers', () => {
  });
 });
 
+describe('converted document runs', () => {
+ it('keeps sub/sup runs instead of dropping or code-fencing them', () => {
+  const inline=render('*e <sup>jωt</sup>dt* and V<sub>in</sub>');
+  expect(inline.querySelector('sup')?.textContent).toBe('jωt');
+  expect(inline.querySelector('sub')?.textContent).toBe('in');
+  const block=render('<sup>j</sup> <u>C<sub>I</sub></u> (25.27)');
+  expect(block.querySelector('pre')).toBeNull();
+  expect(block.querySelector('sup')?.textContent).toBe('j');
+  expect(block.querySelector('sub')?.textContent).toBe('I');
+ });
+
+ it('keeps an orphan script fragment literal', () => {
+  expect(render('V$_{0}$ ¼ A sin ω t').querySelector('.math-inline')).toBeNull();
+ });
+});
+
 describe('streaming chunks', () => {
  it('never splits a display formula across render pieces', () => {
   for (const [open,close] of [['$$','$$'],[`${B}[`,`${B}]`]]) {

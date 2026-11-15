@@ -235,6 +235,20 @@ fn empty_segment_blocks_report_their_page() {
 }
 
 #[test]
+fn split_equations_unwrap_hosted_delimiters_and_accept_latex_field() {
+    let rows = json!([
+        {"type":"equation","text":"$$E=mc^2$$","text_format":"latex","page_idx":0},
+        {"type":"interline_equation","latex":"\\sum_{i=1}^{n} i","page_idx":0},
+        {"type":"equation","text":"x^2","page_idx":0}
+    ]);
+    let output = archive_content(archive("full", Some(rows)), 1, 1, true).unwrap();
+    assert!(output.contains("$$\nE=mc^2\n$$"), "{output}");
+    assert!(output.contains("$$\n\\sum_{i=1}^{n} i\n$$"), "{output}");
+    assert!(output.contains("$$\nx^2\n$$"), "{output}");
+    assert!(!output.contains("$$$$"), "{output}");
+}
+
+#[test]
 fn unknown_segment_types_report_type_and_page() {
     let error = archive_content(
         archive("full", Some(json!([{"type":"signature_block","page_idx":0}]))),

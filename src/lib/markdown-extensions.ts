@@ -1,7 +1,13 @@
 import {Table,TableCell,TableHeader,TableRow} from '@tiptap/extension-table';
 import {TaskItem,TaskList} from '@tiptap/extension-list';
 import type {AnyExtension,MarkdownTokenizer} from '@tiptap/core';
-import {Extension} from '@tiptap/core';
+import {Extension,Mark} from '@tiptap/core';
+
+// Converted PDFs keep superscripts and subscripts as inline HTML. Register them
+// as marks so the reading view keeps the runs instead of dropping the tags.
+// The editor path protects the same tags as raw HTML, so only readers use these.
+export const Subscript=Mark.create({name:'subscript',parseHTML:()=>[{tag:'sub'}],renderHTML:()=>['sub',0]});
+export const Superscript=Mark.create({name:'superscript',parseHTML:()=>[{tag:'sup'}],renderHTML:()=>['sup',0]});
 
 // Reading keeps the alignment used by README HTML without accepting arbitrary styles.
 export const ReadHtmlAlignment=Extension.create({

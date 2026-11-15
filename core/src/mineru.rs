@@ -553,6 +553,21 @@ fn archive_content_with_limit(
     archive_content_with_assets(archive, start, end, require_pages, output_limit, None)
 }
 
+/// Strips the delimiters a hosted MinerU equation may already carry.
+fn equation_body(text: &str) -> String {
+    let mut source = text.trim();
+    for (open, close) in [("$$", "$$"), ("\\[", "\\]"), ("\\(", "\\)"), ("$", "$")] {
+        if source.len() > open.len() + close.len()
+            && source.starts_with(open)
+            && source.ends_with(close)
+        {
+            source = source[open.len()..source.len() - close.len()].trim();
+            break;
+        }
+    }
+    source.to_owned()
+}
+
 // Immutable result packages survive the staged Markdown renames performed by
 // conversion and Store. Failed/replaced conversions cannot break older readers.
 fn archive_content_with_assets(
@@ -761,9 +776,14 @@ fn archive_content_with_assets(
                         body.push('\n');
                     }
                 }
-                "equation" => {
-                    let text = strings("text")?;
-                    ensure!(!text.trim().is_empty(), "MinerU 分段第 {original} 页公式缺少正文，尝试下一解析器");
+                "equation" | "interline_equation" => {
+                    // Hosted MinerU returns the formula in `text` (older payloads
+                    // carry `latex`) and usually wraps it in `$$…$$` already.
+                    // Strip one wrapper so the merged Markdown holds exactly one
+                    // block pair; nesting `$$` makes KaTeX fail on the whole line.
+                    let text = first(&["latex", "text"]);
+                    let text = equation_body(&text);
+                    ensure!(!text.is_empty(), "MinerU 分段第 {original} 页公式缺少正文，尝试下一解析器");
                     body.push_str("$$\n");
                     body.push_str(&text);
                     body.push_str("\n$$");
