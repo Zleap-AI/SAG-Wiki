@@ -72,3 +72,23 @@ unit timings, warm-up and execution times, and named-test/ignored inventories;
 all core tests execute. Assertions and overflow checks remain enabled, and
 production release profiles are independent. Compare matched medians rather
 than treating a single hosted-runner measurement as a release-speed guarantee.
+
+PR E2E uses the same `RUST_TEST_THREADS=2` outer fixture budget as Desktop.
+Individual concurrency scenarios retain all client processes, including the
+20-process standalone test. This controls CI resource contention without
+changing the production service startup deadline. Failed CLI assertions include
+child exit status, stdout and stderr for diagnosis.
+
+For a focused code-generation comparison, dispatch that workflow with
+`comparison=cgu-only` and `platform=macos`: debug stays at 1 and only CGU16/64
+changes. The default `debug-and-cgu` comparison covers both debug metadata and
+codegen candidates. Use three paired rounds before adopting a setting; a lower
+single-run time is insufficient evidence. Benchmark artifacts never substitute
+for native release checks.
+
+The measured candidates have not established a material, stable net reduction
+in core compilation plus execution. Desktop native tests therefore retain
+`CARGO_PROFILE_TEST_DEBUG=1` and the existing nonincremental CGU16 baseline;
+release LTO, codegen units and optimization settings remain unchanged. Evaluate
+both compile and test execution costs rather than selecting by compiler time
+alone.

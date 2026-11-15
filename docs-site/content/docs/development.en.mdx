@@ -109,3 +109,9 @@ Trusted tag jobs export dependency-only Rust caches for later versions, with rep
 Dependency archives use the runner's existing zstd with multithreaded compression and streaming tar I/O. Restore validates the complete staged content and decompressor result before atomically replacing dependency files. Cache failure remains a normal-compilation fallback.
 
 CLI and desktop production compilation run on independent workers for each platform and join verified inputs before packaging. Compile-only resource staging preserves the original embedded configuration; actual installers include the verified CLI and QPDF resources and retain all package/CLI checks. macOS does not wait for Windows. Producer attempts and cache roles remain isolated. Test-profile changes are measured with the manual paired A/B workflow while retaining named tests, ignored status, assertions and overflow checks; they do not change production release optimization.
+
+PR E2E and Desktop use the same outer test concurrency budget of two. The standalone concurrency scenario still launches 20 client processes; the production service startup deadline is unchanged.
+
+The manual Rust profile workflow accepts `comparison=cgu-only` and `platform=macos` for a focused debug=1, CGU16/64 comparison. Use three same-runner paired rounds and compare complete compilation plus test execution before adopting a setting.
+
+Desktop native tests retain the existing debug=1, nonincremental CGU16 baseline: the measured candidates have not established a material, stable net saving in compilation plus test execution. Production release optimization settings remain unchanged.
