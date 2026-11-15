@@ -79,20 +79,23 @@ async fn quitting_without_a_service_does_not_start_one() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn quitting_waits_for_service_release_and_blocks_automatic_restart() {
-    let dir = tempfile::tempdir().unwrap();
-    let app = mock_builder().build(mock_context(noop_assets())).unwrap();
-    let state = quitting_state(&app, dir.path());
-    let (server, requested, release) = shutdown_server(dir.path(), false).await;
-    let copy = state.clone();
-    let quitting = tokio::spawn(async move { stop_background(&copy).await });
-    tokio::time::timeout(Duration::from_secs(3), requested.notified()).await.unwrap();
-    assert!(!quitting.is_finished(), "quit completed before the service released its instance");
-    assert!(rpc(&state, Operation::Info).await.unwrap_err().contains("正在退出"));
-    release.notify_one();
-    tokio::time::timeout(Duration::from_secs(3), quitting).await.unwrap().unwrap().unwrap();
-    server.await.unwrap();
-    assert!(!dir.path().join("sag-service.json").exists());
-    assert!(rpc(&state, Operation::Info).await.unwrap_err().contains("正在退出"));
+    // Repeated shutdowns catch Windows endpoint deletion racing the status check.
+    for _ in 0..32 {
+        let dir = tempfile::tempdir().unwrap();
+        let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+        let state = quitting_state(&app, dir.path());
+        let (server, requested, release) = shutdown_server(dir.path(), false).await;
+        let copy = state.clone();
+        let quitting = tokio::spawn(async move { stop_background(&copy).await });
+        tokio::time::timeout(Duration::from_secs(3), requested.notified()).await.unwrap();
+        assert!(!quitting.is_finished(), "quit completed before the service released its instance");
+        assert!(rpc(&state, Operation::Info).await.unwrap_err().contains("正在退出"));
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(3), quitting).await.unwrap().unwrap().unwrap();
+        server.await.unwrap();
+        assert!(!dir.path().join("sag-service.json").exists());
+        assert!(rpc(&state, Operation::Info).await.unwrap_err().contains("正在退出"));
+    }
 }
 
 #[tokio::test]
