@@ -19,7 +19,7 @@ export function cliBuildPlan({debug = false, env = process.env, platform = proce
   return {
     debug, target, windows, name, destination,
     source: join(resolveCliTargetDir(cwd, env), ...(target ? [target] : []), debug ? 'debug' : 'release', name),
-    args: ['build', '--locked', ...(debug ? [] : ['--release']), '--manifest-path', 'cli/Cargo.toml', ...(target ? ['--target', target] : [])],
+    args: ['build', '--locked', ...(debug ? [] : ['--release']), '--manifest-path', 'cli/Cargo.toml', ...(target ? ['--target', target] : []), ...(env.SAG_CARGO_TIMINGS==='1'?['--timings']:[])],
   };
 }
 

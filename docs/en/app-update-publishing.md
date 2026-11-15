@@ -33,10 +33,12 @@ Keep restricted key files outside the repository and maintain an independent enc
 2. Serialized preparation retains a manually selected version (such as `0.3.0`) when it has reviewed release notes and exceeds every occupied tag; otherwise it allocates the next patch version, updates desktop/CLI manifests, locks, and Tauri configuration consistently, and generates deterministic release notes. It creates a release child commit of the captured main commit without writing back to protected main.
 3. Create the version tag and explicitly dispatch the desktop workflow. A tag pushed using `GITHUB_TOKEN` cannot be relied upon to start another push workflow. Retries resume the existing tag for the source commit instead of moving or replacing it.
 4. Source validation accepts normal version commits on main or strictly validated generated release children. Generated children must match their main parent and deterministic metadata changes; a tag name or commit message alone cannot authorize arbitrary branch code.
-5. macOS/Windows native Rust tests and production builds run in parallel. Frontend, documentation, real installer, and bundled CLI/Jev checks remain required. macOS signing and notarization start once its own checks pass, independently of Windows.
+5. macOS/Windows native Rust tests and production builds run in parallel. Frontend, documentation, real installer, and bundled CLI/Jev checks remain required. macOS signing and notarization start after its verified installer build, while Rust tests and Windows work continue.
 6. After all required checks and provenance/digest validation, assemble and sign updates, attest the artifacts, and publish automatically. Final publication serializes version ordering so an older run finishing late cannot take the Latest mark.
 
 The version in main may lag behind the latest generated release because release metadata is committed in a child rather than written back to main. Downloads and updates follow published releases. Routine changes no longer require manually editing every version file; both platforms and update manifests must still agree.
+
+For each platform, compile the CLI and desktop on independent workers, then join verified inputs before producing the real installer. Desktop compilation temporarily suppresses resource copying while retaining the original embedded configuration. Final packaging includes the actual CLI/QPDF resources and retains installer and CLI/Jev checks. macOS waits only for its own CLI producer. A packaged-build checkpoint binds its CLI producer and latest attempt, so a failed or superseded CLI retry cannot authorize stale output. CLI and desktop dependency archives are separated by role.
 
 ## Failure recovery and artifact reuse
 
@@ -45,6 +47,8 @@ Prefer **Re-run failed jobs** in Actions. If preparation created a tag but dispa
 Reuse is scoped to the same source commit and individual platform/check stages. Verify the original producer and its latest attempt; a failed platform does not invalidate the other platform's valid output. Wait for earlier running producers with a bounded timeout and execute missing/invalid stages locally. A compilation-cache hit never substitutes for a passed test or installer check.
 
 Verify macOS input archives before signing. After signing, still wait for Windows and all shared checks. Final validation binds the signed output to its original input rather than switching producers. Drafts are only an internal upload/validation stage: incomplete checks, corrupt artifacts, signing failures, or failed notarization cannot publish an incomplete release. Fix a published version with a higher version, not replacement bytes.
+
+Rust dependency caches are separate from verified release checkpoints: they never skip tests or installer checks. Ordinary Actions caches cannot cross tag boundaries, so successful trusted tag jobs export dependency-only artifacts, retained for 14 days. Later runs may restore a compatible archive after checking the original repository/workflow, live tag and validated source, latest successful native job attempt, artifact lifetime, metadata and SHA256. Compatibility includes the platform, architecture, target, exact Rust compiler, profile, Cargo manifests, lockfiles and configuration; only local SAG package version changes are ignored. Application/test executables and local SAG libraries are excluded. Invalid or unavailable caches trigger normal compilation. A compatible hit avoids another export. Branch CI measures archive round trips under a separate validation namespace that cannot supply trusted caches; it does not sign or publish. Cache transfer adds optional, bounded I/O, so report it separately from compilation and distinguish branch measurements from actual signed-release latency.
 
 ## Download verification and recovery
 
@@ -55,3 +59,11 @@ gh attestation verify /path/to/downloaded-installer --repo Zleap-AI/SAG-Wiki
 ```
 
 Provenance, SHA256, and update signatures serve different purposes; none replaces installation/data-preservation checks. Hosted-runner checks do not establish acceptance on every customer device. Measure actual release latency from runs after activation.
+
+Dependency archives use the runner's existing zstd with multithreaded compression and streaming tar I/O. Restore validates the complete staged content and decompressor result before atomically replacing dependency files. Cache failure remains a normal-compilation fallback.
+
+### Skip a release for an individual PR
+
+Add the `release:skip` PR label **before merging** when an internal or build change does not need a separate release. All required PR checks still run. The preparation workflow verifies every product commit in that main push against its merged PR; all must be labeled to skip version/tag creation and publication. Merge, squash and rebase merges are supported. A mixed push with an unlabeled feature PR still releases; a PR lookup error stops preparation without creating a tag. Later feature PRs release normally and include the accumulated changes. This label does not cancel releases already prepared or affect explicit tag/manual releases.
+
+If GitHub has not yet indexed the merged PR, or a product push has no uniquely verifiable merged PR (for example a direct push), preparation stops without creating a tag. Retry after indexing; explicit manual releases remain available.
