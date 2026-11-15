@@ -394,7 +394,7 @@ pub fn process_alive(pid: u32) -> bool {
 pub async fn wait_stopped(data: &Path) -> Result<()> {
     // Stopping waits for in-progress indexing or conversion to finish.
     for _ in 0..1200 {
-        if !data.join("sag-service.json").try_exists()? {
+        if !data.join("sag-service.json").try_exists().context("[DEBUG-sag031] endpoint existence")? {
             // The endpoint is removed before the server's final fields are dropped.
             // Restart must also wait for the instance lock, otherwise the new
             // daemon can exit immediately while the old one is still tearing down.
@@ -405,10 +405,10 @@ pub async fn wait_stopped(data: &Path) -> Result<()> {
                 Ok(instance) => match instance.try_lock() {
                     Ok(()) => return Ok(()),
                     Err(std::fs::TryLockError::WouldBlock) => {}
-                    Err(std::fs::TryLockError::Error(error)) => return Err(error.into()),
+                    Err(std::fs::TryLockError::Error(error)) => return Err(error).context("[DEBUG-sag031] acquire instance lock"),
                 },
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-                Err(error) => return Err(error.into()),
+                Err(error) => return Err(error).context("[DEBUG-sag031] open instance lock"),
             }
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -422,6 +422,23 @@ mod version_tests;
 #[cfg(test)]
 mod shutdown_tests {
     use super::*;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn endpoint_removal_then_instance_release() {
+        let data = tempfile::tempdir().unwrap();
+        let instance = std::fs::OpenOptions::new().create(true).truncate(false)
+            .read(true).write(true).open(data.path().join("cli-instance.lock")).unwrap();
+        instance.lock().unwrap();
+        let endpoint = data.path().join("sag-service.json");
+        std::fs::write(&endpoint, b"{}").unwrap();
+        let path = data.path().to_path_buf();
+        let waiting = tokio::spawn(async move { wait_stopped(&path).await });
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        assert!(!waiting.is_finished());
+        std::fs::remove_file(endpoint).unwrap();
+        drop(instance);
+        tokio::time::timeout(Duration::from_secs(3), waiting).await.unwrap().unwrap().unwrap();
+    }
 
     #[tokio::test]
     async fn removed_endpoint_does_not_mean_instance_lock_has_been_released() {
