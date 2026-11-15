@@ -5,6 +5,15 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.3.0
+
+- **Chat history imports**: Convert local Claude Code and Codex chats to Markdown. Save by default under `Documents/sag-wiki/agent-history`, in separate `claude code` and `codex` subfolders, or choose another location.
+- **Chat previews and cleanup**: Search, filter by project, browse pages and keep selections across pages, with faster Codex listing. Exclude system prompts, environment context, internal notifications and injected Skill content. Enable “Show tool calls and results” to include them in both previews and imports. Repeated imports skip unchanged content and preserve manually edited files.
+- **Note imports**: Import Notion HTML exports, Evernote ENEX, Google Keep Takeout and macOS Apple Notes as Markdown, retaining supported formatting, internal links and attachments, then add them to the knowledge base.
+- **Data import entry points**: Access chat and note imports from Data import in Settings or the add-folder dialog. “File types to index” distinguishes indexing preferences from data imports.
+
+See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.3.0) for installers.
+
 ## 0.2.18
 
 - **Conversion storage**: Choose the app data directory, library folders, or a custom directory. Move existing results without repeating OCR and open the original file from the reader.
