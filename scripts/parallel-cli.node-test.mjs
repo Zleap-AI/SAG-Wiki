@@ -61,3 +61,13 @@ test('QPDF runtime check matches the pinned complete version rather than a prefi
  assert.throws(()=>verifyQpdfVersion('qpdf version 12.4.20'));
  assert.throws(()=>verifyQpdfVersion('qpdf version 12.4.2-custom'));
 });
+
+test('PR release-tooling routing covers every parallel build input',()=>{
+ const workflow=readFileSync(new URL('../.github/workflows/pr-e2e.yml',import.meta.url),'utf8');
+ const start=workflow.indexOf('const relevant = paths.some');
+ const end=workflow.indexOf('\n          appendFileSync',start);
+ assert.ok(start>=0&&end>start,'Release-tooling selector unavailable');
+ const relevant=new Function('paths',`${workflow.slice(start,end)}; return relevant;`);
+ for(const path of ['src-tauri/build-resource-config.rs','src-tauri/build.rs','protocol/build.rs','scripts/prepare-qpdf.mjs'])assert.equal(relevant([path]),true,path);
+ assert.equal(relevant(['docs/en/development.md']),false);
+});

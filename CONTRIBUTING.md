@@ -42,7 +42,9 @@ platform waits only for its own CLI producer. Standalone local builds retain
 their existing commands and output locations. Rust dependency caches are partitioned by OS, architecture, target,
 toolchain, profile, manifests, lockfiles and Cargo configuration, rather than
 commit SHA or workflow text. Trusted main dispatches save ordinary Actions
-caches; PR E2E restores the identical debug cache without writing it. Because
+caches. PR E2E only restores its separate `debug` compatibility namespace and
+never writes it; Desktop uses `debug1`. They do not share fresh snapshots, and
+PRs can fall back to a legacy snapshot or normal compilation. Because
 Actions caches are tag-scoped, successful tag jobs also export dependency-only
 artifacts for subsequent tags. Consumers verify the repository, workflow, live
 tag and main ancestry (including deterministic release children), latest passed

@@ -33,7 +33,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: '1.98.1'
-      # Restore the same trusted-main debug dependency cache; PRs never save it.
+      # Match the PR debug-profile namespace, separate from Desktop debug1; never save.
       - name: Restore trusted Rust E2E dependencies
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
