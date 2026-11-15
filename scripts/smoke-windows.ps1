@@ -61,6 +61,7 @@ foreach ($name in $environmentNames) {
     $previousEnvironment[$name] = [Environment]::GetEnvironmentVariable($name, 'Process')
 }
 $desktopProcess = $null
+$secondDesktopProcess = $null
 $installerProcess = $null
 
 try {
@@ -130,6 +131,52 @@ try {
         if ($LASTEXITCODE -ne 0 -or $service.version -ne $Version -or $service.data_directory -ne $dataDirectory) {
             throw 'Installed desktop did not connect to the expected isolated service.'
         }
+
+        Add-Type @'
+using System;
+using System.Runtime.InteropServices;
+public static class SagSmokeWindow {
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool IsWindowVisible(IntPtr hwnd);
+}
+'@
+        $windowDeadline = [DateTime]::UtcNow.AddSeconds(30)
+        do {
+            $desktopProcess.Refresh()
+            $mainWindow = $desktopProcess.MainWindowHandle
+            if ($mainWindow -ne [IntPtr]::Zero -and [SagSmokeWindow]::IsWindowVisible($mainWindow)) { break }
+            if ($desktopProcess.HasExited -or [DateTime]::UtcNow -gt $windowDeadline) {
+                throw 'Installed desktop did not show its main window.'
+            }
+            Start-Sleep -Milliseconds 100
+        } while ($true)
+
+        # Closing hides the primary window. Reopening the executable must restore
+        # that exact window and terminate the second process without replacing the service.
+        if (-not $desktopProcess.CloseMainWindow()) { throw 'Could not close the desktop main window.' }
+        $windowDeadline = [DateTime]::UtcNow.AddSeconds(10)
+        while ([SagSmokeWindow]::IsWindowVisible($mainWindow)) {
+            if ([DateTime]::UtcNow -gt $windowDeadline) { throw 'Closing the window did not hide it.' }
+            Start-Sleep -Milliseconds 100
+        }
+        $desktopProcess.Refresh()
+        if ($desktopProcess.HasExited) { throw 'Closing the window terminated the original desktop process.' }
+        $secondDesktopProcess = Start-Process -FilePath $desktopPath -WorkingDirectory $installDirectory -PassThru
+        if (-not $secondDesktopProcess.WaitForExit(15000) -or $secondDesktopProcess.ExitCode -ne 0) {
+            throw 'Reopening the shortcut left a second desktop process running or failed.'
+        }
+        $windowDeadline = [DateTime]::UtcNow.AddSeconds(10)
+        while (-not [SagSmokeWindow]::IsWindowVisible($mainWindow)) {
+            if ([DateTime]::UtcNow -gt $windowDeadline) { throw 'Reopening did not restore the original main window.' }
+            Start-Sleep -Milliseconds 100
+        }
+        $desktopProcess.Refresh()
+        if ($desktopProcess.HasExited) { throw 'Reopening replaced the original desktop process.' }
+        $restoredService = & $cliPath service status | ConvertFrom-Json
+        if ($LASTEXITCODE -ne 0 -or $restoredService.pid -ne $service.pid) {
+            throw 'Reopening replaced the existing background service.'
+        }
     }
 
     $result = [ordered]@{
@@ -145,7 +192,7 @@ finally {
     # Stop only processes created here, and only the service authenticated by
     # this run's isolated data directory. No executable-name-wide termination.
     try {
-        foreach ($process in @($desktopProcess, $installerProcess)) {
+        foreach ($process in @($secondDesktopProcess, $desktopProcess, $installerProcess)) {
             if ($null -ne $process) {
                 $process.Refresh()
                 if (-not $process.HasExited) {

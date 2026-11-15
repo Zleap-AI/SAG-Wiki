@@ -522,7 +522,15 @@ fn reveal(path: &Path) -> anyhow::Result<()> {
 }
 
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    // Detect a second Windows launch before initializing shortcuts, the tray or service.
+    #[cfg(windows)]
+    let builder = builder.plugin(tauri_plugin_single_instance::init(|app, _, _| {
+        if let Err(error) = show_main_window(app) {
+            emit(app, "app-error", error.to_string());
+        }
+    }));
+    let app = builder
         .plugin(tauri::plugin::Builder::<tauri::Wry>::new("external-links")
             .on_navigation(|webview, url| {
                 let app = webview.app_handle();
