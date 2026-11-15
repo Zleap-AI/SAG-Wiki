@@ -47,7 +47,8 @@ function fixture(documentationPath = 'docs/zh-CN/中文 更新 说明.md') {
 test('classifies docs/CI-only pushes independently of cumulative unreleased product changes', () => {
   for (const path of ['docs/zh-CN/release.md', 'docs-site/package-lock.json', '.github/workflows/automatic-release.yml',
     'CHANGELOG.md', 'AGENTS.md', 'scripts/automatic-release.mjs', 'scripts/automatic-release.node-test.mjs', 'scripts/release.mjs',
-    'scripts/release-build-cache.node-test.mjs', 'scripts/configure-release.mjs', 'scripts/migrate-release-environment.mjs']) assert.equal(isProductPath(path), false, path);
+    'scripts/release-build-cache.node-test.mjs', 'scripts/rust-dependency-cache.mjs',
+    'scripts/rust-dependency-cache.node-test.mjs', 'scripts/rust-dependency-archive.py', 'scripts/configure-release.mjs', 'scripts/migrate-release-environment.mjs']) assert.equal(isProductPath(path), false, path);
   for (const path of ['src/App.svelte', 'core/src/lib.rs', 'package-lock.json', 'src-tauri/tauri.conf.json',
     'scripts/build-cli.mjs', 'scripts/sign-macos-release.mjs', 'scripts/package-updates.mjs', 'unknown/new-file']) assert.equal(isProductPath(path), true, path);
   const f = fixture();
