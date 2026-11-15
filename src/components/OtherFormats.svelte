@@ -95,14 +95,14 @@
 
 <div class="setting-row other-formats">
  <div class="description">
-  <strong>{$t('其他格式')}</strong>
+  <strong>{$t('更多文件格式')}</strong>
   <p>{$t('扫描 PDF、图片、音视频等可按需安装 Docling，普通文档无需下载。')}</p>
   {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
  </div>
- <div class="other-formats-actions"><Button.Root type="button" class="outline other-formats-action" aria-label={$t('选择其他格式')} disabled={loading||disabled} onclick={()=>showDetails()}>{$t('选择')}</Button.Root></div>
+ <div class="other-formats-actions"><Button.Root type="button" class="outline other-formats-action" aria-label={$t('选择更多文件格式')} disabled={loading||disabled} onclick={()=>showDetails()}>{$t('选择')}</Button.Root></div>
 </div>
 
-{#if details}{@const title=$t(configuringDocling?'配置 Docling':status.installed?'选择其他格式':'全部支持格式')}<Modal label={title} onClose={()=>{if(!uninstalling&&!applying)closeDetails()}} class="docling-dialog docling-formats-dialog">
+{#if details}{@const title=$t(configuringDocling?'配置 Docling':status.installed?'选择更多文件格式':'全部支持格式')}<Modal label={title} onClose={()=>{if(!uninstalling&&!applying)closeDetails()}} class="docling-dialog docling-formats-dialog">
  <div class="dialog-head"><h2>{title}</h2><Button.Root type="button" class="icon-button" disabled={uninstalling||applying} aria-label={$t('关闭格式选择')} onclick={closeDetails}>{@html icon('close')}</Button.Root></div>
  <div class="dialog-body formats-list">
   <div class="docling-component">

@@ -9,9 +9,14 @@
  import {t} from '../lib/i18n';
  import type {FolderIndexOptions} from '../lib/types';
  import FolderIndexTypes from './FolderIndexTypes.svelte';
+ import DataImport from './DataImport.svelte';
  export let roots:string[];
  export let showHidden=false;
  export let onClose:()=>void;
+ export let onImported:(()=>Promise<void>)|undefined=undefined;
+ export let onDestinationChange:((folder:string)=>void)|undefined=undefined;
+ let tab='folders';
+ function tabKey(event:KeyboardEvent){if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();tab=event.key==='Home'?'folders':event.key==='End'?'imports':tab==='folders'?'imports':'folders';document.getElementById(`add-data-tab-${tab}`)?.focus();}}
  export let defaults:FolderIndexOptions={file_types:{markdown:true,text:true,code:false,config:false},convert_other_formats:false};
  export let onAdd:(paths:string[],options?:FolderIndexOptions)=>Promise<{path:string;error:string}[]>;
  type Listing={path:string;parent:string|null;home:string;folders:{path:string;name:string}[]};
@@ -43,8 +48,17 @@
  }
  onMount(()=>{void browse()});
 </script>
-<Modal label={$t('添加文件夹')} class="folder-picker" onClose={()=>{if(!adding)onClose()}}>
- <div class="folder-picker-heading"><div><h2>{$t('添加文件夹')}</h2><p>{$t('可跨目录多选，添加后开始索引。')}</p></div><Button.Root class="icon-button" aria-label={$t('关闭')} disabled={adding} onclick={onClose}>{@html icon('close')}</Button.Root></div>
+<Modal label={$t(tab==='folders'?'添加文件夹':'导入数据')} class="folder-picker" onClose={()=>{if(!adding)onClose()}}>
+ <div class="folder-picker-heading">
+  <div class="folder-picker-tabs" role="tablist" aria-label={$t('添加到知识库')}>
+   {#each [['folders','添加文件夹'],['imports','导入数据']] as [id,label]}
+    <Button.Root role="tab" id={`add-data-tab-${id}`} aria-controls={`add-data-panel-${id}`} aria-selected={tab===id} tabindex={tab===id?0:-1} disabled={adding} onclick={()=>tab=id} onkeydown={tabKey}>{$t(label)}</Button.Root>
+   {/each}
+  </div>
+  <Button.Root class="icon-button" aria-label={$t('关闭')} disabled={adding} onclick={onClose}>{@html icon('close')}</Button.Root>
+ </div>
+ <div id="add-data-panel-folders" class="folder-picker-panel" role="tabpanel" aria-labelledby="add-data-tab-folders" hidden={tab!=='folders'}>
+ <p class="folder-picker-description">{$t('可跨目录多选，添加后开始索引。')}</p>
  <form class="folder-picker-navigation" on:submit|preventDefault={()=>browse(pathInput)}>
   <Button.Root type="button" class="folder-navigation-button folder-home" disabled={!listing||adding} onclick={()=>browse(listing!.home)}>{$t('用户目录')}</Button.Root>
   <div class="folder-path-field"><Input aria-label={$t('文件夹路径')} bind:value={pathInput} disabled={adding} placeholder={$t('输入文件夹路径')}/>
@@ -63,13 +77,25 @@
  {#if optionsOpen}<div id="folder-index-options" class="folder-picker-index-options" bind:this={indexOptions}><p>{$t('应用于本次添加的文件夹。已有手写忽略规则会保留。')}</p><FolderIndexTypes bind:value={options} disabled={adding}/></div>{/if}
  </div>
  <div class="folder-picker-footer"><Button.Root class="folder-index-toggle" aria-expanded={optionsOpen} aria-controls="folder-index-options" disabled={adding} onclick={toggleOptions}>{@html icon('settings')}{$t('索引选项')}{@html icon(optionsOpen?'down':'chevron')}</Button.Root><Button.Root class="outline" disabled={adding} onclick={onClose}>{$t('取消')}</Button.Root><Button.Root class="primary" disabled={adding||loading||!chosen.length} onclick={add}>{adding?$t('正在添加…'):chosen.length?$t('添加 {value0} 个文件夹',{value0:chosen.length}):$t('添加到知识库')}</Button.Root></div>
+ </div>
+ <div id="add-data-panel-imports" class="folder-picker-imports" role="tabpanel" aria-labelledby="add-data-tab-imports" hidden={tab!=='imports'}>
+  <DataImport {onImported} {onDestinationChange}/>
+ </div>
 </Modal>
 <style>
  :global(.dialog-panel.folder-picker){width:720px;max-width:calc(100vw - 48px);height:720px;max-height:calc(100dvh - 64px);display:flex;flex-direction:column;overflow:hidden}
- :global(.dialog-panel.folder-picker)>*{flex-shrink:0}
- :global(.dialog-panel.folder-picker)>.folder-picker-content{position:relative;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
+ .folder-picker-heading,.folder-picker-navigation,.folder-picker-description,.folder-picker-options,.folder-picker-footer{flex-shrink:0}
+ .folder-picker-panel>.folder-picker-content{position:relative;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
  .folder-picker-heading{display:flex;justify-content:space-between;align-items:flex-start;padding:22px 24px 20px}
- h2{font-size:18px;font-weight:600}p{font-size:var(--text-caption);color:var(--color-secondary);margin-top:6px}
+ .folder-picker-panel{display:flex;flex-direction:column;flex:1;min-height:0}
+ .folder-picker-panel[hidden],.folder-picker-imports[hidden]{display:none}
+ .folder-picker-tabs{display:flex;gap:24px}
+ .folder-picker-tabs :global(button){padding:0 0 10px;border-radius:0;font-size:18px;line-height:26px;font-weight:500;color:var(--color-secondary);border-bottom:2px solid transparent}
+ .folder-picker-tabs :global(button[aria-selected=true]){color:var(--color-ink);border-bottom-color:var(--color-ink)}
+ .folder-picker-tabs :global(button:focus-visible){outline:2px solid var(--color-focus);outline-offset:4px}
+ .folder-picker-description{padding:0 24px 20px;margin:0}
+ .folder-picker-imports{flex:1;min-height:0;overflow:auto;padding:0 24px 24px}
+ p{font-size:var(--text-caption);color:var(--color-secondary);margin-top:6px}
  .folder-picker-navigation{display:flex;gap:8px;align-items:center;padding:0 24px 16px}
  .folder-picker-navigation :global(.folder-navigation-button){display:inline-flex;align-items:center;justify-content:center;gap:5px;flex-shrink:0;height:36px;padding:0 10px;border:1px solid var(--color-rule);border-radius:8px;font-size:var(--text-caption);background:var(--color-paper)}
  .folder-path-field{display:flex;align-items:center;flex:1;min-width:0;height:36px;border:1px solid var(--color-rule);border-radius:8px;background:var(--color-panel);overflow:hidden}

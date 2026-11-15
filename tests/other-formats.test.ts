@@ -15,18 +15,18 @@ afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMoc
 it('选择额外格式后确认安装',async()=>{
  invoke.mockResolvedValue(initial);
  app=mount(OtherFormats,{target:document.body});
- await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));
- expect(find('选择其他格式').textContent).toBe('选择');
+ await vi.waitFor(()=>expect(find('选择更多文件格式').disabled).toBe(false));
+ expect(find('选择更多文件格式').textContent).toBe('选择');
  expect(document.querySelector('.other-formats [role="checkbox"]')).toBeNull();
  expect(document.querySelector('.format-select')).toBeNull();
  expect(document.querySelector('.other-formats p')?.textContent).toBe('扫描 PDF、图片、音视频等可按需安装 Docling，普通文档无需下载。');
- find('选择其他格式').click();await tick();find('转换 .eml').click();await tick();
+ find('选择更多文件格式').click();await tick();find('转换 .eml').click();await tick();
  await vi.waitFor(()=>expect(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')?.disabled).toBe(false));
  (Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')!).click();await tick();
  expect(document.body.textContent).toContain('安装文件解析支持');
  expect(invoke.mock.calls.some(([command])=>command==='install_docling')).toBe(false);
  (Array.from(document.querySelectorAll<HTMLButtonElement>('.docling-dialog:not(.docling-formats-dialog) button')).find(button=>button.textContent==='取消')!).click();await tick();
- expect(find('选择其他格式').textContent).toBe('选择');
+ expect(find('选择更多文件格式').textContent).toBe('选择');
 });
 
 it('下载展示实际字节与阶段，成功后显示选择，失败可重试',async()=>{
@@ -36,8 +36,8 @@ it('下载展示实际字节与阶段，成功后显示选择，失败可重试'
   if(command==='install_docling_from_resource'){current={...initial,running:true,stage:'runtime',downloaded:1048576,total:2097152,message:'download'};return current;}
  });
  app=mount(OtherFormats,{target:document.body});
- await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));
- find('选择其他格式').click();await tick();find('转换 .eml').click();await tick();
+ await vi.waitFor(()=>expect(find('选择更多文件格式').disabled).toBe(false));
+ find('选择更多文件格式').click();await tick();find('转换 .eml').click();await tick();
  await vi.waitFor(()=>expect(Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')?.disabled).toBe(false));
  (Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='安装并应用')!).click();await tick();
  (Array.from(document.querySelectorAll<HTMLButtonElement>('.docling-dialog:not(.docling-formats-dialog) button')).find(button=>button.textContent==='安装')!).click();
@@ -47,20 +47,20 @@ it('下载展示实际字节与阶段，成功后显示选择，失败可重试'
  expect([...document.querySelectorAll('button')].some(node=>node.textContent==='打开安装日志')).toBe(true);
  current={...initial,stage:'error',error:'network unavailable'};
  await vi.waitFor(()=>expect(document.body.textContent).toContain('network unavailable'),{timeout:1800});
- expect(find('选择其他格式').textContent).toBe('选择');
+ expect(find('选择更多文件格式').textContent).toBe('选择');
  (Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='重试安装')!).click();
  await vi.waitFor(()=>expect(document.querySelector('progress')).not.toBeNull());
  current={...initial,stage:'done',installed:true,message:'Docling 已准备就绪'};
  await vi.waitFor(()=>expect(document.body.textContent).toContain('文件解析支持已就绪'),{timeout:1800});
- expect(find('选择其他格式')).not.toBeNull();
+ expect(find('选择更多文件格式')).not.toBeNull();
 });
 
 it('英文显示完整，已安装时无需重复下载',async()=>{
  setLanguage('en');invoke.mockResolvedValue({...initial,installed:true});
  app=mount(OtherFormats,{target:document.body});
- await vi.waitFor(()=>expect(find('Select other formats').disabled).toBe(false));
- find('Select other formats').click();await tick();
- expect(find('Select other formats').textContent).toBe('Select');
+ await vi.waitFor(()=>expect(find('Select more file formats').disabled).toBe(false));
+ find('Select more file formats').click();await tick();
+ expect(find('Select more file formats').textContent).toBe('Select');
  expect(document.querySelector('.other-formats [role="checkbox"]')).toBeNull();
  expect(document.body.textContent).not.toMatch(/[\u3400-\u9fff]/);
  expect(invoke.mock.calls.some(([command])=>command==='install_docling')).toBe(false);
@@ -83,7 +83,7 @@ it('状态连接中断一次后继续刷新，取消下载后退出运行状态'
  await vi.waitFor(()=>expect(reads).toBeGreaterThan(2),{timeout:2500});
  (Array.from(document.querySelectorAll('button')).find(button=>button.textContent==='取消下载')!).click();
  await vi.waitFor(()=>expect(document.body.textContent).not.toContain('取消下载'),{timeout:1800});
- expect(find('选择其他格式').textContent).toBe('选择');
+ expect(find('选择更多文件格式').textContent).toBe('选择');
 });
 
 it('卸载失败保留格式选择，成功后直接提供安装和原在线入口',async()=>{
@@ -96,8 +96,8 @@ it('卸载失败保留格式选择，成功后直接提供安装和原在线入�
   }
  });
  app=mount(OtherFormats,{target:document.body});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
- find('选择其他格式').click();await tick();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));
+ find('选择更多文件格式').click();await tick();
  document.querySelector<HTMLAnchorElement>('.docling-component a')!.click();await tick();
  expect(invoke).toHaveBeenCalledWith('open_about_link',{target:'docling'});
  expect(find('转换 .dotx').getAttribute('aria-checked')).toBe('false');
@@ -109,7 +109,7 @@ it('卸载失败保留格式选择，成功后直接提供安装和原在线入�
  await vi.waitFor(()=>expect(document.querySelector('.docling-uninstall-dialog [role="alert"]')?.textContent).toContain('Docling 正在使用'));
  expect(find('转换 .dotx').getAttribute('aria-checked')).toBe('true');
  fail=false;find('确认卸载 Docling').click();
- await vi.waitFor(()=>expect(find('选择其他格式')?.textContent).toBe('选择'));
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.textContent).toBe('选择'));
  await vi.waitFor(()=>expect(find('安装 Docling')?.disabled).toBe(false));
  expect(document.querySelector('.uninstall-docling')).toBeNull();
  const original=[...document.querySelectorAll<HTMLButtonElement>('.formats-footer button')].find(button=>button.textContent==='通过命令行安装')!;
@@ -125,8 +125,8 @@ it('未安装时直接从资源站安装文档组件，不要求选择格式',as
   return current;
  });
  app=mount(OtherFormats,{target:document.body});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
- find('选择其他格式').click();await tick();find('安装 Docling').click();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));
+ find('选择更多文件格式').click();await tick();find('安装 Docling').click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_docling_from_resource',{profiles:['documents']}));
  await vi.waitFor(()=>expect(document.querySelector('.download-indeterminate')).not.toBeNull());
  expect(document.querySelector('[aria-label="已应用转换设置"]')?.textContent).toBe('{"enabled":false}');
@@ -141,8 +141,8 @@ it('其他格式可保留并保存已配置的转换并行数，输入错误后�
   throw Error(command);
  });
  app=mount(OtherFormats,{target:document.body,props:{globalWorkers:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
- find('选择其他格式').click();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));
+ find('选择更多文件格式').click();
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.disabled).toBe(false));
  find('转换 .eml').click();await tick();
  const input=document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')!;
@@ -155,7 +155,7 @@ it('其他格式可保留并保存已配置的转换并行数，输入错误后�
  [...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='应用')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('set_conversion_workers',{workers:2}));
  await vi.waitFor(()=>expect(document.querySelector('.docling-formats-dialog')).toBeNull());
- find('选择其他格式').click();
+ find('选择更多文件格式').click();
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('2'));
 });
 
@@ -166,8 +166,8 @@ it('旧设置缺少转换并行数时默认使用 4，并说明实际并行受�
   throw Error(command);
  });
  app=mount(OtherFormats,{target:document.body,props:{globalWorkers:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
- find('选择其他格式').click();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));
+ find('选择更多文件格式').click();
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.disabled).toBe(false));
  expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.value).toBe('4');
  expect(document.querySelector('.conversion-workers')?.textContent).toContain('资源预算');
@@ -176,7 +176,7 @@ it('旧设置缺少转换并行数时默认使用 4，并说明实际并行受�
 it('MinerU 图片选择直接应用，不安装 Docling',async()=>{
  invoke.mockResolvedValue({...initial,formats:[['图片',['png']]]});
  app=mount(OtherFormats,{target:document.body,props:{remoteParsing:true}});
- await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .png').click();await tick();
+ await vi.waitFor(()=>expect(find('选择更多文件格式').disabled).toBe(false));find('选择更多文件格式').click();await tick();find('转换 .png').click();await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(button=>button.textContent==='应用')!.click();await tick();
  expect(document.querySelector('[aria-label="已应用转换设置"]')?.textContent).toContain('"png"');
  expect(document.querySelector('.docling-dialog:not(.docling-formats-dialog)')).toBeNull();
@@ -185,7 +185,7 @@ it('MinerU 图片选择直接应用，不安装 Docling',async()=>{
 it('文件夹格式选择读取全局 MinerU 配置并跳过图片组件安装',async()=>{
  invoke.mockImplementation(async command=>command==='get_settings'?{conversion_workers:1,mineru:{enabled:true}}:{...initial,formats:[['图片',['png']]]});
  app=mount(OtherFormats,{target:document.body,props:{folderContext:true,globalWorkers:true}});
- await vi.waitFor(()=>expect(find('选择其他格式').disabled).toBe(false));find('选择其他格式').click();
+ await vi.waitFor(()=>expect(find('选择更多文件格式').disabled).toBe(false));find('选择更多文件格式').click();
  await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('[aria-label="转换并行数"]')?.disabled).toBe(false));find('转换 .png').click();await tick();
  const apply=[...document.querySelectorAll<HTMLButtonElement>('.docling-formats-dialog button')].find(button=>button.textContent==='应用');expect(apply).toBeDefined();apply!.click();await tick();
  expect(document.querySelector('[aria-label="已应用转换设置"]')?.textContent).toContain('"png"');

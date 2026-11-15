@@ -1,4 +1,5 @@
 mod cli_commands;
+mod note_import;
 mod folder_picker;
 mod updates;
 mod web_clipper;
@@ -42,6 +43,9 @@ fn emit<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: &str, payload: impl
 fn output_value(output: Output) -> CommandResult<serde_json::Value> {
     use Output::*;
     let value = match output {
+        ChatCatalog(value) => serde_json::to_value(value).map_err(error)?,
+        ChatPreview(value) => serde_json::to_value(value).map_err(error)?,
+        ChatImports(value) => serde_json::to_value(value).map_err(error)?,
         Api(value) => value,
         Unit => serde_json::Value::Null,
         Info(value) => serde_json::to_value(value).map_err(error)?,
@@ -306,6 +310,25 @@ remote!(clear_index_history() => ClearIndexHistory);
 remote!(set_index_paused(paused:bool) => SetIndexPaused);
 remote!(remove_all_roots() => RemoveAllRoots);
 remote!(save_document(path:String,body:String,expected_hash:Option<String>) => SaveDocument);
+remote!(get_chat_import_folder() => GetChatImportFolder);
+#[tauri::command]
+async fn choose_chat_import_folder(state: State<'_, Arc<AppState>>) -> CommandResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    let app = state.app.clone();
+    let current: String = serde_json::from_value(rpc(&state, Operation::GetChatImportFolder).await?).map_err(error)?;
+    let selected = tauri::async_runtime::spawn_blocking(move || {
+        let current = PathBuf::from(current);
+        let start = if current.is_dir() { current.as_path() } else { current.parent().unwrap() };
+        app.dialog().file().set_directory(start).blocking_pick_folder()
+    }).await.map_err(error)?;
+    let Some(selected) = selected else { return Ok(None) };
+    let path = selected.into_path().map_err(error)?.to_string_lossy().into_owned();
+    let saved = rpc(&state, Operation::SetChatImportFolder { path }).await?;
+    Ok(Some(serde_json::from_value(saved).map_err(error)?))
+}
+remote!(list_chat_sessions(source:sag_protocol::ChatSource,source_root:Option<String>,query:sag_protocol::ChatListQuery) => ListChatSessions);
+remote!(preview_chat_import(source:sag_protocol::ChatSource,source_root:String,paths:Vec<String>,include_tools:bool) => PreviewChatImport);
+remote!(import_chat_sessions(source:sag_protocol::ChatSource,source_root:String,sessions:Vec<sag_protocol::ChatSession>,include_tools:bool) => ImportChatSessions);
 remote!(save_note(conversation_id:String,message_index:usize,target:Option<String>,file_name:Option<String>,expected_hash:Option<String>,remember:bool) => SaveNote);
 remote!(list_notes(scope:Option<String>) => ListNotes);
 remote!(get_note(path:String) => GetNote);
@@ -515,6 +538,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().with_handler(quick_search::handle).build())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::UpdateSession::default())
+        .manage(note_import::Imports::default())
         .setup(|app| {
             #[cfg(windows)]
             windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
@@ -617,6 +641,15 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            note_import::choose_note_import_folder,
+            note_import::open_full_disk_access,
+            note_import::prepare_note_import,
+            note_import::query_apple_notes,
+            note_import::read_apple_attachment,
+            note_import::write_note_import_file,
+            note_import::read_note_import_files,
+            note_import::finish_note_import,
+            note_import::close_note_import,
             quick_search::get_quick_search,
             quick_search::save_quick_search,
             quick_search::show_quick_search,
@@ -661,6 +694,11 @@ pub fn run() {
             set_index_paused,
             remove_all_roots,
             save_document,
+            get_chat_import_folder,
+            choose_chat_import_folder,
+            list_chat_sessions,
+            preview_chat_import,
+            import_chat_sessions,
             save_note,
             list_notes,
             get_note,

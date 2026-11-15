@@ -13,7 +13,7 @@ const button=(label:string,scope:ParentNode=document)=>Array.from(scope.querySel
 const confirmation=()=>document.querySelector<HTMLElement>('.docling-dialog:not(.docling-formats-dialog)')!;
 const applied=()=>JSON.parse(document.querySelector('[aria-label="已应用转换设置"]')!.textContent!);
 async function choose(extensions:string[]){
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();button('清空选择').click();await tick();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));find('选择更多文件格式').click();await tick();button('清空选择').click();await tick();
  for(const extension of extensions){find(`转换 .${extension}`).click();await tick();}
  button('安装并应用').click();await tick();
 }
@@ -24,10 +24,10 @@ it('PDF 安装默认走资源站，完成后仅应用本次草稿',async()=>{
  let current=structuredClone(initial);
  invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource')current={...current,running:true,stage:'dependencies',requested_profiles:['documents']};return current;});
  app=mount(Harness,{target:document.body});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));
  expect(document.querySelectorAll('.other-formats-actions button')).toHaveLength(1);
  expect(find('安装 Docling')).toBeNull();
- find('选择其他格式').click();await tick();button('清空选择').click();await tick();find('转换 .pdf').click();await tick();
+ find('选择更多文件格式').click();await tick();button('清空选择').click();await tick();find('转换 .pdf').click();await tick();
  button('安装并应用').click();await tick();
  expect(confirmation().textContent).toContain('安装文件解析支持');
  expect(confirmation().querySelector('[role="checkbox"]')).toBeNull();
@@ -107,7 +107,7 @@ it('安装RPC未返回时第二控件不能接管目标或完成回调，重复�
  });
  app=mount(Harness,{target:document.body,props:{second:true}});await choose(['pdf']);button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(accept).toBeDefined());find('关闭下载详情').click();await tick();
- const selects=document.querySelectorAll<HTMLButtonElement>('[aria-label="选择其他格式"]');selects[1].click();await tick();
+ const selects=document.querySelectorAll<HTMLButtonElement>('[aria-label="选择更多文件格式"]');selects[1].click();await tick();
  const dialogs=document.querySelectorAll<HTMLElement>('.docling-formats-dialog'),second=dialogs[dialogs.length-1];button('清空选择',second).click();await tick();second.querySelector<HTMLButtonElement>('[aria-label="转换 .mp3"]')!.click();await tick();button('安装并应用',second).click();await tick();
  expect(confirmation().querySelector('.selected-formats')?.textContent).toContain('PDF');expect(confirmation().querySelector('.selected-formats')?.textContent).not.toContain('MP3');
  current={...current,running:true,requested_profiles:['documents']};accept(current);
@@ -124,7 +124,7 @@ it('后台下载的完成按钮只应用原发起控件，另一控件保持自�
  invoke.mockImplementation(async command=>{if(command==='install_docling_from_resource')current={...current,running:true,requested_profiles:['documents']};return current;});
  app=mount(Harness,{target:document.body,props:{second:true}});await choose(['pdf']);button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());button('后台下载',confirmation()).click();await tick();
- document.querySelectorAll<HTMLButtonElement>('[aria-label="选择其他格式"]')[1].click();await tick();
+ document.querySelectorAll<HTMLButtonElement>('[aria-label="选择更多文件格式"]')[1].click();await tick();
  const dialogs=document.querySelectorAll<HTMLElement>('.docling-formats-dialog'),second=dialogs[dialogs.length-1];button('清空选择',second).click();await tick();second.querySelector<HTMLButtonElement>('[aria-label="转换 .mp3"]')!.click();await tick();button('安装并应用',second).click();await tick();
  expect(confirmation().querySelector('.selected-formats')?.textContent).toContain('PDF');
  current={...current,running:false,installed:true,stage:'done',profiles:initial.profiles!.map(profile=>({...profile,installed:profile.id==='documents'}))};doclingStatus.set(current);await tick();await vi.waitFor(()=>expect(button('应用所选格式',confirmation())?.disabled).toBe(false));button('应用所选格式',confirmation()).click();
@@ -154,7 +154,7 @@ it('应用所选格式等待并行数提交时关闭确认，返回后不能再�
   if(command==='install_docling_from_resource')current={...current,running:true};return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));find('选择更多文件格式').click();await tick();find('转换 .pdf').click();
  await vi.waitFor(()=>expect(button('安装并应用')?.disabled).toBe(false));
  const input=find('转换并行数') as unknown as HTMLInputElement;input.value='2';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();button('安装并应用').click();await tick();button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());current=ready(current);doclingStatus.set(current);await tick();await vi.waitFor(()=>expect(button('应用所选格式',confirmation())?.disabled).toBe(false));button('应用所选格式',confirmation()).click();
@@ -170,12 +170,12 @@ it('旧完成动作等待并行数返回时，不能关闭另一控件的新安�
   if(command==='install_docling_from_resource')current={...current,running:true};return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true,second:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));find('选择更多文件格式').click();await tick();find('转换 .pdf').click();
  await vi.waitFor(()=>expect(button('安装并应用')?.disabled).toBe(false));
  const input=find('转换并行数') as unknown as HTMLInputElement;input.value='2';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();button('安装并应用').click();await tick();button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());current={...current,installed:true,running:false,stage:'done',profiles:initial.profiles!.map(profile=>({...profile,installed:profile.id==='documents'}))};doclingStatus.set(current);await tick();await vi.waitFor(()=>expect(button('应用所选格式',confirmation())?.disabled).toBe(false));button('应用所选格式',confirmation()).click();
  await vi.waitFor(()=>expect(finishWorkers).toBeDefined());find('关闭下载详情').click();await tick();
- document.querySelectorAll<HTMLButtonElement>('[aria-label="选择其他格式"]')[1].click();await tick();
+ document.querySelectorAll<HTMLButtonElement>('[aria-label="选择更多文件格式"]')[1].click();await tick();
  const dialogs=document.querySelectorAll<HTMLElement>('.docling-formats-dialog'),second=dialogs[dialogs.length-1];button('清空选择',second).click();await tick();second.querySelector<HTMLButtonElement>('[aria-label="转换 .mp3"]')!.click();await tick();button('安装并应用',second).click();await tick();
  expect(confirmation()?.querySelector('.selected-formats')?.textContent).toContain('MP3');finishWorkers();await vi.waitFor(()=>expect(input.disabled).toBe(false));await new Promise(resolve=>setTimeout(resolve,0));await tick();
  expect(confirmation()?.querySelector('.selected-formats')?.textContent).toContain('MP3');expect(applied()).toEqual({enabled:false});
@@ -189,7 +189,7 @@ it('后台安装时修改并行数会撤销旧完成回写，保留当前草稿'
   return current;
  });
  app=mount(Harness,{target:document.body,props:{globalWorkers:true}});
- await vi.waitFor(()=>expect(find('选择其他格式')?.disabled).toBe(false));find('选择其他格式').click();await tick();find('转换 .pdf').click();
+ await vi.waitFor(()=>expect(find('选择更多文件格式')?.disabled).toBe(false));find('选择更多文件格式').click();await tick();find('转换 .pdf').click();
  await vi.waitFor(()=>expect(button('安装并应用')?.disabled).toBe(false));button('安装并应用').click();await tick();button('安装',confirmation()).click();
  await vi.waitFor(()=>expect(button('后台下载',confirmation())).toBeDefined());button('后台下载',confirmation()).click();await tick();
  const input=find('转换并行数') as unknown as HTMLInputElement;input.value='2';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();

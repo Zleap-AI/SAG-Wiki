@@ -66,7 +66,8 @@
       "bin/qpdf/",
       "licenses/PELE.txt",
       "licenses/TEXTFOLD.txt",
-      "clipper/"
+      "clipper/",
+      "licenses/OBSIDIAN-IMPORTER.txt"
     ]
   },
   "plugins": {

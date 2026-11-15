@@ -2,6 +2,11 @@ export type MineruConfig={enabled:boolean;provider:'302'|'official';base_url?:st
 import type {ReasoningEffort} from './reasoning';
 import type {Language} from './i18n';
 export type Root={path:string;name:string;status:string;count:number;error:string|null};
+export type ChatSource='claude'|'codex';
+export type ChatSession={id:string;title:string;project:string;updated:string;paths:string[]};
+export type ChatCatalog={source_root:string;sessions:ChatSession[];issues:{path:string;error:string}[];total:number;page:number;page_size:number;projects:string[]};
+export type ChatPreview={title:string;body:string};
+export type ChatImportItem={path:string;status:'imported'|'updated'|'skipped'|'failed';error:string|null};
 export type Entry={path:string;name:string;directory:boolean;symlink:boolean};
 export type Document={id:number;path:string;source_path?:string;name:string;body:string;hash:string};
 export type FileInfo={id:number;path:string;source_path?:string;name:string;index_status?:'basic'|'enhancing'|'complete'|'enhancement_failed'|'awaiting_ocr'|'awaiting_conversion';index_error?:string|null};
@@ -23,7 +28,7 @@ export type UpdateProgress={stage:'downloading'|'verifying';downloaded:number;to
 export type NoteSettings={folder?:string|null;ask_location?:boolean};
 export type DocumentParser='docling'|'mineru';
 export type ConversionStorage={mode:"app_data"|"library"}|{mode:"custom";directory:string};
-export type Settings={document_parser?:DocumentParser;conversion_storage?:ConversionStorage;mineru?:MineruConfig;runtime?:Record<string,number|boolean>;notes?:NoteSettings;updates?:UpdateSettings;conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_model?:string;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
+export type Settings={chat_import_folder?:string|null;document_parser?:DocumentParser;conversion_storage?:ConversionStorage;mineru?:MineruConfig;runtime?:Record<string,number|boolean>;notes?:NoteSettings;updates?:UpdateSettings;conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_model?:string;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
 export type ReasoningBlock={answer_offset:number;tool_count:number;content:string};
 export type Message={created_at?:number|null;question:string;answer:string;reasoning?:string;reasoning_blocks?:ReasoningBlock[];evidence:Candidate[];model:string;scope:string[];references:string[];status:string;error:string|null;retrieval_question:string;tool_calls?:ToolCallRecord[];context?:AnswerContext|null;note_path?:string|null};
 export type Conversation={id:string;title:string;messages:Message[];updated:number;deleted:boolean};

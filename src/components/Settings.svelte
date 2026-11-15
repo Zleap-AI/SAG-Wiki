@@ -24,10 +24,12 @@
  import CliSettings from './CliSettings.svelte';
  import ApiSettings from './ApiSettings.svelte';
  import WebClipper from './WebClipper.svelte';
+ import DataImport from './DataImport.svelte';
  import AppUpdates from './AppUpdates.svelte';
  import QuickSearchSettings from './QuickSearchSettings.svelte';
  import {defaultUpdateSettings} from '../lib/updates';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
+ export let onChatImported:(()=>Promise<void>)|undefined=undefined;
  export let narrowLayout=false;
  export let onShowGuide:(()=>void)|undefined=undefined;
  export let onIndexHistory:(()=>void)|undefined=undefined;
@@ -96,7 +98,7 @@
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id===current)return;if(kind==='jev'){settings.jev.model=id==='zleap'?'Zev-1':id==='openai'?'gpt-6-luna':id==='302'||id==='official'?'jev-latest':'';if(id==='openai'&&settings.jev.auth_mode==='none')changeJevAuth('bearer');}if(id==='custom')return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  $:applyTheme(settings.theme);
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language??'zh-CN');applyTheme(value.theme)});
- $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['api',$t('远程服务'),'network'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']].filter(([id])=>!web||id==='general'||id==='appearance');
+ $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['imports',$t('数据导入'),'download'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['api',$t('远程服务'),'network'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']].filter(([id])=>!web||id==='general'||id==='appearance');
  let descriptions:Record<string,string>; $:descriptions={api:$t('供本机与局域网程序搜索知识库。'),clipper:$t('将网页保存为本地 Markdown 文件。'),general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 1 次；加上首次召回，共 2 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段目标字符数"),$t("默认约 512，保留完整句子及相邻上下文；长句可超过目标长度。修改后自动重建索引"),400,12000]];
  let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与文档"),'.txt · .rtf · .docx · .pptx · .xlsx · .odt · .epub · .pdf'],['code',$t("代码"),'.py · .js · .ts · .rs · .html · .css'],['config',$t("配置文件"),'.json · .yaml · .toml · .xml · .ini']];
@@ -151,7 +153,7 @@
     </div>
    {/if}
    <div class="settings-content">
-    {#if page!=='api'}<header class="settings-page-heading"><h2>{pages.find(p=>p[0]===page)?.[1]}</h2><p>{descriptions[page]}</p></header>{/if}
+    {#if page!=='api'}<header class="settings-page-heading"><h2>{pages.find(p=>p[0]===page)?.[1]}</h2>{#if descriptions[page]}<p>{descriptions[page]}</p>{/if}</header>{/if}
     {#if page==='general'}
      <section class="settings-group">
       <div class="setting-row"><div><strong>{$t("启动页面")}</strong><p>{$t("打开应用时首先显示的页面")}</p></div><Select label={$t("启动页面")} bind:value={settings.start_page} items={[{value:"ask",label:$t("问答")},{value:"search",label:$t("搜索")}]}/></div>
@@ -186,11 +188,11 @@
       {/if}
       <RuntimeSettings group="files" bind:value={settings.runtime}/>
      </section>
-     <header class="settings-group-heading"><div><h3>{$t('导入文件类型')}</h3><p class="settings-help">{$t('默认启用常用文本、Office、PDF 与电子书，无需下载组件。取消勾选后不再检索该类文件，原文件和文件浏览不受影响。')}</p></div></header>
+     <header class="settings-group-heading"><div><h3>{$t('索引文件类型')}</h3><p class="settings-help">{$t('默认启用常用文本、Office、PDF 与电子书，无需下载组件。取消勾选后不再检索该类文件，原文件和文件浏览不受影响。')}</p></div></header>
      <section class="settings-group file-types">
       <IndexSettings settingsChanged={indexSettingsChanged}/>
       {#each fileTypeOptions as [kind,label,description]}
-       <div class="setting-row"><label for={`file-type-${kind}`}><strong>{label}</strong><p>{description}</p></label><Checkbox.Root id={`file-type-${kind}`} class="ui-checkbox" aria-label={$t("导入 {value0}",{value0:label})} checked={settings.file_types[kind]} onCheckedChange={checked=>settings.file_types={...settings.file_types,[kind]:checked}}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root></div>
+       <div class="setting-row"><label for={`file-type-${kind}`}><strong>{label}</strong><p>{description}</p></label><Checkbox.Root id={`file-type-${kind}`} class="ui-checkbox" aria-label={$t("索引 {value0}",{value0:label})} checked={settings.file_types[kind]} onCheckedChange={checked=>settings.file_types={...settings.file_types,[kind]:checked}}>{#snippet children({checked})}{#if checked}{@html icon('check')}{/if}{/snippet}</Checkbox.Root></div>
       {/each}
       <OtherFormats bind:this={documentFormats} {remoteParsing} remoteProvider={settings.mineru?.provider} bind:workers={settings.conversion_workers} bind:enabled={settings.convert_other_formats} bind:formats={settings.conversion_formats} disabled={busy}/>
       <div class="setting-row"><div><strong>{$t("Office 仅提取文字")}</strong><p>{$t("仅适用于 DOCX/PPTX。跳过图片和内嵌对象。")}</p></div><Switch bind:checked={settings.runtime.office_text_only} label={$t("Office 仅提取文字")}/></div>
@@ -272,6 +274,8 @@
      <div class="settings-section-actions"><Button.Root type="button" class="outline" onclick={()=>settings.retrieval={candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512}}>{$t("恢复默认参数")}</Button.Root></div>
      <details class="settings-limits"><summary>{$t("算法固定规则")}</summary><p>{$t("每次检索最多 3 轮 Jev 评分，本地排序不增加模型请求。单轮预算为 64,000 tokens，单候选与共享证据合计不超过 32,000 tokens；超限时提示调整候选数量，原文不截断。")}</p></details>
      <RuntimeSettings group="retrieval" bind:value={settings.runtime}/>
+    {:else if page==='imports'}
+     <DataImport onImported={onChatImported} onDestinationChange={folder=>settings.chat_import_folder=folder}/>
     {:else if page==='clipper'}
      <WebClipper/>
     {:else if page==='api'}
@@ -298,7 +302,7 @@
      <AppUpdates bind:config={settings.updates} onBeforeInstall={onBeforeUpdate}/>
     {/if}
    </div>
-   {#if page==='api'}<div class="settings-footer api-settings-footer"><span class="settings-status">{$t('更改即时生效')}</span><Button.Root type="button" class="primary" disabled={apiBusy||busy} onclick={onClose}>{$t('完成')}</Button.Root></div>{:else}
+   {#if page==='imports'}<div class="settings-footer"><Button.Root type="button" class="primary" onclick={onClose}>{$t('完成')}</Button.Root></div>{:else if page==='api'}<div class="settings-footer api-settings-footer"><span class="settings-status">{$t('更改即时生效')}</span><Button.Root type="button" class="primary" disabled={apiBusy||busy} onclick={onClose}>{$t('完成')}</Button.Root></div>{:else}
    <div class="settings-footer"><div class="settings-feedback"><span class="form-error" role="alert">{$t(error)}</span><span class="settings-status" role="status">{$t(status)}</span></div><Button.Root type="button" class="settings-cancel" disabled={busy} onclick={onClose}>{$t("取消")}</Button.Root><Button.Root type="submit" class="primary" disabled={busy||!!mcpTesting||cliBusy}>{$t("保存设置")}</Button.Root></div>{/if}
   </form>
 </Modal>

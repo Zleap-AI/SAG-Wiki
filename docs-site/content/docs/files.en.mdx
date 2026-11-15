@@ -31,6 +31,46 @@ Click **New document** on the **Files** page to open a blank Markdown editor and
 
 Confirm the name and destination to write the file and update its index. Canceling keeps the filename and content so you can continue editing. Documents created inside a folder save to that folder: untitled documents ask for a name first, while named documents save directly. Later saves update the existing file directly.
 
+## Import notes
+
+On desktop, open **+ → Import data** in the sidebar or **Settings → Data import** and click **Import notes** next to the source.
+
+| Source | Input |
+| --- | --- |
+| Notion | Export HTML with subpages included and select the ZIP. Markdown and CSV exports are not supported. |
+| Evernote | Select ENEX exports. Multiple notebooks can be selected together. |
+| Google Keep | Export Keep with Google Takeout and select the ZIP. Archived notes are included by default; this can be turned off. Deleted notes are excluded. |
+| Apple Notes | macOS only. Read notes downloaded to this Mac and choose the folders to import. |
+
+Notes are converted to Markdown with supported formatting, internal links and attachments. The default destination is `sag-wiki/notes/Source/` inside your system Documents folder. Click **Change** to choose a destination for this import. Sources are grouped in Notion, Evernote, Google Keep and Apple Notes folders. Imports share the source folder without dated subfolders. Existing notes are skipped and identical attachments are reused without overwriting existing content. Completed imports are added to the library and indexed automatically.
+
+Apple Notes is read through a read-only database snapshot. If macOS denies access, the importer shows a permission guide. Click **Open System Settings**, then enable the current app in **Privacy & Security → Full Disk Access**. Returning to the app checks access again; you can also click **Check again**. Restart if macOS asks you to. For preview builds, enable **SAG Wiki Preview**. Alternatively, use **Choose data folder** to select a copy containing `NoteStore.sqlite` and its attachment directories. Unlock locked notes in Apple Notes first. Attachments that have not been downloaded locally cannot be imported.
+
+The result lists note and attachment counts and explains any skipped or failed items. If every note fails to convert, the result shows a failure and does not save empty placeholder notes. Successfully converted items can still be imported. The feature reads local files, does not connect to source accounts or call a model, and does not continuously sync.
+
+![Import notes from an export file](/images/product-note-import-en.png)
+
+## Import chats
+
+On desktop, open **+ → Import data** in the sidebar or **Settings → Data import** and select **Import chat history** beside **Claude Code** or **Codex** to convert local Claude Code and Codex conversations to Markdown and add them to the knowledge base.
+
+![Data import in Settings](/images/product-data-import-en.png)
+
+1. The dialog shows chats from the selected source. The app reads its default local transcript folder. To use another folder, enter its path and click **Load**.
+2. Filter by project or search titles across all records. The list shows 50 chats per page. Selections remain when changing pages; **Select this page** affects only the current page. The first chat is previewed automatically without being selected.
+
+   Codex reads its local session catalog first and loads complete transcripts only for preview or import. Without a compatible session catalog, list information is read from transcript files.
+Chat titles use the existing name when available, or the first actual question when the name is empty or contains only system information. Attachment metadata is excluded from titles; image-only chats use “图片对话 · date”. Long titles are shortened visually in the list and kept in full in previews and exports. Internal side-conversation boundary instructions are excluded.
+
+3. **Show tool calls and results** is off by default: previews and imports contain only questions and answers. Turn it on to show tool arguments and results, including when switching chats, and include them in imports without a fixed-length truncation. System prompts, environment and page context, internal notifications, continuation summaries, thinking and automatically injected Skill bodies are excluded. User questions, answers, Skill references and code examples are retained; structured question replies keep only the question and selected answer.
+4. Click **Import**. Chats are saved automatically to **Documents/sag-wiki/agent-history** under **codex** and **claude code** subfolders and added to the knowledge base. The save location displays the current source subfolder. Folders are created on first import. Both interface languages use this folder name. Choose **Change** beside the location to select another folder. SAG remembers it for future imports; existing files stay in their original location.
+
+![Selecting and previewing chats with tool calls off by default](/images/product-chat-import-en.png)
+
+Each chat becomes one Markdown file. Importing again skips unchanged content and updates the same file with new content. If you have edited the imported file, a conflict is reported and your changes are preserved. Embedded images are saved in the adjacent `chat-assets/` folder. External image links are retained and follow the reader's policy of not loading external images automatically.
+
+Supported inputs include Claude Code JSONL transcripts and cross-file continuations, plus plain and `.jsonl.zst` compressed Codex transcripts. Multiple files for the same Codex session are merged. Damaged, incomplete or missing continuation records show an error; correct the source or wait for the chat to finish, then reload. Original transcripts stay unchanged. Import does not call a model. This feature is currently desktop-only and does not continuously sync chats.
+
 ## Read and edit Markdown
 
 Open a Markdown file to read and edit it in the same window. The toolbar supports headings, bold text, lists, quotes and code blocks. Click **Save**, or press `⌘ S` / `Ctrl S`, after making changes.
@@ -101,7 +141,7 @@ Hover over the diagram and click **Edit** to show the source. After making chang
 
 After an Office document, PDF or ebook has been parsed and indexed, select its original file in the list to open the corresponding Markdown conversion. The original file also appears under **Indexed**, so you do not need to find the conversion directory manually.
 
-Conversion results preserve the original subfolders and use the location selected in [File settings](/en/docs/folders#other-formats-and-conversion). Select **Open original file** to open the original in your default app. Editing and saving a conversion changes only that Markdown file; the original Office document, PDF or other source remains unchanged. See [Document formats and conversion](/en/docs/folders#other-formats-and-conversion) for supported types and component requirements.
+Conversion results preserve the original subfolders and use the location selected in [File settings](/en/docs/folders#more-file-formats-and-conversion). Select **Open original file** to open the original in your default app. Editing and saving a conversion changes only that Markdown file; the original Office document, PDF or other source remains unchanged. See [Document formats and conversion](/en/docs/folders#more-file-formats-and-conversion) for supported types and component requirements.
 
 ## Enter Explore mode
 

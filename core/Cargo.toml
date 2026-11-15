@@ -46,6 +46,7 @@ flate2 = "1"
 tokenx-rs = "0.1"
 uuid = { version = "1", features = ["v4", "serde"] }
 base64 = "0.22"
+zstd = "0.13"
 icu_collator = "1.5"
 icu_locid = "1.5"
 encoding_rs = "0.8"

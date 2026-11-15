@@ -73,7 +73,7 @@ it('restores saved English across all settings pages and preserves original file
  expect(document.body.textContent).toContain('用户原来的问题');expect(document.body.textContent).toContain('资料');
  expect(document.querySelector('.workspace-switch')?.textContent).toContain('Chat');
  click('Settings');await tick();
- for(const page of ['General','Appearance','File settings','Shortcuts','Model settings','Chat settings','Search settings','Data and privacy','About']){
+ for(const page of ['General','Appearance','File settings','Data import','Shortcuts','Model settings','Chat settings','Search settings','Data and privacy','About']){
   click(page);await tick();
   expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe(page);
   if(page==='Chat settings')expect(document.querySelector('.settings-content')?.textContent).toContain('MCP servers');
@@ -102,4 +102,30 @@ it('translates tool progress and failure details while preserving arguments and 
  expect(document.body.textContent).toContain('MCP tool call timed out');
  expect(document.body.textContent).toContain('用户提供的参数');
  expect(document.body.textContent).toContain('工具返回的原文');
+});
+
+it('数据导入打开聊天窗口，关闭后保留设置，并保存新的导入位置',async()=>{
+ setLanguage('zh-CN');
+ invoke.mockImplementation(async command=>{
+  if(command==='get_chat_import_folder')return '/Documents/AgentHistory';
+  if(command==='choose_chat_import_folder')return '/Archive/Chats';
+  if(command==='list_chat_sessions')return {source_root:'/transcripts',sessions:[],issues:[],total:0,page:0,page_size:50,projects:[]};
+  return [];
+ });
+ const onSave=vi.fn();
+ app=mount(SettingsPanel,{target:document.body,props:{value:settings,initial:'imports',onSave,onClose:vi.fn()}});
+ await tick();
+ expect(document.querySelector('.settings-content')?.textContent).toContain('Claude Code');
+ expect(document.querySelector('.settings-content')?.textContent).toContain('Codex');
+ expect(document.querySelector('.settings-footer')?.textContent).not.toContain('保存设置');
+ click('导入 Codex 聊天记录');
+ await vi.waitFor(()=>expect(document.querySelector('.chat-import')).not.toBeNull());
+ expect(invoke).toHaveBeenCalledWith('list_chat_sessions',{source:'codex',sourceRoot:null,query:{page:0,search:'',project:''}});
+ expect(document.querySelector('.chat-import-heading h2')?.textContent).toBe('导入 Codex 聊天记录');
+ click('更改');await vi.waitFor(()=>expect(document.querySelector('.chat-import')?.textContent).toContain('/Archive/Chats'));
+ click('关闭');await vi.waitFor(()=>expect(document.querySelector('.chat-import')).toBeNull());
+ expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('数据导入');
+ click('通用');await tick();click('保存设置');
+ await vi.waitFor(()=>expect(onSave).toHaveBeenCalled());
+ expect(onSave.mock.calls[0][0].chat_import_folder).toBe('/Archive/Chats');
 });

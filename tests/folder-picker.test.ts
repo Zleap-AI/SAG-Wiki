@@ -122,3 +122,30 @@ it('展开索引选项后可以为本次添加的文件夹指定独立类型',as
  document.querySelector<HTMLButtonElement>('.folder-picker-footer .primary')!.click();
  await vi.waitFor(()=>expect(onAdd).toHaveBeenCalledWith(['/home/docs'],{file_types:{markdown:false,text:true,code:true,config:false},convert_other_formats:false}));
 });
+
+it('切换导入数据保留已选目录，复用来源列表并返回文件夹页',async()=>{
+ await start();await click('选择 docs');
+ const imports=document.querySelector<HTMLButtonElement>('[role="tab"][aria-controls="add-data-panel-imports"]')!;
+ imports.click();await tick();
+ expect(imports.getAttribute('aria-selected')).toBe('true');
+ expect(document.querySelector<HTMLElement>('#add-data-panel-folders')!.hidden).toBe(true);
+ expect(document.querySelector('#add-data-panel-imports')?.textContent).toMatch(/Claude Code.*Codex.*Notion.*Evernote.*Google Keep.*Apple Notes/);
+ expect(invoke.mock.calls.filter(([name])=>name==='prepare_note_import')).toHaveLength(0);
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='list_chat_sessions')return{source_root:'/chats',sessions:[],issues:[],total:0,page:0,page_size:50,projects:[]};
+  if(command==='get_chat_import_folder')return'/Documents/sag-wiki/agent-history';
+  return original(command,args);
+ });
+ await click('导入 Codex 聊天记录');
+ await vi.waitFor(()=>expect(document.querySelector('.chat-import')).not.toBeNull());
+ expect(invoke).toHaveBeenCalledWith('list_chat_sessions',{source:'codex',sourceRoot:null,query:{page:0,search:'',project:''}});
+ document.querySelector<HTMLButtonElement>('.chat-import-heading [aria-label="关闭"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.chat-import')).toBeNull());
+ expect(imports.getAttribute('aria-selected')).toBe('true');
+ imports.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowLeft',bubbles:true}));await tick();
+ expect(document.querySelector<HTMLElement>('#add-data-panel-folders')!.hidden).toBe(false);
+ expect(document.querySelector('.folder-picker-selection')?.textContent).toContain('/home/docs');
+ document.querySelector<HTMLButtonElement>('.folder-picker-footer .primary')!.click();
+ await vi.waitFor(()=>expect(onAdd).toHaveBeenCalledWith(['/home/docs']));
+});

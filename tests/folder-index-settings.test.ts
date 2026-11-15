@@ -99,8 +99,8 @@ it('已安装后可选择具体扩展名，保存后重新打开保留选择',as
  });
  app=mount(FolderIndexSettings,{target:document.body,props:{path:'/notes',onSaved:vi.fn(),onClose:vi.fn()}});
  const button=(label:string)=>document.querySelector<HTMLButtonElement>(`[aria-label="${label}"]`)!;
- await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
- button('选择其他格式').click();await tick();
+ await vi.waitFor(()=>expect(button('选择更多文件格式')?.disabled).toBe(false));
+ button('选择更多文件格式').click();await tick();
  // A legacy "all formats" preference opens with nothing preselected.
  expect(button('转换 .pdf').getAttribute('aria-checked')).toBe('false');
  expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('false');
@@ -112,8 +112,8 @@ it('已安装后可选择具体扩展名，保存后重新打开保留选择',as
  expect(saved.convert_other_formats).toBe(true);
  await unmount(app);document.body.innerHTML='';
  app=mount(FolderIndexSettings,{target:document.body,props:{path:'/notes',onSaved:vi.fn(),onClose:vi.fn()}});
- await vi.waitFor(()=>expect(button('选择其他格式')?.disabled).toBe(false));
- button('选择其他格式').click();await tick();
+ await vi.waitFor(()=>expect(button('选择更多文件格式')?.disabled).toBe(false));
+ button('选择更多文件格式').click();await tick();
  expect(button('转换 .pdf').getAttribute('aria-checked')).toBe('true');
  expect(button('转换 .docx').getAttribute('aria-checked')).toBe('false');
  expect(button('转换 .mp3').getAttribute('aria-checked')).toBe('false');

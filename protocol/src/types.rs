@@ -332,6 +332,7 @@ pub struct Settings {
     pub mcp_servers: Vec<McpServer>,
     #[serde(default)]
     pub notes: NoteSettings,
+    pub chat_import_folder: Option<String>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -386,6 +387,7 @@ impl Default for Settings {
             model_profiles: BTreeMap::new(),
             mcp_servers: vec![],
             notes: NoteSettings::default(),
+            chat_import_folder: None,
         }
     }
 }
