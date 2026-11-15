@@ -56,3 +56,5 @@ and upload are bounded, optional steps; include their overhead in CI timings.
 Tested main installers remain available for 14 days so a release can reuse them;
 Safari development installers and signed intermediate artifacts are retained for
 3 days. Public Release assets are unchanged.
+
+Dependency archives use the runner's existing zstd with multithreaded compression and streaming tar I/O. Restore validates the complete staged content and decompressor result before atomically replacing dependency files. Cache failure remains a normal-compilation fallback.

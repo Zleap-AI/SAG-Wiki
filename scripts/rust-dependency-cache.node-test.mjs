@@ -49,7 +49,7 @@ test('dependency archive round trip excludes app/test outputs and rejects traver
   const python = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
   const script = resolve('scripts/rust-dependency-archive.py');
   try {
-    const source = join(directory,'source'); const restored = join(directory,'restored'); const archive = join(directory,'cache.tar.gz');
+    const source = join(directory,'source'); const restored = join(directory,'restored'); const archive = join(directory,'cache.tar.zst');
     for (const file of ['debug/deps/libthird_party.rlib','debug/.fingerprint/third-party-123/lib-third','debug/build/third-party-123/build-script-build','debug/deps/libsag_core.rlib','debug/deps/test-executable','debug/.fingerprint/sag-core-123/lib-sag','debug/sag']) {
       mkdirSync(join(source,file,'..'),{recursive:true});writeFileSync(join(source,file),file);
     }
@@ -72,9 +72,14 @@ else:raise AssertionError("copy must fail")
 assert old.read_text()=="debug/deps/libthird_party.rlib"
 assert not list(root.rglob(".sag-cache-*"))`,script,restored,archive],{encoding:'utf8'});
     assert.equal(interrupted.status,0,interrupted.stderr);
+    const truncated = join(directory,'truncated.tar.zst');
+    writeFileSync(truncated,readFileSync(archive).subarray(0,-8));
+    const rejected = join(directory,'truncated-output');
+    assert.notEqual(call('restore',rejected,truncated).status,0);
+    assert.equal(existsSync(rejected),false); // Decompressor failure cannot touch Cargo.
     for (const [name,type] of [['../escape', 'file'],['debug/deps/libsag_core.rlib','file'],['debug/deps/libevil.rlib','symlink']]) {
-      const evil = join(directory,'evil.tar.gz');
-      const made = spawnSync(python,['-c','import tarfile,sys,io\nwith tarfile.open(sys.argv[1],"w:gz") as t:\n i=tarfile.TarInfo(sys.argv[2]);i.size=1\n if sys.argv[3]=="symlink":i.type=tarfile.SYMTYPE;i.linkname="../../escape";i.size=0\n t.addfile(i,io.BytesIO(b"x"))',evil,name,type],{encoding:'utf8'});
+      const evil = join(directory,'evil.tar.zst');
+      const made = spawnSync(python,['-c','import tarfile,sys,io,subprocess\nb=io.BytesIO()\nwith tarfile.open(fileobj=b,mode="w") as t:\n i=tarfile.TarInfo(sys.argv[2]);i.size=1\n if sys.argv[3]=="symlink":i.type=tarfile.SYMTYPE;i.linkname="../../escape";i.size=0\n t.addfile(i,io.BytesIO(b"x"))\nwith open(sys.argv[1],"wb") as f:subprocess.run(["zstd","-q","-1","-c"],input=b.getvalue(),stdout=f,check=True)',evil,name,type],{encoding:'utf8'});
       assert.equal(made.status,0,made.stderr);
       const fresh = join(directory,`rejected-${type}-${name.length}`);
       assert.notEqual(call('restore',fresh,evil).status,0);

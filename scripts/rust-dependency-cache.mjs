@@ -13,7 +13,7 @@ const localPackages = new Set(['sag-protocol', 'sag-client', 'sag-core', 'sag-cl
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const execute = (program, args, options = {}) => {
   const result = spawnSync(program, args, {encoding:'utf8', timeout:180000, maxBuffer:32 * 1024 * 1024, ...options});
-  assert.equal(result.status, 0, `${program} failed: ${result.stderr}`);
+  assert.equal(result.status, 0, `${program} failed: ${result.error?.message ?? result.stderr}`);
   return result.stdout.trim();
 };
 const api = path => JSON.parse(execute('gh', ['api', `repos/${repository}/${path}`]));
@@ -33,7 +33,7 @@ export function normalizeCargo(path, contents) {
 export function dependencyKey(git, commit, context) {
   const files = git('ls-tree', '-r', '--name-only', commit).split('\n').filter(path => /(?:^|\/)Cargo\.(toml|lock)$|(?:^|\/)\.cargo\/config\.toml$/.test(path)).sort();
   assert.ok(files.length, 'Missing Cargo inputs');
-  return digest(JSON.stringify({schema:1, ...context, files:files.map(path => [path, normalizeCargo(path, git('show', `${commit}:${path}`))])}));
+  return digest(JSON.stringify({schema:2, compression:'zstd', ...context, files:files.map(path => [path, normalizeCargo(path, git('show', `${commit}:${path}`))])}));
 }
 
 export function trustedProducer(run, jobs, context) {
@@ -69,7 +69,7 @@ function context() {
 
 const name = (ctx, attempt, validation = false) => `${validation ? 'validation' : 'trusted'}-rust-deps-${ctx.platform}-${ctx.kind}-${ctx.key}-${attempt}`;
 const metadataFor = (ctx, run, job) => ({schema:1, commit:run.head_sha, ref:run.head_branch, run:run.id, job:job.id, attempt:job.run_attempt, key:ctx.key, compatibility:ctx.compatibility});
-const archive = (command, directory, file, ctx) => execute(process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'), [resolve('scripts/rust-dependency-archive.py'), command, directory, file, ctx.kind, ctx.target]);
+const archive = (command, directory, file, ctx) => execute(process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3'), [resolve('scripts/rust-dependency-archive.py'), command, directory, file, ctx.kind, ctx.target], {timeout:300000});
 const output = (key, value) => appendFileSync(process.env.GITHUB_OUTPUT, `${key}=${value}\n`);
 
 async function restore(ctx) {
@@ -90,8 +90,8 @@ async function restore(ctx) {
         const destination = join(temporary, String(run.id));
         downloadArtifacts([{...artifact, platform:'dependencies'}], destination);
         const directory = join(destination, 'dependencies');
-        verifyMetadata(JSON.parse(readFileSync(join(directory, 'metadata.json'))), metadataFor(ctx, run, job), hashFile(join(directory, 'payload.tar.gz')));
-        console.log(archive('restore', process.env.CARGO_TARGET_DIR, join(directory, 'payload.tar.gz'), ctx));
+        verifyMetadata(JSON.parse(readFileSync(join(directory, 'metadata.json'))), metadataFor(ctx, run, job), hashFile(join(directory, 'payload.tar.zst')));
+        console.log(archive('restore', process.env.CARGO_TARGET_DIR, join(directory, 'payload.tar.zst'), ctx));
         console.log(`Restored trusted dependency outputs from ${run.head_branch}, run ${run.id}, job ${job.id}`);
         output('hit', 'true');
         return;
@@ -111,7 +111,7 @@ function pack(ctx) {
   assert.ok(job, 'Current producing job unavailable');
   if (tag) validateRun(run, jobs, {commit:ctx.commit, currentRunId:ctx.currentRunId, workflowId:api('actions/workflows/desktop-release.yml').id});
   const directory = mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), 'rust-dependency-export-'));
-  const file = join(directory, 'payload.tar.gz');
+  const file = join(directory, 'payload.tar.zst');
   console.log(archive('pack', process.env.CARGO_TARGET_DIR, file, ctx));
   writeFileSync(join(directory, 'metadata.json'), JSON.stringify({...metadataFor(ctx, run, job), payload_sha256:hashFile(file)}) + '\n');
   if (!tag) {
@@ -133,7 +133,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     else pack(ctx);
   } catch (error) {
     // Cache availability must never become a release gate or bypass a check.
-    console.log(`Dependency cache unavailable; compile normally: ${error.message.slice(0, 500)}`);
+    console.log(`${command === 'restore' ? 'Dependency cache unavailable; compile normally' : 'Dependency export unavailable; keep verified outputs'}: ${error.message.slice(0, 500)}`);
     if (command === 'restore') output('hit', 'false');
     else process.exitCode = 1;
   }
