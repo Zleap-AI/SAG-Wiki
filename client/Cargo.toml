@@ -15,6 +15,7 @@ reqwest = { version = "0.13.2", default-features = false, features = ["json", "q
 futures-util = "0.3"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
+aes-gcm = "0.10"
 base64 = "0.22"
 walkdir = "2"
 pulldown-cmark = "0.13"

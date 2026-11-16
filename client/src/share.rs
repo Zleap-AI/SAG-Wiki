@@ -1,4 +1,8 @@
 //! Temporary Markdown sharing, shared by the desktop and standalone CLI.
+use aes_gcm::{
+    aead::{Aead, AeadCore, KeyInit, OsRng, Payload},
+    Aes256Gcm, Nonce,
+};
 use anyhow::{bail, Context, Result};
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use futures_util::StreamExt;
@@ -19,6 +23,38 @@ use uuid::Uuid;
 const ENDPOINT: &str = "https://api.zleap.com/share";
 const MAX: u64 = 50 * 1024 * 1024;
 const MAX_ENTRIES: usize = 2000;
+const MAGIC: &[u8; 8] = b"SAGENC01";
+const ENCRYPTED_MAX: u64 = MAX + 8 + 12 + 16;
+
+fn encrypt_package(bytes: &[u8], key: &[u8]) -> Result<Vec<u8>> {
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| anyhow::anyhow!("分享密钥无效"))?;
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+    let ciphertext = cipher
+        .encrypt(
+            &nonce,
+            Payload {
+                msg: bytes,
+                aad: MAGIC,
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("分享文件加密失败"))?;
+    Ok([MAGIC.as_slice(), nonce.as_slice(), ciphertext.as_slice()].concat())
+}
+fn decrypt_package(bytes: &[u8], key: &[u8]) -> Result<Vec<u8>> {
+    if bytes.len() < 36 || !bytes.starts_with(MAGIC) || bytes.len() as u64 > ENCRYPTED_MAX {
+        bail!("加密分享文件格式无效")
+    }
+    let cipher = Aes256Gcm::new_from_slice(key).map_err(|_| anyhow::anyhow!("分享密钥无效"))?;
+    cipher
+        .decrypt(
+            Nonce::from_slice(&bytes[8..20]),
+            Payload {
+                msg: &bytes[20..],
+                aad: MAGIC,
+            },
+        )
+        .map_err(|_| anyhow::anyhow!("分享文件解密校验失败"))
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ShareSettings {
@@ -72,6 +108,7 @@ pub struct PreparedShare {
     pub preview: SharePreview,
     directory: TempDir,
     request_key: String,
+    encryption_key: Vec<u8>,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -355,6 +392,11 @@ pub fn prepare(path: &Path) -> Result<PreparedShare> {
     if size > MAX {
         bail!("压缩文件不能超过 50 MB")
     }
+    let encryption_key = Aes256Gcm::generate_key(&mut OsRng).to_vec();
+    let zip_path = dir.path().join("package.zip");
+    let encrypted = encrypt_package(&fs::read(&zip_path)?, &encryption_key)?;
+    fs::write(dir.path().join("package.enc"), encrypted)?;
+    fs::remove_file(zip_path)?;
     let name = if source.is_dir() {
         source.file_name()
     } else {
@@ -373,6 +415,7 @@ pub fn prepare(path: &Path) -> Result<PreparedShare> {
             size,
         },
         directory: dir,
+        encryption_key,
         request_key: URL_SAFE_NO_PAD.encode(
             [
                 Uuid::new_v4().as_bytes().as_slice(),
@@ -400,19 +443,29 @@ async fn response_error(response: reqwest::Response) -> anyhow::Error {
     })
 }
 pub async fn upload(prepared: &PreparedShare) -> Result<UploadedShare> {
-    let file = bounded_read(&prepared.directory.path().join("package.zip"), MAX)?;
+    let file = bounded_read(
+        &prepared.directory.path().join("package.enc"),
+        ENCRYPTED_MAX,
+    )?;
     let form = reqwest::multipart::Form::new()
         .text("requestId", prepared.preview.id.clone())
         .text("name", prepared.preview.name.clone())
         .part(
             "file",
             reqwest::multipart::Part::bytes(file)
-                .file_name("package.zip")
-                .mime_str("application/zip")?,
+                .file_name("package.enc")
+                .mime_str("application/octet-stream")?,
         );
     let response = http()?
         .post(ENDPOINT)
         .header("X-Share-Request-Key", &prepared.request_key)
+        .header("X-Share-Encryption-Key", {
+            let mut value = reqwest::header::HeaderValue::from_str(
+                &URL_SAFE_NO_PAD.encode(&prepared.encryption_key),
+            )?;
+            value.set_sensitive(true);
+            value
+        })
         .multipart(form)
         .send()
         .await
@@ -421,6 +474,20 @@ pub async fn upload(prepared: &PreparedShare) -> Result<UploadedShare> {
         return Err(response_error(response).await);
     }
     Ok(response.json().await.context("分享服务返回无效数据")?)
+}
+#[derive(Deserialize)]
+struct EncryptionInfo {
+    algorithm: String,
+    key: String,
+}
+impl EncryptionInfo {
+    fn decrypt(self, bytes: &[u8]) -> Result<Vec<u8>> {
+        if self.algorithm != "AES-256-GCM" {
+            bail!("不支持的分享加密格式")
+        }
+        let key = URL_SAFE_NO_PAD.decode(&self.key).context("分享密钥无效")?;
+        decrypt_package(bytes, &key)
+    }
 }
 #[derive(Deserialize)]
 struct DownloadRequest {
@@ -491,6 +558,7 @@ pub async fn receive(code: &str, directory: &Path) -> Result<ReceivedShare> {
         size: u64,
         sha256: String,
         download: DownloadRequest,
+        encryption: Option<EncryptionInfo>,
     }
     let mut metadata = Vec::new();
     let mut stream = response.bytes_stream();
@@ -509,7 +577,7 @@ pub async fn receive(code: &str, directory: &Path) -> Result<ReceivedShare> {
         bail!("分享名称无效")
     }
     let expected_size = info.size;
-    if expected_size > MAX {
+    if expected_size > ENCRYPTED_MAX {
         bail!("分享文件不能超过 50 MB")
     }
     let expected_hash = info.sha256;
@@ -527,7 +595,7 @@ pub async fn receive(code: &str, directory: &Path) -> Result<ReceivedShare> {
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|_| anyhow::anyhow!("下载中断，请重试"))?;
-        if bytes.len() + chunk.len() > MAX as usize {
+        if bytes.len() + chunk.len() > ENCRYPTED_MAX as usize {
             bail!("分享文件超过大小限制")
         }
         bytes.extend_from_slice(&chunk);
@@ -538,7 +606,16 @@ pub async fn receive(code: &str, directory: &Path) -> Result<ReceivedShare> {
         bail!("下载文件校验失败，请重试")
     }
     let directory = directory.to_owned();
-    tokio::task::spawn_blocking(move || extract(&bytes, &directory, &name)).await?
+    tokio::task::spawn_blocking(move || {
+        let bytes = match info.encryption {
+            Some(encryption) => encryption.decrypt(&bytes)?,
+            // Shares created before encryption was introduced expire after one hour.
+            None if bytes.len() as u64 <= MAX && !bytes.starts_with(MAGIC) => bytes,
+            None => bail!("分享缺少解密信息"),
+        };
+        extract(&bytes, &directory, &name)
+    })
+    .await?
 }
 fn extract(bytes: &[u8], directory: &Path, name: &str) -> Result<ReceivedShare> {
     fs::create_dir_all(directory)?;
@@ -664,7 +741,11 @@ mod tests {
             ),
             (1, 1)
         );
-        let bytes = fs::read(prepared.directory.path().join("package.zip")).unwrap();
+        let bytes = decrypt_package(
+            &fs::read(prepared.directory.path().join("package.enc")).unwrap(),
+            &prepared.encryption_key,
+        )
+        .unwrap();
         let target = tempfile::tempdir().unwrap();
         let first = extract(&bytes, target.path(), "Notes").unwrap();
         let second = extract(&bytes, target.path(), "Notes").unwrap();
@@ -728,7 +809,11 @@ mod tests {
             let prepared = prepare(source.path()).unwrap();
             assert_eq!(prepared.preview.markdown_count, 1);
             assert_eq!(prepared.preview.image_count, 1, "{body}");
-            let bytes = fs::read(prepared.directory.path().join("package.zip")).unwrap();
+            let bytes = decrypt_package(
+                &fs::read(prepared.directory.path().join("package.enc")).unwrap(),
+                &prepared.encryption_key,
+            )
+            .unwrap();
             let target = tempfile::tempdir().unwrap();
             let received = extract(&bytes, target.path(), "Notes").unwrap();
             let root = Path::new(&received.path);
@@ -747,7 +832,11 @@ mod tests {
         fs::write(source.path().join("note.md"), "![x](link.png)").unwrap();
         let prepared = prepare(source.path()).unwrap();
         assert_eq!(prepared.preview.image_count, 1);
-        let bytes = fs::read(prepared.directory.path().join("package.zip")).unwrap();
+        let bytes = decrypt_package(
+            &fs::read(prepared.directory.path().join("package.enc")).unwrap(),
+            &prepared.encryption_key,
+        )
+        .unwrap();
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes)).unwrap();
         assert!(archive.by_name("link.png").is_err());
         let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -799,7 +888,11 @@ mod tests {
             .unwrap();
         image.set_len(MAX).unwrap();
         let prepared = prepare(source.path()).unwrap();
-        let bytes = fs::read(prepared.directory.path().join("package.zip")).unwrap();
+        let bytes = decrypt_package(
+            &fs::read(prepared.directory.path().join("package.enc")).unwrap(),
+            &prepared.encryption_key,
+        )
+        .unwrap();
         assert_eq!(prepared.preview.size, bytes.len() as u64);
         assert!(prepared.preview.size < MAX);
         let target = tempfile::tempdir().unwrap();
@@ -830,7 +923,11 @@ mod tests {
             .set_len(MAX + 1)
             .unwrap();
         let prepared = prepare(source.path()).unwrap();
-        let bytes = fs::read(prepared.directory.path().join("package.zip")).unwrap();
+        let bytes = decrypt_package(
+            &fs::read(prepared.directory.path().join("package.enc")).unwrap(),
+            &prepared.encryption_key,
+        )
+        .unwrap();
         assert_eq!(prepared.preview.size, bytes.len() as u64);
         assert_eq!(
             zip::ZipArchive::new(std::io::Cursor::new(bytes))
@@ -908,6 +1005,71 @@ mod tests {
             "https://sag-share.oss-cn-hangzhou.aliyuncs.com/private.zip",
         ] {
             assert!(request(url, None).validated().is_err());
+        }
+    }
+    #[test]
+    fn encryption_rejects_tampering_and_wrong_keys() {
+        let key = Aes256Gcm::generate_key(&mut OsRng);
+        let other = Aes256Gcm::generate_key(&mut OsRng);
+        let bytes = encrypt_package(b"private Markdown", &key).unwrap();
+        assert_eq!(decrypt_package(&bytes, &key).unwrap(), b"private Markdown");
+        assert!(decrypt_package(&bytes, &other).is_err());
+        assert!(decrypt_package(b"PK unencrypted zip", &key).is_err());
+        for index in [0, 8, 20, bytes.len() - 1] {
+            let mut damaged = bytes.clone();
+            damaged[index] ^= 1;
+            assert!(decrypt_package(&damaged, &key).is_err());
+        }
+        assert!(decrypt_package(&bytes[..bytes.len() - 1], &key).is_err());
+        assert_ne!(bytes, encrypt_package(b"private Markdown", &key).unwrap());
+    }
+
+    #[test]
+    #[ignore = "Requires local backend checkout and dedicated test Redis"]
+    fn encrypted_backend_roundtrip() {
+        use std::process::{Command, Stdio};
+        let backend = std::env::var("SAG_SHARE_BACKEND_DIR").unwrap();
+        let source = tempfile::tempdir().unwrap();
+        fixture(source.path());
+        let prepared = prepare(source.path()).unwrap();
+        assert!(!prepared.directory.path().join("package.zip").exists());
+        let mut process = Command::new("node")
+            .arg(Path::new(&backend).join("tests/share-interop.mjs"))
+            .arg(prepared.directory.path())
+            .stdin(Stdio::piped())
+            .spawn()
+            .unwrap();
+        process
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(URL_SAFE_NO_PAD.encode(&prepared.encryption_key).as_bytes())
+            .unwrap();
+        assert!(process.wait().unwrap().success());
+        let metadata: serde_json::Value = serde_json::from_slice(
+            &fs::read(prepared.directory.path().join("metadata.json")).unwrap(),
+        )
+        .unwrap();
+        let code = metadata["code"].as_str().unwrap();
+        assert_eq!(normalize_code(code).unwrap(), code);
+        let data = fs::read(prepared.directory.path().join("download.enc")).unwrap();
+        assert_eq!(metadata["size"].as_u64().unwrap(), data.len() as u64);
+        assert_eq!(
+            metadata["sha256"].as_str().unwrap(),
+            format!("{:x}", Sha256::digest(&data))
+        );
+        let encryption: EncryptionInfo =
+            serde_json::from_value(metadata["encryption"].clone()).unwrap();
+        let zip = encryption.decrypt(&data).unwrap();
+        let target = tempfile::tempdir().unwrap();
+        let result = extract(&zip, target.path(), "Received").unwrap();
+        assert_eq!(result.markdown_count, 1);
+        assert_eq!(result.image_count, 1);
+        for path in ["nested/note.MD", "images/photo.png"] {
+            assert_eq!(
+                fs::read(source.path().join(path)).unwrap(),
+                fs::read(Path::new(&result.path).join(path)).unwrap()
+            );
         }
     }
     #[tokio::test]
