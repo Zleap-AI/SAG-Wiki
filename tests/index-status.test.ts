@@ -30,7 +30,7 @@ it('failed results remain discoverable after reopen and update when the reason c
  invoke.mockImplementation(async command=>command==='get_index_status'?{paused:false,tasks:[],failed_files:1,failed_documents:[{root:'/notes',path:'/notes/broken.pdf',error:reason}]}:command==='list_roots'?[{path:'/notes',name:'Notes',status:'partial',count:2,error:reason}]:command==='get_settings'?{theme:'light',start_page:'ask',answer:{model:'test',models:['test']}}:[]);
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.failed-files')?.textContent).toContain(reason));
- expect(document.querySelector('[aria-label="隐藏索引状态"]')).toBeNull();
+ expect(document.querySelector('[aria-label="隐藏索引状态"]')).not.toBeNull();
  await unmount(app);app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.failed-files')?.textContent).toContain(reason));
  reason='new failure';listeners.get('data-changed')!({payload:null});

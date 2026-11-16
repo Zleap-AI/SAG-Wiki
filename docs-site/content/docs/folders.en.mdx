@@ -41,9 +41,11 @@ The basic stage may omit scanned images, complex tables or final source position
 
 The sidebar card shows the current activity, completed file count / files in the current task, and the current filename. **View details** expands inline to show search availability, the actual parser, PDF parts and page range. A part currently being processed is not counted as completed. **Searchable after processing** means no basic text has been indexed yet; **Some content is searchable** means basic text is indexed while enhancement continues. New files that become indexed during processing appear in the details.
 
-After processing ends, the card no longer shows a current filename. When files fail, **Some files could not be processed** opens details listing every retryable failed file and its cause. **Retry failed files** retries only those files and preserves successful indexes; it is unavailable while a task is active or paused. Background status polling restores the retry result even if task-start or completion notifications are missed. Directory or watcher errors remain visible, but do not enable file retry. **Index history** keeps access to detailed task history and pause/resume controls.
+After processing ends, the card no longer shows a current filename and can be dismissed using its top-right close button. Dismissing it preserves results; new tasks or changed failure results show the card again. The close button is unavailable while processing is active or paused. When files fail, **Some files could not be processed** opens details listing every retryable failed file and its cause. **Retry failed files** retries only those files and preserves successful indexes; it is unavailable while a task is active or paused. Background status polling restores the retry result even if task-start or completion notifications are missed. Directory or watcher errors remain visible, but do not enable file retry. **Index history** keeps access to detailed task history and pause/resume controls.
 
 ![Progressive indexing with basic-text and background enhancement statuses](/images/product-progressive-index-en.png)
+
+![Dismiss the completed processing card using its close button](/images/product-index-complete-en.png)
 
 ## Office text only
 

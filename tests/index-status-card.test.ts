@@ -81,3 +81,27 @@ it('keeps watcher errors visible alongside actionable file failures',async()=>{
  expect(document.querySelectorAll('.failed-files li')).toHaveLength(2);
  expect(document.querySelector('.index-status-primary')?.textContent).toContain('（2）');
 });
+
+it('only terminal cards can be dismissed and new results or tasks restore them',async()=>{
+ let phase='partial',reason='first failure';
+ invoke.mockImplementation(async command=>command==='get_settings'?{language:'zh-CN',theme:'light',start_page:'ask',answer:{model:'test',models:['test']}}:command==='get_index_status'?{paused:phase==='paused',tasks:phase==='indexing'?[{path:'/notes',stage:'converting',completed:0,total:1,files:['/notes/new.pdf']}]:[],failed_files:phase==='partial'?1:0,failed_documents:phase==='partial'?[{...failures[0],error:reason}]:[]}:command==='list_roots'?[{path:'/notes',name:'Notes',status:phase==='paused'?'ready':phase,count:1,error:phase==='partial'?reason:null}]:[]);
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="隐藏索引状态"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-card')).toBeNull());
+ listeners.get('data-changed')!({payload:null});await new Promise(resolve=>setTimeout(resolve,20));
+ expect(document.querySelector('.index-status-card')).toBeNull();
+ reason='new failure';listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-card')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ phase='indexing';listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-current-file')?.textContent).toContain('new.pdf'));
+ expect(document.querySelector('[aria-label="隐藏索引状态"]')).toBeNull();
+ phase='paused';listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('已暂停'));
+ expect(document.querySelector('[aria-label="隐藏索引状态"]')).toBeNull();
+ phase='ready';listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('文档解析完成'));
+ document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-card')).toBeNull());
+});
