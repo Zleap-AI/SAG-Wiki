@@ -6,6 +6,10 @@ The fnOS version is maintained separately in the GitLab `zleap/data/sag-wiki-fno
 
 ## Desktop releases
 
+Product PRs must add user-facing Chinese change bullets and matching English bullets to `CHANGELOG.md` under `## Unreleased` before merging. Keep each change on one `- ` bullet, with Chinese bullets first and `### English` before the corresponding English bullets in the same order. Append new bilingual pairs; retain the existing entries. The PR check rejects missing or unchanged notes for product changes (except explicitly labeled `release:skip` PRs). Documentation/CI/release-tooling-only PRs need no product notes.
+
+Automatic preparation assigns the version and renames `Unreleased` in its detached release commit; contributors do not need a post-merge changelog commit or a guessed patch number. Because main retains `Unreleased`, preparation compares bilingual pairs with the last published source and emits only new pairs. An already reviewed version-specific section is also supported. Missing/invalid notes stop preparation before any tag is created. Release descriptions and updater notes contain only those bilingual product changes: no generated boilerplate, conventional commit subjects, commit references or appended signing migration prose. Historical prepared tags remain verifiable; the legacy updater manifest remains unchanged.
+
 Desktop release tags use `vX.Y.Z`. The signing Environment remains `release`. Desktop auto-update depends on the repository's Latest desktop release and `latest-v2.json`; keep release assets and update metadata consistent.
 
 Every pull request must pass the desktop checks. Force pushes and deletion of `main` are prohibited. CI success does not replace Windows/macOS installation, upgrade and data-preservation acceptance.

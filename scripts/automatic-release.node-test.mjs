@@ -5,7 +5,7 @@ import {chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, w
 import {dirname, join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
-import {changedPaths, compareVersions, createPreparedCommit, gitAt, hasProductChanges, isProductPath, latestPublished,
+import {changedPaths, compareVersions, createPreparedCommit, releaseNotes, validatePullRequestNotes, gitAt, hasProductChanges, isProductPath, latestPublished,
   shouldSkipRelease, nextVersion, releaseVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
 import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-release-environment.mjs';
 import {validateVersions} from './release.mjs';
@@ -30,19 +30,137 @@ function fixture(documentationPath = 'docs/zh-CN/中文 更新 说明.md') {
     git('add', '--', name); git('commit', '--quiet', '-m', message);
     return git('rev-parse', 'HEAD');
   };
+  mkdirSync(join(directory, 'scripts'), {recursive: true});
+  writeFileSync(join(directory, 'scripts/automatic-release.mjs'), '// Historical release preparation before reviewed-notes schema.\n');
   git('add', '.'); git('commit', '--quiet', '-m', 'Published baseline');
   const baseline = git('rev-parse', 'HEAD');
   const originalVersion = validateVersions(directory);
   git('tag', `v${originalVersion}`);
+  writeFileSync(join(directory, 'CHANGELOG.md'), '# Changelog\n\n## Unreleased\n\n- 改善文档索引。\n\n### English\n\n- Improve document indexing.\n');
+  git('add', 'CHANGELOG.md');
   const product = save('src/product.txt', 'A real product change\n', 'fix: restore document indexing');
   const source = save(documentationPath, 'Documentation\n', 'docs: explain indexing');
   git('update-ref', 'refs/remotes/origin/main', source);
   const version = nextVersion([originalVersion], [`v${originalVersion}`]);
-  const provenance = {schema: 1, source, baseline, version};
+  const provenance = {schema: 2, source, baseline, version};
   const annotate = (tag, commit, data = provenance) => git('tag', '-a', '-f', tag, commit, '-m', JSON.stringify(data));
   return {directory, git, save, baseline, product, source, version, provenance, annotate,
     close: () => rmSync(directory, {recursive: true, force: true})};
 }
+
+test('requires reviewed bilingual notes before preparing a release, never commit subjects', () => {
+  const f = fixture();
+  try {
+    for (const notes of ['# Changelog\n',
+      '# Changelog\n\n## Unreleased\n\n- 修复公式。\n',
+      '# Changelog\n\n## Unreleased\n\n自动发布：包含产品改动。\n\n### English\n\n- Fix formulas.\n']) {
+      const source = f.save('CHANGELOG.md', notes, 'feat: internal commit must never become release notes');
+      assert.throws(() => createPreparedCommit(f.directory, {...f.provenance, source}), /release notes|bilingual|changelog/i);
+      assert.deepEqual(f.git('tag', '--list').split('\n'), [`v${validateVersions(f.directory)}`]);
+    }
+  } finally { f.close(); }
+});
+
+test('renames reviewed Unreleased notes to the allocated version without commit boilerplate', () => {
+  const f = fixture();
+  try {
+    const notes = '# 更新日志 / Changelog\n\n## Unreleased\n\n- 修复公式显示。\n\n### English\n\n- Fix formula rendering.\n\n## 0.1.0\n\nOld release.\n';
+    const source = f.save('CHANGELOG.md', notes, 'fix(chat): should not appear (abcdef1)');
+    const updated = preparedContents(f.git, {...f.provenance, source});
+    assert.equal(updated['CHANGELOG.md'], notes.replace('## Unreleased', `## ${f.version}`));
+  } finally { f.close(); }
+});
+
+test('successive off-main releases include only new Unreleased bilingual bullet pairs', () => {
+  const f = fixture();
+  try {
+    const first = createPreparedCommit(f.directory, f.provenance);
+    const firstNotes = f.git.blob(first, 'CHANGELOG.md');
+    assert.match(firstNotes, /Improve document indexing/);
+    const pending = f.git.blob(f.source, 'CHANGELOG.md').replace('- 改善文档索引。', '- 改善文档索引。\n- 保留公式上下标。')
+      .replace('- Improve document indexing.', '- Improve document indexing.\n- Preserve formula scripts.');
+    const source = f.save('CHANGELOG.md', pending, 'docs: append the next product notes');
+    const provenance = {...f.provenance, baseline: f.source, source, version: nextVersion([f.version], [])};
+    const second = createPreparedCommit(f.directory, provenance);
+    const notes = f.git.blob(second, 'CHANGELOG.md');
+    assert.match(notes, /保留公式上下标。/);
+    assert.match(notes, /Preserve formula scripts./);
+    assert.doesNotMatch(notes, /改善文档索引|Improve document indexing/);
+    assert.equal(f.git.blob(source, 'CHANGELOG.md'), pending, 'Main source notes remain intact');
+    assert.equal(createPreparedCommit(f.directory, provenance), second);
+    assert.throws(() => createPreparedCommit(f.directory, {...provenance, baseline: source}), /unpublished|new.*notes/i);
+  } finally { f.close(); }
+});
+
+test('rejects boilerplate, commit subjects, hashes, migration prose and malformed bilingual sections', () => {
+  const wrap = (zh, en = '- Fix formula rendering.') => `# Changelog\n\n## 9.8.7\n\n${zh}\n\n### English\n\n${en}\n`;
+  assert.equal(releaseNotes(wrap('- 修复公式显示。'), '9.8.7'), '## 9.8.7\n\n- 修复公式显示。\n\n### English\n\n- Fix formula rendering.\n');
+  for (const notes of [wrap('- 自动发布：包含产品改动。'), wrap('- 修复公式。', '- Automatic release: product changes since the previous published release.'),
+    wrap('- 修复公式。', '- fix(chat): fix formulas'), wrap('- 修复公式。', '- Fix formulas (abcdef1)'),
+    wrap('- 修复公式。', '### Update signing migration\n\n- Install old versions.'), wrap('- 修复公式。', ''),
+    wrap('Missing Chinese bullets'), wrap('- 修复公式。', '- 修复公式。')]) {
+    assert.throws(() => releaseNotes(notes, '9.8.7'), /release notes|bilingual/i);
+  }
+  assert.throws(() => releaseNotes(wrap('- 修复公式。') + wrap('- 修复公式。'), '9.8.7'), /duplicate/i);
+  assert.doesNotThrow(() => releaseNotes(wrap('- 支持 1000000 条记录。', '- Support 1000000 records.'), '9.8.7'));
+});
+
+test('premerge product checks require changed reviewed notes while infra changes need none', () => {
+  const f = fixture();
+  try {
+    assert.equal(validatePullRequestNotes(f.git, f.product, f.source), false);
+    const source = f.save('CHANGELOG.md', '# Changelog\n', 'docs: omit pending notes');
+    assert.throws(() => validatePullRequestNotes(f.git, f.baseline, source), /release notes|bilingual/i);
+    assert.equal(validatePullRequestNotes(f.git, f.baseline, f.source), true);
+    f.save('CHANGELOG.md', f.git.blob(f.source, 'CHANGELOG.md') + '\n', 'docs: whitespace only');
+    const changed = f.save('src/extra.txt', 'Extra product', 'feat: extra');
+    assert.throws(() => validatePullRequestNotes(f.git, f.source, changed), /unpublished/);
+    const product = f.save('src/new.txt', 'Unexplained change', 'feat: new change');
+    assert.throws(() => validatePullRequestNotes(f.git, changed, product), /notes|CHANGELOG/i);
+  } finally { f.close(); }
+});
+
+test('premerge checks reject whitespace-only changes to existing version-specific notes', () => {
+  const f = fixture();
+  try {
+    const notes = `# Changelog\n\n## ${f.version}\n\n- 修复公式。\n\n### English\n\n- Fix formulas.\n`;
+    const base = f.save('CHANGELOG.md', notes, 'docs: reviewed upcoming release');
+    f.save('src/new-product.txt', 'New functionality', 'feat: next functionality');
+    const source = f.save('CHANGELOG.md', notes + '\n', 'docs: whitespace only');
+    assert.throws(() => validatePullRequestNotes(f.git, base, source), /unpublished|new.*notes/i);
+  } finally { f.close(); }
+});
+
+test('validates historical schema-1 trees but refuses new schema-1 preparation and downgrade', () => {
+  const f = fixture();
+  try {
+    const legacy = {...f.provenance, schema: 1};
+    const prepareLegacy = provenance => {
+      f.git('checkout', '--quiet', '--detach', provenance.source);
+      const files = Object.fromEntries(versionFiles.map(name => [name, f.git.blob(provenance.source, name)]));
+      for (const [name, contents] of Object.entries(updateVersionFiles(files, provenance.version))) writeFileSync(join(f.directory, name), contents);
+      const original = f.git.blob(provenance.source, 'CHANGELOG.md');
+      const heading = original.indexOf('\n');
+      // Historical schema-1 output is an exact contract, including boilerplate
+      // and the product commit's subject/hash. Later policy must still verify it.
+      const section = `\n## ${provenance.version}\n\n自动发布：包含自上次正式发布以来的产品改动。\n\nAutomatic release: product changes since the previous published release.\n\n- fix: restore document indexing (${f.product.slice(0, 7)})\n`;
+      writeFileSync(join(f.directory, 'CHANGELOG.md'), original.slice(0, heading + 1) + section + original.slice(heading + 1));
+      f.git('add', '.'); f.git('commit', '--quiet', '-m', 'Historical prepared release');
+      return f.git('rev-parse', 'HEAD');
+    };
+    const commit = prepareLegacy(legacy);
+    f.annotate(`v${f.version}`, commit, legacy);
+    assert.deepEqual(validateReleaseSource(f.git, commit, `v${f.version}`), legacy);
+    assert.throws(() => createPreparedCommit(f.directory, legacy), /reviewed bilingual notes/);
+    f.git('checkout', '--quiet', '--detach', f.source);
+    const source = f.save('scripts/automatic-release.mjs', readFileSync(join(root, 'scripts/automatic-release.mjs'), 'utf8'), 'ci: reviewed-notes policy');
+    f.git('update-ref', 'refs/remotes/origin/main', source);
+    const downgrade = {...legacy, source};
+    const downgraded = prepareLegacy(downgrade);
+    f.annotate(`v${f.version}`, downgraded, downgrade);
+    assert.throws(() => validateReleaseSource(f.git, downgraded, `v${f.version}`), /reviewed-notes schema/);
+  } finally { f.close(); }
+});
 
 test('classifies docs/CI-only pushes independently of cumulative unreleased product changes', () => {
   for (const path of ['docs/zh-CN/release.md', 'docs-site/package-lock.json', '.github/workflows/automatic-release.yml',
@@ -61,8 +179,8 @@ test('classifies docs/CI-only pushes independently of cumulative unreleased prod
     const mixed = f.save('src/another.txt', 'New feature\n', 'feat: add document previews');
     assert.equal(hasProductChanges(paths(f.source, mixed)), true);
     const notes = preparedContents(f.git, {...f.provenance, source: mixed});
-    assert.match(notes['CHANGELOG.md'], /restore document indexing/);
-    assert.match(notes['CHANGELOG.md'], /add document previews/);
+    assert.match(notes['CHANGELOG.md'], /Improve document indexing/);
+    assert.doesNotMatch(notes['CHANGELOG.md'], /restore document indexing|add document previews|自动发布|Automatic release:/);
     assert.doesNotMatch(notes['CHANGELOG.md'].split('## ')[1], /docs: explain indexing/);
   } finally { f.close(); }
 });

@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.3.2
+
+- 修复转换文档中的上下标丢失，以及以上下标标签开头的公式行被错误显示为代码块的问题。
+- 孤立的上下标片段保留为文本，同时正确渲染带底数的前置上下标和转义下划线公式。
+- 修复 MinerU 分段解析结果重复包裹公式定界符导致的显示错误，并兼容不同的公式类型和正文格式。
+
+### English
+
+- Preserve superscripts and subscripts in converted documents, and prevent formula lines starting with script tags from appearing as code blocks.
+- Keep isolated script fragments literal while correctly rendering leading scripts followed by a base and formulas containing escaped underscores.
+- Fix formula rendering errors caused by duplicated delimiters in segmented MinerU results, and support alternate equation types and content fields.
+
 ## 0.3.1
 
 - **Docling 安装与转换**：统一处理 Windows 文档组件的资源、模型目录及转换任务输入输出路径，修复 `additional.dat` 和 `tm_config.json` 的读取错误。保留已下载并校验通过的安装包，安装失败后重试复用缓存；缓存损坏或安装包变化时重新下载。

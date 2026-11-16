@@ -5,6 +5,12 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.3.2
+
+- Preserve superscripts and subscripts in converted documents, and prevent formula lines starting with script tags from appearing as code blocks.
+- Keep isolated script fragments literal while correctly rendering leading scripts followed by a base and formulas containing escaped underscores.
+- Fix formula rendering errors caused by duplicated delimiters in segmented MinerU results, and support alternate equation types and content fields.
+
 ## 0.3.1
 
 - **Docling installation and conversion**: Handle Windows document component resource paths, model directories and conversion input/output paths consistently. Fix errors reading `additional.dat` and `tm_config.json`. Cache completed, verified downloads and reuse them after installation failures. Download again when the cache is damaged or the package changes.
