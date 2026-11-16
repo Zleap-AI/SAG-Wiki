@@ -5,6 +5,13 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
+## 0.3.3
+
+- **Document processing progress**: Simplify the sidebar to show the current task's file progress and document name. Expand details for search availability, the parser, PDF parts and page ranges. Clear the current document name when processing ends and allow the finished status card to be dismissed.
+- **Failed-file retry**: List failed files and their causes in details, retry only those files and preserve successful indexes. Fix the interface remaining stuck in retry mode when task-start or completion notifications are missed.
+- **MinerU table compatibility**: Preserve image-only tables, captions and footnotes, skip empty placeholders and support image paths containing spaces. Continue to the next applicable parser when meaningful table content or image assets are missing.
+- **Large PDF parsing**: Reuse loaded Docling models across fallback parts of the same document to reduce repeated loading, while retaining cancellation, resource release and successful-part caching.
+
 ## 0.3.2
 
 - Preserve superscripts and subscripts in converted documents, and prevent formula lines starting with script tags from appearing as code blocks.

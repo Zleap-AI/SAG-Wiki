@@ -263,6 +263,14 @@ fn prevent_standard_handle_inheritance() -> std::io::Result<()> {
 /// with "file not found" before the child is ever created, which made every
 /// captured command look like a missing executable (see issue #73).
 pub fn run_captured(command: &mut std::process::Command) -> std::io::Result<std::process::Output> {
+    // Captured probes (including the registry query polled by Remote services)
+    // must not allocate a console in a Windows GUI/background process.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
     let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -421,6 +429,9 @@ pub async fn wait_stopped(data: &Path) -> Result<()> {
     }
     bail!("SAG 服务停止超时，连接记录或实例锁仍未释放")
 }
+
+#[cfg(test)]
+mod captured_tests;
 
 #[cfg(all(test, unix))]
 mod version_tests;
