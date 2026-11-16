@@ -44,12 +44,40 @@ Update both languages and affected screenshots when product behavior changes. Se
 
 Dependencies, build outputs, generated sources, QA artifacts and TypeScript caches are local only. The site has no nested Git repository or separate Git remotes.
 
-当前仅提供本地预览，未部署。安装链接指向已发布的桌面版本。
+本地预览不代表线上部署；仓库不预设文档托管平台。安装链接指向已发布的桌面版本。
 
-This is a local preview, not a deployed site. Downloads point to the published desktop installers.
+A local preview is not a deployment. This repository does not prescribe a hosting platform. Downloads point to published desktop installers.
 
 ## Release downloads / 版本下载信息
 
 README 使用 GitHub 最新正式版入口。安装页的 `ReleaseDownloads` 组件在浏览器中读取公开的 GitHub Latest Release API，显示版本、macOS/Windows 安装包链接和实际大小（十进制 MB，一位小数）。版本及附件经过校验；超时、限流或附件不完整时显示提示，用户可通过页面上的最新正式版链接下载。发布新版本后，重新打开安装页即可获取新信息，无需修改配置或提交文档 PR。
 
 README links to the latest stable GitHub Release. The installation page's `ReleaseDownloads` component reads the public Latest Release API in the browser and displays the version, macOS/Windows installers and actual sizes (decimal MB, one decimal place). It validates the release and assets. If requests time out, are rate-limited, or return incomplete assets, the page points readers to its latest-release link. Reopening the page after a release retrieves current downloads without a configuration update or documentation PR.
+
+## Changelog generation and deployment verification / 更新日志生成与部署验证
+
+版本记录只编辑根目录 `CHANGELOG.md`；每版包含中文及 `### English` 英文说明。旧文档页独有的历史版本已迁回此文件。运行以下命令后提交根日志及两个生成的 MDX 文件：
+
+Edit only the root `CHANGELOG.md`, with Chinese and `### English` entries per version. Historical entries previously unique to the site have been migrated into that source. Generate and commit both MDX outputs with the root changelog:
+
+```sh
+npm --prefix docs-site run changelog:generate
+npm --prefix docs-site run changelog:lint
+npm --prefix docs-site run build
+```
+
+PR CI 对所有 PR 强制执行 lint，不依赖是否触发桌面发布。构建前再次 lint，并生成不入库的 `public/docs-version.json`，记录实际源码提交、日志哈希、版本列表和双语内容哈希。部署必须使用同一次构建的产物。
+
+PR CI lints every PR independently of desktop-release eligibility. The build also lints and emits an untracked `public/docs-version.json` containing the source commit, changelog digest, versions and bilingual content digests. Deploy the outputs from that same build.
+
+在实际部署完成步骤中，检出预期提交后执行以下命令；线上版本信息及两个实际页面的内容标记均须一致。旧缓存、部分部署、错误提交或未收录的发布版本会使命令失败。校验不要求文档最高版本等于最新 Release，允许提前编写下一版本。
+
+After deployment, check out the expected source commit and run the following command. It checks the online manifest and both actual page markers, rejecting stale caches, partial deployments, wrong commits and missing releases. It allows documentation to include a future version rather than requiring its highest version to equal the latest release.
+
+```sh
+npm --prefix docs-site run verify:deployment -- --url https://your-docs-host.example --expected-sha <full-commit-sha> --release v0.3.5
+```
+
+`--release` 可省略；提交及内容一致性始终检查。此仓库没有实际部署任务，本命令供部署完成步骤调用，不会部署站点或发布桌面新版本。
+
+`--release` is optional; source and content consistency are always checked. No deployment job is configured in this repository. This command is a post-deployment hook, not a site deployment or a desktop release.

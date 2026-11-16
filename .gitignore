@@ -47,3 +47,6 @@ dist-bench/
 
 /importer/generated-protobuf.js
 /importer/schema.json
+
+# Build-specific documentation provenance
+/docs-site/public/docs-version.json

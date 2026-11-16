@@ -374,6 +374,8 @@ The desktop app and bundled CLI both use 0.2.3.
 
 桌面端与随包 CLI 统一为 0.2.2，适用于 macOS 和 Windows，沿用现行更新签名通道。旧会话保持兼容；笔记保存在本地 Markdown 中，核对需要来源文件可访问并已加入知识库。
 
+### English
+
 ### Features and improvements
 
 - **Verifiable notes**: save completed answers as Markdown with the citations actually used and their original passages. Edit the file name, choose a folder and remember the save location.
@@ -403,12 +405,34 @@ The desktop app and bundled CLI both use 0.2.2 for macOS and Windows, retaining 
 - 桌面端和随包 CLI 统一为 0.2.1，沿用现行应用内更新签名通道和安装迁移要求。
 - GitHub 发布范围仍为 macOS 和 Windows 桌面端；PR 执行两平台 CLI/服务 E2E，完整构建、单元测试、文档构建与安装器检查由桌面发布工作流执行。
 
+### English
+
+- Share the sidebar between conversations and folders, with date grouping and conversation search.
+- Group indexing history by folder and show clearer failure reasons and file details.
+- Group tool calls into research steps and improve input during generation and the citation source panel.
+- Fix event handling after cancellation, history refreshes overwriting new answers and empty-library mention hints.
+
+The desktop app and bundled CLI both use 0.2.1 and retain the current update-signing channel.
+
 ## 0.2.0
 
 - 新增网页剪藏、Mermaid 图表和文档目录。
 - 内置解析 Office、文本型 PDF 和电子书。
 - 改善文件管理、问答过程展示和索引体验。
 - 新增中英文帮助文档。
+
+### English
+
+2026-10-23 · [Release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.2.0)
+
+- Adds web clipping with a preview before saving local Markdown.
+- Adds Mermaid diagrams and a document outline.
+- Adds built-in parsing for Office files, text-based PDFs and ebooks.
+- Improves file browsing, document creation and per-folder indexing settings.
+- Collapses answer processing details and displays elapsed time.
+- Improves indexing progress, failure notices and document conversion.
+- Improves first launch, connection recovery and MCP server settings.
+- Adds Chinese and English documentation.
 
 ## 0.1.9
 
@@ -417,8 +441,91 @@ The desktop app and bundled CLI both use 0.2.2 for macOS and Windows, retaining 
 - 修复 Windows CLI 的后台启动和搜索路径问题。
 - 更换更新签名密钥，旧版本需手动升级一次至 0.1.9。
 
+### English
+
+2026-10-22 · [Release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.9)
+
+- Supports local Jev services and connections without an API key.
+- Improves indexing, document conversion and credential storage.
+- Fixes Windows CLI background startup and search-result paths.
+- Changes the update-signing key.
+
 ## 0.1.8
 
 - 修复 Windows 文档转换问题。
 - 文档转换完成后即可搜索。
 - 改善文件路径、失败定位和文件引用操作。
+
+### English
+
+2026-10-20 · [Release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.8)
+
+- Fixes Windows document conversion.
+- Makes documents searchable as soon as conversion finishes.
+- Improves file paths, failure details and file mentions.
+
+## 0.1.7
+
+2026-10-20 · [发布说明](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.7)
+
+- 支持浏览未索引文件和空文件夹。
+- 新增“全部”“已索引”“未索引”筛选。
+- 改善 Windows 安装与卸载。
+
+### English
+
+2026-10-20 · [Release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.7)
+
+- Supports browsing unindexed files and empty folders.
+- Adds All, Indexed and Not indexed filters.
+- Improves Windows installation and removal.
+
+## 0.1.6
+
+2026-10-20 · [发布说明](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.6)
+
+- 新增应用内更新和多语言 Windows 安装器。
+- 支持自定义 Jev 地址和 CLI 文件类型设置。
+- 增加文件夹移除确认，完善 Agent 接入说明。
+
+### English
+
+2026-10-20 · [Release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.6)
+
+- Adds in-app updates and a multilingual Windows installer.
+- Supports custom Jev endpoints and CLI file-type settings.
+- Adds folder-removal confirmation and improves Agent setup guidance.
+
+## 0.1.5
+
+2026-10-19 · [发布说明](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5)
+
+- 提供 macOS 和 Windows 安装包，完成 macOS 签名与公证。
+- 补充 CLI 安装和 Agent 接入文档。
+
+### English
+
+2026-10-19 · [Release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.5)
+
+- Provides macOS and Windows installers, with macOS signing and notarization.
+- Adds CLI installation and Agent setup documentation.
+
+## 0.1.0
+
+2026-10-14 – 2026-10-18
+
+- 支持本地文件管理、Markdown 编辑和文件变化监听。
+- 提供快速搜索、SAG2 深入检索和本地文档关联图。
+- 支持多模型问答、原文引用和会话历史。
+- 提供独立 CLI、MCP 工具和共享后台服务。
+- 支持文件夹范围、忽略规则和模型配置。
+
+### English
+
+2026-10-14 – 2026-10-18
+
+- Supports local file management, Markdown editing and file watching.
+- Provides quick search, SAG2 retrieval and a local document relationship graph.
+- Supports multiple answer models, source citations and conversation history.
+- Provides a standalone CLI, MCP tools and a shared background service.
+- Supports folder scopes, ignore rules and model configuration.

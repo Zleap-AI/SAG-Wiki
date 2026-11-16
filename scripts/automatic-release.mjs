@@ -166,7 +166,7 @@ export function releaseVersion(manifests, tags, changelog) {
 export function isProductPath(path) {
   return !(/^(?:docs\/|docs-site\/|\.github\/)/.test(path) ||
     /^(?:[^/]+\.md|LICENSE(?:\.[^/]+)?|\.gitignore|\.gitattributes)$/.test(path) ||
-    /^scripts\/(?:automatic-release|release(?:-build-cache|-downloads|-assembly)?|configure-release|migrate-release-environment|rust-dependency-cache|test-profile-ab|parallel-cli)(?:\.node-test)?\.mjs$/.test(path) ||
+    /^scripts\/(?:automatic-release|documentation-release|release(?:-build-cache|-downloads|-assembly)?|configure-release|migrate-release-environment|rust-dependency-cache|test-profile-ab|parallel-cli)(?:\.node-test)?\.mjs$/.test(path) ||
     path === 'scripts/rust-dependency-archive.py');
 }
 export const hasProductChanges = paths => paths.some(isProductPath);
