@@ -17,6 +17,8 @@ The API service can run on macOS, Windows or Linux, serving local and LAN applic
 
 If the desktop app is installed, open **Settings → Remote services**, click **Create key**, then turn on **API and MCP**. You can start and stop the API independently.
 
+Remote services automatically refreshes service status and automatic-startup registration status. On Windows, these checks run in the background without opening a command window.
+
 To start it through the standalone CLI, install Node.js/npm, then run the commands below. Command examples on this page use macOS/Linux shell syntax. Replace directories with absolute paths on the computer running the service. On Windows, run the same `sag` commands in PowerShell with Windows absolute paths.
 
 ```sh
