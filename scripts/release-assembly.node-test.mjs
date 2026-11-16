@@ -90,6 +90,12 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
       assert.equal(assembled.status, 0, `Release assembly failed: ${assembled.stderr || assembled.error?.message}`);
       for (const [name, expected] of Object.entries(bytes)) assert.deepEqual(readFileSync(join(output, name)), expected);
       const manifest = json(join(output, 'latest-v2.json'));
+      const changelog = readFileSync(join(checkout, 'CHANGELOG.md'), 'utf8').replace(/\r\n/g, '\n');
+      const section = changelog.split(/^## /m).find(text => text.startsWith(`${version}\n`));
+      const expectedNotes = `## ${section.trim()}\n`;
+      assert.equal(readFileSync(join(output, 'release-notes.md'), 'utf8'), expectedNotes);
+      assert.equal(manifest.notes, expectedNotes);
+
       assert.equal(manifest.version, version);
       for (const [platform, name] of [['darwin-aarch64', macNames[1]], ['windows-x86_64', windowsName]]) {
         const signature = readFileSync(join(output, name + '.sig'), 'utf8').trim();

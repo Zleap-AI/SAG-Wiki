@@ -6,7 +6,7 @@ import {spawnSync} from 'node:child_process';
 import {parseArgs} from 'node:util';
 import {pathToFileURL} from 'node:url';
 import {packageUpdates} from './package-updates.mjs';
-import {gitAt, validateReleaseSource} from './automatic-release.mjs';
+import {gitAt, releaseNotes, validateReleaseSource} from './automatic-release.mjs';
 
 const root = resolve(import.meta.dirname, '..');
 const repository = 'Zleap-AI/SAG-Wiki';
@@ -137,12 +137,6 @@ export function validateSignedMacOSArtifacts(directory, source) {
   return metadata;
 }
 
-function releaseNotes(version) {
-  const changelog = readFileSync(join(root, 'CHANGELOG.md'), 'utf8').replace(/\r\n/g, '\n');
-  const section = changelog.split(/^## /m).find(text => text.startsWith(`${version}\n`) || text.startsWith(`${version} `));
-  assert.ok(section, 'Changelog must describe this release');
-  return `## ${section.trim()}\n\n### 更新签名迁移 / Update signing migration\n\n0.1.8 及更早版本的用户请手动下载安装一次 0.1.9。旧更新通道保留在 0.1.8，后续自动更新从 0.1.9 的新签名通道继续。\n\nUsers on 0.1.8 or earlier must manually install 0.1.9 once. The legacy update channel remains on 0.1.8; subsequent automatic updates use the new signing channel.\n`;
-}
 
 function assemble({input, output, 'signed-macos': signedMacOS}) {
   const version = validateVersions();
@@ -154,7 +148,7 @@ function assemble({input, output, 'signed-macos': signedMacOS}) {
   const destination = resolve(output ?? join(root, 'releases', version, 'updates'));
   assert.ok(!existsSync(destination), 'Release output must be fresh');
   mkdirSync(destination, {recursive: true});
-  const notes = releaseNotes(version);
+  const notes = releaseNotes(readFileSync(join(root, 'CHANGELOG.md'), 'utf8'), version);
   packageUpdates({version, notes, output: destination,
     macos: join(signed, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`),
     windows: join(source, 'windows', `SAG-Wiki-${version}-Windows-x64-setup.exe`),
