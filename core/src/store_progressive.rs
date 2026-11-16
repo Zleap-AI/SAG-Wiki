@@ -52,7 +52,8 @@ impl Store {
     }
     pub fn index_status(&self) -> Result<sag_protocol::IndexStatus> {
         let mut status = self.indexing.status();
-        status.failed_files = self.failed_index_count()?;
+        status.failed_documents = self.failed_index_documents()?;
+        status.failed_files = status.failed_documents.len();
         let db = self.connection();
         let mut query = db.prepare("SELECT s.source,s.root,s.status,EXISTS(SELECT 1 FROM conversions c JOIN documents d ON d.path=c.output WHERE c.source=s.source AND c.valid=1),s.error FROM conversion_states s WHERE s.status!='complete' ORDER BY s.root,s.source")?;
         status.conversion_states = query

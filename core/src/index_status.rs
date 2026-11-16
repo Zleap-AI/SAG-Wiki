@@ -67,7 +67,7 @@ impl IndexControl {
                 task.stage = if task.stage == "enhancing" { "retrying_enhancement" } else { "retrying_conversion" }.into();
             }
             task
-        }).collect(), conversion_states: vec![] }
+        }).collect(), conversion_states: vec![], failed_documents: vec![] }
     }
     pub fn set_paused(&self, paused: bool) -> IndexStatus {
         self.shared.state.lock().unwrap().paused = paused;

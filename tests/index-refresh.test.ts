@@ -231,7 +231,15 @@ it('an older App snapshot cannot undo a pause acknowledged by the index dialog',
   changed(); await flush();
   document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click(); await flush();
   document.querySelector<HTMLButtonElement>('[aria-label="暂停索引"]')!.click(); await flush();
-  expect(document.querySelector('.index-status')?.textContent).toContain('索引已暂停');
+  expect(document.querySelector('.index-status')?.textContent).toContain('文档处理已暂停');
   release([]); await flush();
-  expect(document.querySelector('.index-status')?.textContent).toContain('索引已暂停');
+  expect(document.querySelector('.index-status')?.textContent).toContain('文档处理已暂停');
+});
+
+it('status comparisons retain failed-file reasons and segment-only progress changes',async()=>{
+ const {sameIndexStatus}=await import('../src/lib/stable-snapshot');
+ expect(sameIndexStatus(idle,{...idle,failed_files:1,failed_documents:[{root:'/notes',path:'/notes/broken.pdf',error:'conversion failed'}]})).toBe(false);
+ const first:IndexStatus={paused:false,tasks:[{path:'/notes',stage:'enhancing',completed:0,total:1,files:['/notes/long.pdf'],conversions:[{path:'/notes/long.pdf',engine:'Docling',segment:{current:1,total:8,start_page:1,end_page:50}}]}]};
+ const next=structuredClone(first);next.tasks[0].conversions![0].segment={current:2,total:8,start_page:51,end_page:100};
+ expect(sameIndexStatus(first,next)).toBe(false);
 });
