@@ -4,9 +4,9 @@
  import {externalLinkClick} from './lib/external-links';
  import {applyTheme,watchSystemTheme} from './lib/theme';
  import DesktopWindowControls from './components/DesktopWindowControls.svelte';
- import {conversionParsers,conversionSegment,isConversionStage,indexStage as findIndexStage} from './lib/index-stages';
  import LibraryWorkspace from './components/LibraryWorkspace.svelte';
  import IndexDetails from './components/IndexDetails.svelte';
+ import IndexStatusCard from './components/IndexStatusCard.svelte';
  import DoclingDownload from './components/DoclingDownload.svelte';
  import DocumentQuestion from './components/DocumentQuestion.svelte';
  import SaveNoteDialog from './components/SaveNoteDialog.svelte';
@@ -14,7 +14,7 @@
  import type {NoteDetail,NoteSourceStatus,NoteSummary} from './lib/types';
  import {isNote} from './lib/domain';
  let saveNoteFor:{index:number}|null=null;let noteDetail:NoteDetail|null=null,noteChecking=false,noteRequest=0;let noteSummaries:NoteSummary[]=[];
- import type {IndexStatus,IndexProgress} from './lib/types';
+ import type {IndexStatus,IndexProgress,IndexFailure} from './lib/types';
  import SearchSummary from './components/SearchSummary.svelte';
  import SearchResultItem from './components/SearchResultItem.svelte';
  import SearchPassagePicker from './components/SearchPassagePicker.svelte';
@@ -92,27 +92,18 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  let draft:Draft|null=null,dirty=false,EditorComponent:any=null,draftTimer:ReturnType<typeof setTimeout>;
  let quitPending=false;
  let indexDetailsOpen=false,indexPaused=false;
- let indexStatusHidden=false;
  let failedIndexFiles=0,rebuildingFailedIndexes=false,failedIndexRetryError='';
+ let failedIndexDocuments:IndexFailure[]=[],retryDocuments:IndexFailure[]=[],retryCycleActive=false;
+ let recentIndexedFiles:string[]=[],workspaceSnapshotLoaded=false;
  let indexTasks:IndexStatus['tasks']=[];
  let conversionStates:NonNullable<IndexStatus['conversion_states']>=[];
- let dismissedIndexFailures=localStorage.getItem('sag.index.dismissed-failures');
  let indexProgress:IndexProgress|null=null;
- $:indexPercent=indexProgress&&indexProgress.total>0?Math.min(100,Math.max(0,Math.floor(indexProgress.count*100/indexProgress.total))):null;
+ let dismissedIndexResult:string|null=null;
+ $:indexResultSignature=JSON.stringify([roots.map(({path,status,count,error})=>({path,status,count,error})),failedIndexDocuments,failedIndexFiles]);
+ $:if(indexing||indexPaused||retryCycleActive||rebuildingFailedIndexes)dismissedIndexResult=null;
  $:indexing=indexTasks.length>0||roots.some(r=>r.status!=='ready'&&r.status!=='error'&&r.status!=='partial');
- $:indexFailed=roots.some(r=>r.status==='error'||r.status==='partial');
- $:indexFailureSignature=JSON.stringify(roots.filter(r=>r.status==='error'||r.status==='partial').sort((a,b)=>a.path.localeCompare(b.path)).map(({path,status,error})=>[path,status,error]));
- $:indexStage=findIndexStage(indexProgress?.stage??indexParserTask?.stage,indexParsers.length>0||!!indexSegment);
- $:indexStatusText=indexPaused?$t("SAG 索引已暂停"):indexing?!indexTasks.length&&!indexProgress?$t("SAG 等待后台处理"):indexStage?$t("SAG {value0}{value1}{value2}",{value0:$t(indexStage.progress),value1:indexPercent===null?'':`（${indexPercent}%）`,value2:''}):(indexPercent===null?$t("SAG 正在索引…"):$t("SAG 正在索引（{value0}%）",{value0:indexPercent})):$t("SAG · 索引已结束");
  $:indexParserCandidates=indexTasks.filter(task=>!!indexProgress&&(!indexProgress.stage||task.stage===indexProgress.stage)&&(indexProgress.id?indexTaskKey(task)===indexProgress.id:task.path===indexProgress.path&&(!indexProgress.kind||task.kind===indexProgress.kind)));
  $:indexParserTask=indexParserCandidates.length===1?indexParserCandidates[0]:undefined;
- $:indexParsers=conversionParsers(indexParserTask?[indexParserTask]:[]);
- $:indexSegment=conversionSegment(indexParserTask?[indexParserTask]:[]);
- $:indexParserText=isConversionStage(indexProgress?.stage??indexParserTask?.stage)
-  ?indexParsers.length?$t('解析方式：{value0}',{value0:indexParsers.join($t('、'))}):indexPaused?'':indexSegment?$t('正在处理分段…'):$t('正在检查转换状态…'):'';
- $:indexSummary=indexProgress?.summary;
- $:indexStatusCount=indexProgress?$t(indexSummary?"当前阶段：已处理 {value0} / {value1} 个文件":"已处理 {value0} / {value1} 个文件",{value0:indexProgress.count,value1:indexProgress.total}):$t("已索引 {value0} 个文件",{value0:roots.reduce((count,root)=>count+root.count,0)});
- $:indexFailureText=roots.length>0&&roots.every(root=>root.status==='error')?$t('读取失败'):$t('部分失败');
  // First-run onboarding must not depend on service startup completing.
  let onboardingOpen=!web&&localStorage.getItem('sag.onboarding.seen')!=='1';
  let startupError='',retrying=false;
@@ -162,7 +153,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  async function answerApproval(allow:boolean){if(!toolApproval)return;const id=toolApproval.id;toolApproval=null;try{await api('resolve_tool_approval',{id,allow})}catch(e){notify($t(String(e)))}}
  function clearConversationState(){historyRequest++;closeNotice();conversations=[];historySearchOpen=false;conversation=null;pending=null;renderedAnswers={};ask='';references=[];source=null;editingMessage=null;retryIndex=null;askJob='';cancellingAsk='';askBusy=false;askStage='';activeToolId='';error='';toolApproval=null;localStorage.removeItem('sag.history.scroll');}
  function closeNotice(){clearTimeout(noticeTimer);toast='';undo=null;}
- function clearFoldersState(){documentReadRequest++;refreshGeneration++;refreshPending=false;roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;indexTasks=[];conversionStates=[];if(view==='files')view='ask';}
+ function clearFoldersState(){documentReadRequest++;refreshGeneration++;refreshPending=false;roots=[];files=[];scope=[];references=[];expanded=new Set();scopeExpanded=new Set();cache={};selected='';indexProgress=null;indexTasks=[];conversionStates=[];failedIndexFiles=0;failedIndexRetryError='';failedIndexDocuments=[];retryDocuments=[];retryCycleActive=false;recentIndexedFiles=[];workspaceSnapshotLoaded=false;if(view==='files')view='ask';}
  function scheduleNotice(){clearTimeout(noticeTimer);if(!toast||document.hidden||document.querySelector('#notice:hover, #notice:focus-within'))return;noticeTimer=setTimeout(closeNotice,undo?8000:3000);}
  function notify(message:string,action:(()=>Promise<void>)|null=null){toast=message;undo=action;scheduleNotice();}
  let refreshGeneration=0,refreshPending=false,refreshRunning:Promise<void>|null=null,appDisposed=false;
@@ -173,17 +164,20 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   return refreshRunning;
  }
  function applyIndexStatus(status:IndexStatus){
-  failedIndexFiles=status.failed_files??0;
+  failedIndexFiles=status.failed_files??0;failedIndexDocuments=stableRows(failedIndexDocuments,status.failed_documents??[],file=>`${file.root}:${file.path}`);
   const wasActive=indexTasks.length>0;indexTasks=stableRows(indexTasks,status.tasks??[],indexTaskKey);indexPaused=status.paused;conversionStates=stableRows(conversionStates,status.conversion_states??[],state=>state.source);
-  if(!wasActive&&indexTasks.length)indexStatusHidden=false;
+  if(!wasActive&&indexTasks.length)recentIndexedFiles=[];
   if(indexTasks.length){const task=indexTasks.find(task=>task.kind!=='enhancement')??indexTasks[0];indexProgress={id:indexTaskKey(task),kind:task.kind,path:task.path,count:task.completed,total:task.total,stage:task.stage,summary:task.summary};}
   else if(wasActive)indexProgress=null;
  }
+ function reconcileRetryCycle(status:IndexStatus,nextRoots:Root[]){
+  if(retryCycleActive&&!rebuildingFailedIndexes&&!status.tasks?.length&&!nextRoots.some(root=>root.status==='pending'||root.status==='indexing')){retryCycleActive=false;retryDocuments=[];}
+ }
  function pollIndexStatus(){let disposed=false,timer:ReturnType<typeof setTimeout>;
-  const poll=async()=>{try{if(!loading&&!refreshRunning&&(indexing||indexPaused)){
+  const poll=async()=>{try{if(!loading&&!refreshRunning&&(indexing||indexPaused||retryCycleActive)){
    const generation=refreshGeneration;
    const [status,nextRoots]=await Promise.all([api<IndexStatus>('get_index_status'),api<Root[]>('list_roots')]);
-   if(disposed||generation!==refreshGeneration)return;const finished=indexTasks.length>0&&!status.tasks?.length;applyIndexStatus(status);roots=stableRows(roots,nextRoots,root=>root.path);
+   if(disposed||generation!==refreshGeneration)return;const wasRetrying=retryCycleActive;reconcileRetryCycle(status,nextRoots);const finished=(indexTasks.length>0&&!status.tasks?.length)||(wasRetrying&&!retryCycleActive);applyIndexStatus(status);roots=stableRows(roots,nextRoots,root=>root.path);
    if(finished)void refresh().catch(error=>notify($t(String(error))));
   }}catch{/* Events and the next snapshot recover a transient polling failure. */}finally{if(!disposed)timer=setTimeout(poll,1000)}};
   timer=setTimeout(poll,1000);return()=>{disposed=true;clearTimeout(timer)};
@@ -191,12 +185,11 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  function indexPauseChanged(paused:boolean){if(indexPaused===paused)return;indexPaused=paused;void refresh().catch(e=>notify($t(String(e))));}
  async function rebuildFailedIndexes(){
   if(rebuildingFailedIndexes||indexing||indexPaused||!failedIndexFiles)return;
-  rebuildingFailedIndexes=true;failedIndexRetryError='';
+  rebuildingFailedIndexes=true;retryCycleActive=true;retryDocuments=[...failedIndexDocuments];failedIndexRetryError='';indexProgress=null;
   try{
    roots=await api<Root[]>('retry_failed_indexes');
-   indexStatusHidden=false;dismissedIndexFailures=null;localStorage.removeItem('sag.index.dismissed-failures');
    void refresh().catch(e=>notify($t(String(e))));
-  }catch(e){failedIndexRetryError=$t(String(e));}
+  }catch(e){retryCycleActive=false;failedIndexRetryError=$t(String(e));}
   finally{rebuildingFailedIndexes=false;}
  }
  async function refreshSnapshots(){
@@ -212,6 +205,13 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
     const included=(path:string)=>!removed.some(directory=>inside(path,directory));
     const entries=await Promise.all(paths.filter(path=>included(path)&&nextRoots.some(root=>inside(path,root.path))).map(async path=>[path,await api<Entry[]>('list_entries',{path})] as const));
     if(appDisposed||generation!==refreshGeneration)continue;
+    if(workspaceSnapshotLoaded&&(indexing||nextStatus.tasks?.length)){
+     const previous=new Set(files.map(file=>file.source_path??file.path));
+     const added=nextFiles.filter(file=>!previous.has(file.source_path??file.path)).map(file=>file.source_path??file.path);
+     if(added.length)recentIndexedFiles=[...new Set([...added,...recentIndexedFiles])].slice(0,5);
+    }
+    workspaceSnapshotLoaded=true;
+    reconcileRetryCycle(nextStatus,nextRoots);
     const stableRoots=stableRows(roots,nextRoots,root=>root.path),stableFiles=stableRows(files,nextFiles,file=>file.id);
     if(stableRoots!==roots)roots=stableRoots;
     if(stableFiles!==files)files=stableFiles;
@@ -292,7 +292,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  function add(){if(web){notify($t('请在服务端添加文件夹。'));return;}folderPickerOpen=true}
  async function addFolders(paths:string[],options?:FolderIndexOptions){
   const failures:{path:string;error:string}[]=[];
-  indexStatusHidden=false;if(!indexTasks.length)indexProgress=null;
+  if(!indexTasks.length)indexProgress=null;
   for(const path of paths){try{await api<string>(options?'add_root_with_options':'add_root',options?{path,options}:{path})}catch(e){failures.push({path,error:$t(String(e))})}}
   if(failures.length<paths.length){await refresh();notify($t('已添加 {value0} 个文件夹，正在后台建立索引，大文件夹可能耗时数分钟',{value0:paths.length-failures.length}))}
   return failures;
@@ -483,7 +483,6 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   await resetSearch(false);searchHistory=[];clearConversationState();clearFoldersState();
   librarySessions={};exploreReturn='';documentFromSearch=false;documentFromConversation=false;view='ask';
   for(const key of Object.keys(localStorage))if(key.startsWith('sag.'))localStorage.removeItem(key);
-  dismissedIndexFailures=null;indexStatusHidden=false;
   settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');
   notify($t('所有应用数据已清除，设置已恢复默认，本地原文件已保留。'));
  }
@@ -678,7 +677,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   window.addEventListener('open-external-link',openLink);
   return()=>window.removeEventListener('open-external-link',openLink);
  });
- onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};addCleanup(pollIndexStatus());void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<string>('app-error',e=>{if(loading)startupError=e.payload;else notify(e.payload)}));addCleanup(await listen<IndexProgress>('index-progress',e=>{refreshGeneration++;if(refreshRunning)refreshPending=true;if(e.payload.count===0)indexStatusHidden=false;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob&&e.payload.query_id!==cancellingAsk)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob||e.payload.id===cancellingAsk)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));await loadWorkspace();if(!web)await api('quick_search_main_ready');const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=draftFolder(draft);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}}catch(e){startupError=String(e)}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
+ onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};addCleanup(pollIndexStatus());void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<string>('app-error',e=>{if(loading)startupError=e.payload;else notify(e.payload)}));addCleanup(await listen<IndexProgress>('index-progress',e=>{refreshGeneration++;if(refreshRunning)refreshPending=true;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language??'zh-CN');if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob&&e.payload.query_id!==cancellingAsk)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob||e.payload.id===cancellingAsk)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));await loadWorkspace();if(!web)await api('quick_search_main_ready');const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=draftFolder(draft);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}}catch(e){startupError=String(e)}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
 </script>
 <svelte:window bind:innerWidth={viewportWidth} on:keydown={keys} on:click={searchOutside} on:contextmenu|preventDefault/>
 <div class="desktop-window real-client" class:windows-client={!web&&!mac} class:narrow-layout={narrowLayout} class:compact-sidebar={collapsed&&!narrowLayout} class:search-workbench={view==='search'} data-sidebar-motion={sidebarMotion}>
@@ -689,7 +688,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  {#if narrowLayout&&mobileSidebarOpen}<Button.Root type="button" class="mobile-sidebar-backdrop" tabindex={-1} aria-label={$t("收起侧边栏")} onclick={()=>toggleMobileSidebar(false)}/>{/if}
  <aside class="sidebar" id="workspace-sidebar" hidden={narrowLayout&&!mobileSidebarOpen}><div class="sidebar-titlebar" data-tauri-drag-region>{#if !mac&&!web&&!narrowLayout}<DesktopWindowControls/>{/if}<Button.Root bind:ref={sidebarToggle} class="icon-button" aria-label={!narrowLayout&&collapsed?$t("展开侧边栏"):$t("收起侧边栏")} title={!narrowLayout&&collapsed?$t("展开侧边栏"):$t("收起侧边栏")} aria-controls="workspace-sidebar" aria-expanded={narrowLayout?mobileSidebarOpen:!collapsed} onclick={toggleSidebar}>{@html icon('panel')}</Button.Root></div><div class="brand-row">{@html logo}<span class="brand">{'SAG Wiki'}</span></div>
  <div class="tree-heading"><Button.Root class="folder-management-link" onclick={()=>{if(narrowLayout)void toggleMobileSidebar(false);void libraryBrowse('').catch(e=>notify($t(String(e))));}}>{$t("文件夹管理")}</Button.Root>{#if !web}<Button.Root class="icon-button" title={$t("添加文件夹")} aria-label={$t("添加文件夹")} onclick={add}>{@html icon('plus')}</Button.Root>{/if}</div><div class="tree" use:rememberScroll={{key:'sag.sidebar.library.scroll',enabled:!loading&&(narrowLayout?mobileSidebarOpen:!collapsed)}}><Tree nodes={roots} {expanded} cache={indexedCache} selected={view==='files'?selected:view==='editor'&&draft?indexedSourcePath(draft.path):view==='document'&&readOnlyDoc?indexedSourcePath(readOnlyDoc.path):''} onbrowse={(path)=>{if(narrowLayout)void toggleMobileSidebar(false);void browse(path).catch(e=>notify($t(String(e))));}} ontoggle={(path)=>toggle(path).catch(e=>notify($t(String(e))))} onmenu={showMenu}/>{#if !loading&&!roots.length}<div class="folder-empty-state"><p>{$t("添加文件夹后，即可对其中的文件提问和搜索。")}</p>{#if !web}<Button.Root class="outline" onclick={add}>{@html icon('plus')}<span>{$t("添加文件夹")}</span></Button.Root>{/if}</div>{/if}</div>
- <div class="index-status">{#if !indexStatusHidden&&(indexing||indexPaused||(indexFailed&&indexFailureSignature!==dismissedIndexFailures))}<div class="index-status-card"><div class="index-status-row"><Button.Root class="index-status-link" aria-label={$t("查看索引详情")} onclick={()=>indexDetailsOpen=true}><span class="index-status-primary">{indexStatusText}</span>{#if indexParserText}<span class="index-status-parser">{indexParserText}</span>{/if}{#if indexSegment}<span class="index-status-segment" title={indexSegment.path}><span>{$t('当前文档：第 {value0} / {value1} 段',{value0:indexSegment.current,value1:indexSegment.total})}</span><span class="index-status-pages">{$t('第 {value0}–{value1} 页',{value0:indexSegment.start_page,value1:indexSegment.end_page})}</span></span>{/if}{#if indexing&&indexPercent!==null}<progress class="index-status-bar" aria-label={$t("当前阶段进度")} value={indexProgress?.count??0} max={indexProgress?.total??1}></progress>{/if}{#if indexSummary}<span class="index-status-summary">{$t('已检查 {value0} · 已复用 {value1} · 已更新 {value2} · 失败 {value3}',{value0:indexSummary.checked,value1:indexSummary.reused,value2:indexSummary.updated,value3:indexSummary.failed})}</span>{/if}<span class="index-status-meta"><span>{indexStatusCount}</span>{#if indexFailed}<span class="index-status-failure">{indexFailureText}</span>{/if}</span></Button.Root><Button.Root class="index-status-dismiss" aria-label={$t("隐藏索引状态")} onclick={()=>{if(indexFailed){localStorage.setItem('sag.index.dismissed-failures',indexFailureSignature);dismissedIndexFailures=indexFailureSignature;}indexStatusHidden=true}}>{@html icon('close')}</Button.Root></div>{#if indexFailed&&failedIndexFiles>0||rebuildingFailedIndexes}<div class="index-retry-action"><span class="index-retry-hint">{failedIndexFiles===1?$t('1 个失败文件'):$t('{value0} 个失败文件',{value0:failedIndexFiles})}</span><Button.Root type="button" class="index-retry-button" disabled={rebuildingFailedIndexes||indexing||indexPaused} aria-busy={rebuildingFailedIndexes} title={$t('仅重建失败文件，保留已成功的索引')} onclick={rebuildFailedIndexes}><span class:retry-spinning={rebuildingFailedIndexes} aria-hidden="true">{@html icon('refresh')}</span>{$t(rebuildingFailedIndexes?'正在重建…':'重建索引')}</Button.Root></div>{/if}{#if failedIndexRetryError}<p class="index-retry-error" role="alert">{failedIndexRetryError}</p>{/if}</div>{/if}</div><div class="sidebar-bottom"><div class="sidebar-tools"><Button.Root class="sidebar-settings" aria-label={$t("设置")} title={$t("设置")} onclick={()=>{settingsPage='general';settingsOpen=true}}>{@html icon('settings')}<span>{$t("设置")}</span></Button.Root>{#if !web}<DoclingDownload/>{/if}{#if onWebSignOut}<Button.Root title={$t("退出网页")} aria-label={$t("退出网页")} onclick={async()=>{if(await protect())onWebSignOut?.()}}>{$t("退出")}</Button.Root>{/if}<Button.Root class="sidebar-help" aria-label={$t("打开帮助文档")} title={$t("帮助文档")} onclick={()=>{void api('open_external_link',{url:'http://sag-wiki.zleap.com'}).catch(e=>notify($t(String(e))))}}>{@html icon('help')}</Button.Root><Button.Root aria-label={$t("切换明暗主题")} onclick={()=>{if(settings)saveSettings({...settings,theme:settings.theme==='dark'?'light':'dark'},'','').then(()=>notify($t('设置已保存'))).catch(e=>notify($t(String(e))))}}>{@html icon(settings?.theme==='dark'?'sun':'moon')}</Button.Root></div></div></aside>
+ <div class="index-status">{#if (roots.length||indexing||retryCycleActive)&&dismissedIndexResult!==indexResultSignature}<IndexStatusCard active={indexing||retryCycleActive} paused={indexPaused} retrying={retryCycleActive||rebuildingFailedIndexes} retryBusy={rebuildingFailedIndexes} retryTotal={retryDocuments.length||failedIndexFiles} task={indexProgress?indexParserTask:(indexTasks.find(task=>task.kind!=='enhancement')??indexTasks[0])} progress={indexProgress} failures={retryCycleActive?retryDocuments:failedIndexDocuments} failureCount={retryCycleActive?retryDocuments.length||failedIndexFiles:failedIndexFiles} {roots} {conversionStates} recentFiles={recentIndexedFiles} retryError={failedIndexRetryError} onDismiss={()=>{if(!indexing&&!indexPaused&&!retryCycleActive&&!rebuildingFailedIndexes)dismissedIndexResult=indexResultSignature}} onRetry={rebuildFailedIndexes} onHistory={()=>indexDetailsOpen=true}/>{/if}</div><div class="sidebar-bottom"><div class="sidebar-tools"><Button.Root class="sidebar-settings" aria-label={$t("设置")} title={$t("设置")} onclick={()=>{settingsPage='general';settingsOpen=true}}>{@html icon('settings')}<span>{$t("设置")}</span></Button.Root>{#if !web}<DoclingDownload/>{/if}{#if onWebSignOut}<Button.Root title={$t("退出网页")} aria-label={$t("退出网页")} onclick={async()=>{if(await protect())onWebSignOut?.()}}>{$t("退出")}</Button.Root>{/if}<Button.Root class="sidebar-help" aria-label={$t("打开帮助文档")} title={$t("帮助文档")} onclick={()=>{void api('open_external_link',{url:'http://sag-wiki.zleap.com'}).catch(e=>notify($t(String(e))))}}>{@html icon('help')}</Button.Root><Button.Root aria-label={$t("切换明暗主题")} onclick={()=>{if(settings)saveSettings({...settings,theme:settings.theme==='dark'?'light':'dark'},'','').then(()=>notify($t('设置已保存'))).catch(e=>notify($t(String(e))))}}>{@html icon(settings?.theme==='dark'?'sun':'moon')}</Button.Root></div></div></aside>
  <main class="workspace" inert={narrowLayout&&mobileSidebarOpen}><div class="workspace-header" data-tauri-drag-region>
  {#if narrowLayout}<Button.Root bind:ref={mobileSidebarToggle} type="button" class="icon-button mobile-sidebar-toggle" aria-label={$t("展开侧边栏")} aria-controls="workspace-sidebar" aria-expanded={mobileSidebarOpen} onclick={()=>toggleMobileSidebar(true)}>{@html icon('panel')}</Button.Root>{/if}
  {#if narrowLayout && ((view==='ask'&&(shownMessages.length||pending))||(view==='search'&&searched))}<span class="workspace-page-title">{$t(view==='ask'?'问答':'搜索')}</span>{/if}

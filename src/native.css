@@ -367,19 +367,10 @@ input,select,textarea{font-size:var(--text-ui)}
 @keyframes search-progress-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){.real-client .search-loading-icon{animation:none}}
 
-.real-client .index-status-link{display:flex;flex-direction:column;gap:4px;min-width:0;flex:1;text-align:left;white-space:normal;overflow-wrap:anywhere;min-height:44px;padding:4px 0;font:inherit;color:inherit}
-.real-client .index-status-link:hover{color:var(--color-ink);background:transparent;text-decoration:underline;text-underline-offset:3px}
 .index-issues-dialog .dialog-body{display:flex;flex-direction:column;gap:12px}
 .index-issue-details{max-height:50vh;margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font:400 var(--text-ui)/1.7 var(--font-body);color:var(--color-secondary)}
 
 .real-client .index-status:not(:empty){padding:8px 0}
-.real-client .index-status-row{display:flex;align-items:flex-start;gap:8px;min-width:0}
-.real-client .index-status-primary{font-weight:500;color:var(--color-secondary)}
-.real-client .index-status-meta{display:flex;flex-wrap:wrap;gap:2px 8px;font-size:var(--text-caption);color:var(--color-muted)}
-.real-client .index-status-failure{color:var(--color-ink);font-weight:500}
-.real-client .index-status-dismiss{flex-shrink:0;width:28px;height:28px;min-height:28px;margin-top:0;padding:6px;border-radius:6px;color:var(--color-muted);display:flex;align-items:center;justify-content:center}
-.real-client .index-status-dismiss .icon{width:12px;height:12px}
-.real-client .index-status-dismiss:hover{color:var(--color-ink);background:var(--color-selected)}
 
 
 .real-client .sidebar>.tree{flex:1;min-height:0;overscroll-behavior:contain;scrollbar-gutter:stable}
@@ -475,16 +466,6 @@ input,select,textarea{font-size:var(--text-ui)}
 
 /* Index progress reads as a small card above the settings bar. */
 .real-client .index-status:not(:empty){padding:0;margin-top:8px}
-.real-client .index-status-card{border:1px solid var(--color-rule);border-radius:10px;background:var(--color-paper);overflow:hidden}
-.real-client .index-status-row{padding:8px 6px 8px 12px}
-.real-client .index-status-link{min-height:0;padding:2px 0}
-.real-client .index-status-link:hover{text-decoration:none}
-.real-client .index-status-link:hover .index-status-primary{color:var(--color-ink)}
-.real-client .index-status-summary{font-size:var(--text-caption);color:var(--color-secondary);font-variant-numeric:tabular-nums}
-.real-client .index-status-bar{display:block;width:100%;appearance:none;border:0;height:3px;margin:3px 0 2px;border-radius:2px;background:var(--color-hover);overflow:hidden}
-.real-client .index-status-bar::-webkit-progress-bar{background:transparent}
-.real-client .index-status-bar::-webkit-progress-value{background:var(--color-ink)}
-.real-client .index-status-bar::-moz-progress-bar{background:var(--color-ink)}
 
 /* Row menus in the folder tree appear on demand, like conversation rows. */
 @media(hover:hover){.real-client .sidebar .tree-row .tree-more{opacity:0;transition:opacity .12s}.real-client .sidebar .tree-row:is(:hover,:focus-within,.selected) .tree-more{opacity:1}}
@@ -562,25 +543,9 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .note-badge-count{margin-left:auto;margin-right:4px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:color-mix(in srgb,#d9822b 18%,transparent);color:#b5691c;font-size:11px;font-weight:600;line-height:18px;text-align:center;flex-shrink:0}
 .real-client .answer-actions .note-saved{color:var(--color-ink)}
 
-/* Keep parser information separate from the stage, count and dismiss action. */
-.real-client .index-status-parser{font-size:var(--text-caption);color:var(--color-secondary);line-height:1.5;overflow-wrap:anywhere}
 
-/* Segment progress supplements file counts without a competing progress bar. */
-.real-client .index-status-segment{display:flex;flex-wrap:wrap;gap:0 8px;font-size:var(--text-caption);line-height:1.5;color:var(--color-secondary);font-variant-numeric:tabular-nums}
-.real-client .index-status-segment>span{white-space:nowrap}
-.real-client .index-status-pages{opacity:.8}
 .real-client .index-file-segment{display:block;font-size:var(--text-caption);color:var(--color-secondary);line-height:1.5;font-variant-numeric:tabular-nums}
 
-.real-client .index-retry-action{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 10px;padding:8px 0 10px;border-top:1px solid var(--color-rule)}
-.real-client .index-retry-hint{min-width:0;font-size:var(--text-caption);line-height:1.4;color:var(--color-secondary)}
-.real-client .index-retry-button{display:inline-flex;align-items:center;justify-content:center;gap:5px;flex-shrink:0;min-height:30px;padding:4px 8px;border:1px solid var(--color-rule);border-radius:6px;background:var(--color-paper);color:var(--color-ink);font-size:var(--text-caption);font-weight:500;white-space:nowrap;transition:background .15s ease,border-color .15s ease}
-.real-client .index-retry-button>span{display:inline-flex}
-.real-client .index-retry-button .icon{width:13px;height:13px}
-.real-client .index-retry-button:hover:not(:disabled){background:var(--color-selected)}
-.real-client .index-retry-button:focus-visible{outline:2px solid var(--color-ink);outline-offset:2px}
-.real-client .index-retry-button:disabled{opacity:.55;cursor:default}
-.real-client .index-retry-error{margin:0;padding:0 12px 10px;color:var(--color-ink);font-size:var(--text-caption);line-height:1.5;overflow-wrap:anywhere}
-@media(prefers-reduced-motion:no-preference){.real-client .index-retry-button .retry-spinning{animation:search-progress-spin 1s linear infinite}}
 
 :is([data-sag-web],html:has(.real-client)) body{min-width:0}
 @media(max-width:680px){

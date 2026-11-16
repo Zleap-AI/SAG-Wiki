@@ -2,35 +2,44 @@
 use super::*;
 use std::collections::{BTreeMap, BTreeSet};
 
-fn failed_files(db: &Connection) -> Result<Vec<(String, Vec<PathBuf>)>> {
+fn failed_documents(db: &Connection) -> Result<Vec<sag_protocol::IndexFailure>> {
     let mut query = db.prepare(
-        "SELECT i.root,COALESCE(c.source,i.path) FROM index_issues i
+        "SELECT i.root,COALESCE(c.source,i.path),i.error FROM index_issues i
          JOIN roots r ON r.path=i.root
          LEFT JOIN conversions c ON c.root=i.root AND c.output=i.path
          WHERE r.status IN ('partial','error') AND i.error NOT LIKE ?1 ORDER BY i.root,i.path",
     )?;
     let rows = query.query_map([format!("{DIRECTORY_READ_ERROR_PREFIX}%")], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?))
     })?;
-    let mut groups = BTreeMap::<String, BTreeSet<PathBuf>>::new();
+    let mut documents = BTreeMap::new();
     for row in rows {
-        let (root, file) = row?;
-        let path = PathBuf::from(file);
+        let (root, file, error) = row?;
+        let path = PathBuf::from(&file);
         // walk_entry's persisted prefix excludes genuine directory failures.
         // Keep file-origin failures even if the path is now a directory, so
         // exact-file cleanup can retire the old issue without touching children.
         if path != Path::new(&root) && path.starts_with(&root) && !ignore_rules::is_rule_file(&path)
         {
-            groups.entry(root).or_default().insert(path);
+            documents.insert((root.clone(), file.clone()), sag_protocol::IndexFailure { path: file, root, error });
         }
     }
-    Ok(groups
-        .into_iter()
-        .map(|(root, paths)| (root, paths.into_iter().collect()))
-        .collect())
+    Ok(documents.into_values().collect())
+}
+
+fn failed_files(db: &Connection) -> Result<Vec<(String, Vec<PathBuf>)>> {
+    let mut groups = BTreeMap::<String, BTreeSet<PathBuf>>::new();
+    for file in failed_documents(db)? {
+        groups.entry(file.root).or_default().insert(PathBuf::from(file.path));
+    }
+    Ok(groups.into_iter().map(|(root, paths)| (root, paths.into_iter().collect())).collect())
 }
 
 impl Store {
+    pub fn failed_index_documents(&self) -> Result<Vec<sag_protocol::IndexFailure>> {
+        failed_documents(&self.connection())
+    }
+
     pub fn failed_index_count(&self) -> Result<usize> {
         Ok(failed_files(&self.connection())?
             .iter()

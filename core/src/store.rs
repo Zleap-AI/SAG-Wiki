@@ -3459,6 +3459,25 @@ cat "$source" > "$output"
     }
 
     #[test]
+    fn index_status_reports_all_actionable_failed_files_with_reasons() {
+        let (_dir, store, root) = setup();
+        for name in ["first.txt", "second.txt"] {
+            fs::write(root.join(name), [0xff, 0xfe, 0xff]).unwrap();
+        }
+        fs::write(root.join("healthy.md"), "healthy content").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let status = serde_json::to_value(store.index_status().unwrap()).unwrap();
+        let failures = status["failed_documents"].as_array().expect("failed file details are required");
+        assert_eq!(failures.len(), 2);
+        for (failure, name) in failures.iter().zip(["first.txt", "second.txt"]) {
+            assert_eq!(failure["path"], root.join(name).to_string_lossy().as_ref());
+            assert_eq!(failure["root"], root.to_string_lossy().as_ref());
+            assert!(!failure["error"].as_str().unwrap().is_empty());
+        }
+        assert_eq!(status["failed_files"], 2);
+    }
+
+    #[test]
     fn retry_failed_indexes_recovers_native_failures_and_drops_deleted_or_excluded_targets() {
         let (_dir, store, root) = setup();
         let root_text = root.to_str().unwrap();

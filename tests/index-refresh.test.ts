@@ -231,7 +231,35 @@ it('an older App snapshot cannot undo a pause acknowledged by the index dialog',
   changed(); await flush();
   document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click(); await flush();
   document.querySelector<HTMLButtonElement>('[aria-label="暂停索引"]')!.click(); await flush();
-  expect(document.querySelector('.index-status')?.textContent).toContain('索引已暂停');
+  expect(document.querySelector('.index-status')?.textContent).toContain('文档处理已暂停');
   release([]); await flush();
-  expect(document.querySelector('.index-status')?.textContent).toContain('索引已暂停');
+  expect(document.querySelector('.index-status')?.textContent).toContain('文档处理已暂停');
+});
+
+it('status comparisons retain failed-file reasons and segment-only progress changes',async()=>{
+ const {sameIndexStatus}=await import('../src/lib/stable-snapshot');
+ expect(sameIndexStatus(idle,{...idle,failed_files:1,failed_documents:[{root:'/notes',path:'/notes/broken.pdf',error:'conversion failed'}]})).toBe(false);
+ const first:IndexStatus={paused:false,tasks:[{path:'/notes',stage:'enhancing',completed:0,total:1,files:['/notes/long.pdf'],conversions:[{path:'/notes/long.pdf',engine:'Docling',segment:{current:1,total:8,start_page:1,end_page:50}}]}]};
+ const next=structuredClone(first);next.tasks[0].conversions![0].segment={current:2,total:8,start_page:51,end_page:100};
+ expect(sameIndexStatus(first,next)).toBe(false);
+});
+
+it.each(['ready','partial'] as const)('polling ends a short retry missed by events (%s)',async(outcome)=>{
+ let phase='partial';
+ const failure={root:root.path,path:'/notes/broken.pdf',error:'conversion failed'};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {language:'zh-CN',theme:'light',start_page:'ask',answer:{model:'test',models:['test']}};
+  if(command==='list_roots')return [{...root,status:phase,error:phase==='partial'?'conversion failed':null}];
+  if(command==='get_index_status')return {paused:false,tasks:[],failed_files:phase==='ready'?0:1,failed_documents:phase==='ready'?[]:[failure]};
+  if(command==='retry_failed_indexes'){phase='pending';return [{...root,status:'pending'}]}
+  return [];
+ });
+ app=mount(App,{target:document.body});await flush();
+ document.querySelector<HTMLButtonElement>('.index-retry-button')!.click();await flush();
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在重试失败文件');
+ phase=outcome; // No task-start snapshot or completion event reaches the UI.
+ await vi.advanceTimersByTimeAsync(1000);await flush();
+ expect(document.querySelector('.index-status-primary')?.textContent).not.toContain('正在重试失败文件');
+ if(outcome==='partial')expect(document.querySelector<HTMLButtonElement>('.index-retry-button')?.disabled).toBe(false);
+ else expect(document.querySelector('.index-status-primary')?.textContent).toBe('文档解析完成');
 });
