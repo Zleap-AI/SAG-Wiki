@@ -92,6 +92,17 @@ test('successive off-main releases include only new Unreleased bilingual bullet 
   } finally { f.close(); }
 });
 
+test('preserves issue and PR links after functional descriptions but rejects link-only entries', () => {
+  const issue = '[Issue #123](https://github.com/Zleap-AI/SAG-Wiki/issues/123)';
+  const pr = '[PR #142](https://github.com/Zleap-AI/SAG-Wiki/pull/142)';
+  const wrap = (zh, en) => `# Changelog\n\n## 9.8.7\n\n- ${zh}\n\n### English\n\n- ${en}\n`;
+  const notes = wrap(`修复公式显示。（${issue}，${pr}）`, `Fix formula rendering. (${issue}, ${pr})`);
+  assert.equal(releaseNotes(notes, '9.8.7'), notes.slice(notes.indexOf('## 9.8.7')));
+  for (const [zh, en] of [[`修复公式显示。 ${pr}`, pr], ['[问题 #123](https://github.com/Zleap-AI/SAG-Wiki/issues/123)', 'Fix formula rendering.']]) {
+    assert.throws(() => releaseNotes(wrap(zh, en), '9.8.7'), /change descriptions/i);
+  }
+});
+
 test('rejects boilerplate, commit subjects, hashes, migration prose and malformed bilingual sections', () => {
   const wrap = (zh, en = '- Fix formula rendering.') => `# Changelog\n\n## 9.8.7\n\n${zh}\n\n### English\n\n${en}\n`;
   assert.equal(releaseNotes(wrap('- 修复公式显示。'), '9.8.7'), '## 9.8.7\n\n- 修复公式显示。\n\n### English\n\n- Fix formula rendering.\n');

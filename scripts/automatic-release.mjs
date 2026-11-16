@@ -76,7 +76,10 @@ export function releaseNotes(changelog, version) {
   for (const [index, part] of parts.entries()) {
     const lines = part.split('\n').filter(line => line.trim());
     assert.ok(lines.length && lines.every(line => /^- \S/.test(line)), 'Release notes must contain only bilingual change bullets');
-    assert.ok(lines.every(line => (index === 0 ? /[\p{Script=Han}]/u : /[a-zA-Z]/).test(line)), 'Release notes require Chinese and English change descriptions');
+    // Issue/PR links may follow a change, but their labels/URLs are not the
+    // functional description. Preserve the original Markdown in the output.
+    assert.ok(lines.every(line => (index === 0 ? /[\p{Script=Han}]/u : /[a-zA-Z]/)
+      .test(line.replace(/\[[^\]]*\]\(https?:\/\/[^)\s]+\)|https?:\/\/\S+/g, ''))), 'Release notes require Chinese and English change descriptions');
   }
   assert.doesNotMatch(section.body, /自动发布[：:]|Automatic release:|更新签名迁移|Update signing migration/i, 'Release notes cannot contain generated boilerplate or signing migration prose');
   assert.doesNotMatch(section.body, /^- (?:\*\*)?(?:feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(?:\([^\n)]*\))?!?:/im, 'Release notes cannot contain commit subjects');

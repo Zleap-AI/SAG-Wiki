@@ -2,13 +2,13 @@
 
 ## 0.3.2
 
-- 修复转换文档中的上下标丢失，以及以上下标标签开头的公式行被错误显示为代码块的问题。
+- 修复转换文档中的上下标丢失，以及以上下标标签开头的公式行被错误显示为代码块的问题。（[PR #142](https://github.com/Zleap-AI/SAG-Wiki/pull/142)）
 - 孤立的上下标片段保留为文本，同时正确渲染带底数的前置上下标和转义下划线公式。
 - 修复 MinerU 分段解析结果重复包裹公式定界符导致的显示错误，并兼容不同的公式类型和正文格式。
 
 ### English
 
-- Preserve superscripts and subscripts in converted documents, and prevent formula lines starting with script tags from appearing as code blocks.
+- Preserve superscripts and subscripts in converted documents, and prevent formula lines starting with script tags from appearing as code blocks. ([PR #142](https://github.com/Zleap-AI/SAG-Wiki/pull/142))
 - Keep isolated script fragments literal while correctly rendering leading scripts followed by a base and formulas containing escaped underscores.
 - Fix formula rendering errors caused by duplicated delimiters in segmented MinerU results, and support alternate equation types and content fields.
 
