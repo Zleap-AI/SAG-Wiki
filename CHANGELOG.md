@@ -1,5 +1,19 @@
 # 更新日志 / Changelog
 
+## 0.3.1
+
+- **Docling 安装与转换**：统一处理 Windows 文档组件的资源、模型目录及转换任务输入输出路径，修复 `additional.dat` 和 `tm_config.json` 的读取错误。保留已下载并校验通过的安装包，安装失败后重试复用缓存；缓存损坏或安装包变化时重新下载。
+- **快速入门**：首次启动时独立显示教程，避免后台加载、启动错误或快捷搜索导致教程被跳过。
+- **Windows 窗口**：重复打开程序时恢复已有主窗口，避免创建重复窗口。
+- **退出应用**：Windows 从托盘或应用菜单退出时，先停止独立后台服务并阻止自动重启，再退出客户端，修复退出时偶发的“访问被拒绝”错误。macOS 保留原有行为，退出客户端后后台继续运行，CLI 和 MCP 可继续使用；关闭窗口时隐藏应用。
+
+### English
+
+- **Docling installation and conversion**: Handle Windows document component resource paths, model directories and conversion input/output paths consistently. Fix errors reading `additional.dat` and `tm_config.json`. Cache completed, verified downloads and reuse them after installation failures. Download again when the cache is damaged or the package changes.
+- **Quick start**: Show the first-launch tutorial independently of background loading, startup errors and quick search.
+- **Windows app**: Restore the existing main window when reopening the app, avoiding duplicate windows.
+- **App exit**: On Windows, quitting from the tray or app menu stops the standalone service before exiting the client and prevents automatic restarts during shutdown. Fix an intermittent “Access is denied” error during shutdown. macOS retains its existing behavior: the service keeps running after the client exits, so CLI and MCP remain available. Closing the window hides the app.
+
 ## 0.3.0
 
 - **聊天记录导入**：支持将 Claude Code 和 Codex 本地聊天记录转换为 Markdown，默认保存到 `文档/sag-wiki/agent-history`，按 `claude code` 和 `codex` 分子文件夹，也可更改保存位置。

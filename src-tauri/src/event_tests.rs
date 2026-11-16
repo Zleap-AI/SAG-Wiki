@@ -1,6 +1,7 @@
 use super::*;
 use sag_client::wire;
 use sag_protocol::{Endpoint, EventEnvelope, Frame, ServiceInfo, Snapshot};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     test::{mock_builder, mock_context, noop_assets},
@@ -11,6 +12,103 @@ use tokio::{
     net::TcpListener,
     sync::{mpsc, Notify},
 };
+
+fn quitting_state<R: tauri::Runtime>(app: &tauri::App<R>, data: &Path) -> Arc<AppState<R>> {
+    Arc::new(AppState {
+        client: Mutex::new(Client::disconnected()),
+        reconnect: tokio::sync::Mutex::new(()),
+        app: app.handle().clone(),
+        data_dir: data.into(),
+        service_binary: data.join("must-not-start"),
+        cli_install_error: Mutex::new(None),
+        quitting: AtomicBool::new(false),
+    })
+}
+
+async fn shutdown_server(
+    data: &Path,
+    reject: bool,
+) -> (tokio::task::JoinHandle<()>, Arc<Notify>, Arc<Notify>) {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let instance = std::fs::OpenOptions::new().create(true).truncate(false)
+        .read(true).write(true).open(data.join("cli-instance.lock")).unwrap();
+    instance.lock().unwrap();
+    let endpoint = data.join("sag-service.json");
+    let info = ServiceInfo {
+        version: Some(protocol::BUILD_VERSION.into()), protocol_version: protocol::VERSION,
+        build_id: protocol::BUILD_ID.into(), channel: protocol::BUILD_CHANNEL.into(),
+        pid: std::process::id(), executable: String::new(), data_directory: data.display().to_string(),
+    };
+    std::fs::write(&endpoint, serde_json::to_vec(&Endpoint {
+        protocol_version: protocol::VERSION, port: listener.local_addr().unwrap().port(),
+        pid: info.pid, token: "quit-test".into(),
+    }).unwrap()).unwrap();
+    let requested = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let notified = requested.clone();
+    let finish = release.clone();
+    let server = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let (read, mut write) = stream.into_split();
+        let mut read = BufReader::new(read);
+        assert!(matches!(wire::read(&mut read).await.unwrap(), Some(Frame::Hello { .. })));
+        wire::write(&mut write, &Frame::Welcome { info }).await.unwrap();
+        let Some(Frame::Request { id, operation: Operation::Shutdown }) = wire::read(&mut read).await.unwrap() else {
+            panic!("quit did not request service shutdown");
+        };
+        let result = if reject { Err("stop refused".into()) } else { Ok(Output::Unit) };
+        wire::write(&mut write, &Frame::Response { id, result }).await.unwrap();
+        notified.notify_one();
+        finish.notified().await;
+        std::fs::remove_file(endpoint).unwrap();
+        drop(instance);
+    });
+    (server, requested, release)
+}
+
+#[tokio::test]
+async fn quitting_without_a_service_does_not_start_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+    let state = quitting_state(&app, dir.path());
+    stop_background(&state).await.unwrap();
+    assert!(state.quitting.load(Ordering::Relaxed));
+    assert!(rpc(&state, Operation::Info).await.unwrap_err().contains("正在退出"));
+    assert!(!dir.path().join("sag-service.json").exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn quitting_waits_for_service_release_and_blocks_automatic_restart() {
+    // Repeated shutdowns catch Windows endpoint deletion racing the status check.
+    for _ in 0..32 {
+        let dir = tempfile::tempdir().unwrap();
+        let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+        let state = quitting_state(&app, dir.path());
+        let (server, requested, release) = shutdown_server(dir.path(), false).await;
+        let copy = state.clone();
+        let quitting = tokio::spawn(async move { stop_background(&copy).await });
+        tokio::time::timeout(Duration::from_secs(3), requested.notified()).await.unwrap();
+        assert!(!quitting.is_finished(), "quit completed before the service released its instance");
+        assert!(rpc(&state, Operation::Info).await.unwrap_err().contains("正在退出"));
+        release.notify_one();
+        tokio::time::timeout(Duration::from_secs(3), quitting).await.unwrap().unwrap().unwrap();
+        server.await.unwrap();
+        assert!(!dir.path().join("sag-service.json").exists());
+        assert!(rpc(&state, Operation::Info).await.unwrap_err().contains("正在退出"));
+    }
+}
+
+#[tokio::test]
+async fn failed_quit_reports_the_error_and_allows_retry() {
+    let dir = tempfile::tempdir().unwrap();
+    let app = mock_builder().build(mock_context(noop_assets())).unwrap();
+    let state = quitting_state(&app, dir.path());
+    let (server, _, release) = shutdown_server(dir.path(), true).await;
+    assert!(stop_background(&state).await.unwrap_err().contains("stop refused"));
+    assert!(!state.quitting.load(Ordering::Relaxed));
+    release.notify_one();
+    server.await.unwrap();
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
@@ -126,6 +224,7 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
         data_dir: dir.path().into(),
         service_binary: PathBuf::new(),
         cli_install_error: Mutex::new(None),
+        quitting: AtomicBool::new(false),
     });
     let forwarding = forward_events(state.clone());
     tokio::time::timeout(Duration::from_secs(3), progress.recv())
