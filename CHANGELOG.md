@@ -1,8 +1,15 @@
 # 更新日志 / Changelog
 
-## Unreleased
+## 0.3.4
 
 - **Windows 远程服务**：修复打开远程服务设置后，后台状态检查反复弹出命令行窗口的问题。
+
+### English
+
+- **Windows remote services**: Prevent background status checks from repeatedly opening a command window while Remote services settings is open.
+
+## 0.3.3
+
 - **文档处理进度**：精简侧栏状态，默认显示当前任务的文件进度和文档名称；详情展示搜索可用状态、解析方式、PDF 分段及页码，处理结束后不再保留当前文档名称，并可关闭状态卡片。
 - **失败文件重试**：详情列出失败文件及原因，仅重试失败文件并保留成功索引；修复错过任务开始或完成通知时，界面可能一直显示重试中的问题。
 - **MinerU 表格兼容**：保留图片表格、标题和脚注，跳过空占位项，支持含空格的图片路径；缺少有效表格内容或图片时仍尝试下一解析方式。
@@ -10,7 +17,6 @@
 
 ### English
 
-- **Windows remote services**: Prevent background status checks from repeatedly opening a command window while Remote services settings is open.
 - **Document processing progress**: Simplify the sidebar to show the current task's file progress and document name. Expand details for search availability, the parser, PDF parts and page ranges. Clear the current document name when processing ends and allow the finished status card to be dismissed.
 - **Failed-file retry**: List failed files and their causes in details, retry only those files and preserve successful indexes. Fix the interface remaining stuck in retry mode when task-start or completion notifications are missed.
 - **MinerU table compatibility**: Preserve image-only tables, captions and footnotes, skip empty placeholders and support image paths containing spaces. Continue to the next applicable parser when meaningful table content or image assets are missing.

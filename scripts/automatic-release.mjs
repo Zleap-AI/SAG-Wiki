@@ -68,7 +68,7 @@ const hasReleaseNotes = (changelog, version) => Boolean(changelogSection(changel
 // prose, extra headings and known generated/commit metadata fail before tagging.
 export function releaseNotes(changelog, version) {
   const section = changelogSection(changelog, version);
-  assert.ok(section, `Missing bilingual release notes for ${version}; add CHANGELOG.md Unreleased notes before merging.`);
+  assert.ok(section, `Missing bilingual release notes for ${version}; add a numbered CHANGELOG.md section before merging.`);
   const parts = section.body.split(/^### English[ \t]*$/m);
   assert.equal(parts.length, 2, 'Bilingual release notes require Chinese bullets followed by ### English and English bullets');
   const groups = parts.map(part => part.split('\n').filter(line => line.trim()));
@@ -90,6 +90,8 @@ export function releaseNotes(changelog, version) {
 function preparedChangelog(changelog, version, baselineChangelog = '') {
   const reviewed = changelogSection(changelog, version);
   if (reviewed) { releaseNotes(changelog, version); return changelog; }
+  // Retain this legacy transform to verify already-published schema-2 tags.
+  // New product PRs require numbered sections before merging.
   const pending = changelogSection(changelog, 'Unreleased');
   releaseNotes(changelog, 'Unreleased');
   const previous = changelogSection(baselineChangelog, 'Unreleased');
@@ -121,6 +123,7 @@ export function validatePullRequestNotes(git, base, source) {
   if (!hasProductChanges(paths)) return false;
   assert.ok(paths.includes('CHANGELOG.md'), 'Product PRs must update CHANGELOG.md with reviewed bilingual release notes before merging');
   const changelog = blob(git, source, 'CHANGELOG.md');
+  assert.doesNotMatch(changelog, /^## Unreleased(?:\s|$)/im, 'Use numbered release notes instead of an Unreleased heading');
   const version = releaseVersion([JSON.parse(blob(git, source, 'package.json')).version], git('tag', '--list', 'v*').split('\n'), changelog);
   const baselineChangelog = blob(git, base, 'CHANGELOG.md');
   const reviewed = changelogSection(changelog, version);
