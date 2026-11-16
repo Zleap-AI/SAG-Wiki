@@ -167,11 +167,14 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   if(indexTasks.length){const task=indexTasks.find(task=>task.kind!=='enhancement')??indexTasks[0];indexProgress={id:indexTaskKey(task),kind:task.kind,path:task.path,count:task.completed,total:task.total,stage:task.stage,summary:task.summary};}
   else if(wasActive)indexProgress=null;
  }
+ function reconcileRetryCycle(status:IndexStatus,nextRoots:Root[]){
+  if(retryCycleActive&&!rebuildingFailedIndexes&&!status.tasks?.length&&!nextRoots.some(root=>root.status==='pending'||root.status==='indexing')){retryCycleActive=false;retryDocuments=[];}
+ }
  function pollIndexStatus(){let disposed=false,timer:ReturnType<typeof setTimeout>;
-  const poll=async()=>{try{if(!loading&&!refreshRunning&&(indexing||indexPaused)){
+  const poll=async()=>{try{if(!loading&&!refreshRunning&&(indexing||indexPaused||retryCycleActive)){
    const generation=refreshGeneration;
    const [status,nextRoots]=await Promise.all([api<IndexStatus>('get_index_status'),api<Root[]>('list_roots')]);
-   if(disposed||generation!==refreshGeneration)return;const finished=indexTasks.length>0&&!status.tasks?.length;applyIndexStatus(status);roots=stableRows(roots,nextRoots,root=>root.path);
+   if(disposed||generation!==refreshGeneration)return;const wasRetrying=retryCycleActive;reconcileRetryCycle(status,nextRoots);const finished=(indexTasks.length>0&&!status.tasks?.length)||(wasRetrying&&!retryCycleActive);applyIndexStatus(status);roots=stableRows(roots,nextRoots,root=>root.path);
    if(finished)void refresh().catch(error=>notify($t(String(error))));
   }}catch{/* Events and the next snapshot recover a transient polling failure. */}finally{if(!disposed)timer=setTimeout(poll,1000)}};
   timer=setTimeout(poll,1000);return()=>{disposed=true;clearTimeout(timer)};
@@ -205,7 +208,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
      if(added.length)recentIndexedFiles=[...new Set([...added,...recentIndexedFiles])].slice(0,5);
     }
     workspaceSnapshotLoaded=true;
-    if(retryCycleActive&&!rebuildingFailedIndexes&&!nextStatus.tasks?.length&&!nextRoots.some(root=>root.status==='pending'||root.status==='indexing')){retryCycleActive=false;retryDocuments=[];}
+    reconcileRetryCycle(nextStatus,nextRoots);
     const stableRoots=stableRows(roots,nextRoots,root=>root.path),stableFiles=stableRows(files,nextFiles,file=>file.id);
     if(stableRoots!==roots)roots=stableRoots;
     if(stableFiles!==files)files=stableFiles;

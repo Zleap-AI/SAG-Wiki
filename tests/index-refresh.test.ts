@@ -243,3 +243,23 @@ it('status comparisons retain failed-file reasons and segment-only progress chan
  const next=structuredClone(first);next.tasks[0].conversions![0].segment={current:2,total:8,start_page:51,end_page:100};
  expect(sameIndexStatus(first,next)).toBe(false);
 });
+
+it.each(['ready','partial'] as const)('polling ends a short retry missed by events (%s)',async(outcome)=>{
+ let phase='partial';
+ const failure={root:root.path,path:'/notes/broken.pdf',error:'conversion failed'};
+ invoke.mockImplementation(async command=>{
+  if(command==='get_settings')return {language:'zh-CN',theme:'light',start_page:'ask',answer:{model:'test',models:['test']}};
+  if(command==='list_roots')return [{...root,status:phase,error:phase==='partial'?'conversion failed':null}];
+  if(command==='get_index_status')return {paused:false,tasks:[],failed_files:phase==='ready'?0:1,failed_documents:phase==='ready'?[]:[failure]};
+  if(command==='retry_failed_indexes'){phase='pending';return [{...root,status:'pending'}]}
+  return [];
+ });
+ app=mount(App,{target:document.body});await flush();
+ document.querySelector<HTMLButtonElement>('.index-retry-button')!.click();await flush();
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在重试失败文件');
+ phase=outcome; // No task-start snapshot or completion event reaches the UI.
+ await vi.advanceTimersByTimeAsync(1000);await flush();
+ expect(document.querySelector('.index-status-primary')?.textContent).not.toContain('正在重试失败文件');
+ if(outcome==='partial')expect(document.querySelector<HTMLButtonElement>('.index-retry-button')?.disabled).toBe(false);
+ else expect(document.querySelector('.index-status-primary')?.textContent).toBe('文档解析完成');
+});
