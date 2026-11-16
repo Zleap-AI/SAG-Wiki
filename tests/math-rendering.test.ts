@@ -55,6 +55,13 @@ describe('inline math', () => {
   expect(doc.querySelector('.math-inline')).toBeNull();
   expect(doc.body.textContent).toContain('$x$');
  });
+
+ it.each([String.raw`_{2}^{3}He`,String.raw`^{14}C`,String.raw`x\_`])('renders valid scripts and escaped symbols: %s', tex => {
+  const doc=render(`$${tex}$`);
+  expect(doc.querySelector('.math-inline')?.getAttribute('data-tex')).toBe(tex);
+  expect(doc.querySelector('.katex')).not.toBeNull();
+  expect(doc.querySelector('.katex-error')).toBeNull();
+ });
 });
 
 describe('display math', () => {
@@ -109,6 +116,28 @@ describe('answers', () => {
   const doc=new DOMParser().parseFromString(html,'text/html');
   expect(doc.querySelectorAll('button.citation')).toHaveLength(1);
   expect(doc.querySelector('.math-inline')).not.toBeNull();
+ });
+});
+
+describe('converted document runs', () => {
+ it('keeps sub/sup runs instead of dropping or code-fencing them', () => {
+  const inline=render('*e <sup>jωt</sup>dt* and V<sub>in</sub>');
+  expect(inline.querySelector('sup')?.textContent).toBe('jωt');
+  expect(inline.querySelector('sub')?.textContent).toBe('in');
+  const block=render('<sup>j</sup> <u>C<sub>I</sub></u> (25.27)');
+  expect(block.querySelector('pre')).toBeNull();
+  expect(block.querySelector('sup')?.textContent).toBe('j');
+  expect(block.querySelector('sub')?.textContent).toBe('I');
+ });
+
+ it('keeps an orphan script fragment literal', () => {
+  expect(render('V$_{0}$ ¼ A sin ω t').querySelector('.math-inline')).toBeNull();
+ });
+
+ it.each(['_{0}','^2','_0^{2}'])('keeps script-only fragments literal: %s', tex => {
+  const doc=render(`V$${tex}$`);
+  expect(doc.querySelector('.math-inline')).toBeNull();
+  expect(doc.body.textContent).toBe(`V$${tex}$`);
  });
 });
 

@@ -33,9 +33,11 @@ Answers display Markdown headings, tables, block quotes, ordered and unordered l
 
 Code blocks marked `mermaid` in answers are rendered locally as diagrams. Invalid syntax keeps the source visible and displays an error. See [Mermaid diagrams](/en/docs/files#mermaid-diagrams) for supported types and an example.
 
-Mathematical formulas in answers are rendered locally: inline with `$…$` or `\(…\)`, display with `$$…$$` or `\[…\]`. Currency amounts, `$HOME`-style text, code spans and code blocks stay literal; a formula that cannot be parsed shows an error and keeps its source for copying. The reader view for knowledge-base documents renders formulas the same way.
+Mathematical formulas in answers are rendered locally: inline with `$…$` or `\(…\)`, display with `$$…$$` or `\[…\]`. Currency amounts, `$HOME`-style text, code spans and code blocks stay literal; a formula that cannot be parsed shows an error and keeps its source for copying. The reader view for knowledge-base documents renders formulas the same way. Superscripts and subscripts kept by document conversion display as such; a PDF formula becomes TeX only when the parser supplies LaTeX, for example with MinerU formula recognition enabled.
 
 Fonts used for formula rendering are bundled with the app and remain available offline; no CDN is used.
+
+Isolated script fragments wrapped in `$…$` (such as `$_{0}$` in `V$_{0}$`) stay literal. Leading scripts followed by a base (such as `$_{2}^{3}He$`) and escaped underscores (such as `$x\_$`) still render as formulas.
 
 For commands or paths containing multiple `$` characters, use inline code, such as `$HOME/$USER`, to keep the text literal.
 
