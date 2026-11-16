@@ -37,6 +37,8 @@ Mathematical formulas in answers are rendered locally: inline with `$…$` or `\
 
 Fonts used for formula rendering are bundled with the app and remain available offline; no CDN is used.
 
+Isolated script fragments wrapped in `$…$` (such as `$_{0}$` in `V$_{0}$`) stay literal. Leading scripts followed by a base (such as `$_{2}^{3}He$`) and escaped underscores (such as `$x\_$`) still render as formulas.
+
 For commands or paths containing multiple `$` characters, use inline code, such as `$HOME/$USER`, to keep the text literal.
 
 ## Open a citation

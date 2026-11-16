@@ -55,6 +55,13 @@ describe('inline math', () => {
   expect(doc.querySelector('.math-inline')).toBeNull();
   expect(doc.body.textContent).toContain('$x$');
  });
+
+ it.each([String.raw`_{2}^{3}He`,String.raw`^{14}C`,String.raw`x\_`])('renders valid scripts and escaped symbols: %s', tex => {
+  const doc=render(`$${tex}$`);
+  expect(doc.querySelector('.math-inline')?.getAttribute('data-tex')).toBe(tex);
+  expect(doc.querySelector('.katex')).not.toBeNull();
+  expect(doc.querySelector('.katex-error')).toBeNull();
+ });
 });
 
 describe('display math', () => {
@@ -125,6 +132,12 @@ describe('converted document runs', () => {
 
  it('keeps an orphan script fragment literal', () => {
   expect(render('V$_{0}$ ¼ A sin ω t').querySelector('.math-inline')).toBeNull();
+ });
+
+ it.each(['_{0}','^2','_0^{2}'])('keeps script-only fragments literal: %s', tex => {
+  const doc=render(`V$${tex}$`);
+  expect(doc.querySelector('.math-inline')).toBeNull();
+  expect(doc.body.textContent).toBe(`V$${tex}$`);
  });
 });
 
