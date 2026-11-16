@@ -34,6 +34,10 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
         if (name === 'config/updates/legacy-latest.json') copyFileSync(join(root, name), destination);
         else writeFileSync(destination, readFileSync(join(root, name), 'utf8').replace(/\r?\n/g, newline));
       }
+      // Assembly verifies signatures and payload selection, independently of historical prose.
+      const fixtureVersion = json(join(checkout, 'package.json')).version;
+      writeFileSync(join(checkout, 'CHANGELOG.md'),
+        `# Assembly fixture\n\n## ${fixtureVersion}\n\n- 验证签名发布组装。\n\n### English\n\n- Verify signed release assembly.\n`.replace(/\n/g, newline));
       symlinkSync(join(root, 'node_modules'), join(checkout, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
       const privateKey = join(temporary, 'disposable signing key');
       const env = {...process.env, TAURI_SIGNING_PRIVATE_KEY: privateKey, TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ''};

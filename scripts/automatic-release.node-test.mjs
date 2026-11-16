@@ -5,7 +5,7 @@ import {chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, w
 import {dirname, join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
-import {changedPaths, compareVersions, createPreparedCommit, releaseNotes, validatePullRequestNotes, gitAt, hasProductChanges, isProductPath, latestPublished,
+import {changedPaths, compareVersions, createPreparedCommit, validateReleaseDocumentation, releaseNotes, validatePullRequestNotes, gitAt, hasProductChanges, isProductPath, latestPublished,
   shouldSkipRelease, nextVersion, releaseVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
 import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-release-environment.mjs';
 import {validateVersions} from './release.mjs';
@@ -123,7 +123,10 @@ test('premerge product checks require changed reviewed notes while infra changes
     const source = f.save('CHANGELOG.md', '# Changelog\n', 'docs: omit pending notes');
     assert.throws(() => validatePullRequestNotes(f.git, f.baseline, source), /release notes|bilingual/i);
     assert.throws(() => validatePullRequestNotes(f.git, f.baseline, f.source), /numbered|Unreleased/i);
-    const numbered = f.save('CHANGELOG.md', f.git.blob(f.source, 'CHANGELOG.md').replace('## Unreleased', `## ${f.version}`), 'docs: use numbered release notes');
+    const missingDocs = f.save('CHANGELOG.md', f.git.blob(f.source, 'CHANGELOG.md').replace('## Unreleased', `## ${f.version}`), 'docs: use numbered release notes');
+    assert.throws(() => validatePullRequestNotes(f.git, f.baseline, missingDocs), /updates.mdx/);
+    f.save('docs-site/content/docs/updates.mdx', `## ${f.version}\n\n- 改善文档索引。\n`, 'docs: Chinese notes');
+    const numbered = f.save('docs-site/content/docs/updates.en.mdx', `## ${f.version}\n\n- Improve document indexing.\n`, 'docs: English notes');
     assert.equal(validatePullRequestNotes(f.git, f.baseline, numbered), true);
     f.save('CHANGELOG.md', f.git.blob(numbered, 'CHANGELOG.md') + '\n', 'docs: whitespace only');
     const changed = f.save('src/extra.txt', 'Extra product', 'feat: extra');
@@ -503,4 +506,27 @@ test('release skip is scoped to all product commits in the captured push', () =>
     assert.equal(check(next,merged,()=>[pr(merged,['release:skip-extra'])]),false,'label match is exact');
     assert.deepEqual(f.git('tag','--list').split('\n'),[`v${validateVersions(f.directory)}`],'classification creates no tags');
   } finally { f.close(); }
+});
+
+
+test('release documentation requires matching Chinese and English version entries', () => {
+  const files = {
+    'CHANGELOG.md': '## 9.8.7\n\n- 修复阅读。\n\n### English\n\n- Fix reading.\n',
+    'docs-site/content/docs/updates.mdx': '## 9.8.7\n\n- 修复阅读。\n',
+    'docs-site/content/docs/updates.en.mdx': '## 9.8.7\n\n- Fix reading.\n',
+  };
+  const git = {blob: (_, name) => { assert.ok(name in files, `Missing ${name}`); return files[name]; }};
+  assert.doesNotThrow(() => validateReleaseDocumentation(git, 'HEAD', '9.8.7'));
+  for (const name of ['updates.mdx', 'updates.en.mdx']) {
+    const path = `docs-site/content/docs/${name}`, saved = files[path];
+    files[path] = saved.replace('9.8.7', '9.8.6');
+    assert.throws(() => validateReleaseDocumentation(git, 'HEAD', '9.8.7'), /must document release/);
+    files[path] = saved.replace(/^- .+$/m, '- Stale content.');
+    assert.throws(() => validateReleaseDocumentation(git, 'HEAD', '9.8.7'), /must match/);
+    delete files[path];
+    assert.throws(() => validateReleaseDocumentation(git, 'HEAD', '9.8.7'), /Missing/);
+    files[path] = saved;
+  }
+  files['CHANGELOG.md'] = files['CHANGELOG.md'].replace('修复阅读。', '修复阅读。（[PR #149](https://github.com/Zleap-AI/SAG-Wiki/pull/149)）');
+  assert.doesNotThrow(() => validateReleaseDocumentation(git, 'HEAD', '9.8.7'));
 });
