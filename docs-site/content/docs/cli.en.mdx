@@ -153,6 +153,21 @@ Git ignore syntax is supported, including `*`, `**`, trailing-`/` directory rule
 
 Standalone mode rechecks the index before the next search. With desktop auto-watching enabled, creating, modifying, deleting or renaming a rule file rechecks the project, removing newly ignored entries from the index and indexing newly included files. When watching is disabled, use reindexing in File settings. Rules do not delete or hide local files; the SAG file tree still browses them. Only manually removed subdirectories are hidden from the tree.
 
+## Sharing and downloading
+
+These commands do not require model configuration or the desktop app:
+
+```sh
+sag share ./notes
+sag share ./notes/example.md
+sag download ABCDEFGH
+sag download SAG-ABCDEFGH --output ./received
+```
+
+`share` uploads Markdown and referenced images and returns a code valid for one hour. `download` verifies and extracts the files to `sag-wiki/share/share-name/` inside your system Documents folder. It uses the default download folder configured in the desktop app; `--output` overrides it for one download. Duplicate folder names receive a numbered suffix without overwriting existing files. The CLI prints the saved path; run `sag add saved-path` to add it to your knowledge base.
+
+See [file sharing](/en/docs/file-sharing) for supported content and limits.
+
 ## HTTP API
 
 Use `sag api start` and `sag api stop` to manage the HTTP service. Stopping the API leaves indexing and ordinary CLI searches running. `sag api status` shows API and MCP addresses without exposing keys or starting the backend. Add `--json` for JSON output.

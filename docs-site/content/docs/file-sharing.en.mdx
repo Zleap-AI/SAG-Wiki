@@ -1,0 +1,50 @@
+---
+title: "File sharing"
+description: "Send and receive Markdown documents and images using share codes."
+---
+
+File sharing lets you send Markdown documents, folders, and referenced images to others. Recipients can download the content using a share code and add it to their own knowledge base without creating an account.
+
+## Share files
+
+In the desktop app, right-click a Markdown file or folder and choose **Share**. SAG packages Markdown documents and the local images they reference. Folder shares preserve their structure and skip other files and unreferenced images. Sizes are shown in B, KB or MB. Review the document count, image count and size, then choose **Share** and send the `SAG-XXXXXXXX` code.
+
+![Sharing Markdown and referenced images](/images/product-share-en.png)
+
+**Copy share code** copies the code together with download instructions, ready to send:
+
+```text
+Share code: SAG-XXXXXXXX
+Copy this share code and open SAG-Wiki to download the shared files.
+```
+
+## Receive a share
+
+Copy the share code you received, then open or switch back to SAG Wiki. It automatically detects the clipboard content and opens the receive dialog. You can copy `SAG-XXXXXXXX` alone or the full Chinese or English share message, including its download instructions. Review the save location and choose **Download** to start downloading. Clipboard detection is enabled by default.
+
+Codes contain eight letters and digits. The `SAG-` prefix is optional when entering a code.
+
+Open the **Receive share** tab in the Add folder window, or right-click an empty area of the file list and choose **Receive share**. The right-click action opens a standalone receive dialog without tabs. Enter the code and download. You can also use **Settings → Data import → Share → Enter share code**. Opening from an empty area inside a folder uses that folder as the save location. The overview and other entry points use your configured default (`sag-wiki/share/share-name/` inside Documents). You can change it for this download without changing the saved default. Existing folders are preserved and duplicate names receive a numbered suffix. Completed downloads are added to your knowledge base.
+
+![Receive a share and choose a save location](/images/product-receive-en.png)
+
+## Default folder and clipboard
+
+Use **Settings → Data import → Share** to change the default download folder or turn **Detect share codes in clipboard** off or back on. Changes are saved immediately.
+
+## Expiration
+
+Shares are available for one hour with repeat downloads. Downloads stop at expiry and the server subsequently removes the files. No account is required. Anyone with the code can download, so send it only to intended recipients.
+
+## Supported content
+
+SAG first packages the Markdown files and valid referenced images into a ZIP, including each image once. The dialog shows the actual ZIP size. A ZIP over 50 MB is rejected before upload; the uncompressed total is not subject to that limit. A package can contain up to 2000 entries. Supported images are PNG, JPEG, GIF, WebP and AVIF; remote image links remain unchanged. Unreadable images, images outside the shared folder, and unsupported image references are skipped without blocking the share. The original references remain in the Markdown. Save your documents before sharing: the share uses files on disk.
+
+## Share and receive with the CLI
+
+```sh
+sag share ./notes
+sag download SAG-ABCDEFGH
+```
+
+Use `sag download SAG-ABCDEFGH --output ./received` to choose a destination for this download. See [CLI commands](/en/docs/cli#sharing-and-downloading) for details.

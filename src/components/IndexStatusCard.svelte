@@ -17,6 +17,9 @@
  export let onRetry:()=>void;
  export let onHistory:()=>void;
  export let onDismiss:()=>void;
+ export let onPause:()=>Promise<void>;
+ let changingPause=false;
+ async function togglePause(){changingPause=true;try{await onPause()}finally{changingPause=false}}
  let open=false;
  $: currentFiles=active?(task?.files??[]):[];
  $: rootErrors=roots.filter(root=>(root.status==='error'||root.status==='partial')&&root.error);
@@ -33,8 +36,10 @@
 
 <section class="index-status-card" class:has-failures={!active&&failed} aria-label={$t('文档处理状态')}>
  <div class="card-heading">
-  {#if !active&&!paused&&!retrying&&!retryBusy}<button class="dismiss-button" aria-label={$t("隐藏索引状态")} title={$t("隐藏索引状态")} onclick={onDismiss}>{@html icon("close")}</button>{/if}
-  <span class="index-status-primary" role="status" aria-live="polite" title={ariaCounter}>{title}{counter}</span>
+  <div class="card-title-row"><span class="index-status-primary" role="status" aria-live="polite" title={ariaCounter}>{title}{counter}</span><div class="card-actions">
+   {#if active||paused||retrying||retryBusy}<button class="pause-button" aria-label={$t(paused?'继续索引':'暂停索引')} title={$t(paused?'继续索引':'暂停索引')} disabled={changingPause} onclick={togglePause}>{@html icon(paused?'play':'pause')}</button>{/if}
+   <button class="dismiss-button" aria-label={$t("隐藏索引状态")} title={$t("隐藏索引状态")} onclick={onDismiss}>{@html icon("close")}</button>
+  </div></div>
   {#if currentFiles.length}<p class="index-status-current-file" title={currentFiles.map(displayPath).join('\n')}>{basename(currentFiles[0])}{#if currentFiles.length>1}<span> · {$t('等 {value0} 个文件',{value0:currentFiles.length})}</span>{/if}</p>{/if}
  </div>
  <details bind:open>
@@ -79,7 +84,7 @@
 
 <style>
  .index-status-card{border:1px solid var(--color-rule);border-radius:12px;background:var(--color-paper);overflow:hidden;color:var(--color-ink);font-size:12px}
- .card-heading{padding:14px;position:relative}.card-heading:has(.dismiss-button){padding-right:44px}.dismiss-button{position:absolute;right:6px;top:7px;width:30px;height:30px;padding:7px;display:flex;align-items:center;justify-content:center;color:var(--color-secondary)}.dismiss-button :global(svg){width:14px;height:14px}.index-status-primary{font-size:13px;font-weight:600;line-height:1.5;font-variant-numeric:tabular-nums}.has-failures .index-status-primary{color:var(--color-danger)}
+ .card-heading{padding:10px 10px 14px 14px}.card-title-row{display:flex;align-items:flex-start;gap:4px}.card-title-row>.index-status-primary{flex:1;min-width:0;padding-top:4px}.card-actions{display:flex;flex-shrink:0}.card-actions button{width:26px;height:28px;padding:6px;display:flex;align-items:center;justify-content:center;color:var(--color-secondary);border-radius:5px}.card-actions button:hover{background:var(--color-panel)}.card-actions button:disabled{opacity:.5}.card-actions :global(svg){width:14px;height:14px}.index-status-primary{font-size:13px;font-weight:600;line-height:1.5;font-variant-numeric:tabular-nums}.has-failures .index-status-primary{color:var(--color-danger)}
  .index-status-current-file{margin:7px 0 0;font-size:12px;color:var(--color-secondary);overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
  summary{display:flex;align-items:center;gap:6px;padding:9px 14px;min-height:36px;border-top:1px solid var(--color-rule);list-style:none;cursor:pointer;color:var(--color-secondary);font-size:11px}summary::-webkit-details-marker{display:none}summary:hover{background:var(--color-panel)}summary:focus-visible,button:focus-visible{outline:2px solid var(--color-focus);outline-offset:-3px}
  .chevron{display:flex;transform:rotate(-90deg)}details[open] .chevron{transform:none}.chevron :global(svg){width:12px;height:12px}

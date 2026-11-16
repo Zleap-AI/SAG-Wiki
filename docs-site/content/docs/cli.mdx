@@ -152,6 +152,21 @@ notes/draft-*.md
 
 独立模式在下次搜索前重新检查索引。桌面端启用自动监听时，创建、修改、删除或重命名规则文件都会重新检查项目：清除新增忽略项的索引，并索引不再被忽略的文件。关闭监听时，可在文件设置中点击重新索引。规则不会删除或隐藏本地文件，SAG 文件树仍可浏览它们；只有手动移除的子目录会从文件树隐藏。
 
+## 分享与下载
+
+分享与下载无需模型配置，也无需启动桌面端：
+
+```sh
+sag share ./notes
+sag share ./notes/example.md
+sag download ABCDEFGH
+sag download SAG-ABCDEFGH --output ./received
+```
+
+`share` 上传 Markdown 和引用图片，返回有效期为 1 小时的分享码。`download` 校验并解压到系统文档目录下的 `sag-wiki/share/分享名称/`；桌面端设置的默认接收位置同样适用，`--output` 可单次指定位置。同名目录自动编号，不覆盖已有文件。CLI 下载完成后输出保存路径，可执行 `sag add 保存路径` 加入知识库。
+
+支持范围和大小限制见[文件分享](/zh/docs/file-sharing)。
+
 ## HTTP API
 
 使用 `sag api start`、`sag api stop` 开启或关闭 HTTP 服务。关闭 API 后，后台索引和普通 CLI 搜索继续运行。`sag api status` 显示 API 和 MCP 地址，不输出密钥，也不自动启动后台；加 `--json` 可输出 JSON。

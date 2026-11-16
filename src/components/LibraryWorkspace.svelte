@@ -18,6 +18,7 @@
  export let indexTasks:IndexTask[]=[];
  export let conversionStates:ConversionState[]=[];
  export let indexPaused=false;
+ export let showIndexDetails=false;
  $:scopeRoot=scope?roots.filter(root=>inside(scope,displayPath(root.path))).sort((a,b)=>b.path.length-a.path.length)[0]:undefined;
  $:scopeTasks=scopeRoot?indexTasks.filter(task=>task.path===scopeRoot.path).sort((a,b)=>Number(a.kind==='enhancement')-Number(b.kind==='enhancement')):[];
  $:scopeTask=scopeTasks[0];
@@ -26,6 +27,7 @@
  export let onPauseChange:((paused:boolean)=>void)|undefined=undefined;
  export let parent='';
  export let oncreate:(()=>void)|undefined=undefined;
+ export let onBlankMenu:((event:MouseEvent)=>void)|undefined=undefined;
  export let onadd:(()=>void)|undefined=undefined;
  export let onModeChange:(()=>void)|undefined=undefined;
  export let onSettings:(()=>void)|undefined=undefined;
@@ -52,14 +54,20 @@
  $:scopeAttention=!!scope&&entries.some(entry=>!entry.directory&&!!noteByPath.get(entry.path)&&attention(noteByPath.get(entry.path)!));
  function folderAttention(path:string){const prefix=path.replace(/[\\/]$/,'')+(path.includes('\\')?'\\':'/');return notes.filter(note=>note.path.startsWith(prefix)&&attention(note)).length;}
  $:visibleEntries=entries.filter(entry=>!scope||entry.directory||fileFilter==='all'||(fileFilter==='indexed'?indexedPaths.has(entry.path):fileFilter==='notes'?!!noteByPath.get(entry.path)&&attention(noteByPath.get(entry.path)!):!indexedPaths.has(entry.path)));
+ function blankMenu(event:MouseEvent){
+  const target=event.target as Element;
+  if(!onBlankMenu||target.closest('.simple-file-entry,button,a,input,textarea,select'))return;
+  if(target!==event.currentTarget&&!target.closest('.simple-file-list,.empty'))return;
+  event.preventDefault();event.stopPropagation();onBlankMenu(event);
+ }
  function restoreScroll(node:HTMLElement){node.scrollTop=session.fileScroll;return{destroy(){session.fileScroll=node.scrollTop}}}
 </script>
 <div class="library-workspace">
  {#if session.mode==='explore'}<div class="library-explore-heading"><Button.Root class="library-mode-back" onclick={()=>{session.mode='files';onModeChange?.()}}>{@html icon('back')}{$t('返回文件树模式')}</Button.Root><h1>{basename(scope)}</h1>{#if oncreate}<Button.Root class="outline library-folder-action" onclick={oncreate}>{@html icon('plus')}{$t('新建文档')}</Button.Root>{/if}</div><ExploreView {scope} {session} {revision} {onopen}/>{:else}
- <section class="page-wrap folder-browser library-files" use:restoreScroll onscroll={(e)=>{session.fileScroll=e.currentTarget.scrollTop}}>
+ <div class="page-wrap folder-browser library-files" role="region" aria-label={$t('文件列表')} tabindex="-1" oncontextmenu={blankMenu} use:restoreScroll onscroll={(e)=>{session.fileScroll=e.currentTarget.scrollTop}}>
   <div class="page-heading"><div class="library-folder-heading"><div class="library-folder-title"><h1>{scope?basename(scope):$t('已索引文件')}</h1>{#if scope}<Button.Root type="button" class="library-explore" onclick={()=>{session.mode='explore';onModeChange?.()}}>{$t('探索模式')}</Button.Root>{/if}<div class="library-folder-actions">{#if oncreate}<Button.Root class="outline library-folder-action" onclick={oncreate}>{@html icon('plus')}{$t('新建文档')}</Button.Root>{/if}{#if !scope&&onadd}<Button.Root class="outline library-folder-action" onclick={onadd}>{@html icon('plus')}{$t('添加文件夹')}</Button.Root>{/if}</div></div><div class="library-folder-meta"><p class="folder-count">{!scope&&totalFiles!==undefined?$t('{value0} 个文件夹 · {value1} 个已索引文件',{value0:entries.length,value1:totalFiles}):$t('{value0} 个文件夹 · {value1} 个文件',{value0:entries.filter(e=>e.directory).length,value1:visibleEntries.filter(e=>!e.directory).length})}</p>{#if scope}<Button.Root type="button" class="library-file-filter" aria-label={$t('按索引状态筛选')} onclick={()=>fileFilter=fileFilter==='all'?'indexed':fileFilter==='indexed'?'unindexed':fileFilter==='unindexed'&&scopeAttention?'notes':'all'}><span>{$t(fileFilter==='all'?'全部':fileFilter==='indexed'?'已索引':fileFilter==='unindexed'?'未索引':'待核对笔记')}</span>{@html icon('switch')}</Button.Root>{/if}</div></div></div>
   {#if !scope}<LibraryStats files={indexedFiles} {roots} {revision} onDetails={onIndexDetails} {onPauseChange}/>{/if}
-  {#if scopeRoot}<div class="folder-index-status" role="status" aria-live="polite">
+  {#if showIndexDetails&&scopeRoot}<div class="folder-index-status" role="status" aria-live="polite">
    <div><strong>{$t(scopeState)}</strong>{#if scopeTask&&scopeTask.total>0}<span class="folder-index-count">{scopeTask.completed} / {scopeTask.total}</span>{/if}
     {#if scopeTask?.files.length}<p>{$t('正在处理：{value0}',{value0:scopeTask.files.map(basename).join('、')})}</p>
     {:else if scopeState==='等待后台处理'}<p>{$t(indexTasks.length?'后台正在处理其他文件夹，完成后会继续处理此文件夹。':'文件夹已加入处理队列，即将开始扫描。')}</p>
@@ -73,7 +81,7 @@
    {#each visibleEntries as entry}{@const fileState=entry.directory?undefined:fileIndexState(conversionByPath.get(entry.path)??indexedByPath.get(entry.path))}{@const unindexed=!!scope&&!entry.directory&&!indexedPaths.has(entry.path)}<div class="simple-file-entry" class:unindexed role="presentation" oncontextmenu={(e:MouseEvent)=>{e.preventDefault();onmenu(e,entry.path,!scope,!entry.directory)}}><Button.Root class="simple-file-row" title={unindexed?undefined:displayPath(entry.path)} onclick={()=>{if(unindexed){promptPath=entry.path;conversionPrompt=true}else onbrowse(entry.path)}}>{@html icon(entry.directory?'folder':'file')}<span>{entry.name}</span>{#if fileState}<span class="file-index-state" data-state={indexedByPath.get(entry.path)?.index_status} title={$t(fileState.description)+((conversionByPath.get(entry.path)??indexedByPath.get(entry.path))?.index_error?`\n${(conversionByPath.get(entry.path)??indexedByPath.get(entry.path))?.index_error}`:'')}>{$t(fileState.label)}</span>{/if}{#if !entry.directory&&noteByPath.get(entry.path)}{@const note=noteByPath.get(entry.path)!}<span class="note-badge" data-state={note.state} title={$t(note.state==='intact'?'笔记引用一致':note.state==='moved'?'笔记引用位置已更新':note.state==='changed'?'笔记引用的原文已改':note.state==='missing'?'笔记引用的来源缺失':'笔记未核对')}></span>{:else if entry.directory}{@const count=folderAttention(entry.path)}{#if count}<span class="note-badge-count" title={$t('{value0} 篇笔记需要关注',{value0:count})}>{count}</span>{/if}{/if}{#if entry.directory}{@html icon('chevron')}{/if}</Button.Root></div>{/each}
   </div>
   {#if reading}<div class="empty" role="status">{$t('正在读取文件夹…')}</div>{:else if !entries.length}<div class="empty">{scope?$t('文件夹是空的'):$t('添加文件夹并完成索引后，文件会显示在这里。')}</div>{:else if !visibleEntries.length}<div class="empty">{$t('没有符合条件的文件')}</div>{/if}
- </section>{/if}
+ </div>{/if}
 </div>
 
 {#if conversionPrompt}<Modal label={$t(promptProcessing?'文件正在处理中':promptNeedsOcr?'扫描件需要图片识别组件':'需要转换文档后才能检索')} onClose={()=>conversionPrompt=false}>

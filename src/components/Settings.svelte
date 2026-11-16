@@ -29,6 +29,7 @@
  import QuickSearchSettings from './QuickSearchSettings.svelte';
  import {defaultUpdateSettings} from '../lib/updates';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
+ export let onShareReceived:((path:string)=>void)|undefined=undefined;
  export let onChatImported:(()=>Promise<void>)|undefined=undefined;
  export let narrowLayout=false;
  export let onShowGuide:(()=>void)|undefined=undefined;
@@ -45,7 +46,7 @@
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>,mineruKey?:string)=>Promise<void>;
- let settings={...structuredClone(value),runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??defaultConversionWorkers,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=web?'general':initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),show_index_details:value.show_index_details??false,runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:value.language??'zh-CN',max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??defaultConversionWorkers,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=web?'general':initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false,apiBusy=false;
  let documentFormats:OtherFormats;
  let mineruConfigOpen=false;
@@ -204,6 +205,7 @@
       <div class="setting-row"><label for="index-workers"><strong>{$t("索引并行数")}</strong><p>{$t("默认 8，可设为 1–64；下次索引任务生效，不会重建已有索引")}</p></label><Input id="index-workers" aria-label={$t("索引并行数")} type="number" min="1" max="64" required bind:value={settings.index_workers}/></div>
       <div class="settings-fields file-excluded"><label class="field-label">{$t("排除索引的目录名称")}<Textarea value={settings.excluded.join('\n')} oninput={(e)=>settings.excluded=e.currentTarget.value.split('\n').filter(Boolean)} rows={4}/></label><p class="settings-help">{$t("每行一个名称。排除索引不影响文件树中的浏览。文档使用手动保存。")}</p><p class="settings-help">{$t("项目忽略规则自动读取 .gitignore 和 .sagignore。可用 *.log、目录名/ 和 !文件名 编写规则；.sagignore 优先。修改后自动更新索引，原文件仍可浏览。")}</p></div>
       {#if onIndexHistory}<div class="setting-row index-history-settings"><div><strong>{$t('索引历史')}</strong></div><Button.Root type="button" class="outline settings-index-history" onclick={onIndexHistory}>{$t('查看')}</Button.Root></div>{/if}
+      <div class="setting-row"><div><strong>{$t('显示索引详情')}</strong></div><Switch bind:checked={settings.show_index_details} label={$t('显示索引详情')}/></div>
      </section>
      <RemovedDirectories/>
 
@@ -275,7 +277,7 @@
      <details class="settings-limits"><summary>{$t("算法固定规则")}</summary><p>{$t("每次检索最多 3 轮 Jev 评分，本地排序不增加模型请求。单轮预算为 64,000 tokens，单候选与共享证据合计不超过 32,000 tokens；超限时提示调整候选数量，原文不截断。")}</p></details>
      <RuntimeSettings group="retrieval" bind:value={settings.runtime}/>
     {:else if page==='imports'}
-     <DataImport onImported={onChatImported} onDestinationChange={folder=>settings.chat_import_folder=folder}/>
+     <DataImport {onShareReceived} onImported={onChatImported} onDestinationChange={folder=>settings.chat_import_folder=folder}/>
     {:else if page==='clipper'}
      <WebClipper/>
     {:else if page==='api'}

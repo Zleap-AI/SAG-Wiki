@@ -12,6 +12,7 @@ Supply one directory, either positionally or with `--path`, not both. Omit it to
 | Option | Meaning |
 | --- | --- |
 | `--path DIRECTORY` | Search this directory instead of the current one. |
+| `--exclude GLOB` | Exclude matching basenames or paths relative to the search directory for this request. Supports semantic search and `-E` / `-F`; may repeat. Use `/` in path patterns, for example `archive/` or `src/generated/**`. Index and ignore rules remain unchanged. |
 | `-m N`, `--max-results N` | Select 1–100 semantic evidence chunks; default 10. Matching-mode limits are below. |
 | `-c`, `--content` | Include original content. Semantic search already includes it; matching modes otherwise show locations. |
 | `--json` | Return structured output instead of readable text. |
@@ -21,14 +22,14 @@ Supply one directory, either positionally or with `--path`, not both. Omit it to
 
 The semantic query must be a nonempty, specific natural-language question of at most 2000 characters. Start with 3–5 results and narrow the question or directory before increasing the limit.
 
-`add`, `remove`, `list`, `check`, `status`, `config`, `service`, `install`, `uninstall` and `help` are command names. Use `--` to search those literal words or a query beginning with `-`:
+`add`, `remove`, `list`, `check`, `status`, `config`, `service`, `share`, `download`, `install`, `uninstall` and `help` are command names. Use `--` to search those literal words or a query beginning with `-`:
 
 ```bash
 sag -- status src
 sag -F -c -- '-TODO' src
 ```
 
-Search flags are not global flags for subcommands. For example, use `sag check --json`; `--json` is supported by search, `add`, `remove`, `list` and `check`, but not by `status`, `config` or `service`.
+Search flags generally do not apply to subcommands. `--timeout` also controls how long `sag add` waits for indexing and is accepted after the subcommand; see [setup](setup.md#directory-and-status-commands). Use `sag check --json` for JSON checks. Sharing and downloading do not support `--json`; their syntax and output are in [setup](setup.md#sharing-and-downloading).
 
 ## Fixed strings and regular expressions
 
@@ -51,13 +52,13 @@ Every option in this table requires `-E` or `-F`:
 | `-q`, `--quiet` | Print no results; communicate whether a match exists through the exit code. |
 | `-e PATTERN`, `--regexp PATTERN` | Add a pattern; may repeat in either matching mode. |
 | `-f FILE`, `--file FILE` | Read patterns from a UTF-8 file, one per line; may repeat. `-` reads standard input. |
-| `--include GLOB`, `--exclude GLOB` | Include or exclude basenames matching a glob; may repeat. |
+| `--include GLOB` | Include basenames matching a glob; may repeat. Combine with the shared `--exclude` option to exclude basenames or relative paths. |
 
 `-l`, `--count`, `-o` and `-q` are mutually exclusive and cannot be combined with context options. `-o` cannot combine with `-v`; `-q` cannot combine with `--json`. Context options imply content output and merge adjacent or overlapping ranges. `-c` always means content, not counting.
 
 Multiple `-e` / `-f` patterns use OR matching. With either option, the positional argument is the search directory, not another pattern. A pattern may contain at most 2000 characters; all patterns together may use at most 16 KiB. An empty pattern file supplies no patterns. `-e ''` matches any line, except with `-w`; with `-x`, it matches only empty lines.
 
-File filters apply in command-line order, with the last matching rule taking precedence. If the first filter is `--include`, unmatched basenames are excluded; otherwise they are included. Filters do not override knowledge-base exclusions or ignore rules.
+In matching mode, `--include` and `--exclude` filters apply in command-line order, with the last matching rule taking precedence. If the first filter is `--include`, unmatched basenames are excluded; otherwise they are included. A bare exclusion pattern matches a basename; a pattern containing `/` matches paths relative to the search directory, including matching parent directories. Filters do not override knowledge-base exclusions or ignore rules.
 
 `-m` limits matching lines across the whole search, default 10; repeated matches on a line count once. With `-l`, it limits matching files. With `-o`, every nonempty match from the selected lines is returned. `--count` has no limit by default; an explicit `-m` stops counting after that global line limit, leaving later files uncounted.
 

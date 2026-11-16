@@ -1,5 +1,21 @@
 # 更新日志 / Changelog
 
+## 0.3.6
+
+- **文件分享**：支持分享 Markdown 文件或文件夹，自动打包正文引用的本地图片并保留目录结构。确认后上传并生成分享码，可复制分享码和接收指引。
+- **接收分享**：添加文件夹窗口新增“接收分享”标签页，文件页空白处右键也可接收。支持从剪贴板识别分享码，确认保存位置后下载并加入知识库；默认接收到文档目录下的 `sag-wiki/share`，可更改位置或关闭剪贴板识别，同名文件夹自动编号。
+- **CLI 分享与下载**：新增 `sag share` 和 `sag download` 命令，无需启动桌面端或配置模型；支持指定下载位置，并同步补充 Agent Skill 使用说明。
+- **索引详情显示**：文件设置新增“显示索引详情”开关，默认关闭；开启并保存后显示文件页的索引状态与详情入口。关闭后仍可通过索引历史查看进度和失败原因。
+- **索引状态操作**：侧栏状态卡片标题旁提供暂停、继续和关闭按钮。处理期间关闭卡片不影响后台索引，同一轮任务刷新时保持隐藏。
+
+### English
+
+- **File sharing**: Share a Markdown file or folder with referenced local images and its directory structure. Confirm the upload to generate a share code, then copy the code and receiving instructions.
+- **Receiving shared files**: Add a Receive share tab to the add-folder dialog and a receiving action to the file-area context menu. Recognize share codes from the clipboard, then download and add the files to the knowledge base after the destination is confirmed. Save by default under `Documents/sag-wiki/share`, with a configurable destination, optional clipboard detection and numbered folders for name conflicts.
+- **CLI sharing and downloads**: Add `sag share` and `sag download`, with no desktop app or model configuration required. Support a custom download destination and include usage instructions in the Agent Skill.
+- **Index details display**: Add a Show index details switch in File settings, off by default. Enable and save it to show indexing status and the details entry point on the Files page. Index history remains available for progress and failure details when the switch is off.
+- **Index status controls**: Add pause, resume and dismiss buttons beside the sidebar status title. Dismissing the card keeps background indexing running and the card hidden during the same task.
+
 ## 0.3.5
 
 - **大文档阅读**：侧边栏、搜索和引用中的大 Markdown 默认先进入阅读界面，按阅读位置显示正文并加载本地图片，减少打开时的长时间卡顿；支持全文目录、查找和复制完整源码，点击“编辑文档”后再进入完整编辑器。

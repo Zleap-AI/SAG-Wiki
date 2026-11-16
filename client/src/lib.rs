@@ -1,4 +1,5 @@
 pub mod wire;
+pub mod share;
 use anyhow::{bail, Context, Result};
 use sag_protocol::*;
 use std::{

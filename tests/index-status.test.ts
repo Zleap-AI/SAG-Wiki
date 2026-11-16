@@ -73,13 +73,13 @@ it('运行中的索引可查看当前文件并暂停、继续，暂停状态显�
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('/notes/meeting.md'));
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('12 / 100');
- document.querySelector<HTMLButtonElement>('[aria-label="暂停索引"]')!.click();
+ document.querySelector<HTMLButtonElement>('.index-issues-dialog [aria-label="暂停索引"]')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('set_index_paused',{paused:true}));
  await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toContain('文档处理已暂停'));
  expect(document.querySelector('.index-status-primary')?.textContent).toContain('（12/100）');
  expect(document.querySelector('.index-active .index-root-title span')?.textContent).toBe('索引已暂停');
  expect(document.querySelector('.index-active')?.textContent).not.toContain('正在索引文件');
- document.querySelector<HTMLButtonElement>('[aria-label="继续索引"]')!.click();
+ document.querySelector<HTMLButtonElement>('.index-issues-dialog [aria-label="继续索引"]')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('set_index_paused',{paused:false}));
  await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).not.toContain('文档处理已暂停'));
  expect(document.querySelector('.index-active .index-root-title span')?.textContent).toBe('正在索引文件');
@@ -390,7 +390,7 @@ it('监听准备阶段恢复已隐藏的状态并展示不确定进度',async()=
  });
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).not.toBeNull());
- expect(document.querySelector('[aria-label="隐藏索引状态"]')).toBeNull();
+ expect(document.querySelector('[aria-label="隐藏索引状态"]')).not.toBeNull();
  listeners.get('index-progress')!({payload:{path:'/notes',count:0,total:0,stage:'preparing_watch'}});
  await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('正在准备文档'));
  expect(document.querySelector('.index-status-bar')).toBeNull();
@@ -486,7 +486,7 @@ it('keeps the same card across PDF parts and stale ready root snapshots',async()
  document.querySelector<HTMLButtonElement>('[aria-label="View index details"]')?.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-file-segment')?.textContent).toContain('part 8 / 20'));
  document.querySelector<HTMLButtonElement>('[aria-label="Close index details"]')?.click();
- expect(document.querySelector('[aria-label="Hide indexing status"]')).toBeNull();
+ expect(document.querySelector('[aria-label="Hide indexing status"]')).not.toBeNull();
  task.conversions[0].segment.current=9;listeners.get('data-changed')!({payload:null});
  await new Promise(resolve=>setTimeout(resolve,50));expect(document.querySelector('.index-status-card')).toBe(card);
 });

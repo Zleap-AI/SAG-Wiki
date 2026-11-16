@@ -3,7 +3,7 @@ title: "Import data"
 description: "Convert chat histories and notes to Markdown for your local knowledge base."
 ---
 
-On desktop, click **+** in the sidebar, switch from **Add folder** to **Import data**, then choose a chat or note source. You can also open **Settings → Data import**.
+On desktop, click **+** in the sidebar, switch from **Add folder** to **Import data**, then choose a chat or note source. You can also right-click an empty area of the **Indexed files** overview and choose **Import data**, or open **Settings → Data import → Third-party apps**.
 
 ![Import data in the Add folder dialog](/images/product-add-data-en.png)
 
@@ -44,3 +44,7 @@ Chat titles use the existing name when available, or the first actual question w
 Each chat becomes one Markdown file. Importing again skips unchanged content and updates the same file with new content. If you have edited the imported file, a conflict is reported and your changes are preserved. Embedded images are saved in the adjacent `chat-assets/` folder. External image links are retained and follow the reader's policy of not loading external images automatically.
 
 Supported inputs include Claude Code JSONL transcripts and cross-file continuations, plus plain and `.jsonl.zst` compressed Codex transcripts. Multiple files for the same Codex session are merged. Damaged, incomplete or missing continuation records show an error; correct the source or wait for the chat to finish, then reload. Original transcripts stay unchanged. Import does not call a model. This feature is currently desktop-only and does not continuously sync chats.
+
+## Receive a share
+
+The Add folder window has a separate **Receive share** tab with the code input and save location directly on the page. The **Import data** tab lists only third-party applications. **Settings → Data import → Share** still provides the default folder and clipboard preferences. Clipboard code detection is enabled by default. You can turn it off or change the download folder here. The default folder is `sag-wiki/share` inside your system Documents folder. Folder and detection changes are saved immediately. See [sharing and receiving](/en/docs/file-sharing).

@@ -212,3 +212,39 @@ it('单文件从知识库移除后列表更新，撤销只恢复该文件',async
  await vi.waitFor(()=>expect(document.querySelector('.simple-file-list [title="/notes/intro.txt"]')).not.toBeNull());
  expect(invoke.mock.calls.find(([command])=>command==='add_root')![1]).toEqual({path:'/notes/intro.txt'});
 });
+
+it('总览空白区域支持导入，文件夹内部仅提供新建和接收，文件本身保留原菜单',async()=>{
+ const fallback=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='get_settings')return{theme:'light',start_page:'ask',editor_size:15,answer:{url:'https://example.com',model:'test',models:['test']},jev:{url:'https://example.com',model:'test'},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},excluded:[]};
+  if(command==='get_share_settings')return{directory:'/Documents/sag-wiki/share',clipboard:true};
+  return fallback(command,args);
+ });
+ await start();fileTab().click();
+ await vi.waitFor(()=>expect(document.querySelector('.folder-browser')).not.toBeNull());
+ const blank=()=>document.querySelector<HTMLElement>('.folder-browser')!;
+ const openMenu=async()=>{blank().dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:450,cancelable:true}));await tick()};
+ await openMenu();
+ expect([...document.querySelectorAll('#context-menu .menu-item')].map(item=>item.textContent?.trim())).toEqual(['新建文档','导入数据','接收分享']);
+ [...document.querySelectorAll<HTMLElement>('#context-menu .menu-item')].find(item=>item.textContent?.trim()==='导入数据')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('#add-data-tab-imports')?.getAttribute('aria-selected')).toBe('true'));
+ expect(document.querySelector('#add-data-panel-imports')?.textContent).toContain('Claude Code');
+ document.querySelector<HTMLButtonElement>('.folder-picker [aria-label="关闭"]')!.click();await tick();
+ await openMenu();
+ [...document.querySelectorAll<HTMLElement>('#context-menu .menu-item')].find(item=>item.textContent?.trim()==='接收分享')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.share-dialog .share-path')?.textContent).toBe('/Documents/sag-wiki/share'));
+ expect(document.querySelector('[role="tablist"]')).toBeNull();
+ document.querySelector<HTMLButtonElement>('.share-dialog [aria-label="关闭"]')!.click();await tick();
+ await open('/notes');
+ await openMenu();
+ expect([...document.querySelectorAll('#context-menu .menu-item')].map(item=>item.textContent?.trim())).toEqual(['新建文档','接收分享']);
+ [...document.querySelectorAll<HTMLElement>('#context-menu .menu-item')].find(item=>item.textContent?.trim()==='接收分享')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.share-dialog')).not.toBeNull());
+ expect(document.querySelector('[role="tablist"]')).toBeNull();
+ await vi.waitFor(()=>expect(document.querySelector('.share-dialog .share-path')?.textContent).toBe('/notes'));
+ expect(invoke.mock.calls.some(([command])=>command==='save_share_settings')).toBe(false);
+ document.querySelector<HTMLButtonElement>('.share-dialog [aria-label="关闭"]')!.click();await tick();
+ document.querySelector<HTMLElement>('.simple-file-entry [title="/notes/nested"]')!.dispatchEvent(new MouseEvent('contextmenu',{bubbles:true,clientX:500,clientY:300,cancelable:true}));await tick();
+ expect(document.querySelector('#context-menu')?.textContent).toContain('索引设置');
+ expect(document.querySelector('#context-menu')?.textContent).not.toContain('新建文档');
+});
