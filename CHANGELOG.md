@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.2
+
+自动发布：包含自上次正式发布以来的产品改动。
+
+Automatic release: product changes since the previous published release.
+
+- fix(chat): keep converted formula runs and MinerU equations renderable (#142) (01073ac)
+
 ## 0.3.1
 
 - **Docling 安装与转换**：统一处理 Windows 文档组件的资源、模型目录及转换任务输入输出路径，修复 `additional.dat` 和 `tm_config.json` 的读取错误。保留已下载并校验通过的安装包，安装失败后重试复用缓存；缓存损坏或安装包变化时重新下载。
