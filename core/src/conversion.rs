@@ -196,7 +196,15 @@ fn engine_identity(source: &Path, settings: &Settings) -> String {
         "docling-v1"
     };
     let cloud = if cloud_supports(source, &settings.mineru) {
-        format!("{}:local-images-v2", settings.mineru.content_identity())
+        // MinerU equations used to be wrapped twice when the hosted payload
+        // already carried `$$…$$`; rebuild those PDF results once so cached
+        // conversions no longer render a KaTeX error.
+        let equations = source
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+            .then_some(":equations-v2")
+            .unwrap_or_default();
+        format!("{}:local-images-v2{equations}", settings.mineru.content_identity())
     } else {
         "local".into()
     };
@@ -461,6 +469,19 @@ mod tests {
             change(&mut changed.runtime);
             assert_ne!(base, failure_identity(source, &changed, tools));
         }
+    }
+
+    #[test]
+    fn mineru_equation_fix_rebuilds_only_cloud_pdf_results() {
+        let mut settings = Settings::default();
+        settings.mineru.enabled = true;
+        settings.mineru.provider = sag_protocol::mineru::MineruProvider::Official;
+        let pdf = identity(Path::new("report.pdf"), &settings);
+        assert!(pdf.contains(":equations-v2"), "{pdf}");
+        let docx = identity(Path::new("report.docx"), &settings);
+        assert!(!docx.contains(":equations-v2"), "{docx}");
+        settings.mineru.enabled = false;
+        assert!(!identity(Path::new("report.pdf"), &settings).contains(":equations-v2"));
     }
 
     fn text_pdf(pages: u32) -> Vec<u8> {
