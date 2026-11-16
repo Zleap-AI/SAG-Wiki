@@ -3106,6 +3106,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "base64 0.22.1",
+ "chrono",
  "dirs",
  "futures-util",
  "infer",

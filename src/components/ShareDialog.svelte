@@ -5,6 +5,8 @@
  import Modal from './ui/Modal.svelte';
  import Input from './ui/Input.svelte';
  import ShareHelp from './ShareHelp.svelte';
+ import ShareHistory from './ShareHistory.svelte';
+ let historyOpen=false;
  import {api} from '../lib/api';
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
@@ -59,10 +61,12 @@
   {/if}
   {#if error}<p class="share-error" role="alert">{$t(error)}</p>{/if}
  </div>
- <div class="dialog-footer"><Button.Root class="outline" disabled={busy} onclick={close}>{$t(shared||received?'关闭':'取消')}</Button.Root>{#if !shared&&!received}<Button.Root class="primary" disabled={busy||(path?!preview:!code.trim()||!directory)} onclick={submit}><span aria-hidden="true">{@html icon(path?'share':'download')}</span>{$t(preparing?'正在准备…':busy?(path?'正在上传…':'正在下载…'):(path?'分享':'下载'))}</Button.Root>{/if}</div>
+ <div class="dialog-footer">{#if path}<Button.Root type="button" class="share-history-button" disabled={busy} onclick={()=>historyOpen=true}>{$t('分享记录')}</Button.Root>{/if}<Button.Root class="outline" disabled={busy} onclick={close}>{$t(shared||received?'关闭':'取消')}</Button.Root>{#if !shared&&!received}<Button.Root class="primary" disabled={busy||(path?!preview:!code.trim()||!directory)} onclick={submit}><span aria-hidden="true">{@html icon(path?'share':'download')}</span>{$t(preparing?'正在准备…':busy?(path?'正在上传…':'正在下载…'):(path?'分享':'下载'))}</Button.Root>{/if}</div>
 {/snippet}
 {#if embedded}<div class="share-embedded">{@render content()}</div>{:else}<Modal label={$t(path?'分享':'接收分享')} class="share-dialog" onClose={close}>{@render content()}</Modal>{/if}
+{#if historyOpen}<ShareHistory onClose={()=>historyOpen=false}/>{/if}
 <style>
+ .dialog-footer :global(.share-history-button){margin-right:auto;color:var(--color-secondary)}
  .share-label-heading,.share-code-row{display:flex;align-items:center;gap:4px}
  .share-code-row{justify-content:center;position:relative}
  .share-code-row :global(.share-help){position:absolute;left:calc(100% + 4px)}
