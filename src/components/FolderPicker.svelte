@@ -10,13 +10,19 @@
  import type {FolderIndexOptions} from '../lib/types';
  import FolderIndexTypes from './FolderIndexTypes.svelte';
  import DataImport from './DataImport.svelte';
+ import ShareDialog from './ShareDialog.svelte';
+ export let initialTab='folders';
+ export let initialDirectory='';
+ export let onShareReceived:((path:string)=>void)|undefined=undefined;
+ let receiving=false;
+ const tabs=[['folders','添加文件夹'],['imports','导入数据'],['receive','接收分享']];
  export let roots:string[];
  export let showHidden=false;
  export let onClose:()=>void;
  export let onImported:(()=>Promise<void>)|undefined=undefined;
  export let onDestinationChange:((folder:string)=>void)|undefined=undefined;
- let tab='folders';
- function tabKey(event:KeyboardEvent){if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();tab=event.key==='Home'?'folders':event.key==='End'?'imports':tab==='folders'?'imports':'folders';document.getElementById(`add-data-tab-${tab}`)?.focus();}}
+ let tab=initialTab;
+ function tabKey(event:KeyboardEvent){if(!receiving&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const index=tabs.findIndex(([id])=>id===tab);tab=tabs[event.key==='Home'?0:event.key==='End'?2:(index+(event.key==='ArrowRight'?1:2))%3][0];document.getElementById(`add-data-tab-${tab}`)?.focus();}}
  export let defaults:FolderIndexOptions={file_types:{markdown:true,text:true,code:false,config:false},convert_other_formats:false};
  export let onAdd:(paths:string[],options?:FolderIndexOptions)=>Promise<{path:string;error:string}[]>;
  type Listing={path:string;parent:string|null;home:string;folders:{path:string;name:string}[]};
@@ -48,14 +54,14 @@
  }
  onMount(()=>{void browse()});
 </script>
-<Modal label={$t(tab==='folders'?'添加文件夹':'导入数据')} class="folder-picker" onClose={()=>{if(!adding)onClose()}}>
+<Modal label={$t(tabs.find(([id])=>id===tab)![1])} class={`folder-picker ${tab==='receive'?'folder-picker-receive':''}`} onClose={()=>{if(!adding&&!receiving)onClose()}}>
  <div class="folder-picker-heading">
   <div class="folder-picker-tabs" role="tablist" aria-label={$t('添加到知识库')}>
-   {#each [['folders','添加文件夹'],['imports','导入数据']] as [id,label]}
-    <Button.Root role="tab" id={`add-data-tab-${id}`} aria-controls={`add-data-panel-${id}`} aria-selected={tab===id} tabindex={tab===id?0:-1} disabled={adding} onclick={()=>tab=id} onkeydown={tabKey}>{$t(label)}</Button.Root>
+   {#each tabs as [id,label]}
+    <Button.Root role="tab" id={`add-data-tab-${id}`} aria-controls={`add-data-panel-${id}`} aria-selected={tab===id} tabindex={tab===id?0:-1} disabled={adding||receiving} onclick={()=>tab=id} onkeydown={tabKey}>{$t(label)}</Button.Root>
    {/each}
   </div>
-  <Button.Root class="icon-button" aria-label={$t('关闭')} disabled={adding} onclick={onClose}>{@html icon('close')}</Button.Root>
+  <Button.Root class="icon-button" aria-label={$t('关闭')} disabled={adding||receiving} onclick={onClose}>{@html icon('close')}</Button.Root>
  </div>
  <div id="add-data-panel-folders" class="folder-picker-panel" role="tabpanel" aria-labelledby="add-data-tab-folders" hidden={tab!=='folders'}>
  <p class="folder-picker-description">{$t('可跨目录多选，添加后开始索引。')}</p>
@@ -76,20 +82,23 @@
  {#if failures.length}<div class="folder-picker-error" role="alert">{#each failures as failure}<p>{displayPath(failure.path)}：{failure.error}</p>{/each}</div>{/if}
  {#if optionsOpen}<div id="folder-index-options" class="folder-picker-index-options" bind:this={indexOptions}><p>{$t('应用于本次添加的文件夹。已有手写忽略规则会保留。')}</p><FolderIndexTypes bind:value={options} disabled={adding}/></div>{/if}
  </div>
- <div class="folder-picker-footer"><Button.Root class="folder-index-toggle" aria-expanded={optionsOpen} aria-controls="folder-index-options" disabled={adding} onclick={toggleOptions}>{@html icon('settings')}{$t('索引选项')}{@html icon(optionsOpen?'down':'chevron')}</Button.Root><Button.Root class="outline" disabled={adding} onclick={onClose}>{$t('取消')}</Button.Root><Button.Root class="primary" disabled={adding||loading||!chosen.length} onclick={add}>{adding?$t('正在添加…'):chosen.length?$t('添加 {value0} 个文件夹',{value0:chosen.length}):$t('添加到知识库')}</Button.Root></div>
+ <div class="folder-picker-footer"><Button.Root class="folder-index-toggle" aria-expanded={optionsOpen} aria-controls="folder-index-options" disabled={adding} onclick={toggleOptions}>{@html icon('settings')}{$t('索引选项')}{@html icon(optionsOpen?'down':'chevron')}</Button.Root><Button.Root class="outline" disabled={adding||receiving} onclick={onClose}>{$t('取消')}</Button.Root><Button.Root class="primary" disabled={adding||loading||!chosen.length} onclick={add}>{adding?$t('正在添加…'):chosen.length?$t('添加 {value0} 个文件夹',{value0:chosen.length}):$t('添加到知识库')}</Button.Root></div>
  </div>
  <div id="add-data-panel-imports" class="folder-picker-imports" role="tabpanel" aria-labelledby="add-data-tab-imports" hidden={tab!=='imports'}>
-  <DataImport {onImported} {onDestinationChange}/>
+  <DataImport showSharing={false} {onImported} {onDestinationChange}/>
  </div>
+ {#if tab==='receive'}<div id="add-data-panel-receive" role="tabpanel" aria-labelledby="add-data-tab-receive"><ShareDialog embedded {initialDirectory} bind:busy={receiving} {onClose} onReceived={path=>onShareReceived?.(path)}/></div>{/if}
 </Modal>
 <style>
  :global(.dialog-panel.folder-picker){width:720px;max-width:calc(100vw - 48px);height:720px;max-height:calc(100dvh - 64px);display:flex;flex-direction:column;overflow:hidden}
+ :global(.dialog-panel.folder-picker-receive){height:auto}
  .folder-picker-heading,.folder-picker-navigation,.folder-picker-description,.folder-picker-options,.folder-picker-footer{flex-shrink:0}
  .folder-picker-panel>.folder-picker-content{position:relative;flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain}
  .folder-picker-heading{display:flex;justify-content:space-between;align-items:flex-start;padding:22px 24px 20px}
  .folder-picker-panel{display:flex;flex-direction:column;flex:1;min-height:0}
  .folder-picker-panel[hidden],.folder-picker-imports[hidden]{display:none}
  .folder-picker-tabs{display:flex;gap:24px}
+ @media(max-width:520px){.folder-picker-tabs{gap:16px}.folder-picker-tabs :global(button){font-size:14px;white-space:nowrap}}
  .folder-picker-tabs :global(button){padding:0 0 10px;border-radius:0;font-size:18px;line-height:26px;font-weight:500;color:var(--color-secondary);border-bottom:2px solid transparent}
  .folder-picker-tabs :global(button[aria-selected=true]){color:var(--color-ink);border-bottom-color:var(--color-ink)}
  .folder-picker-tabs :global(button:focus-visible){outline:2px solid var(--color-focus);outline-offset:4px}

@@ -53,7 +53,7 @@ it('does not claim OCR is required when extraction has not diagnosed the source'
  expect(state?.description).not.toContain('OCR');
 });
 it('shows both same-folder indexing lanes without losing enhancement progress',()=>{
- app=mount(LibraryWorkspace,{target:document.body,props:{scope:'/notes',session:createLibrarySession(),entries:[],indexedFiles:[],roots:[{path:'/notes',name:'Notes',status:'indexing',count:1,error:null}],indexTasks:[{id:'enhance:/notes',kind:'enhancement',path:'/notes',stage:'enhancing',completed:1,total:3,files:['/notes/old.pdf']},{id:'primary:/notes',kind:'primary',path:'/notes',stage:'indexing_native',completed:2,total:5,files:['/notes/new.md']}],reading:false,revision:0,onbrowse:vi.fn(),onopen:vi.fn(),onmenu:vi.fn()}});
+ app=mount(LibraryWorkspace,{target:document.body,props:{scope:'/notes',showIndexDetails:true,session:createLibrarySession(),entries:[],indexedFiles:[],roots:[{path:'/notes',name:'Notes',status:'indexing',count:1,error:null}],indexTasks:[{id:'enhance:/notes',kind:'enhancement',path:'/notes',stage:'enhancing',completed:1,total:3,files:['/notes/old.pdf']},{id:'primary:/notes',kind:'primary',path:'/notes',stage:'indexing_native',completed:2,total:5,files:['/notes/new.md']}],reading:false,revision:0,onbrowse:vi.fn(),onopen:vi.fn(),onmenu:vi.fn()}});
  const status=document.querySelector('.folder-index-status');
  expect(status?.textContent).toContain('2 / 5');expect(status?.textContent).toContain('1 / 3');
  expect(status?.textContent).toContain('new.md');expect(status?.textContent).toContain('old.pdf');

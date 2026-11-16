@@ -106,6 +106,10 @@ struct MatchingArgs {
 }
 #[derive(Subcommand)]
 enum CliCommand {
+    /// 通过分享码接收 Markdown 文件包。
+    Download { code: String, #[arg(short, long)] output: Option<PathBuf> },
+    /// 分享 Markdown 文件或文件夹。
+    Share { path: PathBuf },
     /// 管理 HTTP API 服务、Key 和自动启动。
     Api { #[command(subcommand)] action: api::ApiCommand },
     Install {
@@ -247,6 +251,23 @@ fn main() {
     }
     let matches = Args::command().get_matches();
     let mut args = Args::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    if let Some(CliCommand::Download { code, output }) = &args.command {
+        let result = (|| -> Result<()> {
+            let directory = match output { Some(path) => path.clone(), None => PathBuf::from(sag_client::share::settings()?.directory) };
+            let received = tokio::runtime::Runtime::new()?.block_on(sag_client::share::receive(code, &directory))?;
+            println!("下载完成：{}", received.path); Ok(())
+        })();
+        if let Err(e)=result { eprintln!("{e:#}"); std::process::exit(1); } return;
+    }
+    if let Some(CliCommand::Share { path }) = &args.command {
+        let result = (|| -> Result<()> {
+            let package=sag_client::share::prepare(path)?;
+            eprintln!("{} 个文档 · {} 张图片",package.preview.markdown_count,package.preview.image_count);
+            let uploaded=tokio::runtime::Runtime::new()?.block_on(sag_client::share::upload(&package))?;
+            println!("SAG-{}",uploaded.code); println!("有效期至 {}",uploaded.expires_at); Ok(())
+        })();
+        if let Err(e)=result { eprintln!("{e:#}"); std::process::exit(1); } return;
+    }
     if let Some(CliCommand::Api { action }) = &args.command {
         if let Err(error)=api::run(action) { eprintln!("{error:#}");std::process::exit(1); }
         return;
@@ -375,7 +396,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         Some(patterns)
     } else { None };
     let (command, path, json, timeout) = match args.command {
-        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..} | CliCommand::Api{..}) => unreachable!(),
+        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..} | CliCommand::Api{..} | CliCommand::Download{..} | CliCommand::Share{..}) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
         Some(CliCommand::List { json }) => (Command::List, cwd.clone(), json, 10),
         Some(CliCommand::Check { directory, json }) => (

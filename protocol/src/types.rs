@@ -315,6 +315,7 @@ pub struct Settings {
     pub start_page: String,
     pub editor_size: usize,
     pub show_hidden: bool,
+    pub show_index_details: bool,
     pub watch: bool,
     pub index_workers: usize,
     pub conversion_workers: usize,
@@ -361,6 +362,7 @@ impl Default for Settings {
             start_page: "ask".into(),
             editor_size: 15,
             show_hidden: false,
+            show_index_details: false,
             watch: true,
             index_workers: 8,
             conversion_workers: 4,
@@ -542,6 +544,12 @@ mod default_tests {
                 .answer_context_tokens,
             65_536
         );
+    }
+    #[test]
+    fn index_details_are_hidden_for_new_and_existing_settings() {
+        assert!(!Settings::default().show_index_details);
+        assert!(!serde_json::from_str::<Settings>("{}").unwrap().show_index_details);
+        assert!(serde_json::from_str::<Settings>(r#"{"show_index_details":true}"#).unwrap().show_index_details);
     }
     #[test]
     fn tool_call_limit_defaults_to_unlimited() {

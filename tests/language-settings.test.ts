@@ -9,7 +9,7 @@ import RichEditor from '../src/components/RichEditor.svelte';
 import ToolCall from '../src/components/ToolCall.svelte';
 import {language,setLanguage} from '../src/lib/i18n';
 import type {Settings} from '../src/lib/types';
-const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
+const {invoke}=vi.hoisted(()=>({invoke:vi.fn(async (_command:string,_args?:Record<string,unknown>):Promise<any>=>({directory:'/Documents/sag-wiki/share',clipboard:false}))}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
@@ -62,6 +62,7 @@ it('previews English immediately, persists it on save, and restores Chinese on c
 it('restores saved English across all settings pages and preserves original file and chat names',async()=>{
  const saved={...settings,language:'en' as const};
  invoke.mockImplementation(async(command)=>{
+  if(command==='get_share_settings')return {directory:'/Documents/sag-wiki/share',clipboard:false};
   if(command==='get_settings')return saved;
   if(command==='get_quick_search')return {preferences:{enabled:true,shortcut:'CommandOrControl+Shift+Space'},error:null};
   if(command==='list_roots')return [{path:'/资料',name:'资料',status:'ready',count:1,error:null}];

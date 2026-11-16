@@ -1,4 +1,5 @@
 mod cli_commands;
+mod share;
 mod note_import;
 mod folder_picker;
 mod updates;
@@ -598,6 +599,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(updates::UpdateSession::default())
         .manage(note_import::Imports::default())
+        .manage(share::Shares::default())
         .setup(|app| {
             #[cfg(windows)]
             windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
@@ -701,6 +703,8 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            share::prepare_share, share::upload_share, share::close_share, share::receive_share,
+            share::get_share_settings, share::save_share_settings, share::share_clipboard,
             note_import::choose_note_import_folder,
             note_import::open_full_disk_access,
             note_import::prepare_note_import,

@@ -234,6 +234,14 @@ The card shows progress while rebuilding and prevents duplicate submissions. Bot
 
 Global **Reindex** checks all registered directories using saved types and exclusions, updating changed indexes. Save relevant changes before running it.
 
+The lower-left indexing card has **Pause indexing / Resume indexing** and a close button beside its title. These controls work without expanding details. You can hide the card while processing; it stays hidden during updates to the same run while background work continues. Open **Settings → File settings → Index history → View** to inspect, pause or resume a hidden task.
+
+![Pause and close controls beside the indexing card title](/images/product-index-controls-en.png)
+
+**Show index details** is under **Settings → File settings → Indexing and display** and is off by default. Enable it and save to show indexing status and the details entry at the top of the Files page. When hidden, use **Index history → View** to check progress and failures. Background indexing continues.
+
+![Show index details is off by default](/images/product-index-display-en.png)
+
 Open **Index history → View** to inspect progress, completion and failures. The sidebar, task details and newly recorded history distinguish checks from actual index updates:
 
 | Count | Meaning |
@@ -255,7 +263,7 @@ During long-PDF conversion, the sidebar also shows the current document’s part
 
 Longer text wraps while keeping the close button available. Click the status to inspect current tasks and failed files.
 
-After you dismiss a failure notice, the app remembers the current failure details and keeps that notice hidden when you reopen the interface. New indexing runs still show progress, and changed failure details trigger a new notice. You can still inspect dismissed failures through the index status card on the Files page or **Index history → View**.
+After you dismiss a failure notice, the app remembers the current failure details and keeps that notice hidden when you reopen the interface. New indexing runs still show progress, and changed failure details trigger a new notice. You can still inspect dismissed failures through **Index history → View**, or through the Files page status card when **Show index details** is enabled.
 
 ![Sidebar startup checks and index reuse counts](/images/product-index-status-en.png)
 

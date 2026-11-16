@@ -149,3 +149,18 @@ it('切换导入数据保留已选目录，复用来源列表并返回文件夹�
  document.querySelector<HTMLButtonElement>('.folder-picker-footer .primary')!.click();
  await vi.waitFor(()=>expect(onAdd).toHaveBeenCalledWith(['/home/docs']));
 });
+
+it('接收分享独立为标签页，直接填写分享码，导入数据不再重复显示分享设置',async()=>{
+ const base=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>command==='get_share_settings'?{directory:'/Documents/sag-wiki/share',clipboard:true}:base(command,args));
+ app=mount(FolderPicker,{target:document.body,props:{roots:[],onAdd,onClose,initialTab:'receive'}});
+ await vi.waitFor(()=>expect(document.querySelector('.share-embedded input')).not.toBeNull());
+ expect(document.querySelector('#add-data-tab-receive')?.getAttribute('aria-selected')).toBe('true');
+ expect(document.querySelector('.share-embedded')?.textContent).toContain('保存位置');
+ expect(document.querySelectorAll('[role=dialog]')).toHaveLength(1);
+ expect(document.querySelector('.share-settings')).toBeNull();
+ document.querySelector<HTMLButtonElement>('#add-data-tab-imports')!.click();await tick();
+ expect(document.querySelector('.share-embedded')).toBeNull();
+ expect(document.querySelector('.share-settings')).toBeNull();
+ expect(document.querySelector('.data-import-sources')).not.toBeNull();
+});
