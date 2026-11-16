@@ -87,3 +87,11 @@ it('全文读取失败时显示错误',async()=>{
  await vi.waitFor(()=>expect(document.querySelector('.form-error')?.textContent).toContain('文件已被移走'));
  expect(document.querySelector('.search-preview-body')).toBeNull();
 });
+it('large CRLF Markdown citation opens directly at the distant formatted passage with a bounded body',async()=>{
+ const repeated='See **the guide** for details.';
+ const body='---\r\ntitle: example\r\n---\r\n'+repeated+'\r\n\r\n'+('Unrelated paragraph. '.repeat(200)+'\r\n\r\n').repeat(30)+repeated;
+ setup('/files/book.md',body,'the guide');
+ await vi.waitFor(()=>expect(document.querySelector('.large-document-reader strong .search-hit.active')?.textContent).toBe('the guide'));
+ expect(document.querySelectorAll('.reader-piece').length).toBeLessThanOrEqual(12);
+ expect(Number(document.querySelector('.search-hit.active')?.closest<HTMLElement>('.reader-piece')?.dataset.piece)).toBeGreaterThan(15);
+});

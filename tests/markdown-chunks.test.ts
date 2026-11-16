@@ -151,3 +151,25 @@ it('大文档渲染保持线性耗时',()=>{
  start=performance.now();renderMarkdown(large);const largeTime=performance.now()-start;
  expect(largeTime/smallTime).toBeLessThan(8);
 });
+it('recognizes indented top-level ATX starts without cutting headings out of a list or blockquote',async()=>{
+ const {scanMarkdown}=await import('../src/lib/markdown-chunks');
+ const source='- item\n  # Nested in list\n  content\n\n  > # Nested in quote\n\n # Top heading\ntext\n';
+ const scan=scanMarkdown(source,1,true,24000);let step=scan.next();
+ while(!step.done)step=scan.next();
+ const starts=step.value.map(piece=>piece.from);
+ expect(starts).not.toContain(source.indexOf('  # Nested'));
+ expect(starts).not.toContain(source.indexOf('  > #'));
+ expect(starts).toContain(source.indexOf(' # Top'));
+});
+
+it.each(['- - -','* * *','_ _ _'])('keeps top-level headings after %s and preserves a thematic break nested in a list',async rule=>{
+ const {scanMarkdown}=await import('../src/lib/markdown-chunks');
+ const sections=Array.from({length:64},(_,i)=>'  # Section '+i+'\n'+'Paragraph. '.repeat(150)+'\n').join('');
+ for(const prefix of [rule+'\n','- prior list\n'+rule+'\n','- item\n  '+rule+'\n  # Nested heading\n  nested content\n'+rule+'\n']){
+  const body=prefix+sections,scan=scanMarkdown(body,1,true,24000);let step=scan.next();
+  while(!step.done)step=scan.next();
+  const starts=step.value.map(chunk=>body.slice(chunk.from,chunk.to).split('\n')[0]);
+  expect(starts.filter(line=>line.startsWith('  # Section '))).toHaveLength(64);
+  expect(starts).not.toContain('  # Nested heading');
+ }
+});

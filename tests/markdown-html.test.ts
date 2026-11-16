@@ -43,3 +43,12 @@ it('代码块里的 HTML 仍显示源码，并清除正文中的脚本和事件'
  expect(doc.querySelector('script,[onclick],[href^="javascript:"]')).toBeNull();
  expect(doc.querySelector('h1')).toBeNull();
 });
+it('disposal while local image IPC is pending neither populates the old image nor starts the next one',async()=>{
+ const host=document.createElement('div');host.innerHTML='<img data-source="first.png"><img data-source="second.png">';
+ let finish!:(url:string)=>void,live=true;
+ vi.mocked(invoke).mockImplementationOnce(()=>new Promise(resolve=>{finish=resolve as (url:string)=>void;}));
+ const loading=hydrateImages(host,'/library/book.md',()=>live);
+ expect(invoke).toHaveBeenCalledTimes(1);live=false;finish('data:image/png;base64,AA==');await loading;
+ expect(invoke).toHaveBeenCalledTimes(1);
+ expect(host.querySelector('img')?.getAttribute('src')).toBeNull();
+});
