@@ -11,7 +11,11 @@ export function protectHtml(body:string,renderContent=false):string{
    if(content[1].toLowerCase()!=='img')while(!closing.test(lines[i])&&i+1<lines.length)out.push(lines[++i]);
    continue;
   }
-  if(!fence&&/^\s*<[^>]+>/.test(line)){const raw=[line];while(i+1<lines.length&&/^\s*</.test(lines[i+1]))raw.push(lines[++i]);out.push('````sag-raw',...raw,'````');}
+  // Reading must not turn an inline script into a raw HTML code block: converted
+  // PDFs put `<sup>`/`<sub>` at the start of formula lines. Editing still fences
+  // them so saving cannot drop tags the editor schema does not own.
+  const inlineScript=renderContent&&/^ {0,3}<\/?(?:sub|sup|u|s|b|i|em|strong)\b/i.test(line);
+  if(!fence&&!inlineScript&&/^\s*<[^>]+>/.test(line)){const raw=[line];while(i+1<lines.length&&/^\s*</.test(lines[i+1]))raw.push(lines[++i]);out.push('````sag-raw',...raw,'````');}
   else out.push(line);
  }
  return out.join('\n');

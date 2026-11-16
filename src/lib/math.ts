@@ -48,6 +48,10 @@ function mathToken(type:string,raw:string,tex:string):MarkdownToken{
 // A body without math syntax stays prose too: the converted books carry page
 // footers like `$.04$`, which must not turn into formulas.
 function inlineMathBody(tex:string):boolean{
+ // PDF extraction can split off a script-only fragment (e.g. `V$_{0}$`).
+ // Require the whole body to be scripts: leading scripts may precede a base
+ // (`_{2}^{3}He`), and escaped trailing markers (`x\_`) are valid TeX.
+ if(/^(?:[_^](?:\{[^{}]*\}|\\[a-zA-Z]+|[^\s\\{}_^]))+$/.test(tex))return false;
  return !/^[0-9\s.,:\u2013\u2014-]+$/.test(tex);
 }
 

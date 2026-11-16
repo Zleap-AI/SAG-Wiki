@@ -47,8 +47,88 @@ export function nextVersion(manifests, tags) {
   return `${major}.${minor}.${BigInt(patch) + 1n}`;
 }
 
-const hasReleaseNotes = (changelog, version) => changelog.replace(/\r\n/g, '\n').split(/^## /m)
-  .some(section => section.startsWith(`${version}\n`));
+// Keep this marker stable: schema-1 tags predate the reviewed-notes policy.
+export const releaseNotesSchema = 2;
+
+function changelogSection(changelog, title) {
+  const text = changelog.replace(/\r\n/g, '\n');
+  const headings = [...text.matchAll(/^## ([^\n]+)(?:\n|$)/gm)];
+  const matches = headings.filter(match => match[1] === title || match[1].startsWith(`${title} `));
+  assert.ok(matches.length <= 1, `Duplicate changelog release notes: ${title}`);
+  if (!matches.length) return;
+  const heading = matches[0], next = headings[headings.indexOf(heading) + 1];
+  return {text, start: heading.index, end: next?.index ?? text.length, heading: heading[1],
+    body: text.slice(heading.index + heading[0].length, next?.index ?? text.length).trim()};
+}
+
+const hasReleaseNotes = (changelog, version) => Boolean(changelogSection(changelog, version));
+
+// Release notes are reviewed product descriptions, never synthesized from Git.
+// Only Chinese bullets followed by English bullets are accepted; arbitrary
+// prose, extra headings and known generated/commit metadata fail before tagging.
+export function releaseNotes(changelog, version) {
+  const section = changelogSection(changelog, version);
+  assert.ok(section, `Missing bilingual release notes for ${version}; add CHANGELOG.md Unreleased notes before merging.`);
+  const parts = section.body.split(/^### English[ \t]*$/m);
+  assert.equal(parts.length, 2, 'Bilingual release notes require Chinese bullets followed by ### English and English bullets');
+  const groups = parts.map(part => part.split('\n').filter(line => line.trim()));
+  assert.equal(groups[0].length, groups[1].length, 'Bilingual release notes require matching change bullet counts');
+  for (const [index, part] of parts.entries()) {
+    const lines = part.split('\n').filter(line => line.trim());
+    assert.ok(lines.length && lines.every(line => /^- \S/.test(line)), 'Release notes must contain only bilingual change bullets');
+    // Issue/PR links may follow a change, but their labels/URLs are not the
+    // functional description. Preserve the original Markdown in the output.
+    assert.ok(lines.every(line => (index === 0 ? /[\p{Script=Han}]/u : /[a-zA-Z]/)
+      .test(line.replace(/\[[^\]]*\]\(https?:\/\/[^)\s]+\)|https?:\/\/\S+/g, ''))), 'Release notes require Chinese and English change descriptions');
+  }
+  assert.doesNotMatch(section.body, /自动发布[：:]|Automatic release:|更新签名迁移|Update signing migration/i, 'Release notes cannot contain generated boilerplate or signing migration prose');
+  assert.doesNotMatch(section.body, /^- (?:\*\*)?(?:feat|fix|chore|docs|refactor|perf|test|build|ci|style|revert)(?:\([^\n)]*\))?!?:/im, 'Release notes cannot contain commit subjects');
+  assert.doesNotMatch(section.body, /\([a-f0-9]{7,40}\)|\b(?=[a-f0-9]*[a-f])[a-f0-9]{40}\b|https?:\/\/[^\s)]+\/commit\/[a-f0-9]+/i, 'Release notes cannot contain commit hashes');
+  return `## ${section.heading}\n\n${section.body}\n`;
+}
+
+function preparedChangelog(changelog, version, baselineChangelog = '') {
+  const reviewed = changelogSection(changelog, version);
+  if (reviewed) { releaseNotes(changelog, version); return changelog; }
+  const pending = changelogSection(changelog, 'Unreleased');
+  releaseNotes(changelog, 'Unreleased');
+  const previous = changelogSection(baselineChangelog, 'Unreleased');
+  let body = pending.body;
+  if (previous) {
+    // Prepared tags are off-main, so main retains Unreleased. Compare bilingual
+    // pairs against the published source recorded in provenance, not HEAD or a
+    // mutable latest tag, to avoid repeating notes in the next release.
+    releaseNotes(baselineChangelog, 'Unreleased');
+    const pairs = body => {
+      const groups = body.split(/^### English[ \t]*$/m).map(part => part.split('\n').filter(line => line.trim()));
+      assert.equal(groups[0].length, groups[1].length, 'Unreleased bilingual release notes must have matching change bullet counts');
+      return groups[0].map((zh, index) => [zh, groups[1][index]]);
+    };
+    const published = new Set(pairs(previous.body).map(pair => JSON.stringify(pair)));
+    const fresh = pairs(body).filter(pair => !published.has(JSON.stringify(pair)));
+    assert.ok(fresh.length, 'No unpublished release notes; append new bilingual change bullets before merging');
+    body = fresh.map(pair => pair[0]).join('\n') + '\n\n### English\n\n' + fresh.map(pair => pair[1]).join('\n');
+  }
+  if (body !== pending.body) {
+    return pending.text.slice(0, pending.start) + `## ${version}\n\n${body}\n\n` + pending.text.slice(pending.end);
+  }
+  return pending.text.slice(0, pending.start) + pending.text.slice(pending.start, pending.end)
+    .replace(/^## Unreleased(?=\s|$)/, `## ${version}`) + pending.text.slice(pending.end);
+}
+
+export function validatePullRequestNotes(git, base, source) {
+  const paths = changedPaths(git, base, source);
+  if (!hasProductChanges(paths)) return false;
+  assert.ok(paths.includes('CHANGELOG.md'), 'Product PRs must update CHANGELOG.md with reviewed bilingual release notes before merging');
+  const changelog = blob(git, source, 'CHANGELOG.md');
+  const version = releaseVersion([JSON.parse(blob(git, source, 'package.json')).version], git('tag', '--list', 'v*').split('\n'), changelog);
+  const baselineChangelog = blob(git, base, 'CHANGELOG.md');
+  const reviewed = changelogSection(changelog, version);
+  if (reviewed) assert.notEqual(reviewed.body, changelogSection(baselineChangelog, version)?.body,
+    'No new release notes for this product PR; update the reviewed version section before merging');
+  preparedChangelog(changelog, version, baselineChangelog);
+  return true;
+}
 
 export function releaseVersion(manifests, tags, changelog) {
   const version = manifests[0];
@@ -130,7 +210,7 @@ export function updateVersionFiles(files, version) {
 export function releaseProvenance(git, tag) {
   const data = JSON.parse(git('for-each-ref', '--format=%(contents)', `refs/tags/${tag}`));
   assert.deepEqual(Object.keys(data).sort(), ['baseline', 'schema', 'source', 'version']);
-  assert.equal(data.schema, 1);
+  assert.ok([1, releaseNotesSchema].includes(data.schema), 'Unsupported prepared release schema');
   assert.match(data.source, sha);
   assert.match(data.baseline, sha);
   assert.equal(tag, `v${data.version}`);
@@ -144,6 +224,20 @@ export function preparedContents(git, {source, baseline, version}) {
   const files = Object.fromEntries(versionFiles.map(name => [name, blob(git, source, name)]));
   const changelog = blob(git, source, 'CHANGELOG.md');
   const reviewed = hasReleaseNotes(changelog, version);
+  const comparison = compareVersions(version, JSON.parse(files['package.json']).version);
+  assert.ok(comparison > 0 || (comparison === 0 && reviewed), 'Prepared version must increase or have reviewed notes');
+  const notes = preparedChangelog(changelog, version, blob(git, baseline, 'CHANGELOG.md'));
+  return {...updateVersionFiles(files, version), 'CHANGELOG.md': notes};
+}
+
+// Read-only reconstruction for existing schema-1 release tags. New preparation
+// never calls this legacy commit-subject generator. Keep its byte output stable.
+function legacyPreparedContents(git, {source, baseline, version}) {
+  assert.match(source, sha); assert.match(baseline, sha);
+  git('merge-base', '--is-ancestor', baseline, source);
+  const files = Object.fromEntries(versionFiles.map(name => [name, blob(git, source, name)]));
+  const changelog = blob(git, source, 'CHANGELOG.md');
+  const reviewed = changelog.replace(/\r\n/g, '\n').split(/^## /m).some(section => section.startsWith(`${version}\n`));
   const comparison = compareVersions(version, JSON.parse(files['package.json']).version);
   assert.ok(comparison > 0 || (comparison === 0 && reviewed), 'Prepared version must increase or have reviewed notes');
   const updates = updateVersionFiles(files, version);
@@ -172,7 +266,11 @@ export function validateReleaseSource(git, commit, tag) {
   const provenance = releaseProvenance(git, tag);
   assert.equal(git('rev-list', '--parents', '-n', '1', commit), `${commit} ${provenance.source}`, 'Prepared release must have exactly one recorded parent');
   git('merge-base', '--is-ancestor', provenance.source, 'origin/main');
-  const expected = preparedContents(git, provenance);
+  if (provenance.schema === 1) {
+    assert.ok(!blob(git, provenance.source, 'scripts/automatic-release.mjs').includes('export const releaseNotesSchema = 2;'),
+      'New release sources require the reviewed-notes schema');
+  }
+  const expected = provenance.schema === 1 ? legacyPreparedContents(git, provenance) : preparedContents(git, provenance);
   const changed = changedPaths(git, provenance.source, commit);
   assert.deepEqual(changed.sort(), Object.keys(expected).filter(name => blob(git, provenance.source, name) !== expected[name]).sort(), 'Unexpected release file delta');
   for (const [name, contents] of Object.entries(expected)) {
@@ -184,6 +282,7 @@ export function validateReleaseSource(git, commit, tag) {
 
 export function createPreparedCommit(directory, provenance) {
   const git = gitAt(directory);
+  assert.equal(provenance.schema, releaseNotesSchema, 'New prepared releases require reviewed bilingual notes');
   const updated = preparedContents(git, provenance);
   const temporary = mkdtempSync(join(tmpdir(), 'sag-release-index-'));
   const env = {...process.env, GIT_INDEX_FILE: join(temporary, 'index')};
@@ -286,7 +385,7 @@ function prepare() {
     }
     const version = releaseVersion(versions, tags, blob(git, source, 'CHANGELOG.md'));
     tag = `v${version}`;
-    const provenance = {schema: 1, source, baseline, version};
+    const provenance = {schema: releaseNotesSchema, source, baseline, version};
     commit = createPreparedCommit(root, provenance);
     git('-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com',
       '-c', 'tag.gpgsign=false', 'tag', '-a', tag, commit, '-m', JSON.stringify(provenance));
@@ -430,8 +529,12 @@ function publish() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  assert.ok(['classify', 'prepare', 'request', 'check-draft', 'create-draft', 'publish'].includes(process.argv[2]), 'Use classify, prepare, request, check-draft, create-draft or publish');
-  if (process.argv[2] === 'classify') classify();
+  assert.ok(['check-notes', 'classify', 'prepare', 'request', 'check-draft', 'create-draft', 'publish'].includes(process.argv[2]), 'Use classify, prepare, request, check-draft, create-draft or publish');
+  if (process.argv[2] === 'check-notes') {
+    validatePullRequestNotes(git, process.env.BASE_SHA, 'HEAD');
+    summary('Reviewed bilingual release notes checked for product changes.');
+  }
+  else if (process.argv[2] === 'classify') classify();
   else if (process.argv[2] === 'prepare') prepare();
   else if (process.argv[2] === 'request') request();
   else if (process.argv[2] === 'check-draft') checkDraft();

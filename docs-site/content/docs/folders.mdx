@@ -122,6 +122,8 @@ sag add --types md,txt,html,py,js,ts,tsx,json,yaml
 
 “文本与文档”统一控制纯文本和内置文档，默认开启。TXT、RST 直接读取；以下文档优先使用内置anydoc（启用MinerU时，受支持的文档先交给MinerU）：Word（`.doc`、`.docx`、`.docm`）、PowerPoint（`.ppt`、`.pps`、`.pot`、`.pptx`、`.pptm`、`.ppsx`、`.ppsm`）、Excel（`.xls`、`.xlsx`、`.xlsm`、`.xlsb`）、OpenDocument（`.odt`、`.ods`、`.odp`）、RTF、CSV、EPUB 与文本型 PDF。
 
+内置 PDF 解析提取文字层和上下标，但不会重建公式结构。需要按 TeX 公式显示时，可在文档解析中选择 MinerU 并开启“公式识别”。Word 的 OMML 公式（含新版 MathType 公式）会转换为 TeX，阅读视图与问答共用同一公式渲染器。
+
 “更多文件格式”列出扫描 PDF、图片、音视频、邮件、Apple iWork 和部分文档模板。未启用MinerU时，普通文本型PDF使用内置解析器。点击“选择”勾选所需格式；已启用MinerU时，其支持的图片等格式可直接应用。其他格式缺少本地组件时，点击“安装并应用”，在确认窗口安装后再应用选择。文档与音视频组件按所选格式分别安装，扫描文件不会自动下载组件。
 
 未启用MinerU时，PDF检测到需要OCR的页面，或内置解析器明确返回不支持时，会使用已安装的Docling。启用后按 [MinerU 优先顺序](/zh/docs/models#mineru-文档解析)处理。未安装时，索引详情会显示所需操作；这些文件在组件安装或文件内容变化前不会重复解析，安装后重新索引即可。损坏或加密文件会显示解析错误。转换失败的文件会记录原因，在文件内容、解析引擎或组件、以及转换参数变化前不会在每次扫描时重新解析；修改“文件设置”中的转换预算，或点击“重新索引”，会让它们重新尝试。
