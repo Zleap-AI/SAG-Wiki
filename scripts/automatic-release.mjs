@@ -118,6 +118,23 @@ function preparedChangelog(changelog, version, baselineChangelog = '') {
     .replace(/^## Unreleased(?=\s|$)/, `## ${version}`) + pending.text.slice(pending.end);
 }
 
+// Compare user-facing change bullets, allowing optional Issue/PR references.
+export function validateReleaseDocumentation(git, source, version) {
+  const section = changelogSection(blob(git, source, 'CHANGELOG.md'), version);
+  assert.ok(section, `Missing release notes for ${version}`);
+  releaseNotes(blob(git, source, 'CHANGELOG.md'), version);
+  const groups = section.body.split(/^### English[ \t]*$/m);
+  const bullets = text => text.split('\n').filter(line => /^- /.test(line)).map(line => line
+    .replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_, label, url) => /\/(?:pull|issues)\/\d+/.test(url) ? '' : label)
+    .replace(/[（(]\s*[)）]/g, '').replace(/\s+/g, ' ').trim());
+  for (const [index, name] of ['updates.mdx', 'updates.en.mdx'].entries()) {
+    const path = `docs-site/content/docs/${name}`;
+    const documented = changelogSection(blob(git, source, path), version);
+    assert.ok(documented, `${path} must document release ${version}`);
+    assert.deepEqual(bullets(documented.body), bullets(groups[index]), `${path} release ${version} must match CHANGELOG.md`);
+  }
+}
+
 export function validatePullRequestNotes(git, base, source) {
   const paths = changedPaths(git, base, source);
   if (!hasProductChanges(paths)) return false;
@@ -130,6 +147,7 @@ export function validatePullRequestNotes(git, base, source) {
   if (reviewed) assert.notEqual(reviewed.body, changelogSection(baselineChangelog, version)?.body,
     'No new release notes for this product PR; update the reviewed version section before merging');
   preparedChangelog(changelog, version, baselineChangelog);
+  validateReleaseDocumentation(git, source, version);
   return true;
 }
 
@@ -387,6 +405,7 @@ function prepare() {
       return;
     }
     const version = releaseVersion(versions, tags, blob(git, source, 'CHANGELOG.md'));
+    validateReleaseDocumentation(git, source, version);
     tag = `v${version}`;
     const provenance = {schema: releaseNotesSchema, source, baseline, version};
     commit = createPreparedCommit(root, provenance);
@@ -398,6 +417,7 @@ function prepare() {
     git('push', 'origin', `refs/tags/${tag}:refs/tags/${tag}`);
   }
   if (releases.some(release => release.tag_name === tag && !release.draft)) { summary(`${tag} already published for ${source}.`); return; }
+  validateReleaseDocumentation(git, commit, tag.slice(1));
   requestTag(tag, commit);
   summary(`Prepared ${tag} (${commit}) from main ${source}; desktop checks, signing and publishing run on the exact tagged commit.`);
 }
@@ -522,6 +542,7 @@ function publish() {
   // The preceding assembly job owns the draft and its immutable assets. A rerun
   // after a successful edit is harmless; never overwrite or upload assets here.
   if (!release.draft) { summary(`${tag} is already published.`); return; }
+  validateReleaseDocumentation(git, commit, version);
   validateReplaceableDraft(release, {tag, commit});
   const checksums = execute('gh', ['release', 'download', tag, '--repo', repository, '--pattern', `${tag}-SHA256SUMS.txt`, '--output', '-'], {trim: false});
   validatePublicationAssets(release, checksums, process.env.RELEASE_CHECKSUMS, version);
