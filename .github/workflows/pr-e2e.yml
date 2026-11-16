@@ -88,6 +88,8 @@ jobs:
         run: cargo build --locked --manifest-path cli/Cargo.toml
       - name: Verify service shutdown synchronization
         run: cargo test --locked --manifest-path client/Cargo.toml shutdown_tests
+      - name: Verify captured commands stay console-free
+        run: cargo test --locked --manifest-path client/Cargo.toml captured_tests
       - name: Test CLI integration
         run: cargo test --locked --manifest-path cli/Cargo.toml
       - name: Exercise real service and CLI with local Jev fixture

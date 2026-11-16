@@ -122,10 +122,12 @@ test('premerge product checks require changed reviewed notes while infra changes
     assert.equal(validatePullRequestNotes(f.git, f.product, f.source), false);
     const source = f.save('CHANGELOG.md', '# Changelog\n', 'docs: omit pending notes');
     assert.throws(() => validatePullRequestNotes(f.git, f.baseline, source), /release notes|bilingual/i);
-    assert.equal(validatePullRequestNotes(f.git, f.baseline, f.source), true);
-    f.save('CHANGELOG.md', f.git.blob(f.source, 'CHANGELOG.md') + '\n', 'docs: whitespace only');
+    assert.throws(() => validatePullRequestNotes(f.git, f.baseline, f.source), /numbered|Unreleased/i);
+    const numbered = f.save('CHANGELOG.md', f.git.blob(f.source, 'CHANGELOG.md').replace('## Unreleased', `## ${f.version}`), 'docs: use numbered release notes');
+    assert.equal(validatePullRequestNotes(f.git, f.baseline, numbered), true);
+    f.save('CHANGELOG.md', f.git.blob(numbered, 'CHANGELOG.md') + '\n', 'docs: whitespace only');
     const changed = f.save('src/extra.txt', 'Extra product', 'feat: extra');
-    assert.throws(() => validatePullRequestNotes(f.git, f.source, changed), /unpublished/);
+    assert.throws(() => validatePullRequestNotes(f.git, numbered, changed), /unpublished|new.*notes/i);
     const product = f.save('src/new.txt', 'Unexplained change', 'feat: new change');
     assert.throws(() => validatePullRequestNotes(f.git, changed, product), /notes|CHANGELOG/i);
   } finally { f.close(); }
