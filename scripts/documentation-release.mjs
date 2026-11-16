@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {readFileSync,writeFileSync,realpathSync} from 'node:fs';
+import {readFileSync,writeFileSync,realpathSync,existsSync} from 'node:fs';
 import {execFileSync} from 'node:child_process';
 import {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
@@ -40,4 +40,4 @@ async function main(){
  assert.equal(command,'verify','Use generate, lint, build or verify');assert.ok(process.argv.includes('--url'),'Missing --url');assert.ok(process.argv.includes('--expected-sha'),'Missing --expected-sha');assert.equal(option('--expected-sha'),commit,'Check out the expected deployed commit before verification');
  await verifyDeployment({url:option('--url'),expected,release:process.argv.includes('--release')?option('--release'):undefined});console.log('Deployed bilingual documentation matches the expected commit and changelog');
 }
-if(process.argv[1]&&import.meta.url===pathToFileURL(realpathSync(resolve(process.argv[1]))).href)main().catch(error=>{console.error(error.message);process.exitCode=1;});
+if(process.argv[1]&&existsSync(resolve(process.argv[1]))&&import.meta.url===pathToFileURL(realpathSync(resolve(process.argv[1]))).href)main().catch(error=>{console.error(error.message);process.exitCode=1;});
