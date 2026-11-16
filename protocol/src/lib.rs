@@ -137,6 +137,14 @@ pub struct IndexStatus {
     pub failed_files: usize,
     #[serde(default)]
     pub conversion_states: Vec<ConversionState>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub failed_documents: Vec<IndexFailure>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct IndexFailure {
+    pub path: String,
+    pub root: String,
+    pub error: String,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ConversionState {

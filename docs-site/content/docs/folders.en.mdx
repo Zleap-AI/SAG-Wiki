@@ -39,7 +39,13 @@ With local built-in parsing, supported non-PDF documents such as Word, RTF and s
 
 The basic stage may omit scanned images, complex tables or final source positioning. Wait for enhancement and check the original before relying on complete coverage. Image-only scans are not marked searchable simply because they are queued. Pausing background processing preserves access to completed basic indexes.
 
+The sidebar card shows the current activity, completed file count / files in the current task, and the current filename. **View details** expands inline to show search availability, the actual parser, PDF parts and page range. A part currently being processed is not counted as completed. **Searchable after processing** means no basic text has been indexed yet; **Some content is searchable** means basic text is indexed while enhancement continues. New files that become indexed during processing appear in the details.
+
+After processing ends, the card no longer shows a current filename and can be dismissed using its top-right close button. Dismissing it preserves results; new tasks or changed failure results show the card again. The close button is unavailable while processing is active or paused. When files fail, **Some files could not be processed** opens details listing every retryable failed file and its cause. **Retry failed files** retries only those files and preserves successful indexes; it is unavailable while a task is active or paused. Background status polling restores the retry result even if task-start or completion notifications are missed. Directory or watcher errors remain visible, but do not enable file retry. **Index history** keeps access to detailed task history and pause/resume controls.
+
 ![Progressive indexing with basic-text and background enhancement statuses](/images/product-progressive-index-en.png)
+
+![Dismiss the completed processing card using its close button](/images/product-index-complete-en.png)
 
 ## Office text only
 
@@ -111,6 +117,8 @@ In **Settings → File settings → Document parsing**, choose **Docling** or **
 - **MinerU**: After a key is configured, supported documents use the selected MinerU provider first and fall back to applicable local parsers on failure. Without a key, parsing stays local. [See MinerU configuration](/en/docs/models#mineru-document-parsing).
 
 Switching parsers keeps your MinerU configuration and key. Existing installations retain their previous parsing behavior on upgrade.
+
+For large PDFs split into parts, MinerU image-only tables retain their images, captions and footnotes. Empty table placeholders are ignored; a meaningful table missing both body and image still triggers fallback. If a part falls back to Docling, subsequent fallback parts in the same document reuse the local worker and loaded models. The worker starts only when needed and is released when processing ends; existing successful conversion caches remain reusable.
 
 ### More file formats and conversion
 

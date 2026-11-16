@@ -11,142 +11,51 @@ vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
 beforeEach(()=>localStorage.removeItem('sag.index.dismissed-failures'));
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear();localStorage.removeItem('sag.index.dismissed-failures')});
-it('部分文件索引失败时可查看具体路径，同时显示已索引文件数量',async()=>{
- invoke.mockImplementation(async command=>{
-  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
-  if(command==='get_index_status')return {paused:false,tasks:[]};
-  if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'partial',count:270,error:'未能索引 1 个文件\n\n/notes/broken.txt\n文件无法按 UTF-16LE 编码读取'}];
-  return [];
- });
+it('completed partial failures keep reasons in details and preserve indexed history',async()=>{
+ invoke.mockImplementation(async command=>command==='get_settings'?{theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}}:command==='get_index_status'?{paused:false,tasks:[],failed_files:1,failed_documents:[{root:'/notes',path:'/notes/broken.txt',error:'文件无法按 UTF-16LE 编码读取'}]}:command==='list_roots'?[{path:'/notes',name:'Notes',status:'partial',count:270,error:'未能索引 1 个文件\n\n/notes/broken.txt\n文件无法按 UTF-16LE 编码读取'}]:[]);
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG · 索引已结束'));
- expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败');
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('已索引 270 个文件');
- expect(document.querySelector('.index-status')?.textContent).not.toContain('读取失败');
- expect(document.querySelector('.index-status')?.textContent).not.toContain('Notes');
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('部分文件处理失败（1）'));
+ expect(document.querySelector('.index-status-current-file')).toBeNull();
+ expect(document.querySelector('details')?.open).toBe(false);
+ expect(document.querySelector('.failed-files')?.textContent).toContain('broken.txt');
+ expect(document.querySelector('.failed-files')?.textContent).toContain('UTF-16LE');
+ expect(document.querySelector('.index-status-summary')).toBeNull();
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('/notes/broken.txt'));
- expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('UTF-16LE');
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('已索引 270 个文件');
- expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('其他文件可正常检索');
 });
 
-it('关闭部分失败后，重新打开界面不会再次显示相同失败',async()=>{
- let roots=[
-  {path:'/notes',name:'Notes',status:'partial',count:270,error:'无法读取 /notes/broken.txt'},
-  {path:'/other',name:'Other',status:'ready',count:4,error:null}
- ];
- invoke.mockImplementation(async command=>{
-  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
-  if(command==='get_index_status')return {paused:false,tasks:[]};
-  if(command==='list_roots')return roots;
-  return [];
- });
+it('failed results remain discoverable after reopen and update when the reason changes',async()=>{
+ let reason='first failure';
+ invoke.mockImplementation(async command=>command==='get_index_status'?{paused:false,tasks:[],failed_files:1,failed_documents:[{root:'/notes',path:'/notes/broken.pdf',error:reason}]}:command==='list_roots'?[{path:'/notes',name:'Notes',status:'partial',count:2,error:reason}]:command==='get_settings'?{theme:'light',start_page:'ask',answer:{model:'test',models:['test']}}:[]);
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
- document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
- await unmount(app);
- roots=[{...roots[1],count:5},{...roots[0],count:271}];
- app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.sidebar')?.textContent).toContain('Notes'));
- await vi.waitFor(()=>expect(invoke.mock.calls.filter(([command])=>command==='list_roots')).toHaveLength(2));
- await tick();
- expect(document.querySelector('.index-status-link')).toBeNull();
+ await vi.waitFor(()=>expect(document.querySelector('.failed-files')?.textContent).toContain(reason));
+ expect(document.querySelector('[aria-label="隐藏索引状态"]')).not.toBeNull();
+ await unmount(app);app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.failed-files')?.textContent).toContain(reason));
+ reason='new failure';listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.failed-files')?.textContent).toContain(reason));
 });
 
-it('关闭失败提示后，新一轮索引正常显示进度，相同失败保持隐藏，新的失败再次提醒',async()=>{
- let root={path:'/notes',name:'Notes',status:'partial',count:270,error:'无法读取 /notes/broken.txt'};
- invoke.mockImplementation(async command=>{
-  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
-  if(command==='get_index_status')return {paused:false,tasks:[]};
-  if(command==='list_roots')return [root];
-  return [];
- });
- app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
- document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
- listeners.get('index-progress')!({payload:{path:'/notes',count:0,total:271}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引（0%）'));
- root={...root,count:271};
- listeners.get('data-changed')!({payload:null});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
- root={...root,error:'无法读取 /notes/new-failure.txt'};
- listeners.get('data-changed')!({payload:null});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败'));
-});
-
-it('索引阶段与百分比放主行，已处理数量和部分失败独立可见，完成后隐藏',async()=>{
+it('active conversion stays primary and completion clears the current filename',async()=>{
  let ready=false;
- invoke.mockImplementation(async command=>{
-  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
-  if(command==='get_index_status')return {paused:false,tasks:[]};
-  if(command==='list_roots')return [
-   {path:'/notes',name:'Notes',status:ready?'ready':'partial',count:3,error:ready?null:'无法读取原文件'},
-   {path:'/other',name:'Other',status:ready?'ready':'indexing',count:4,error:null}
-  ];
-  return [];
- });
+ invoke.mockImplementation(async command=>command==='get_settings'?{theme:'light',start_page:'ask',answer:{model:'test',models:['test']}}:command==='get_index_status'?{paused:false,tasks:ready?[]:[{path:'/notes',stage:'converting',completed:27,total:100,files:['/notes/report.pdf']}]}:command==='list_roots'?[{path:'/notes',name:'Notes',status:ready?'ready':'indexing',count:27,error:null}]:[]);
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(listeners.has('data-changed')).toBe(true));
- listeners.get('index-progress')!({payload:{path:'/other',count:27,total:100,stage:'converting'}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在检查文件转换（27%）'));
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('已处理 27 / 100 个文件');
- expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败');
- expect(document.querySelector('.index-status-primary')?.textContent).not.toContain('部分失败');
- expect(document.querySelector('.index-status')?.children).toHaveLength(1);
- expect(document.querySelector('.index-status-row')?.children).toHaveLength(2);
- document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('无法读取原文件'));
- document.querySelector<HTMLButtonElement>('[aria-label="关闭索引详情"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')).toBeNull());
- document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toBe(''));
- listeners.get('index-progress')!({payload:{path:'/other',count:30,total:100}});
- await new Promise(resolve=>setTimeout(resolve,0));
- expect(document.querySelector('.index-status')?.textContent).toBe('');
- listeners.get('index-progress')!({payload:{path:'/other',count:0,total:50}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在索引（0%）'));
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('已处理 0 / 50 个文件');
- expect(document.querySelector('.index-status-failure')?.textContent).toBe('部分失败');
- ready=true;
- listeners.get('data-changed')!({payload:null});
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toBe(''));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('正在解析文档（27/100）'));
+ expect(document.querySelector('.index-status-current-file')?.textContent).toBe('report.pdf');
+ expect(document.querySelector('.index-status-meta')).toBeNull();
+ ready=true;listeners.get('data-changed')!({payload:null});
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('文档解析完成'));
+ expect(document.querySelector('.index-status-current-file')).toBeNull();
 });
 
-it('英文转换从0%开始时，失败与处理数量仍作为独立次信息显示',async()=>{
- invoke.mockImplementation(async command=>{
-  if(command==='get_settings')return {language:'en',theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
-  if(command==='get_index_status')return {paused:false,tasks:[]};
-  if(command==='list_roots')return [{path:'/active',name:'Active',status:'indexing',count:0,error:null},{path:'/failed',name:'Failed',status:'partial',count:270,error:'read failed'}];
-  return [];
- });
+it('English zero progress remains a file count and does not promote a separate failure',async()=>{
+ invoke.mockImplementation(async command=>command==='get_settings'?{language:'en',theme:'light',start_page:'ask',answer:{model:'test',models:['test']}}:command==='get_index_status'?{paused:false,tasks:[{path:'/active',stage:'converting',completed:0,total:40,files:['/active/report.pdf']}],failed_files:1,failed_documents:[{root:'/failed',path:'/failed/broken.pdf',error:'read failed'}]}:command==='list_roots'?[{path:'/active',name:'Active',status:'indexing',count:0,error:null},{path:'/failed',name:'Failed',status:'partial',count:270,error:'read failed'}]:[]);
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(listeners.has('data-changed')).toBe(true));
- listeners.get('index-progress')!({payload:{path:'/active',count:0,total:40,stage:'converting'}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('0%'));
- expect(document.querySelector('.index-status-primary')?.textContent).toContain('Checking file conversions');
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('Processed 0 / 40 files');
- expect(document.querySelector('.index-status-failure')?.textContent).toBe('Partial failure');
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('Processing documents（0/40）'));
  expect(document.querySelector('.index-status-primary')?.textContent).not.toContain('failure');
- document.querySelector<HTMLButtonElement>('.index-status-link')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')).not.toBeNull());
-});
-
-it('仅有失败文件夹时仍显示结束状态、已索引数量和明确失败信息',async()=>{
- invoke.mockImplementation(async command=>{
-  if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test',models:['test']}};
-  if(command==='get_index_status')return {paused:false,tasks:[]};
-  if(command==='list_roots')return [{path:'/failed',name:'Failed',status:'error',count:0,error:'read failed'}];
-  return [];
- });
- app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG · 索引已结束'));
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('已索引 0 个文件');
- expect(document.querySelector('.index-status-failure')?.textContent).toBe('读取失败');
- document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();await tick();
- expect(document.querySelector('.index-status-link')).toBeNull();
+ expect(document.querySelector('.failed-files')?.textContent).toContain('read failed');
+ expect(document.querySelector<HTMLButtonElement>('.index-retry-button')?.disabled).toBe(true);
 });
 
 it('运行中的索引可查看当前文件并暂停、继续，暂停状态显示在侧栏',async()=>{
@@ -166,13 +75,13 @@ it('运行中的索引可查看当前文件并暂停、继续，暂停状态显�
  expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('12 / 100');
  document.querySelector<HTMLButtonElement>('[aria-label="暂停索引"]')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('set_index_paused',{paused:true}));
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toContain('索引已暂停'));
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('已处理 12 / 100 个文件');
+ await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).toContain('文档处理已暂停'));
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('（12/100）');
  expect(document.querySelector('.index-active .index-root-title span')?.textContent).toBe('索引已暂停');
  expect(document.querySelector('.index-active')?.textContent).not.toContain('正在索引文件');
  document.querySelector<HTMLButtonElement>('[aria-label="继续索引"]')!.click();
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('set_index_paused',{paused:false}));
- await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).not.toContain('索引已暂停'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status')?.textContent).not.toContain('文档处理已暂停'));
  expect(document.querySelector('.index-active .index-root-title span')?.textContent).toBe('正在索引文件');
 });
 
@@ -412,19 +321,19 @@ it('三阶段显示当前步骤及说明，侧栏百分比明确属于当前阶�
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(listeners.has('index-progress')).toBe(true));
  listeners.get('index-progress')!({payload:{path:'/notes',stage,count:1,total:4}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在检查文本索引（25%）'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('正在检查文档（1/4）'));
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-pipeline [aria-current="step"]')?.textContent).toContain('文本索引'));
  expect(document.querySelector('.index-stage-description')?.textContent).toContain('完成后即可搜索');
  stage='converting';listeners.get('index-progress')!({payload:{path:'/notes',stage,count:2,total:4}});
  await vi.waitFor(()=>expect(document.querySelector('.index-pipeline [aria-current="step"]')?.textContent).toContain('文件转换'),{timeout:2000});
- expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在检查文件转换（50%）');
+ expect(document.querySelector('.index-status-primary')?.textContent).toBe('正在解析文档（2/4）');
  expect(document.querySelector('.index-pipeline .done')?.textContent).toContain('文本索引');
  expect(document.querySelector('.index-stage-description')?.textContent).toContain('仍可搜索');
  stage='indexing_converted';listeners.get('index-progress')!({payload:{path:'/notes',stage,count:1,total:4}});
  await vi.waitFor(()=>expect(document.querySelector('.index-pipeline [aria-current="step"]')?.textContent).toContain('转换结果索引'),{timeout:2000});
  expect(document.querySelectorAll('.index-pipeline .done')).toHaveLength(2);
- expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在检查转换结果（25%）');
+ expect(document.querySelector('.index-status-primary')?.textContent).toBe('正在检查文档（1/4）');
 });
 
 it('行内只显示文件夹路径，失败文件在失败详情中单独显示完整文件名与路径，并可定位原文件',async()=>{
@@ -481,32 +390,31 @@ it('监听准备阶段恢复已隐藏的状态并展示不确定进度',async()=
  });
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).not.toBeNull());
- document.querySelector<HTMLButtonElement>('[aria-label="隐藏索引状态"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.index-status-link')).toBeNull());
+ expect(document.querySelector('[aria-label="隐藏索引状态"]')).toBeNull();
  listeners.get('index-progress')!({payload:{path:'/notes',count:0,total:0,stage:'preparing_watch'}});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在准备文件监听'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('正在准备文档'));
  expect(document.querySelector('.index-status-bar')).toBeNull();
  const reads=invoke.mock.calls.filter(([command])=>command==='list_roots').length;
  listeners.get('data-changed')!({payload:null});
  await vi.waitFor(()=>expect(invoke.mock.calls.filter(([command])=>command==='list_roots').length).toBeGreaterThan(reads));
  await new Promise(resolve=>setTimeout(resolve,50));
  await tick();
- expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG 正在准备文件监听');
+ expect(document.querySelector('.index-status-primary')?.textContent).toBe('正在准备文档');
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-issues-dialog')?.textContent).toContain('正在准备文件监听'));
 });
 
 it('restores active backend work even when its root is no longer listed',async()=>{
  invoke.mockImplementation(async command=>{if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test'}};if(command==='get_index_status')return {paused:false,tasks:[{path:'/removed',stage:'converting',completed:18,total:20,files:['/removed/a.pdf']}]};if(command==='list_roots')return [{path:'/notes',name:'Notes',status:'ready',count:4,error:null}];return [];});
- app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文件转换'));expect(document.querySelector('.index-status-meta')?.textContent).toContain('18 / 20');
+ app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在解析文档'));expect(document.querySelector('.index-status-primary')?.textContent).toContain('（18/20）');
 });
 
 it('recovers changed stages and completion when progress events are missed',async()=>{
  let task:any={path:'/notes',stage:'converting',completed:1,total:4,files:['/notes/a.pdf']};let rootState='indexing';
  invoke.mockImplementation(async command=>{if(command==='get_settings')return {theme:'light',start_page:'ask',editor_size:15,answer:{model:'test'}};if(command==='get_index_status')return {paused:false,tasks:task?[{...task}]:[]};if(command==='list_roots')return [{path:'/notes',name:'Notes',status:rootState,count:1,error:null}];return [];});
- app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文件转换'));
- task={...task,stage:'indexing_converted',completed:2};await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查转换结果'),{timeout:2500});
- task=null;rootState='ready';await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')).toBeNull(),{timeout:2500});
+ app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在解析文档'));
+ task={...task,stage:'indexing_converted',completed:2};await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文档'),{timeout:2500});
+ task=null;rootState='ready';await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('文档解析完成'),{timeout:2500});
 });
 
 it.each(['converting','enhancing','retrying_enhancement'])('%s shows concurrent actual parsers, updates parser-only changes and clears them outside conversion',async(stage)=>{
@@ -518,17 +426,17 @@ it.each(['converting','enhancing','retrying_enhancement'])('%s shows concurrent 
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')?.textContent).toBe('解析方式：MinerU、anydoc'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')?.textContent).toBe('解析方式：MinerU'));
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-current-files')?.textContent).toContain('解析方式：MinerU'));
  task={...task,conversions:[{path:'/notes/a.pdf',engine:'Docling'},{path:'/notes/b.docx',engine:'anydoc'}]};
  listeners.get('data-changed')!({payload:null});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')?.textContent).toBe('解析方式：anydoc、Docling'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')?.textContent).toBe('解析方式：Docling'));
  await vi.waitFor(()=>expect(document.querySelector('.index-current-files')?.textContent).toContain('解析方式：Docling'));
  task={...task,stage:'indexing_converted',conversions:[]};
  listeners.get('data-changed')!({payload:null});
  await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')).toBeNull());
- expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查转换结果');
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文档');
 });
 
 it('shows English preparation and retry parser labels while keeping stage and count separate',async()=>{
@@ -541,14 +449,15 @@ it('shows English preparation and retry parser labels while keeping stage and co
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')?.textContent).toBe('Checking conversion status…'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('Processing documents'));
+ expect(document.querySelector('.index-status-parser')).toBeNull();
  task={...task,stage:'retrying_conversion',conversions:[{path:'/notes/a.pdf',engine:'Docling'}]};
  listeners.get('data-changed')!({payload:null});
  await vi.waitFor(()=>expect(document.querySelector('.index-status-parser')?.textContent).toBe('Parser: Docling'));
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('Processed 0 / 4 files');
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('（0/4）');
  paused=true;
  listeners.get('data-changed')!({payload:null});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('SAG indexing paused'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toBe('Document processing paused（0/4）'));
  expect(document.querySelector('.index-status-parser')?.textContent).toBe('Parser: Docling');
  task={...task,files:[],conversions:[]};
  listeners.get('data-changed')!({payload:null});
@@ -565,21 +474,21 @@ it('keeps the same card across PDF parts and stale ready root snapshots',async()
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-segment')?.textContent).toContain('part 1 / 20'));
- const card=document.querySelector('.index-status-row');
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-segment')?.textContent).toContain('part 1/20'));
+ const card=document.querySelector('.index-status-card');
  task.conversions=[{path:'/notes/long.pdf',engine:'',segment:{current:8,total:20,start_page:351,end_page:400}}];
  listeners.get('data-changed')!({payload:null});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-segment')?.textContent).toContain('part 8 / 20'));
- expect(document.querySelector('.index-status-row')).toBe(card);
- expect(document.querySelector('.index-status-pages')?.textContent).toBe('Pages 351–400');
- expect(document.querySelector('.index-status-parser')?.textContent).toBe('Processing document parts…');
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('Processed 2 / 3 files');
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-segment')?.textContent).toContain('part 8/20'));
+ expect(document.querySelector('.index-status-card')).toBe(card);
+ expect(document.querySelector('.index-status-segment')?.textContent).toContain('Pages 351–400');
+ expect(document.querySelector('.index-status-parser')).toBeNull();
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('（2/3）');
  document.querySelector<HTMLButtonElement>('[aria-label="View index details"]')?.click();
  await vi.waitFor(()=>expect(document.querySelector('.index-file-segment')?.textContent).toContain('part 8 / 20'));
  document.querySelector<HTMLButtonElement>('[aria-label="Close index details"]')?.click();
- document.querySelector<HTMLButtonElement>('[aria-label="Hide indexing status"]')?.click();
+ expect(document.querySelector('[aria-label="Hide indexing status"]')).toBeNull();
  task.conversions[0].segment.current=9;listeners.get('data-changed')!({payload:null});
- await new Promise(resolve=>setTimeout(resolve,50));expect(document.querySelector('.index-status-row')).toBeNull();
+ await new Promise(resolve=>setTimeout(resolve,50));expect(document.querySelector('.index-status-card')).toBe(card);
 });
 
 it('ignores a ready snapshot that predates a newer index progress event',async()=>{
@@ -597,12 +506,12 @@ it('ignores a ready snapshot that predates a newer index progress event',async()
  pending=true;listeners.get('data-changed')!({payload:null});
  await tick();
  listeners.get('index-progress')!({payload:{path:'/notes',count:1,total:3,stage:'converting'}});
- await tick();const card=document.querySelector('.index-status-row');expect(card).not.toBeNull();
+ await tick();const card=document.querySelector('.index-status-card');expect(card).not.toBeNull();
  // Keep a genuinely fresh task active; only the in-flight old response is empty.
  invoke.mockImplementation(async command=>command==='get_index_status'?{paused:false,tasks:[{path:'/notes',stage:'converting',completed:1,total:3,files:['/notes/a.pdf']}]}:command==='list_roots'?[{path:'/notes',name:'Notes',status:'indexing',count:1,error:null}]:[]);
  release!();await new Promise(resolve=>setTimeout(resolve,100));await tick();
- expect(document.querySelector('.index-status-row')).toBe(card);
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('1 / 3');
+ expect(document.querySelector('.index-status-card')).toBe(card);
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('（1/3）');
 });
 
 
@@ -617,8 +526,8 @@ it('does not mix another root PDF parts with the displayed root file progress',a
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文本索引'));
- expect(document.querySelector('.index-status-meta')?.textContent).toContain('1 / 5');
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文档'));
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('（1/5）');
  expect(document.querySelector('.index-status-segment')).toBeNull();
 });
 
@@ -635,11 +544,11 @@ it('失败卡片直接重建失败文件，提交期间阻止重复点击并保�
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.index-retry-button')).not.toBeNull());
  const button=document.querySelector<HTMLButtonElement>('.index-retry-button')!;
- expect(button.textContent).toContain('重建索引');
- expect(document.querySelector('.index-retry-hint')?.textContent).toContain('2');
+ expect(button.textContent).toContain('重试失败文件');
+ expect(document.querySelector('.index-status-primary')?.textContent).toContain('（2）');
  button.click();button.click();
  await vi.waitFor(()=>expect(button.disabled).toBe(true));
- expect(button.textContent).toContain('正在重建');
+ expect(button.textContent).toContain('正在重试');
  expect(invoke.mock.calls.filter(([command])=>command==='retry_failed_indexes')).toHaveLength(1);
  expect(invoke.mock.calls.some(([command])=>command==='reindex_all')).toBe(false);
  expect(document.querySelector('[aria-label="查看索引详情"]')).not.toBeNull();
@@ -655,7 +564,7 @@ it('仅有目录监听失败时不提供文件重建入口',async()=>{
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-failure')).not.toBeNull());
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('部分文件处理失败'));
  expect(document.querySelector('.index-retry-button')).toBeNull();
 });
 
@@ -699,7 +608,7 @@ it.each([true,false])('keeps same-root primary and enhancement jobs with indepen
   return [];
  });
  app=mount(App,{target:document.body});
- await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文本索引'));
+ await vi.waitFor(()=>expect(document.querySelector('.index-status-primary')?.textContent).toContain('正在检查文档'));
  expect(document.querySelector('.index-status-parser')).toBeNull();
  document.querySelector<HTMLButtonElement>('[aria-label="查看索引详情"]')!.click();
  await vi.waitFor(()=>expect(document.querySelectorAll('.index-active .index-root')).toHaveLength(2));

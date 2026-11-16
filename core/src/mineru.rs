@@ -761,11 +761,25 @@ fn archive_content_with_assets(
                     body.push_str(&strings("table_caption")?);
                     body.push_str("\n\n");
                     let table = strings("table_body")?;
-                    ensure!(
-                        !table.trim().is_empty(),
-                        "MinerU 分段第 {original} 页表格缺少正文，尝试下一解析器"
-                    );
-                    body.push_str(&table);
+                    if !table.trim().is_empty() {
+                        body.push_str(&table);
+                    } else if let Some(image) = row["img_path"].as_str().filter(|path| !path.trim().is_empty()) {
+                        // Some VLM tables are returned as images, not HTML. Keep
+                        // that image with captions/footnotes instead of rerunning
+                        // the whole PDF segment through local OCR.
+                        let present = image_paths.iter().any(|path| {
+                            let relative = path.strip_prefix(full_path.parent().unwrap_or(Path::new(""))).unwrap_or(path);
+                            relative.to_string_lossy().replace('\\', "/") == image.trim_start_matches("./")
+                        });
+                        ensure!(present && !image.contains(['<', '>', '\r', '\n']),
+                            "MinerU 分段第 {original} 页表格图片缺失或路径无效，尝试下一解析器");
+                        body.push_str(&format!("![](<{image}>)"));
+                    } else if body.trim().is_empty() && strings("table_footnote")?.trim().is_empty() {
+                        // Empty layout placeholders carry no content or page evidence.
+                        continue;
+                    } else {
+                        bail!("MinerU 分段第 {original} 页表格缺少正文，尝试下一解析器");
+                    }
                     body.push_str("\n\n");
                     body.push_str(&strings("table_footnote")?);
                 }

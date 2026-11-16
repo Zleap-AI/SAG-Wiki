@@ -1262,3 +1262,42 @@ fn archive_assets_rewrite_nested_alt_and_space_destinations() {
     assert!(output.contains("curve [red]") && output.contains("escaped \\] bracket"));
     assert!(!output.contains("](images/") && !output.contains("](<images/"));
 }
+
+#[test]
+fn segmented_table_images_and_empty_placeholders_preserve_content() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+    for (name, bytes) in [
+        ("full.md", b"Introduction\n![](images/table image.png)\nAfter table".as_slice()),
+        ("images/table image.png", b"table image".as_slice()),
+    ] {
+        zip.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+        zip.write_all(bytes).unwrap();
+    }
+    zip.start_file("part_content_list.json", zip::write::SimpleFileOptions::default()).unwrap();
+    zip.write_all(&serde_json::to_vec(&json!([
+        {"type":"text","text":"Introduction","page_idx":0},
+        {"type":"table","img_path":"images/table image.png","table_caption":["Nutrition"],"table_footnote":["Source"],"page_idx":0},
+        {"type":"table","table_caption":[],"table_footnote":[],"page_idx":1},
+        {"type":"table","table_body":"  ","table_caption":[" "],"page_idx":1},
+        {"type":"text","text":"After table","page_idx":2}
+    ])).unwrap()).unwrap();
+    let body = archive_content_with_assets(zip.finish().unwrap().into_inner(), 201, 203, true, MIB, Some(directory.path())).unwrap();
+    for text in ["Introduction", "Nutrition", "Source", "After table", "source-page:201", "source-page:203"] {
+        assert!(body.contains(text), "missing {text}: {body}");
+    }
+    assert!(!body.contains("source-page:202"), "empty placeholders must not create page evidence");
+    let image = body.split("](").nth(1).unwrap().split(')').next().unwrap().trim_matches(['<','>']);
+    assert_eq!(std::fs::read(directory.path().join(image)).unwrap(), b"table image");
+}
+
+#[test]
+fn segmented_table_empty_results_and_caption_only_tables_remain_failures() {
+    for rows in [
+        json!([{"type":"table","page_idx":0}]),
+        json!([{"type":"text","text":"Other text","page_idx":0},{"type":"table","img_path":"images/missing.png","table_caption":["Real table"],"page_idx":1}]),
+        json!([{"type":"text","text":"Other text","page_idx":0},{"type":"table","table_caption":["Real table"],"page_idx":1}]),
+    ] {
+        assert!(archive_content(archive("full", Some(rows)), 201, 202, true).is_err());
+    }
+}
