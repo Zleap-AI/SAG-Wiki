@@ -2436,3 +2436,28 @@ fn pdf_session_cancellation_stops_process_and_keeps_previous_output() {
     let pid = fs::read_to_string(converter.home.join("pdf-pid")).unwrap().trim().parse().unwrap();
     assert!(crate::process_supervisor::process_bytes(pid).is_err());
 }
+
+#[cfg(unix)]
+#[test]
+fn pdf_session_cloud_fallback_reuses_one_worker_for_all_parts() {
+    let (temp, converter) = pdf_session_fixture("ok");
+    let source = temp.path().join("cloud-fallback.pdf");
+    fs::write(&source, session_pdf_pages(51)).unwrap();
+    let output = output_path(temp.path(), &source).unwrap();
+    let mut settings = sag_protocol::types::Settings::default();
+    settings.mineru.enabled = true;
+    // A missing cloud credential fails before any network request, exercising
+    // the same ordered fallback while keeping this regression offline.
+    let mut cloud_failures = 0;
+    crate::conversion::convert_enhanced(&source, &output, &converter, &settings, || false, |attempt| {
+        if attempt.engine == "MinerU" && attempt.error.is_some() { cloud_failures += 1; }
+    }).unwrap();
+    assert_eq!(cloud_failures, 2);
+    let body = fs::read_to_string(output).unwrap();
+    assert!(body.contains("source-pages:1-50") && body.contains("source-pages:51-51"));
+    assert!(body.contains("segment 1 complete") && body.contains("segment 2 complete"));
+    assert_eq!(fs::read_to_string(converter.home.join("pdf-spawns")).unwrap().lines().count(), 1);
+    assert!(!converter.home.join("pdf-fallbacks").exists(), "cloud fallback must use the shared PDF worker");
+    let pid = fs::read_to_string(converter.home.join("pdf-pid")).unwrap().trim().parse().unwrap();
+    assert!(crate::process_supervisor::process_bytes(pid).is_err(), "worker must exit at document end");
+}

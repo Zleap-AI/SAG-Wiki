@@ -275,7 +275,9 @@ fn convert_mode(
             };
         if parts.len() > 1 {
             let report = std::cell::RefCell::new(&mut report);
-            let session = (!cloud_supports(source, &settings.mineru)).then(|| docling.pdf_session(&settings.runtime));
+            // Cloud-only documents acquire no local component lease. The first
+            // fallback creates a session shared by all remaining PDF parts.
+            let session = std::cell::OnceCell::new();
             let cancelled = &cancel;
             let reporter = &report;
             return pdf_segments::convert_parts(
@@ -298,7 +300,7 @@ fn convert_mode(
                         |attempt| reporter.borrow_mut()(attempt),
                         Some(part.start),
                         enhanced,
-                        session.as_ref(),
+                        Some(&session),
                     )
                 },
             );
@@ -318,16 +320,16 @@ fn preflight_falls_back(error: &anyhow::Error) -> bool {
     })
 }
 
-fn convert_single(
+fn convert_single<'a>(
     source: &Path,
     output: &Path,
-    docling: &Docling,
+    docling: &'a Docling,
     settings: &Settings,
     cancel: impl Fn() -> bool + Sync,
     report: impl FnMut(Attempt),
     original_start: Option<u32>,
     enhanced: bool,
-    session: Option<&crate::docling::PdfSession<'_>>,
+    session: Option<&std::cell::OnceCell<crate::docling::PdfSession<'a>>>,
 ) -> Result<()> {
     if cancel() {
         bail!("已停止转换，未发布输出")
@@ -411,7 +413,7 @@ fn convert_single(
                     anydoc::Outcome::NeedsOcr(detail) => bail!("内置解析需要 OCR：{detail}"),
                 },
                 _ => match session {
-                    Some(session) => session.convert(source, &temporary, &cancel)?,
+                    Some(session) => session.get_or_init(|| docling.pdf_session(&settings.runtime)).convert(source, &temporary, &cancel)?,
                     None => docling.convert_docling_with_runtime(source, &temporary, &settings.runtime, &cancel)?,
                 },
             }
