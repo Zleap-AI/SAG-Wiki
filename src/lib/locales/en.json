@@ -2065,5 +2065,19 @@
   "1 篇文档": "1 document",
   "1 张图片": "1 image",
   "默认保存位置": "Default save location",
-  "分享码使用说明": "How to use share codes"
+  "分享码使用说明": "How to use share codes",
+  "分享记录": "Share history",
+  "暂无分享记录": "No shares yet",
+  "分享时间": "Shared",
+  "到期时间": "Expires",
+  "有效": "Active",
+  "已取消": "Cancelled",
+  "已过期": "Expired",
+  "取消分享": "Cancel share",
+  "确认取消": "Confirm cancellation",
+  "取消后分享码立即失效，服务器文件将被删除。已下载的副本不受影响。": "The share code will stop working and the server file will be deleted. Previously downloaded copies are unaffected.",
+  "找不到分享记录": "Share record not found",
+  "分享记录文件损坏": "Share history file is damaged",
+  "无法验证此分享的管理权限": "Unable to verify permission to manage this share",
+  "取消分享失败，请检查网络后重试": "Could not cancel the share. Check your connection and try again."
 }

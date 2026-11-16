@@ -121,3 +121,22 @@ it.each([
  button('下载').click();
  await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('receive_share',{code:'SAG-YQJWWBTH',directory:'/Documents/sag-wiki/share'}));
 });
+
+it('opens share history without uploading or discarding the prepared share',async()=>{
+ api.mockImplementation(async command=>{
+  if(command==='get_share_settings')return{directory:'/Documents/sag-wiki/share',clipboard:false};
+  if(command==='prepare_share')return{id:'prepared',name:'Notes',markdown_count:1,image_count:0,size:10};
+  if(command==='get_share_history')return[];
+ });
+ app=mount(ShareDialog,{target:document.body,props:{path:'/Notes',onClose:vi.fn(),onReceived:vi.fn()}});
+ await vi.waitFor(()=>expect(button('分享记录')?.disabled).toBe(false));
+ button('分享记录').click();
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('暂无分享记录'));
+ expect(api).not.toHaveBeenCalledWith('upload_share',expect.anything());
+ expect(api).not.toHaveBeenCalledWith('close_share',expect.anything());
+ const history=document.querySelector('.share-history')!;
+ const close=[...history.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()==='关闭')!;
+ close.click();await tick();
+ expect(document.querySelector('.share-history')).toBeNull();
+ expect(button('分享').disabled).toBe(false);
+});

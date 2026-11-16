@@ -1,4 +1,6 @@
 //! Temporary Markdown sharing, shared by the desktop and standalone CLI.
+mod history;
+pub use history::{history, cancel_share, ShareRecord};
 use aes_gcm::{
     aead::{Aead, AeadCore, KeyInit, OsRng, Payload},
     Aes256Gcm, Nonce,
@@ -476,7 +478,9 @@ pub async fn upload(prepared: &PreparedShare) -> Result<UploadedShare> {
     if !response.status().is_success() {
         return Err(response_error(response).await);
     }
-    Ok(response.json().await.context("分享服务返回无效数据")?)
+    let uploaded: UploadedShare = response.json().await.context("分享服务返回无效数据")?;
+    history::record(&uploaded, prepared)?;
+    Ok(uploaded)
 }
 #[derive(Deserialize)]
 struct EncryptionInfo {

@@ -603,6 +603,14 @@ pub fn run() {
         .setup(|app| {
             #[cfg(windows)]
             windows_icon::set_taskbar_icon(app.get_webview_window("main").unwrap().hwnd()?)?;
+            tauri::async_runtime::spawn(async {
+                loop {
+                    if let Err(error) = sag_client::share::history() {
+                        eprintln!("清理过期分享记录失败：{error:#}");
+                    }
+                    tokio::time::sleep(Duration::from_secs(30)).await;
+                }
+            });
             let data = protocol::data_dir()?;
             quick_search::initialize(app.handle(), &data)?;
             let fresh_library = !data.join("sag.sqlite").try_exists()?;
@@ -705,6 +713,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             share::prepare_share, share::upload_share, share::close_share, share::receive_share,
             share::get_share_settings, share::save_share_settings, share::share_clipboard,
+            share::get_share_history, share::cancel_share,
             note_import::choose_note_import_folder,
             note_import::open_full_disk_access,
             note_import::prepare_note_import,

@@ -74,3 +74,8 @@ pub fn share_clipboard() -> CommandResult<Option<String>> {
         Err(e) => Err(error(e)),
     }
 }
+
+#[tauri::command]
+pub fn get_share_history() -> CommandResult<Vec<share::ShareRecord>> { share::history().map_err(error) }
+#[tauri::command]
+pub async fn cancel_share(code: String) -> CommandResult<()> { share::cancel_share(&code).await.map_err(error) }

@@ -4,6 +4,8 @@
  import {open} from '@tauri-apps/plugin-dialog';
  import Switch from './ui/Switch.svelte';
  import ShareHelp from './ShareHelp.svelte';
+ import ShareHistory from './ShareHistory.svelte';
+ let historyOpen=false;
  import {api} from '../lib/api';
  import {t} from '../lib/i18n';
  export let onReceive:(()=>void)|undefined=undefined;
@@ -24,6 +26,8 @@
  <div class="setting-row"><div class="share-location"><strong>{$t('默认保存位置')}</strong><p>{value.directory}</p></div><Button.Root type="button" class="outline" disabled={busy} onclick={pick}>{$t('更改')}</Button.Root></div>
  <div class="setting-row"><strong>{$t('识别剪贴板分享码')}</strong><Switch label={$t('识别剪贴板分享码')} checked={value.clipboard} disabled={busy} onCheckedChange={clipboard=>{if(value)void save({...value,clipboard})}}/></div>
  {/if}
+ <div class="setting-row"><strong>{$t('分享记录')}</strong><Button.Root type="button" class="outline" onclick={()=>historyOpen=true}>{$t('查看')}</Button.Root></div>
 </section>
+{#if historyOpen}<ShareHistory onClose={()=>historyOpen=false}/>{/if}
 {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
 <style>.share-label-heading{display:flex;align-items:center;gap:4px}.share-location{min-width:0}.share-location p{overflow-wrap:anywhere}</style>

@@ -3686,6 +3686,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "base64 0.22.1",
+ "chrono",
  "dirs 6.0.0",
  "futures-util",
  "infer 0.19.0",
@@ -3708,7 +3709,7 @@ dependencies = [
 
 [[package]]
 name = "sag-desktop"
-version = "0.3.6"
+version = "0.3.7"
 dependencies = [
  "anyhow",
  "arboard",

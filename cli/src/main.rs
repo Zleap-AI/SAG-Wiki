@@ -110,6 +110,10 @@ enum CliCommand {
     Download { code: String, #[arg(short, long)] output: Option<PathBuf> },
     /// 分享 Markdown 文件或文件夹。
     Share { path: PathBuf },
+    /// 查看本机尚未过期的分享记录。
+    ShareHistory { #[arg(long)] json: bool },
+    /// 取消本机创建的分享并删除服务器文件。
+    CancelShare { code: String },
     /// 管理 HTTP API 服务、Key 和自动启动。
     Api { #[command(subcommand)] action: api::ApiCommand },
     Install {
@@ -251,6 +255,30 @@ fn main() {
     }
     let matches = Args::command().get_matches();
     let mut args = Args::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+    if let Some(CliCommand::ShareHistory { json }) = &args.command {
+        let result = (|| -> Result<()> {
+            let records = sag_client::share::history()?;
+            if *json {
+                println!("{}", serde_json::to_string_pretty(&records)?);
+            } else if records.is_empty() {
+                println!("暂无分享记录");
+            } else {
+                for record in records {
+                    println!("SAG-{}\t{}\t有效期至 {}", record.code, record.name, record.expires_at);
+                }
+            }
+            Ok(())
+        })();
+        if let Err(e)=result { eprintln!("{e:#}"); std::process::exit(1); } return;
+    }
+    if let Some(CliCommand::CancelShare { code }) = &args.command {
+        let result = (|| -> Result<()> {
+            let code = sag_client::share::normalize_code(code)?;
+            tokio::runtime::Runtime::new()?.block_on(sag_client::share::cancel_share(&code))?;
+            println!("分享已取消：SAG-{code}"); Ok(())
+        })();
+        if let Err(e)=result { eprintln!("{e:#}"); std::process::exit(1); } return;
+    }
     if let Some(CliCommand::Download { code, output }) = &args.command {
         let result = (|| -> Result<()> {
             let directory = match output { Some(path) => path.clone(), None => PathBuf::from(sag_client::share::settings()?.directory) };
@@ -396,7 +424,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         Some(patterns)
     } else { None };
     let (command, path, json, timeout) = match args.command {
-        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..} | CliCommand::Api{..} | CliCommand::Download{..} | CliCommand::Share{..}) => unreachable!(),
+        Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..} | CliCommand::Api{..} | CliCommand::Download{..} | CliCommand::Share{..} | CliCommand::ShareHistory{..} | CliCommand::CancelShare{..}) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
         Some(CliCommand::List { json }) => (Command::List, cwd.clone(), json, 10),
         Some(CliCommand::Check { directory, json }) => (
