@@ -4,10 +4,13 @@
  import{icon}from '../lib/icons';
  export let count=0;export let index=0;export let onMove:(step:number)=>void;
  // While a large document is still being counted: `known` says whether `index` is final yet.
- export let pending=false;export let known=true;export let label:'match'|'citation'='match';
- $:text=pending?(known?$t("第 {value0} 处 · 正在统计",{value0:index+1}):$t("正在统计匹配…")):label==='citation'?$t("引用 {value0} / {value1}",{value0:index+1,value1:count}):$t("{value0} / {value1} 处匹配",{value0:index+1,value1:count});
+ export let pending=false;export let known=true;export let showEmpty=false;export let label:'match'|'citation'='match';
+ $:text=pending?(known?$t("第 {value0} 处 · 正在统计",{value0:index+1}):$t("正在统计匹配…")):!count?$t("未找到匹配项"):label==='citation'?$t("引用 {value0} / {value1}",{value0:index+1,value1:count}):$t("{value0} / {value1} 处匹配",{value0:index+1,value1:count});
 </script>
-{#if count||pending}<div class="match-navigation native-match-navigation" role="group" aria-label={$t("匹配位置")}><span aria-live="polite">{text}</span><div class="match-navigation-buttons"><Button.Root type="button" class="icon-button match-previous" aria-label={$t("上一处匹配")} title={$t("上一处匹配")} onclick={()=>onMove(-1)}>{@html icon('chevron')}</Button.Root><Button.Root type="button" class="icon-button match-next" aria-label={$t("下一处匹配")} title={$t("下一处匹配")} onclick={()=>onMove(1)}>{@html icon('chevron')}</Button.Root></div></div>{/if}
+{#if count||pending||showEmpty}<div class="match-navigation native-match-navigation" role="group" aria-label={$t("匹配位置")}>
+ <span role="status" aria-live="polite">{text}</span>
+ {#if count||pending}<div class="match-navigation-buttons"><Button.Root type="button" class="icon-button match-previous" aria-label={$t("上一处匹配")} title={$t("上一处匹配")} onclick={()=>onMove(-1)}>{@html icon('chevron')}</Button.Root><Button.Root type="button" class="icon-button match-next" aria-label={$t("下一处匹配")} title={$t("下一处匹配")} onclick={()=>onMove(1)}>{@html icon('chevron')}</Button.Root></div>{/if}
+</div>{/if}
 
 <style>
  .match-navigation.native-match-navigation{min-height:34px;gap:10px;font-size:12px;line-height:1.2}

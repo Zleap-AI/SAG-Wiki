@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {afterDocumentPaint,type DocumentTrace} from '../lib/document-performance';
  import DocumentFold from './DocumentFold.svelte';
  import {t} from '../lib/i18n';
  import Select from "./ui/Select.svelte";
@@ -9,9 +10,12 @@
  import{MermaidCodeBlock}from '../lib/mermaid';
  import{BoundedTableKit,BoundedTaskList,TaskItem}from '../lib/markdown-extensions';
  import{onMount,onDestroy}from 'svelte';import{Editor,Extension}from '@tiptap/core';import{Plugin,PluginKey}from '@tiptap/pm/state';import{Decoration,DecorationSet}from '@tiptap/pm/view';import{editorMatches}from '../lib/search-highlights';import type{TextMatch}from '../lib/search-highlights';import MatchNavigation from './MatchNavigation.svelte';import StarterKit from '@tiptap/starter-kit';import{Markdown}from '@tiptap/markdown';import Placeholder from '@tiptap/extension-placeholder';import{LocalImage,splitFrontmatter,protectHtml,restoreHtml,hydrateImages}from '../lib/markdown';
+ export let performanceTrace:DocumentTrace|undefined=undefined;
+ let disposed=false;
  export let searchTerms:string[]=[];export let body='';export let path='';export let initialMatch=0;export let onChange:(body:string)=>void=()=>{};
  let folded=false;
- let host:HTMLDivElement;let editor:Editor;let style='paragraph';let active:string[]=[];let canUndo=false,canRedo=false;const original=splitFrontmatter(body);
+ let host:HTMLDivElement;let editor:Editor;let style='paragraph';let active:string[]=[];let canUndo=false,canRedo=false;
+ const modelReady=performanceTrace?.stage('model');const original=splitFrontmatter(body);modelReady?.();
  $:formatGroups=[
   [{name:'bold',label:$t("加粗")},{name:'italic',label:$t("斜体")},{name:'strike',label:$t("删除线")}],
   [{name:'bulletList',label:$t("无序列表")},{name:'orderedList',label:$t("有序列表")},{name:'blockquote',label:$t("引用")},{name:'codeBlock',label:$t("代码块")}]
@@ -25,12 +29,13 @@
  function selectMatch(next:number){if(!matchCount)return;const index=(next+matchCount)%matchCount;editor.view.dispatch(editor.state.tr.setMeta(matchKey,index));const match=host.querySelector<HTMLElement>(`[data-search-match="${index}"]`)!;const diagram=match.closest('.mermaid-code-block');if(diagram&&diagram.querySelector('pre')!.hidden)diagram.querySelector<HTMLButtonElement>('button')!.click();match.scrollIntoView({block:'center'});}
  function update(){style=[1,2,3].find(level=>editor.isActive('heading',{level}))?.toString()||'paragraph';active=['bold','italic','strike','bulletList','orderedList','blockquote','codeBlock'].filter(name=>editor.isActive(name));canUndo=editor.can().undo();canRedo=editor.can().redo();}
  function format(name:string){const c=editor.chain().focus();switch(name){case'bold':c.toggleBold().run();break;case'italic':c.toggleItalic().run();break;case'strike':c.toggleStrike().run();break;case'bulletList':c.toggleBulletList().run();break;case'orderedList':c.toggleOrderedList().run();break;case'blockquote':c.toggleBlockquote().run();break;case'codeBlock':c.toggleCodeBlock().run();break;case'undo':c.undo().run();break;case'redo':c.redo().run();break;}update();}
- onMount(()=>{editor=new Editor({element:host,extensions:[highlights,StarterKit.configure({codeBlock:false,link:{openOnClick:false}}),MermaidCodeBlock,Markdown,...BoundedTableKit,LocalImage,BoundedTaskList,TaskItem.configure({nested:true}),Placeholder.configure({placeholder:()=>$t("开始写作，也可以直接粘贴 Markdown…")})],content:protectHtml(original.body),contentType:'markdown',editorProps:{attributes:{role:'textbox','aria-label':$t("文档正文"),'aria-multiline':'true'},handlePaste:(_view,event)=>{const text=event.clipboardData?.getData('text/plain');if(!text||event.clipboardData?.getData('text/html'))return false;event.preventDefault();editor.chain().focus().insertContent(text,{contentType:'markdown'}).run();return true;}},onUpdate:()=>{onChange(original.prefix+restoreHtml(editor.getMarkdown()));update();void hydrateImages(host,path)},onSelectionUpdate:update,onTransaction:({editor:current})=>{const value=matchKey.getState(current.state)!;matchCount=value.matches.length;matchIndex=value.index;}});
+ onMount(()=>{const initialized=performanceTrace?.stage('editor-init');editor=new Editor({element:host,extensions:[highlights,StarterKit.configure({codeBlock:false,link:{openOnClick:false}}),MermaidCodeBlock,Markdown,...BoundedTableKit,LocalImage,BoundedTaskList,TaskItem.configure({nested:true}),Placeholder.configure({placeholder:()=>$t("开始写作，也可以直接粘贴 Markdown…")})],content:protectHtml(original.body),contentType:'markdown',editorProps:{attributes:{role:'textbox','aria-label':$t("文档正文"),'aria-multiline':'true'},handlePaste:(_view,event)=>{const text=event.clipboardData?.getData('text/plain');if(!text||event.clipboardData?.getData('text/html'))return false;event.preventDefault();editor.chain().focus().insertContent(text,{contentType:'markdown'}).run();return true;}},onUpdate:()=>{onChange(original.prefix+restoreHtml(editor.getMarkdown()));update();void hydrateImages(host,path)},onSelectionUpdate:update,onTransaction:({editor:current})=>{const value=matchKey.getState(current.state)!;matchCount=value.matches.length;matchIndex=value.index;}});
  // Complete editor normalization (including its trailing paragraph) without treating it as a user edit.
  editor.view.dispatch(editor.state.tr.setMeta('preventUpdate',true).setMeta('addToHistory',false));
- update();const value=matchKey.getState(editor.state)!;matchCount=value.matches.length;matchIndex=value.index;selectMatch(Math.min(initialMatch,Math.max(0,matchCount-1)));void hydrateImages(host,path);});
+ update();const value=matchKey.getState(editor.state)!;matchCount=value.matches.length;matchIndex=value.index;selectMatch(Math.min(initialMatch,Math.max(0,matchCount-1)));void hydrateImages(host,path);initialized?.();});
  $:if(editor){editor.setOptions({editorProps:{...editor.options.editorProps,attributes:{role:'textbox','aria-label':$t('文档正文'),'aria-multiline':'true'}}});editor.view.dispatch(editor.state.tr.setMeta('language',true));}
- onDestroy(()=>editor?.destroy());
+ $:if(editor&&performanceTrace?.enabled)void afterDocumentPaint(performanceTrace,()=>!disposed&&host.isConnected);
+ onDestroy(()=>{disposed=true;performanceTrace?.cancel();editor?.destroy();});
 </script>
 <div style:display={folded?'none':undefined} class="editor-toolbar native-editor-toolbar" role="group" aria-label={$t("文档格式")}>
  <div class="format-controls">

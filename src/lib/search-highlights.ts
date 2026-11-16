@@ -1,8 +1,8 @@
 import type{Node as ProseMirrorNode}from '@tiptap/pm/model';
 import {escaped,isHtml,isMarkdown} from './domain';
 import type {Candidate} from './types';
-export type TextMatch={from:number;to:number};
-const segmenter=new Intl.Segmenter(undefined,{granularity:'grapheme'});
+import {textMatches,type TextMatch} from './text-matches';
+export {textMatches,type TextMatch};
 const textBlockSelector='p,li,pre,td,th,h1,h2,h3,h4,h5,h6,div,blockquote,text';
 export function selectSearchMatches(root:ParentNode,marks:HTMLElement[]){
  root.querySelectorAll('.search-hit.active').forEach(mark=>mark.classList.remove('active'));
@@ -11,28 +11,6 @@ export function selectSearchMatches(root:ParentNode,marks:HTMLElement[]){
   mark.classList.add('active');
   mark.parentElement!.closest(textBlockSelector)?.classList.add('search-active-paragraph');
  }
-}
-export function textMatches(text:string,terms:string[]):TextMatch[]{
- const words=[...new Set(terms.map(term=>term.normalize('NFKC').toLowerCase()).filter(Boolean))].sort((a,b)=>b.length-a.length);
- if(!words.length)return [];
- const pattern=new RegExp(words.map(word=>word.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')).join('|'),'gu');
- let normalized=text.normalize('NFKC').toLowerCase();
- let positions:{from:number;to:number}[]|null=null;
- if(normalized!==text.toLowerCase()||normalized.length!==text.length){
-  positions=[];normalized='';
-  for(const {segment,index} of segmenter.segment(text)){
-   const folded=segment.normalize('NFKC').toLowerCase();normalized+=folded;
-   for(let i=0;i<folded.length;i++)positions.push({from:index,to:index+segment.length});
-  }
- }
- const matches:TextMatch[]=[];
- for(const match of normalized.matchAll(pattern)){
-  const from=positions?positions[match.index].from:match.index;
-  const to=positions?positions[match.index+match[0].length-1].to:match.index+match[0].length;
-  if(matches.length&&from<matches[matches.length-1].to)continue;
-  matches.push({from,to});
- }
- return matches;
 }
 export function highlightedText(text:string,terms:string[]):string{
  let html='',end=0;
@@ -77,14 +55,18 @@ export function highlightedHtml(html:string,terms:string[]):{html:string;count:n
  const count=highlightDocument(doc,terms);
  return {html:doc.body.innerHTML,count};
 }
-export function highlightDocument(doc:Document,terms:string[]):number{
+export function countDocumentMatches(doc:Document,terms:string[]):number{
+ return textBlocks(doc).reduce((sum,nodes)=>sum+textMatches(nodes.map(node=>node.data).join(''),terms).length,0);
+}
+export function highlightDocument(doc:Document,terms:string[],limit=Infinity,selected=-1):number{
  if(!terms.length)return 0;
  let count=0;
  for(const nodes of textBlocks(doc)){
   const matches=textMatches(nodes.map(node=>node.data).join(''),terms).map(match=>({...match,id:count++}));
   let offset=0;
+  const visible=matches.filter(match=>match.id<limit||match.id===selected);
   for(const node of nodes){
-   const end=offset+node.length,parts=matches.filter(match=>match.from<end&&match.to>offset);
+   const end=offset+node.length,parts=visible.filter(match=>match.from<end&&match.to>offset);
    if(parts.length){
     const fragment=doc.createDocumentFragment();let cursor=0;
     for(const match of parts){

@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.5
+
+- **大文档阅读**：侧边栏、搜索和引用中的大 Markdown 默认先进入阅读界面，按阅读位置显示正文并加载本地图片，减少打开时的长时间卡顿；支持全文目录、查找和复制完整源码，点击“编辑文档”后再进入完整编辑器。
+
+### English
+
+- **Large document reading**: Open large Markdown files from the sidebar, search and citations in a reading view that displays nearby content and loads local images as needed, reducing long opening stalls. Keep full-document outline, find and source copying, and enter the full editor only after selecting Edit document.
+
 ## 0.3.4
 
 - **Windows 远程服务**：修复打开远程服务设置后，后台状态检查反复弹出命令行窗口的问题。
