@@ -162,9 +162,14 @@ sag share ./notes
 sag share ./notes/example.md
 sag download ABCDEFGH
 sag download SAG-ABCDEFGH --output ./received
+sag share-history
+sag share-history --json
+sag cancel-share SAG-ABCDEFGH
 ```
 
 `share` uploads Markdown and referenced images and returns a code valid for one hour. `download` verifies and extracts the files to `sag-wiki/share/share-name/` inside your system Documents folder. It uses the default download folder configured in the desktop app; `--output` overrides it for one download. Duplicate folder names receive a numbered suffix without overwriting existing files. The CLI prints the saved path; run `sag add saved-path` to add it to your knowledge base.
+
+`share-history` lists unexpired shares recorded on this device. `--json` returns names, codes, sharing and expiration times without management credentials; expired records are deleted locally. `cancel-share` uses the stored management credentials and accepts a code with or without `SAG-`. On success, the code is invalid and the server file and local share record have been deleted. Failed cancellations retain the local record for retry; previously downloaded copies are unaffected. Shares without a local record cannot be cancelled.
 
 See [file sharing](/en/docs/file-sharing) for supported content and limits.
 

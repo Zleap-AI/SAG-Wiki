@@ -7,7 +7,13 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="fc41903087e98302597ebb42618491396c721bc242007c7809fd6ef99c727fa2" aria-hidden="true" />
+<span data-docs-changelog-sha="c3bb591b5db928b33bc4c1e5fcbfd94b6ecbff52d2eac8058c902decce2521fd" aria-hidden="true" />
+
+## 0.3.7
+
+- **Share history**: View shares created on this device from the sharing dialog or Data import settings, including names, codes, creation times and expiry times. Expired records are removed automatically.
+- **Cancel shares**: Cancel an active share created on this device. After success, the code is invalidated, the server file is deleted and the local record is removed. Failed cancellations retain the record for retry; downloaded copies are unaffected.
+- **CLI share management**: Add `sag share-history` and `sag cancel-share`, support JSON history output and update the Agent Skill instructions.
 
 ## 0.3.6
 

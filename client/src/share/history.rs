@@ -13,7 +13,6 @@ pub struct ShareRecord {
     pub name: String,
     pub shared_at: u64,
     pub expires_at: String,
-    pub cancelled: bool,
 }
 #[derive(Serialize, Deserialize)]
 struct StoredRecord {
@@ -21,6 +20,8 @@ struct StoredRecord {
     record: ShareRecord,
     request_id: String,
     request_key: String,
+    #[serde(default, skip_serializing)]
+    cancelled: bool,
 }
 fn access<T>(
     directory: &Path,
@@ -41,21 +42,21 @@ fn access<T>(
         Err(error) => return Err(error.into()),
     };
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-    let mut expired = false;
+    let mut removed = false;
     let mut retained = Vec::with_capacity(records.len());
     for item in records {
         let deadline = chrono::DateTime::parse_from_rfc3339(&item.record.expires_at)
             .context("分享到期时间无效")?
             .timestamp_millis();
-        if deadline < 0 || deadline as u128 <= now {
-            expired = true;
+        if item.cancelled || deadline < 0 || deadline as u128 <= now {
+            removed = true;
         } else {
             retained.push(item);
         }
     }
     records = retained;
     let (result, changed) = operation(&mut records)?;
-    if changed || expired {
+    if changed || removed {
         let mut file = tempfile::NamedTempFile::new_in(directory)?;
         serde_json::to_writer(&mut file, &records)?;
         file.persist(path)?;
@@ -79,10 +80,10 @@ pub(super) fn record(uploaded: &UploadedShare, prepared: &PreparedShare) -> Resu
                     name: uploaded.name.clone(),
                     shared_at: SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs(),
                     expires_at: uploaded.expires_at.clone(),
-                    cancelled: false,
                 },
                 request_id: prepared.preview.id.clone(),
                 request_key: prepared.request_key.clone(),
+                cancelled: false,
             },
         );
         Ok(((), true))
@@ -122,9 +123,7 @@ pub async fn cancel_share(code: &str) -> Result<()> {
         return Err(super::response_error(response).await);
     }
     access(&directory, |records| {
-        if let Some(item) = records.iter_mut().find(|item| item.request_id == id) {
-            item.record.cancelled = true;
-        }
+        records.retain(|item| item.request_id != id);
         Ok(((), true))
     })
 }
@@ -142,10 +141,10 @@ mod tests {
                 name: "Notes".into(),
                 shared_at: 1,
                 expires_at: expires.into(),
-                cancelled: false,
             },
             request_id: code.into(),
             request_key: format!("secret-{code}"),
+            cancelled: false,
         };
         fs::write(
             &path,
@@ -168,7 +167,7 @@ mod tests {
         assert!(stored.contains("ACTIVE22"));
     }
     #[test]
-    fn history_keeps_proofs_private_and_persists_cancellation() {
+    fn history_keeps_proofs_private_and_removes_legacy_cancelled_records() {
         let dir = tempfile::tempdir().unwrap();
         access(dir.path(), |records| {
             records.push(StoredRecord {
@@ -177,10 +176,10 @@ mod tests {
                     name: "Notes".into(),
                     shared_at: 1,
                     expires_at: "2099-01-01T00:00:00Z".into(),
-                    cancelled: false,
                 },
                 request_id: "request".into(),
                 request_key: "secret".into(),
+                cancelled: false,
             });
             Ok(((), true))
         })
@@ -189,14 +188,22 @@ mod tests {
             let public = serde_json::to_string(&records[0].record).unwrap();
             assert!(!public.contains("secret"));
             assert!(!public.contains("request"));
-            records[0].record.cancelled = true;
-            Ok(((), true))
-        })
-        .unwrap();
-        access(dir.path(), |records| {
-            assert!(records[0].record.cancelled);
             Ok(((), false))
         })
         .unwrap();
+        let path = dir.path().join("share-history.json");
+        let mut legacy: serde_json::Value =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        legacy[0]["cancelled"] = true.into();
+        fs::write(&path, serde_json::to_vec(&legacy).unwrap()).unwrap();
+        access(dir.path(), |records| {
+            assert!(records.is_empty());
+            Ok(((), false))
+        })
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.path().join("share-history.json")).unwrap(),
+            "[]"
+        );
     }
 }

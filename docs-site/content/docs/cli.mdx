@@ -161,9 +161,14 @@ sag share ./notes
 sag share ./notes/example.md
 sag download ABCDEFGH
 sag download SAG-ABCDEFGH --output ./received
+sag share-history
+sag share-history --json
+sag cancel-share SAG-ABCDEFGH
 ```
 
 `share` 上传 Markdown 和引用图片，返回有效期为 1 小时的分享码。`download` 校验并解压到系统文档目录下的 `sag-wiki/share/分享名称/`；桌面端设置的默认接收位置同样适用，`--output` 可单次指定位置。同名目录自动编号，不覆盖已有文件。CLI 下载完成后输出保存路径，可执行 `sag add 保存路径` 加入知识库。
+
+`share-history` 列出本机未过期的分享记录，`--json` 返回名称、分享码、分享时间和到期时间，不输出管理凭据；过期记录会从本地删除。`cancel-share` 使用本机保存的管理凭据取消分享，支持带或不带 `SAG-` 前缀。成功后分享码失效，服务器文件和本地分享记录均已删除；取消失败则保留本地记录，方便重试。已经下载的副本不受影响。无法取消未在本机保存记录的分享。
 
 支持范围和大小限制见[文件分享](/zh/docs/file-sharing)。
 

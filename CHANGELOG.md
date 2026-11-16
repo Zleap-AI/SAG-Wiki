@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.3.7
+
+- **分享记录**：分享弹窗和数据导入设置新增分享记录，查看本机发起的分享名称、分享码、分享时间和到期时间；过期记录自动清理。
+- **取消分享**：支持取消本机创建的有效分享，成功后分享码失效、服务器文件删除，本地列表同步移除；失败时保留记录以便重试，已下载的副本不受影响。
+- **CLI 分享管理**：新增 `sag share-history` 和 `sag cancel-share` 命令，支持以 JSON 查看分享记录，并同步更新 Agent Skill 使用说明。
+
+### English
+
+- **Share history**: View shares created on this device from the sharing dialog or Data import settings, including names, codes, creation times and expiry times. Expired records are removed automatically.
+- **Cancel shares**: Cancel an active share created on this device. After success, the code is invalidated, the server file is deleted and the local record is removed. Failed cancellations retain the record for retry; downloaded copies are unaffected.
+- **CLI share management**: Add `sag share-history` and `sag cancel-share`, support JSON history output and update the Agent Skill instructions.
+
 ## 0.3.6
 
 - **文件分享**：支持分享 Markdown 文件或文件夹，自动打包正文引用的本地图片并保留目录结构。确认后上传并生成分享码，可复制分享码和接收指引。

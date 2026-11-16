@@ -22,14 +22,14 @@ Supply one directory, either positionally or with `--path`, not both. Omit it to
 
 The semantic query must be a nonempty, specific natural-language question of at most 2000 characters. Start with 3–5 results and narrow the question or directory before increasing the limit.
 
-`add`, `remove`, `list`, `check`, `status`, `config`, `service`, `share`, `download`, `install`, `uninstall` and `help` are command names. Use `--` to search those literal words or a query beginning with `-`:
+`add`, `remove`, `list`, `check`, `status`, `config`, `service`, `share`, `download`, `share-history`, `cancel-share`, `install`, `uninstall` and `help` are command names. Use `--` to search those literal words or a query beginning with `-`:
 
 ```bash
 sag -- status src
 sag -F -c -- '-TODO' src
 ```
 
-Search flags generally do not apply to subcommands. `--timeout` also controls how long `sag add` waits for indexing and is accepted after the subcommand; see [setup](setup.md#directory-and-status-commands). Use `sag check --json` for JSON checks. Sharing and downloading do not support `--json`; their syntax and output are in [setup](setup.md#sharing-and-downloading).
+Search flags generally do not apply to subcommands. `--timeout` also controls how long `sag add` waits for indexing and is accepted after the subcommand; see [setup](setup.md#directory-and-status-commands). Use `sag check --json` for JSON checks. `share-history --json` returns local share records without credentials. Sharing, downloading and cancellation do not support `--json`; their syntax and output are in [setup](setup.md#sharing-and-downloading).
 
 ## Fixed strings and regular expressions
 
