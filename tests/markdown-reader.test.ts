@@ -2,7 +2,7 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import MarkdownReader from '../src/components/MarkdownReader.svelte';
-import {candidateRanges,clearMarkdownModels,markdownModel,modelCitationTerms,pieceIndex} from '../src/lib/document-model';
+import {candidateRanges,clearMarkdownModels,documentCacheUsage,pieceHtml,markdownModel,modelCitationTerms,pieceIndex} from '../src/lib/document-model';
 import {renderMarkdown} from '../src/lib/markdown';
 import {citationTerms,highlightedHtml} from '../src/lib/search-highlights';
 import type {Candidate} from '../src/lib/types';
@@ -185,7 +185,9 @@ it('引用只高亮被引用的块，并按引用计数',async()=>{
 });
 
 it('同一文件再次打开复用缓存的模型和渲染结果',()=>{
- const first=markdownModel(doc);first.html[0]='<p>cached</p>';
+ const first=markdownModel(doc),html=pieceHtml(first,0);
+ expect(pieceHtml(markdownModel({...doc}),0)).toBe(html);
+ expect(documentCacheUsage().htmlPieces).toBe(1);
  expect(markdownModel({...doc})).toBe(first);
  expect(markdownModel({...doc,hash:'other'})).not.toBe(first);
  for(let index=0;index<6;index++)markdownModel({...doc,path:`/other-${index}.md`});

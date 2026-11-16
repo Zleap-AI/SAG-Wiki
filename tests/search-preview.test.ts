@@ -103,3 +103,43 @@ it('切换文档后，较早的读取结果不会覆盖当前预览',async()=>{
  finish({id:2,path:hits[1].path,name:hits[1].title,body:'迟到的错误文档',hash:'same'});await tick();await tick();
  expect(document.querySelector('.search-preview-body')!.textContent).toContain('文件 1 的 octx');
 });
+it('large search results target the cited source and use the same bounded reader for full-document find',async()=>{
+ const path='/files/large.md',filler=('A filler paragraph. '.repeat(220)+'\n\n').repeat(30),paragraph='A **formatted octx** result.';
+ const body=filler+paragraph;
+ const hit={...hits[0],path,title:'large.md',content:paragraph,start_line:61,end_line:61};
+ await setup([hit],{[path]:body});
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview .large-document-reader strong .search-hit.active')?.textContent).toBe('formatted octx'));
+ expect(document.querySelectorAll('.search-preview .reader-piece').length).toBeLessThanOrEqual(12);
+ document.querySelector<HTMLButtonElement>('.search-find-trigger')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('#preview-find')).not.toBeNull());
+ const field=document.querySelector<HTMLInputElement>('#preview-find')!;
+ field.value='formatted octx';field.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ field.form!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(document.querySelector('.match-navigation')?.textContent).toContain('1 / 1'));
+ openDocument();
+ await vi.waitFor(()=>expect(document.querySelector('.large-document .search-hit.active')?.textContent).toBe('octx'));
+ expect(document.querySelector('[contenteditable=true]')).toBeNull();
+ document.querySelector<HTMLButtonElement>('.large-document [title="返回搜索"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview .match-navigation')?.textContent).toContain('1 / 1'));
+ expect(document.querySelector<HTMLInputElement>('#preview-find')!.value).toBe('formatted octx');
+ const restored=document.querySelector<HTMLInputElement>('#preview-find')!;
+ restored.value='absent from this book';restored.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ restored.form!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(document.querySelector('.search-preview .match-navigation [aria-live=polite]')?.textContent).toBe('未找到匹配项'));
+ expect(invoke.mock.calls.filter(([command])=>command==='read_document')).toHaveLength(3);
+});
+it('back cancels the pending search preview trace immediately, before a late RPC response',async()=>{
+ const perf=await import('../src/lib/document-performance');
+ await setup();await vi.waitFor(()=>expect(document.querySelector('.search-preview-body')).not.toBeNull());
+ perf.resetDocumentPerformance();perf.configureDocumentPerformance({enabled:true});
+ const previous=invoke.getMockImplementation()!;let finish!:(value:unknown)=>void;
+ invoke.mockImplementation((command,args)=>command==='read_document'&&args.path===hits[1].path?new Promise(resolve=>{finish=resolve;}):previous(command,args));
+ try{
+  document.querySelectorAll<HTMLButtonElement>('.search-result')[1].click();await tick();
+  expect(perf.documentPerformanceSnapshot().at(-1)?.status).toBe('running');
+  document.querySelector<HTMLButtonElement>('.search-preview-back.list-only')!.click();await tick();
+  expect(perf.documentPerformanceSnapshot().at(-1)?.status).toBe('cancelled');
+  finish({id:2,path:hits[1].path,name:hits[1].title,body:'late',hash:'h'});await tick();await tick();
+  expect(perf.documentPerformanceSnapshot().at(-1)?.status).toBe('cancelled');
+ }finally{perf.configureDocumentPerformance({enabled:false});perf.resetDocumentPerformance();}
+});

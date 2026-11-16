@@ -35,6 +35,13 @@ Refresh the matching bilingual MDX instructions whenever navigation or controls
 change. Preserve extension screenshots, branding, community QR codes and
 benchmark charts unless their owning features change.
 
+`node bench/docs/large-reader.cjs` captures the bilingual read-first large
+Markdown view with its paged outline and full-document find controls. The
+`large-reader` fixture is a generated project handbook, never a private book.
+The script also checks that no editor is mounted and at most 12 content pieces
+are attached. These synthetic screenshots are separate from real-file/native
+performance acceptance.
+
 `node bench/docs/fold.cjs` refreshes folding and processing-progress screenshots. It also
 checks the embedded original TextFold renderer under the desktop CSP: moving
 text, fractional slider positions, chapter cards, preserved tables, local

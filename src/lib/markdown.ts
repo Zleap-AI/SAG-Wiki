@@ -13,16 +13,21 @@ type Links=Record<string,{href:string;title:string|null}>;
 // Pieces never split that block, so it determines which definitions precede a
 // piece without pretending stripped blockquote/list prefixes have exact offsets.
 export type LinkDefinition={tag:string;href:string;title:string|null;offset:number};
-type Lexer={blockTokens(src:string,tokens:unknown[]):unknown[];inlineTokens(src:string,tokens:unknown[]):unknown[];inlineQueue:{src:string;tokens:unknown[]}[];tokens:unknown[]&{links:Links}};
+type Lexer={tokenizer:{rules:{inline:{reflinkSearch:RegExp}}};blockTokens(src:string,tokens:unknown[]):unknown[];inlineTokens(src:string,tokens:unknown[]):unknown[];inlineQueue:{src:string;tokens:unknown[]}[];tokens:unknown[]&{links:Links}};
 type ParserInternals={createLexer():Lexer;parseTokens(tokens:unknown[],top:boolean):JSONContent[];activeParseLexer:unknown};
 const internals=parser as unknown as ParserInternals;
 import {splitFrontmatter,protectHtml} from './markdown-source';
 export {splitFrontmatter,protectHtml,restoreHtml} from './markdown-source';
 // Link reference definitions in document order, including nested containers.
 export function markdownLinks(body:string):LinkDefinition[]{
- const content=splitFrontmatter(body).body,links:LinkDefinition[]=[];
- if(!/\]:/.test(content))return links;
- for(const piece of splitMarkdown(content)){
+ const content=splitFrontmatter(body).body;
+ return content.includes(']:')?collectMarkdownLinks(content,splitMarkdown(content)):[];
+}
+
+export function collectMarkdownLinks(content:string,pieces:{from:number;to:number;source?:boolean}[]):LinkDefinition[]{
+ const links:LinkDefinition[]=[];
+ for(const piece of pieces){
+  if(piece.source)continue;
   const text=content.slice(piece.from,piece.to);
   if(!/\]:/.test(text))continue;
   const normalized=text.replace(/\r\n|\r/g,'\n');
@@ -51,10 +56,37 @@ export function markdownLinks(body:string):LinkDefinition[]{
  }
  return links;
 }
-function firstDefinitions(links:LinkDefinition[],before?:number):Links{
- const map:Links=Object.create(null);
- for(const link of links)if((before===undefined||link.offset<before)&&!(link.tag in map))map[link.tag]={href:link.href,title:link.title};
- return map;
+type DefinitionIndex=ReadonlyMap<string,LinkDefinition>;
+function indexDefinitions(links:LinkDefinition[]){
+ const index=new Map<string,LinkDefinition>();
+ for(const link of links)if(!index.has(link.tag))index.set(link.tag,link);
+ return index;
+}
+
+// Marked looks up duplicate definitions during block lexing and uses a document-wide
+// lookup for inline references. Its emphasis masker additionally enumerates keys.
+// Keep only this piece's local definitions and mask candidates enumerable.
+function useDefinitions(lexer:Lexer,index:DefinitionIndex,source:string,priorOffset:number){
+ const local:Links=Object.create(null);
+ let inline=false;
+ const lookup=(tag:string)=>{
+  const def=index.get(tag);
+  return def&&(inline||def.offset<priorOffset)?def:undefined;
+ };
+ lexer.tokens.links=new Proxy(local,{get:(obj,key)=>typeof key==='string'?obj[key]??lookup(key):undefined});
+ const mask=new RegExp(lexer.tokenizer.rules.inline.reflinkSearch);
+ const addMaskKeys=(text:string)=>{
+  mask.lastIndex=0;
+  for(let match=mask.exec(text);match;match=mask.exec(text)){
+   const raw=match[0],key=raw.slice(raw.lastIndexOf('[')+1,-1);
+   const found=lookup(key);if(found&&!local[key])local[key]=found;
+  }
+ };
+ addMaskKeys(source);
+ return ()=>{
+  inline=true;
+  for(const item of lexer.inlineQueue)addMaskKeys(item.src);
+ };
 }
 // Renders one piece of a document so that the pieces, concatenated, equal the
 // whole render. While lexing blocks, marked only knows definitions seen so far
@@ -62,10 +94,11 @@ function firstDefinitions(links:LinkDefinition[],before?:number):Links{
 // links resolve against all of them; both are reproduced here. Pieces from
 // splitMarkdown end in one empty line, which tiptap would turn into a trailing
 // empty paragraph unless the piece ends the document.
-export function renderMarkdownPiece(text:string,links:LinkDefinition[]=[],{offset=0,last=true}:{offset?:number;last?:boolean}={}):string{
+export function renderMarkdownPiece(text:string,links:LinkDefinition[]|DefinitionIndex=[],{offset=0,last=true,prior=true}:{offset?:number;last?:boolean;prior?:boolean}={}):string{
  const source=protectHtml(last?text:text.replace(/\r?\n$/,''),true).replace(/\r\n|\r/g,'\n');
  const lexer=internals.createLexer();
- Object.assign(lexer.tokens.links,firstDefinitions(links,offset));
+ const definitions=Array.isArray(links)?(links.length&&source.includes('[')?indexDefinitions(links):null):links;
+ const enableInline=definitions?.size&&source.includes('[')?useDefinitions(lexer,definitions,source,prior?offset:-Infinity):null;
  const previous=internals.activeParseLexer;internals.activeParseLexer=lexer;
  try{
   lexer.blockTokens(source,lexer.tokens);
@@ -79,7 +112,7 @@ export function renderMarkdownPiece(text:string,links:LinkDefinition[]=[],{offse
    const raw=parts.join('');
    lexer.tokens.splice(index,end-index,{type:'html',raw,text:raw,block:true});
   }
-  for(const [tag,link] of Object.entries(firstDefinitions(links)))if(!(tag in lexer.tokens.links))lexer.tokens.links[tag]=link;
+  enableInline?.();
   for(const item of lexer.inlineQueue)lexer.inlineTokens(item.src,item.tokens);
   lexer.inlineQueue=[];
   // Tiptap supplies an empty paragraph when a document contains only definitions.
@@ -105,8 +138,8 @@ export function finishHtml(html:string):string{
 export function renderMarkdown(text:string,referenceBody?:string):string{
  const content=splitFrontmatter(text).body,pieces=splitMarkdown(content);
  // A reference body's definitions resolve links but, like appended text, come after every block.
- const links=referenceBody?markdownLinks(referenceBody).map(link=>({...link,offset:Infinity})):pieces.length>1?markdownLinks(text):[];
- return finishHtml(pieces.map((piece,index)=>renderMarkdownPiece(content.slice(piece.from,piece.to),links,{offset:piece.from,last:index===pieces.length-1})).join(''));
+ const links=indexDefinitions(referenceBody?markdownLinks(referenceBody):pieces.length>1&&content.includes(']:')?collectMarkdownLinks(content,pieces):[]);
+ return finishHtml(pieces.map((piece,index)=>renderMarkdownPiece(content.slice(piece.from,piece.to),links,{offset:piece.from,last:index===pieces.length-1,prior:!referenceBody})).join(''));
 }
 export function markdownCitation(body:string,ranges:{from:number;to:number}[]):string{
  const normalized=body.replace(/\r\n?/g,'\n');
@@ -125,7 +158,24 @@ export function markdownCitation(body:string,ranges:{from:number;to:number}[]):s
  }
  return kept.join('\n\n');
 }
-export async function hydrateImages(host:HTMLElement,path:string):Promise<void>{for(const image of host.querySelectorAll<HTMLImageElement>('img[data-source]')){const src=image.dataset.source!;if(/^(?:https?:|data:|javascript:)/i.test(src)){image.alt=get(t)('外部图片（未自动加载）');continue;}const normalized=path.replace(/\\/g,'/').replace(/^\/\/\?\/UNC\//i,'//').replace(/^\/\/\?\//,'');const base=dirname(normalized);const url=new URL(src,'file://'+(base.startsWith('/')?'':'/')+base+'/');let absolute=(url.hostname?'//'+url.hostname:'')+decodeURIComponent(url.pathname);if(/^[A-Za-z]:/.test(base))absolute=absolute.replace(/^\//,'');try{image.src=await api<string>('load_image',{path:absolute});}catch(error){image.alt=get(t)('图片不可用：{value0}',{value0:get(t)(String(error))});}}}
+export async function hydrateImages(host:HTMLElement,path:string,current:()=>boolean=()=>true):Promise<void>{
+ const normalized=path.replace(/\\/g,'/').replace(/^\/\/\?\/UNC\//i,'//').replace(/^\/\/\?\//,'');
+ const base=dirname(normalized);
+ for(const image of host.querySelectorAll<HTMLImageElement>('img[data-source]')){
+  if(!current())return;
+  const src=image.dataset.source!;
+  if(/^(?:https?:|data:|javascript:)/i.test(src)){image.alt=get(t)('外部图片（未自动加载）');continue;}
+  try{
+   const url=new URL(src,'file://'+(base.startsWith('/')?'':'/')+base+'/');
+   let absolute=(url.hostname?'//'+url.hostname:'')+decodeURIComponent(url.pathname);
+   if(/^[A-Za-z]:/.test(base))absolute=absolute.replace(/^\//,'');
+   const data=await api<string>('load_image',{path:absolute});
+   if(current()&&host.contains(image))image.src=data;
+  }catch(error){
+   if(current()&&host.contains(image))image.alt=get(t)('图片不可用：{value0}',{value0:get(t)(String(error))});
+  }
+ }
+}
 export function renderAnswer(text:string,evidence:Candidate[],tools:ToolCallRecord[]=[],reasoning:ReasoningBlock[]=[]){
  const sources:{first:Candidate;number:number}[]=[];
  const numbers=new Map<string,number>();

@@ -79,3 +79,15 @@ describe('搜索高亮和位置',()=>{
   expect(matches).toEqual([{from:1,to:5}]);expect(doc.textBetween(matches[0].from,matches[0].to)).toBe('OCTX');expect(doc.toJSON()).toEqual(before);
  });
 });
+it('keeps longest-first and nonoverlap semantics across bounded Unicode search windows',()=>{
+ const prefix='x'.repeat(4095);
+ expect(textMatches(prefix+'NeedleNeedle',['need','needle'])).toEqual([{from:4095,to:4101},{from:4101,to:4107}]);
+ expect(textMatches(prefix+'🙂'+'a'.repeat(4200),['\ud83d'])).toEqual([]);
+ expect(textMatches(prefix+'\uFB03'+'e\u0301'+' suffix',['ffié'])).toEqual([{from:4095,to:4098}]);
+});
+
+it('translates the consumed source offset after expanded or contracted graphemes',()=>{
+ expect(textMatches('\uFB03aaa',['aa'],2)).toEqual([{from:2,to:4}]);
+ expect(textMatches('A\u030Aaaa',['å','aa'],1)).toEqual([{from:2,to:4}]);
+ expect(textMatches('A\u030Aaaa',['aa'],3)).toEqual([{from:3,to:5}]);
+});
