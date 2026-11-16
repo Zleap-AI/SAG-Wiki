@@ -36,6 +36,10 @@ Use **Settings → Data import → Share** to change the default download folder
 
 Shares are available for one hour with repeat downloads. Downloads stop at expiry and the server subsequently removes the files. No account is required. Anyone with the code can download, so send it only to intended recipients.
 
+## Encryption
+
+The desktop app and CLI automatically encrypt uploads and decrypt downloads. No password is required, and share codes remain eight characters long. The server temporarily decrypts packages for validation, then stores only the encrypted package. Decryption keys are stored encrypted and removed when the share expires. A storage download URL alone cannot decrypt a package; anyone with the share code can download and open it. Use a client version that supports encrypted sharing.
+
 ## Supported content
 
 SAG first packages the Markdown files and valid referenced images into a ZIP, including each image once. The dialog shows the actual ZIP size. A ZIP over 50 MB is rejected before upload; the uncompressed total is not subject to that limit. A package can contain up to 2000 entries. Supported images are PNG, JPEG, GIF, WebP and AVIF; remote image links remain unchanged. Unreadable images, images outside the shared folder, and unsupported image references are skipped without blocking the share. The original references remain in the Markdown. Save your documents before sharing: the share uses files on disk.
