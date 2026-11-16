@@ -49,12 +49,20 @@
 - **Windows 窗口**：重复打开程序时恢复已有主窗口，避免创建重复窗口。
 - **退出应用**：Windows 从托盘或应用菜单退出时，先停止独立后台服务并阻止自动重启，再退出客户端，修复退出时偶发的“访问被拒绝”错误。macOS 保留原有行为，退出客户端后后台继续运行，CLI 和 MCP 可继续使用；关闭窗口时隐藏应用。
 
+### 历史文档补充
+
+详细操作见[文件夹与索引](/zh/docs/folders)和[偏好与快捷键](/zh/docs/preferences)，安装包见[下载安装](/zh/docs/installation)。
+
 ### English
 
 - **Docling installation and conversion**: Handle Windows document component resource paths, model directories and conversion input/output paths consistently. Fix errors reading `additional.dat` and `tm_config.json`. Cache completed, verified downloads and reuse them after installation failures. Download again when the cache is damaged or the package changes.
 - **Quick start**: Show the first-launch tutorial independently of background loading, startup errors and quick search.
 - **Windows app**: Restore the existing main window when reopening the app, avoiding duplicate windows.
 - **App exit**: On Windows, quitting from the tray or app menu stops the standalone service before exiting the client and prevents automatic restarts during shutdown. Fix an intermittent “Access is denied” error during shutdown. macOS retains its existing behavior: the service keeps running after the client exits, so CLI and MCP remain available. Closing the window hides the app.
+
+### Historical documentation details
+
+See [Folders and indexing](/en/docs/folders) and [Preferences and shortcuts](/en/docs/preferences) for details, and [Installation](/en/docs/installation) for installers.
 
 ## 0.3.0
 
@@ -63,6 +71,10 @@
 - **笔记导入**：支持 Notion HTML 导出包、Evernote ENEX、Google Keep Takeout 和 macOS Apple Notes，转换为 Markdown 并保留可转换的格式、内部链接与附件，完成后加入知识库。
 - **数据导入入口**：设置中的“数据导入”和添加文件夹窗口统一提供聊天与笔记导入入口；文件设置改用“索引文件类型”，区分文件索引和数据导入。
 
+### 历史文档补充
+
+详细操作见[导入数据](/zh/docs/data-import)，安装包见 [0.3.0 正式版](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.3.0)。
+
 ### English
 
 - **Chat history imports**: Convert local Claude Code and Codex chats to Markdown. Save by default under `Documents/sag-wiki/agent-history`, in separate `claude code` and `codex` subfolders, or choose another location.
@@ -70,17 +82,33 @@
 - **Note imports**: Import Notion HTML exports, Evernote ENEX, Google Keep Takeout and macOS Apple Notes as Markdown, retaining supported formatting, internal links and attachments, then add them to the knowledge base.
 - **Data import entry points**: Access chat and note imports from Data import in Settings or the add-folder dialog. “File types to index” distinguishes indexing preferences from data imports.
 
+### Historical documentation details
+
+See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.3.0) for installers.
+
 ## 0.2.18
 
 - **转换结果存放位置**：可选择应用数据目录、资料文件夹或自定义目录，切换时迁移已有结果，无需重新识别。阅读转换结果时可直接打开原文件。
 - **文件与解析设置**：Docling 和 MinerU 的配置入口统一到文件设置，可选择优先解析方式，并调整设置分组。
 - **macOS 更新重启**：应用内更新后等待旧进程退出，再从原安装位置重新启动。
 
+### 历史文档补充
+
+- **转换结果存放位置**：可选择应用数据目录、资料文件夹或自定义目录，迁移已有结果无需重新识别，并可直接打开原文件。
+- **文件与解析设置**：统一 Docling 和 MinerU 配置入口，可选择优先解析方式，并调整设置分组。
+- **macOS 更新重启**：等待旧进程退出后，从原安装位置重新启动。
+
 ### English
 
 - **Conversion storage**: Save converted files in the app data directory, library folders, or a custom directory. Move existing results without repeating OCR, and open the original file from the reader.
 - **File and parser settings**: Configure Docling and MinerU in File settings, choose the preferred parser, and use the revised settings groups.
 - **macOS update restart**: After an in-app update, wait for the old process to exit before reopening the app from its original location.
+
+### Historical documentation details
+
+- **Conversion storage**: Choose the app data directory, library folders, or a custom directory. Move existing results without repeating OCR and open the original file from the reader.
+- **File and parser settings**: Configure Docling and MinerU in one place, choose the preferred parser, and use the revised settings groups.
+- **macOS update restart**: Wait for the old process to exit before reopening the app from its original location.
 
 ## 0.2.17
 
@@ -89,6 +117,13 @@
 - **文档解析**：Docling 组件可从资源站安装，MinerU 可配置自定义接口。文件转换默认并行数提高到 4，已保存的设置继续保留。
 - **系统代理**：Windows 和 macOS 上的模型请求可使用手动配置的系统代理，修改后无需重启。
 
+### 历史文档补充
+
+- **窄屏布局**：改善手机网页和窄桌面窗口中的侧栏、设置、搜索和问答。
+- **问答模型与搜索总结**：支持获取模型列表和接入 OpenAI Decisions，搜索总结可单独选择模型并查看用量。
+- **文档解析**：Docling 可从资源站安装，MinerU 可配置自定义接口。文件转换默认并行数提高到 4，保留已保存的设置。
+- **系统代理**：Windows 和 macOS 上的模型请求可使用手动配置的系统代理。
+
 ### English
 
 - **Narrow layouts**: Improve the sidebar, settings, search, and chat on mobile browsers and in narrow desktop windows.
@@ -96,17 +131,36 @@
 - **Document parsing**: Install Docling from the resource site and configure a custom MinerU endpoint. File conversion defaults to four concurrent tasks and preserves saved settings.
 - **System proxy**: Model requests on Windows and macOS support manually configured system proxies. Changes take effect without restarting.
 
+### Historical documentation details
+
+- **Narrow layouts**: Improve the sidebar, settings, search, and chat on mobile browsers and in narrow desktop windows.
+- **Chat models and search summaries**: Fetch model lists and use OpenAI Decisions. Choose a separate model for search summaries and view its usage.
+- **Document parsing**: Install Docling from the resource site and configure a custom MinerU endpoint. File conversion defaults to four concurrent tasks and preserves saved settings.
+- **System proxy**: Model requests on Windows and macOS support manually configured system proxies.
+
 ## 0.2.16
 
 - **数学公式**：问答和文档阅读支持显示 TeX 公式，离线也可用。
 - **搜索排除**：CLI、MCP 和 HTTP API 支持按相对路径排除文件和目录。
 - **PDF 索引**：修复部分 PDF 无法读取页数时的索引失败，可重新索引受影响文件。
 
+### 历史文档补充
+
+- **数学公式**：问答和文档阅读支持离线显示 TeX 公式。
+- **搜索排除**：CLI、MCP 和 HTTP API 可按相对路径排除文件和目录。
+- **PDF 索引**：修复部分 PDF 无法读取页数时的索引失败。
+
 ### English
 
 - **Math formulas**: Render TeX formulas in answers and document reading views, including offline.
 - **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
 - **PDF indexing**: Fix indexing for PDFs whose page count could not be read. Reindex affected files to retry.
+
+### Historical documentation details
+
+- **Math formulas**: Render TeX formulas offline in answers and document reading views.
+- **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
+- **PDF indexing**: Fix indexing for PDFs whose page count could not be read.
 
 ## 0.2.13
 
@@ -118,6 +172,16 @@
 - **MCP 接入**：通过 API 服务连接外部 MCP 客户端，支持搜索知识库和浏览文件夹；可从设置页复制连接配置，也可用 CLI 导出。
 - **API Key 管理**：新建的 Key 可在桌面设置中再次复制，旧 Key 仍可使用。
 
+### 历史文档补充
+
+- **升级缓存与索引统计**：启动或升级后的检查复用未变化的索引和兼容的转换结果；索引详情区分已检查、已复用、已更新和失败，避免将检查文件数误认为重新构建数。内容、解析设置或必要迁移变化时，仍会更新受影响文档。
+- **Office 仅提取文字**：新增 DOCX/PPTX 纯文字解析选项，跳过图片和内嵌对象，不识别图片文字。修改设置后重新检查相关文档，详见[文件夹与索引](/zh/docs/folders)。
+- **远程服务**：可在本机或局域网浏览器中浏览文件、编辑 Markdown、搜索和问答。Linux 服务器只装独立 CLI 即可运行网页服务，无需安装桌面端。网页服务与 API 可分别开关，详见[网页服务](/zh/docs/remote-access)。
+- **CLI 随桌面端升级**：修复受管的旧版 `sag` 未同步更新的问题，替换前会备份校验不一致的旧文件。
+
+- **MCP 接入**：外部 MCP 客户端可搜索知识库、浏览文件夹；可在桌面设置中复制连接配置，也可用 CLI 导出。
+- **API Key 管理**：可在桌面设置中再次复制新建的 Key。
+
 ### English
 
 - **Upgrade cache reuse and indexing summaries**: Startup and upgrade checks reuse unchanged indexes and compatible conversion results. Indexing details distinguish checked, reused, updated and failed files, so a check is not mistaken for a rebuild. Content changes, parsing settings and required migrations can still update affected documents.
@@ -127,6 +191,16 @@
 
 - **MCP access**: Connect external MCP clients through the API service to search the knowledge base and browse folders. Copy the configuration from desktop settings or export it with the CLI.
 - **API key management**: Copy newly created keys again from desktop settings. Existing keys continue to work.
+
+### Historical documentation details
+
+- **Upgrade cache reuse and indexing summaries**: Startup and upgrade checks reuse unchanged indexes and compatible conversion results. Indexing details distinguish checked, reused, updated and failed files, so a check is not mistaken for a rebuild. Content changes, parsing settings and required migrations can still update affected documents.
+- **Office text only**: Add an opt-in DOCX/PPTX parsing mode that skips images and embedded objects without image OCR. Changed settings recheck affected documents. See [Folders and indexing](/en/docs/folders).
+- **Remote services**: Browse files, edit Markdown, search and ask questions in a browser on the host or LAN. A Linux server can run the web service with just the standalone CLI, without installing the desktop app. The web app and API can be enabled independently. See [Web service](/en/docs/remote-access).
+- **CLI updates with the desktop app**: Fix an older managed `sag` being left behind. The app backs up an old executable if its checksum no longer matches.
+
+- **MCP access**: External MCP clients can search the knowledge base and browse folders. Copy the configuration from desktop settings or export it with the CLI.
+- **API key management**: Copy newly created keys again from desktop settings.
 
 ## 0.2.12
 
@@ -139,6 +213,12 @@
 
 桌面端与随包 CLI 版本统一为 0.2.12。基础文字可搜索不代表扫描内容和复杂表格已全部完成，请以界面状态及原文核对完整性。
 
+### 历史文档补充
+
+- **分阶段索引**：PDF 可提取的文字先进入搜索，OCR 和表格识别在后台继续，大 PDF 处理期间仍可索引其他文件。
+- **PDF 分段处理**：同一份 PDF 的多个分段复用 Docling 模型，并显示处理进度。
+- **失败重试**：可单独重试索引失败的文件，保留已可搜索的文字。
+
 ### English
 
 - **Search basic text sooner**: publish usable PDF text before background OCR and table enhancement for mixed or scanned PDFs. File-list states identify search availability and enhancement progress. Text-only PDFs retain fast completion.
@@ -149,6 +229,12 @@
 - **Component installation and distribution**: adjust document-component installation memory limits while retaining diagnostics, correctly report Windows parser memory-limit failures during startup, and further reduce the QPDF distribution payload.
 
 The desktop app and bundled CLI both use 0.2.12. Searchable basic text does not imply complete scanned-content or complex-table coverage; check the displayed state and original document.
+
+### Historical documentation details
+
+- **Progressive indexing**: Search available PDF text while OCR and table recognition continue in the background. Other files can be indexed while a large PDF is processed.
+- **PDF segments**: Reuse Docling models across segments of the same PDF and show conversion progress.
+- **Retry failed files**: Retry indexing only affected files while keeping available text searchable.
 
 ## 0.2.11
 
@@ -266,6 +352,12 @@ The desktop app and bundled CLI both use 0.2.8.
 
 桌面端与随包 CLI 版本统一为 0.2.7。
 
+### 历史文档补充
+
+- **文档折叠**：Markdown 支持多级阅读，可直接切换卡片与导图，保留原文供编辑。
+- **后台处理与缓存**：关闭面板后继续处理，支持查看进度、主动停止和复用已完成结果。
+- **长文档索引**：改进超长表格行、Windows 换行和数字内容的处理，保留完整原文及对应位置。
+
 ### English
 
 - **Document folding**: Markdown offers Full, Brief, Key, Takeaway, Cards and Map tabs while keeping the source editable.
@@ -273,6 +365,12 @@ The desktop app and bundled CLI both use 0.2.8.
 - **Long-document indexing**: improve handling of long table rows, Windows line endings and numeric content while preserving complete source text and locations.
 
 The desktop app and bundled CLI both use 0.2.7.
+
+### Historical documentation details
+
+- **Document folding**: Markdown supports multiple reading levels and direct switching between cards and a map while keeping the source editable.
+- **Background processing and caching**: processing continues when the panel closes, with progress, explicit cancellation and reuse of completed results.
+- **Long-document indexing**: improve handling of long table rows, Windows line endings and numeric content while preserving complete source text and locations.
 
 ## 0.2.6
 
@@ -287,6 +385,16 @@ The desktop app and bundled CLI both use 0.2.7.
 
 桌面端与随包 CLI 版本统一为 0.2.6，沿用现行更新签名通道；本次更新不涉及数据库迁移。
 
+### 历史文档补充
+
+- **快捷搜索**：新增全局快捷键（macOS ⌘⇧Space，Windows Ctrl+Shift+Space）唤起的搜索弹窗，可选择结果并在主窗口打开原文，关闭后返回原应用；设置中可启用、关闭或改键。
+- **跨语言检索**：问答在同一次检索中同时提供中英文等义表述，中文提问默认用中文作答，精确文字与代码不翻译。
+- **工具调用**：每轮工具调用次数默认不限制，仍可设为 1–100。
+- **索引**：文本型 PDF、Office、RTF、CSV、EPUB 等内置文档默认纳入索引；转换内存按物理内存计算，文本准备预算提高到 512 MiB。
+- **接入与显示**：CLI 设置提供本机 Skill 接入指令；搜索预览、快捷搜索和引用原文渲染 HTML 表格、对齐方式与本地图片，本地图片支持 SVG。
+
+桌面端与随包 CLI 版本统一为 0.2.6。
+
 ### English
 
 - **Quick Search**: add a dedicated popup opened from other apps with ⌘⇧Space on macOS or Ctrl+Shift+Space on Windows, or from the menu bar and tray. Typing searches the local index and lists up to ten files; use ↑ ↓ to select, Enter to open the passage in the main window, ⌘ / Ctrl+Enter for all results and Esc to close and return to the previous app. Settings → Shortcuts can enable, disable or rebind the shortcut, and the search home page shows the current one.
@@ -300,6 +408,16 @@ The desktop app and bundled CLI both use 0.2.7.
 
 The desktop app and bundled CLI both use 0.2.6, retaining the current update-signing channel. This update requires no database migration.
 
+### Historical documentation details
+
+- **Quick Search**: a global shortcut (⌘⇧Space on macOS, Ctrl+Shift+Space on Windows) opens a search popup that lists local matches and opens the passage in the main window, then returns to the previous app. Settings can enable, disable or rebind it.
+- **Cross-language retrieval**: Q&A includes equivalent Chinese and English wording in the same search and answers Chinese questions in Chinese; exact text and code stay untranslated.
+- **Tool calls**: calls per turn are unlimited by default and can still be capped at 1–100.
+- **Indexing**: text-based PDF, Office, RTF, CSV and EPUB files are indexed by default. Conversion memory follows physical memory, and text preparation allows 512 MiB.
+- **Setup and display**: CLI settings provide a local Skill setup instruction; previews, Quick Search and citations render HTML tables, alignment and local images, including SVG.
+
+The desktop app and bundled CLI both use 0.2.6.
+
 ## 0.2.5
 
 - **搜索总结**：有结果且回答模型可用时默认展示自动总结，支持从原文返回已有总结。
@@ -310,6 +428,16 @@ The desktop app and bundled CLI both use 0.2.6, retaining the current update-sig
 - **macOS 签名与公证**：发布流程为应用、包内 CLI 和 DMG 接入 Developer ID 签名、Apple 公证及票据装订，并增加最终安装包校验。
 
 桌面端与随包 CLI 版本统一为 0.2.5，沿用现行更新签名通道；本次更新不涉及数据库迁移。
+
+### 历史文档补充
+
+- **搜索总结**：有结果且回答模型可用时默认展示自动总结，支持从原文返回已有总结。
+- **原文定位**：Markdown 按所选片段的来源位置高亮段落，切换文件后滚动到所选片段。
+- **HTML 高亮修复**：使用段落轮廓标记，保留原文文字和背景色。
+- **定时更新检查**：运行期间每隔 8 小时检查新版，下载与安装由用户选择。
+- **macOS 签名与公证**：发布流程为应用、包内 CLI 和 DMG 接入签名、公证与票据装订。
+
+桌面端与随包 CLI 版本统一为 0.2.5。
 
 ### English
 
@@ -322,6 +450,16 @@ The desktop app and bundled CLI both use 0.2.6, retaining the current update-sig
 
 The desktop app and bundled CLI both use 0.2.5, retaining the current update-signing channel. This update requires no database migration.
 
+### Historical documentation details
+
+- **Search summaries**: open the automatic summary by default when results and an answer model are available.
+- **Source navigation**: highlight Markdown paragraphs from the selected passage's source position and scroll to it when switching files.
+- **HTML highlight fix**: outline the selected paragraph while keeping its text and background colors.
+- **Periodic update checks**: check for updates every eight hours, with downloads and installation controlled by the user.
+- **macOS signing and notarization**: sign, notarize and staple the app, bundled CLI and DMG in the release workflow.
+
+The desktop app and bundled CLI both use 0.2.5.
+
 ## 0.2.4
 
 - **CLI 连接反馈**：测试成功后默认收起详情，支持展开查看；在设置分类间切换时保留最近结果和展开状态。
@@ -331,6 +469,15 @@ The desktop app and bundled CLI both use 0.2.5, retaining the current update-sig
 
 桌面端与随包 CLI 版本统一为 0.2.4，沿用现行更新签名通道；本次更新不涉及数据库迁移。
 
+### 历史文档补充
+
+- **CLI 连接反馈**：测试成功后默认收起详情，支持展开查看。
+- **连接状态更新**：再次测试清除旧结果并防止重复请求，关闭 CLI 时清除缓存状态。
+- **模型设置**：LLM 与 Jev 的“测试连接”按钮统一放在卡片右下角。
+- **Windows 窗口控制**：最小化、最大化／还原和关闭按钮恢复到左侧栏顶部。
+
+桌面端与随包 CLI 版本统一为 0.2.4。
+
 ### English
 
 - **CLI connection feedback**: collapse successful connection details by default, with an option to expand them. Preserve the latest result and disclosure state when switching settings categories.
@@ -339,6 +486,15 @@ The desktop app and bundled CLI both use 0.2.5, retaining the current update-sig
 - **Windows window controls**: restore minimize, maximize/restore and close to the top of the sidebar, removing the separate title bar. Keep controls available with the sidebar collapsed; macOS retains its native window controls.
 
 The desktop app and bundled CLI both use 0.2.4, retaining the current update-signing channel. This update requires no database migration.
+
+### Historical documentation details
+
+- **CLI connection feedback**: collapse successful connection details by default, with an option to expand them.
+- **Connection state updates**: clear stale results before retesting and prevent duplicate requests; clear cached feedback when CLI access is disabled.
+- **Model settings**: align the LLM and Jev connection-test buttons at the bottom right of their cards.
+- **Windows window controls**: restore minimize, maximize/restore and close to the top of the sidebar.
+
+The desktop app and bundled CLI both use 0.2.4.
 
 ## 0.2.3
 
@@ -405,6 +561,15 @@ The desktop app and bundled CLI both use 0.2.2 for macOS and Windows, retaining 
 - 桌面端和随包 CLI 统一为 0.2.1，沿用现行应用内更新签名通道和安装迁移要求。
 - GitHub 发布范围仍为 macOS 和 Windows 桌面端；PR 执行两平台 CLI/服务 E2E，完整构建、单元测试、文档构建与安装器检查由桌面发布工作流执行。
 
+### 历史文档补充
+
+- 会话与文件夹共用侧栏，支持按日期浏览及搜索会话。
+- 索引历史按文件夹汇总，提供更清晰的失败原因与文件详情。
+- 问答工具调用归入研究步骤，优化生成中的输入与引用原文侧栏。
+- 修复取消后的事件处理、历史刷新覆盖新回答及空知识库引用提示。
+
+桌面端与随包 CLI 统一为 0.2.1，沿用现行更新签名通道。
+
 ### English
 
 - Share the sidebar between conversations and folders, with date grouping and conversation search.
@@ -419,6 +584,19 @@ The desktop app and bundled CLI both use 0.2.1 and retain the current update-sig
 - 新增网页剪藏、Mermaid 图表和文档目录。
 - 内置解析 Office、文本型 PDF 和电子书。
 - 改善文件管理、问答过程展示和索引体验。
+- 新增中英文帮助文档。
+
+### 历史文档补充
+
+2026-10-23 · [发布说明](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.2.0)
+
+- 新增网页剪藏，支持预览后保存为本地 Markdown。
+- 新增 Mermaid 图表和文档目录。
+- Office、文本型 PDF 和电子书支持内置解析。
+- 改善文件浏览与新建文档，支持按文件夹设置索引。
+- 问答处理过程自动折叠，并显示用时。
+- 改善索引进度、失败提示和文档转换。
+- 改善首次启动、连接恢复和 MCP 服务设置。
 - 新增中英文帮助文档。
 
 ### English
@@ -441,6 +619,15 @@ The desktop app and bundled CLI both use 0.2.1 and retain the current update-sig
 - 修复 Windows CLI 的后台启动和搜索路径问题。
 - 更换更新签名密钥，旧版本需手动升级一次至 0.1.9。
 
+### 历史文档补充
+
+2026-10-22 · [发布说明](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.9)
+
+- 支持本地 Jev，以及无需 API Key 的连接方式。
+- 改善索引、文档转换和密钥保存。
+- 修复 Windows CLI 的后台启动和搜索路径问题。
+- 更换更新签名密钥。
+
 ### English
 
 2026-10-22 · [Release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.9)
@@ -455,6 +642,10 @@ The desktop app and bundled CLI both use 0.2.1 and retain the current update-sig
 - 修复 Windows 文档转换问题。
 - 文档转换完成后即可搜索。
 - 改善文件路径、失败定位和文件引用操作。
+
+### 历史文档补充
+
+2026-10-20 · [发布说明](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.1.8)
 
 ### English
 

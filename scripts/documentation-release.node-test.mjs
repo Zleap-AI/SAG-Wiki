@@ -18,7 +18,7 @@ test('deployment verification rejects stale manifests, mismatched HTML and missi
  await assert.rejects(verifyDeployment({url:'https://docs.example',expected,fetcher:async()=>({status:404})}),/response/);
 });
 test('documentation automation cannot trigger a desktop release',()=>{
- for(const path of ['scripts/documentation-release.mjs','scripts/documentation-release.node-test.mjs','docs-site/package.json','.github/workflows/pr-e2e.yml','CHANGELOG.md'])assert.equal(isProductPath(path),false,path);
+ for(const path of ['scripts/documentation-release.mjs','scripts/documentation-release.node-test.mjs','scripts/fixtures/documentation-history.json','docs-site/package.json','.github/workflows/pr-e2e.yml','CHANGELOG.md'])assert.equal(isProductPath(path),false,path);
 });
 
 test('CLI lint rejects manual drift in either generated page',async()=>{
@@ -33,4 +33,20 @@ test('CLI lint rejects manual drift in either generated page',async()=>{
   assert.equal(run('generate').status,0);assert.equal(run('lint').status,0);
   for(const name of ['updates.mdx','updates.en.mdx']){writeFileSync(join(folder,'docs-site/content/docs',name),'Manual stale content');const failed=run('lint');assert.notEqual(failed.status,0);assert.match(failed.stderr,/Stale generated/);assert.equal(run('generate').status,0);}
  }finally{rmSync(folder,{recursive:true,force:true});}
+});
+
+// Frozen inventory from the pre-migration localized pages; no Git history needed at test time.
+test('single-source migration preserves every historical localized paragraph',async()=>{
+ const {readFileSync}=await import('node:fs');const {createHash}=await import('node:crypto');
+ const inventory=JSON.parse(readFileSync(new URL('./fixtures/documentation-history.json',import.meta.url),'utf8'));
+ const source=readFileSync(new URL('../CHANGELOG.md',import.meta.url),'utf8');const pages=generatePages(source).pages;
+ const normalize=text=>text.replace(/\[([^\]]*)\]\(([^)]*)\)/g,(all,_label,url)=>/\/(?:pull|issues)\/\d+/.test(url)?'':all).replace(/[（(]\s*[)）]/g,'').replaceAll('**','').replace(/\s+/g,' ').trim();
+ for(const [index,lang] of ['zh','en'].entries()){
+  const versions=new Map([...pages[index].matchAll(/^## (\d+\.\d+\.\d+)[^\n]*\n([\s\S]*?)(?=^## |$(?![\s\S]))/gm)].map(m=>[m[1],m[2]]));
+  for(const [version,expected] of Object.entries(inventory.languages[lang])){
+   assert.ok(versions.has(version),`${lang} lost version ${version}`);
+   const actual=new Set(versions.get(version).split(/\n\s*\n/).filter(b=>b.trim()&&!b.trim().startsWith('#')).map(b=>createHash('sha256').update(normalize(b)).digest('hex')));
+   for(const digest of expected)assert.ok(actual.has(digest),`${lang} ${version} lost historical paragraph ${digest}`);
+  }
+ }
 });
