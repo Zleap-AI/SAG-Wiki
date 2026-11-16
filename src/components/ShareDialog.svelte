@@ -19,6 +19,7 @@
  let codeInput:HTMLInputElement|null=null;
  type Preview={id:string;name:string;markdown_count:number;image_count:number;size:number};
  let preview:Preview|null=null,error='',code=initialCode,shared='',expires='',directory='',received='',copied=false,preparing=true;
+ $: {const match=code.trim().match(/^(?:(?:分享码[：:]|share code:)\s*)?(?:SAG-)?([A-HJ-NP-Z2-9]{8})(?![A-Z0-9])/i);if(match)code='SAG-'+match[1].toUpperCase();}
  $: displaySize=preview ? (preview.size<1024 ? `${preview.size} B` : preview.size<1048576 ? `${(preview.size/1024).toFixed(1)} KB` : `${(preview.size/1048576).toFixed(2)} MB`) : '';
  const close=()=>{if(!busy)onClose()};
  onMount(async()=>{

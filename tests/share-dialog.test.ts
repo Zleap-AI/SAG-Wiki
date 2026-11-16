@@ -105,3 +105,19 @@ it.each(['zh-CN','en'] as const)('opens the matching share-code guide in %s',asy
  await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('open_external_link',{url:`http://sag-wiki.zleap.com/${locale==='en'?'en':'zh'}/docs/file-sharing`}));
  setLanguage('zh-CN');
 });
+
+
+it.each([
+ '分享码：SAG-YQJWWBTH 复制此分享码，打开SAG-Wiki即可下载对应文件内容',
+ '分享码：SAG-YQJWWBTH\n复制此分享码，打开SAG-Wiki即可下载对应文件内容',
+ 'Share code: SAG-YQJWWBTH Copy this share code and open SAG-Wiki to download the shared files.',
+])('extracts the code from a pasted share message: %s',async(message)=>{
+ api.mockImplementation(async(command)=>command==='receive_share'?{path:'/Documents/sag-wiki/share/Notes'}:{directory:'/Documents/sag-wiki/share',clipboard:true});
+ app=mount(ShareDialog,{target:document.body,props:{onClose:vi.fn(),onReceived:vi.fn()}});
+ await vi.waitFor(()=>expect(button('下载').disabled).toBe(true));
+ const input=document.querySelector('input')!;
+ input.value=message;input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ expect(input.value).toBe('SAG-YQJWWBTH');
+ button('下载').click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('receive_share',{code:'SAG-YQJWWBTH',directory:'/Documents/sag-wiki/share'}));
+});
