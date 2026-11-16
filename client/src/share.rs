@@ -129,10 +129,13 @@ pub fn normalize_code(value: &str) -> Result<String> {
     let value = value.trim().to_ascii_uppercase();
     let value = value
         .strip_prefix("分享码：")
+        .or_else(|| value.strip_prefix("分享码:"))
         .or_else(|| value.strip_prefix("SHARE CODE:"))
-        .map(|text| text.lines().next().unwrap_or("").trim())
+        .map(str::trim)
         .unwrap_or(&value);
-    let code = value.strip_prefix("SAG-").unwrap_or(&value);
+    let value = value.split_whitespace().next().unwrap_or("");
+    let code = value.strip_prefix("SAG-").unwrap_or(value);
+    let code = code.split(|c: char| !c.is_ascii_alphanumeric()).next().unwrap_or("");
     if code.len() != 8
         || !code
             .bytes()
@@ -768,7 +771,15 @@ mod tests {
             normalize_code("Share code: SAG-ABCDEFGH\nCopy this share code and open SAG-Wiki to download the shared files.").unwrap(),
             "ABCDEFGH"
         );
-        for code in ["ABCD1234", "ABCDEFG", "ABCDEFGH2", "https://example.com"] {
+        for text in [
+            "分享码：SAG-YQJWWBTH 复制此分享码，打开SAG-Wiki即可下载对应文件内容",
+            "分享码: sag-yqjwwbth 复制此分享码",
+            "分享码：SAG-YQJWWBTH复制此分享码，打开SAG-Wiki即可下载对应文件内容",
+            "Share code: SAG-YQJWWBTH Copy this share code and open SAG-Wiki to download the shared files.",
+        ] {
+            assert_eq!(normalize_code(text).unwrap(), "YQJWWBTH");
+        }
+        for code in ["ABCD1234", "ABCDEFG", "ABCDEFGH2", "SAG-ABCDEFGH2 description", "https://example.com"] {
             assert!(normalize_code(code).is_err());
         }
         for name in [
