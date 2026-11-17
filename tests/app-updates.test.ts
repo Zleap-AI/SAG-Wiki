@@ -5,7 +5,7 @@ import {get} from 'svelte/store';
 import AppUpdates from '../src/components/AppUpdates.svelte';
 import SettingsPanel from '../src/components/Settings.svelte';
 import UpdateNotification from '../src/components/UpdateNotification.svelte';
-import {checkUpdates,defaultUpdateSettings,updateState,updateDownload} from '../src/lib/updates';
+import {checkUpdates,defaultUpdateSettings,updateSettingsForLanguage,updateState,updateDownload} from '../src/lib/updates';
 import {setLanguage} from '../src/lib/i18n';
 import type {Settings,UpdateInfo} from '../src/lib/types';
 
@@ -29,6 +29,16 @@ it('checks at startup, shows a new-version prompt and opens About on click',asyn
  document.querySelector<HTMLButtonElement>('.update-open')!.click();await tick();
  expect(onOpen).toHaveBeenCalledOnce();
  expect(document.querySelector('.update-notification')).toBeNull();
+});
+
+it.each([['zh-CN','website'],['en','github']] as const)('uses the saved %s language for official update checks and downloads',async(language,source)=>{
+ const config=updateSettingsForLanguage(defaultUpdateSettings,language);
+ apps.push(mount(UpdateNotification,{target:document.body,props:{config,onOpen:vi.fn()}}));
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledExactlyOnceWith('check_app_update',{config:{...defaultUpdateSettings,source}}));
+ apps.push(mount(SettingsPanel,{target:document.body,props:{value:{...settings,language,updates:defaultUpdateSettings},initial:'about',onSave:vi.fn(),onClose:vi.fn()}}));
+ await vi.waitFor(()=>expect(document.querySelector('.app-updates .setting-row button')?.textContent).toBe('下载更新'));
+ click('下载更新');
+ await vi.waitFor(()=>expect(invoke).toHaveBeenLastCalledWith('download_app_update',{config:{...defaultUpdateSettings,source},version:'0.1.6',onProgress:expect.anything()}));
 });
 
 it('checks every eight hours while mounted and stops checking after unmount',async()=>{
@@ -95,8 +105,10 @@ it('reports up-to-date versions and surfaces check and download failures',async(
  click('检查更新');
  await vi.waitFor(()=>expect(document.body.textContent).toContain('当前已是最新版本（0.1.5）'));
  expect([...document.querySelectorAll('button')].some(button=>button.textContent?.trim()==='下载更新')).toBe(false);
- invoke.mockRejectedValueOnce('更新检查失败（HTTP 403）');click('检查更新');
- await vi.waitFor(()=>expect(document.querySelector('[role=alert]')?.textContent).toContain('HTTP 403'));
+ for(const failure of ['更新检查失败（HTTP 503）','Network connection failed']){
+  invoke.mockRejectedValueOnce(failure);click('检查更新');
+  await vi.waitFor(()=>expect(document.querySelector('[role=alert]')?.textContent).toContain(failure));
+ }
  invoke.mockResolvedValueOnce(latest);click('检查更新');
  await vi.waitFor(()=>expect(document.body.textContent).toContain('发现新版本 0.1.6'));
  invoke.mockRejectedValueOnce('Signature verification failed');click('下载更新');
@@ -115,7 +127,7 @@ it('prevents duplicate checks while a request is pending',async()=>{
 
 it('keeps update addresses hidden and preserves configured sources when saving settings',async()=>{
  const onSave=vi.fn();
- const configured={...settings,updates:{...defaultUpdateSettings,github_url:'https://github.com/customer/wiki'}};
+ const configured={...settings,updates:{...defaultUpdateSettings,source:'github' as const,github_url:'https://github.com/customer/wiki',follow_language:false}};
  apps.push(mount(SettingsPanel,{target:document.body,props:{value:configured,initial:'about',onSave,onClose:vi.fn()}}));
  await tick();
  expect(document.querySelector('[aria-label="GitHub 项目地址"]')).toBeNull();
@@ -126,6 +138,9 @@ it('keeps update addresses hidden and preserves configured sources when saving s
  document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(onSave).toHaveBeenCalled());
  expect(onSave.mock.calls[0][0].updates).toEqual(configured.updates);
+ expect(updateSettingsForLanguage(configured.updates,'zh-CN')).toEqual(configured.updates);
+ const website={...defaultUpdateSettings,website_url:'https://example.com/custom.json'};
+ expect(updateSettingsForLanguage(website,'en')).toEqual(website);
  expect(settings.updates).toBeUndefined();
 });
 
@@ -143,6 +158,15 @@ it('renders update controls in English',async()=>{
  apps.push(mount(AppUpdates,{target:document.body,props:{config:{...defaultUpdateSettings}}}));
  expect(document.body.textContent).toContain('Check for updates');
  expect(document.body.textContent).not.toMatch(/[\u3400-\u9fff]/);
+});
+
+it('keeps an already verified update available after the official source changes with language',async()=>{
+ await checkUpdates(defaultUpdateSettings);
+ await import('../src/lib/updates').then(module=>module.downloadUpdate(defaultUpdateSettings,latest));
+ const config=updateSettingsForLanguage(defaultUpdateSettings,'en');
+ apps.push(mount(AppUpdates,{target:document.body,props:{config}}));
+ await tick();click('重启并更新');
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_app_update',{version:latest.latest_version}));
 });
 
 

@@ -3,7 +3,11 @@ import {Channel} from '@tauri-apps/api/core';
 import {api} from './api';
 import type {UpdateInfo,UpdateProgress,UpdateSettings} from './types';
 
-export const defaultUpdateSettings:UpdateSettings={source:'github',github_url:'https://github.com/Zleap-AI/SAG-Wiki',website_url:''};
+export const defaultUpdateSettings:UpdateSettings={source:'website',github_url:'https://github.com/Zleap-AI/SAG-Wiki',website_url:'https://zleap.com/update/latest-v2.json',follow_language:true};
+export function updateSettingsForLanguage(config:UpdateSettings=defaultUpdateSettings,language='zh-CN'):UpdateSettings{
+ return config.follow_language&&config.source==='website'&&config.website_url===defaultUpdateSettings.website_url
+  ?{...config,source:language==='zh-CN'?'website':'github'}:config;
+}
 export const updateKey=(config:UpdateSettings)=>JSON.stringify(config);
 export const updateState=writable<{key:string;checking:boolean;info:UpdateInfo|null;error:string}>({key:'',checking:false,info:null,error:''});
 export const updateDownload=writable<{key:string;version:string;stage:'idle'|'downloading'|'verifying'|'ready'|'installing';downloaded:number;total:number|null;error:string}>({key:'',version:'',stage:'idle',downloaded:0,total:null,error:''});

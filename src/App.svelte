@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {updateSettingsForLanguage} from './lib/updates';
  import ShareDialog from "./components/ShareDialog.svelte";
  let shareDialog:{path:string;code:string;directory?:string}|null=null;let lastShareCode="",checkingShareClipboard=false;
  async function checkShareClipboard(){if(web||loading||settingsOpen||shareDialog||checkingShareClipboard)return;checkingShareClipboard=true;try{const code=await api<string|null>("share_clipboard");if(code&&code!==lastShareCode){lastShareCode=code;shareDialog={path:"",code}}}catch(e){console.error(e)}finally{checkingShareClipboard=false}}
@@ -921,7 +922,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
 
 {#if folderIndexPath}<FolderIndexSettings path={folderIndexPath} onClose={()=>folderIndexPath=''} onSaved={rebuild=>{void refresh().catch(e=>notify($t(String(e))));notify($t(rebuild?'正在重新索引当前文件夹':'索引设置已保存，正在更新索引'))}}/>{/if}
 
-{#if settings&&!web}<UpdateNotification config={settings.updates} onOpen={()=>{settingsPage='about';settingsOpen=true}}/>{/if}
+{#if settings&&!web}<UpdateNotification config={updateSettingsForLanguage(settings.updates,settings.language)} onOpen={()=>{settingsPage='about';settingsOpen=true}}/>{/if}
 
 <style>
  .document-loading{display:flex;align-items:center;justify-content:center;gap:12px;padding:4px 12px;background:var(--color-panel);font-size:var(--text-caption)}

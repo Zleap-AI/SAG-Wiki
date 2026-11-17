@@ -7,7 +7,7 @@
  export let onBeforeInstall:()=>Promise<boolean>=async()=>true;
  let confirming=false;
  $: state=$updateState.key===updateKey(config)?$updateState:null;
- $: transfer=$updateDownload.key===updateKey(config)?$updateDownload:null;
+ $: transfer=$updateDownload.stage!=='idle'||$updateDownload.key===updateKey(config)?$updateDownload:null;
  $: transferring=$updateDownload.stage==='downloading'||$updateDownload.stage==='verifying'||$updateDownload.stage==='installing';
  $: percent=transfer?.total?Math.min(100,Math.floor(transfer.downloaded/transfer.total*100)):null;
  async function action(){

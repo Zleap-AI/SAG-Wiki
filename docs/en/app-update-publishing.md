@@ -40,6 +40,12 @@ The version in main may lag behind the latest generated release because release 
 
 For each platform, compile the CLI and desktop on independent workers, then join verified inputs before producing the real installer. Desktop compilation temporarily suppresses resource copying while retaining the original embedded configuration. Final packaging includes the actual CLI/QPDF resources and retains installer and CLI/Jev checks. macOS waits only for its own CLI producer. A packaged-build checkpoint binds its CLI producer and latest attempt, so a failed or superseded CLI retry cannot authorize stale output. CLI and desktop dependency archives are separated by role.
 
+## Website update source migration
+
+Before publishing the transition release, verify `https://zleap.com/update/latest-v2.json` and all three platforms' downloads, signature checks, installation, restart, and data preservation. Publish the transition release on GitHub so existing clients on the modern signing channel can upgrade. The transition release selects the official source by saved interface language: Zleap's website for Simplified Chinese and GitHub for English. It preserves custom sources.
+
+The website mirrors the signed release packages and changes only the download URLs in the modern manifest. Keep the GitHub release assets and the frozen `latest.json` (`0.1.8`). Users on the legacy signing channel can install the current stable version manually.
+
 ## Failure recovery and artifact reuse
 
 Prefer **Re-run failed jobs** in Actions. If preparation created a tag but dispatch failed, retry the same source/tag. Do not delete/recreate tags, replace published artifacts, or force-move versions.
