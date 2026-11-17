@@ -3,6 +3,7 @@ export const latestReleaseApi = 'https://api.github.com/repos/Zleap-AI/SAG-Wiki/
 export type DesktopDownloads = {
   version: string;
   macos: {url: string; size: string};
+  macosIntel?: {url: string; size: string};
   windows: {url: string; size: string};
 };
 
@@ -27,5 +28,6 @@ export function parseDesktopDownloads(value: unknown): DesktopDownloads {
     if (asset.state !== 'uploaded' || asset.browser_download_url !== url || typeof asset.size !== 'number' || !Number.isSafeInteger(asset.size) || asset.size <= 0) throw new Error('Invalid installer metadata');
     return {url, size: `${(asset.size / 1_000_000).toFixed(1)}MB`};
   }
-  return {version, macos: installer('macOS-arm64.dmg'), windows: installer('Windows-x64-setup.exe')};
+  const macosIntel = assets.some(asset => asset.name === `SAG-Wiki-${version}-macOS-x86_64.dmg`) ? installer('macOS-x86_64.dmg') : undefined;
+  return {version, ...(macosIntel ? {macosIntel} : {}), macos: installer('macOS-arm64.dmg'), windows: installer('Windows-x64-setup.exe')};
 }

@@ -7,7 +7,7 @@ description: "桌面端与独立 CLI，两种使用方式。"
 
 <ReleaseDownloads language="zh" />
 
-macOS：打开 DMG，将 SAG Wiki 拖入 Applications，然后启动应用。Windows：运行安装器，按提示完成安装。安装器提供简体中文、繁体中文和英文。
+macOS：根据“关于本机”中的芯片或处理器选择安装包：M 系列芯片选 Apple Silicon（`arm64`），Intel 处理器选 Intel（`x86_64`）。上表仅显示最新正式版实际提供的安装包；若未显示 Intel 行，说明该版本尚未提供 Intel 包。打开 DMG，将 SAG Wiki 拖入 Applications，然后启动应用。Windows：运行安装器，按提示完成安装。安装器提供简体中文、繁体中文和英文。
 
 [打开最新正式版，查看安装包与更新说明](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
 
@@ -24,7 +24,7 @@ sag --version
 
 ## 更新
 
-桌面端可通过应用内更新获取后续版本，也可手动下载新安装包。启动新版桌面端后，由桌面端管理的 `sag` 会同步更新。可用 `sag --version` 确认版本。npm 安装的 CLI 通过 `npm install -g @zleap-ai/sag` 更新。
+桌面端可通过应用内更新获取对应架构的后续版本，也可手动下载新安装包。启动新版桌面端后，由桌面端管理的 `sag` 会同步更新。可用 `sag --version` 确认版本。npm 安装的 CLI 通过 `npm install -g @zleap-ai/sag` 更新。
 
 <Callout title="文件与配置">升级通常保留原文件、知识库配置和会话记录。卸载或清理前，请确认操作的是索引数据还是原始文档。</Callout>
 

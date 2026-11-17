@@ -60,10 +60,12 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
       const signed = join(temporary, 'signed artifacts', 'macos');
       const output = join(temporary, 'assembled release');
       const macNames = [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`];
+      const intelNames = macNames.map(name => name.replace('arm64', 'x86_64'));
+      const intelSigned = join(temporary, 'signed artifacts', 'macos-intel');
       const windowsName = `SAG-Wiki-${version}-Windows-x64-setup.exe`;
       const rawMetadata = {};
       const bytes = {};
-      for (const [platform, names] of [['macos', macNames], ['windows', [windowsName]]]) {
+      for (const [platform, names] of [['macos', macNames], ['macos-intel', intelNames], ['windows', [windowsName]]]) {
         const directory = join(raw, platform);
         mkdirSync(directory, {recursive: true});
         const files = {};
@@ -88,8 +90,13 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
           dmg_notarization_id: '22222222-2222-4222-8222-222222222222'}};
       const saveSignedMetadata = metadata => writeFileSync(join(signed, 'metadata.json'), JSON.stringify(metadata));
       saveSignedMetadata(signedMetadata);
+      mkdirSync(intelSigned, {recursive:true});
+      const intelFiles = {};
+      for (const name of intelNames) { bytes[name] = Buffer.from(`signed Intel bytes: ${name}`); writeFileSync(join(intelSigned, name), bytes[name]); intelFiles[name] = hash(bytes[name]); }
+      const intelMetadata = {...rawMetadata['macos-intel'], files:intelFiles, source_files:rawMetadata['macos-intel'].files, apple_signing:signedMetadata.apple_signing};
+      writeFileSync(join(intelSigned, 'metadata.json'), JSON.stringify(intelMetadata));
       const assemble = destination => run(process.execPath, [join(checkout, 'scripts/release.mjs'), 'assemble',
-        '--input', raw, '--signed-macos', signed, '--output', destination], env);
+        '--input', raw, '--signed-macos', signed, '--signed-macos-intel', intelSigned, '--output', destination], env);
       const assembled = assemble(output);
       assert.equal(assembled.status, 0, `Release assembly failed: ${assembled.stderr || assembled.error?.message}`);
       for (const [name, expected] of Object.entries(bytes)) assert.deepEqual(readFileSync(join(output, name)), expected);
@@ -101,7 +108,7 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
       assert.equal(manifest.notes, expectedNotes);
 
       assert.equal(manifest.version, version);
-      for (const [platform, name] of [['darwin-aarch64', macNames[1]], ['windows-x86_64', windowsName]]) {
+      for (const [platform, name] of [['darwin-aarch64', macNames[1]], ['darwin-x86_64', intelNames[1]], ['windows-x86_64', windowsName]]) {
         const signature = readFileSync(join(output, name + '.sig'), 'utf8').trim();
         assert.equal(manifest.platforms[platform].signature, signature);
         assert.equal(verifyUpdate(bytes[name], signature, publicKey, version), version);
@@ -109,7 +116,7 @@ for (const [label, newline] of [['LF', '\n'], ['CRLF', '\r\n']]) {
       }
       assert.deepEqual(readFileSync(join(output, 'latest.json')), readFileSync(join(root, 'config/updates/legacy-latest.json')));
       assert.deepEqual(json(join(output, 'build-metadata.json')), {repository: 'Zleap-AI/SAG-Wiki', commit, version,
-        platforms: {macos: signedMetadata, windows: rawMetadata.windows}});
+        platforms: {macos: signedMetadata, 'macos-intel':intelMetadata, windows: rawMetadata.windows}});
 
       const {apple_signing, ...unproved} = signedMetadata;
       saveSignedMetadata(unproved);

@@ -27,3 +27,11 @@ test('requires both complete installers and rejects duplicate or unsafe assets',
     const release = fixture(); Object.assign(release.assets[0], change); assert.throws(() => parseDesktopDownloads(release));
   }
 });
+
+test('shows Intel downloads only when the published release actually includes the installer', () => {
+ const old = fixture(); assert.equal(parseDesktopDownloads(old).macosIntel, undefined);
+ const release = fixture(); const name = 'SAG-Wiki-0.2.0-macOS-x86_64.dmg';
+ release.assets.push({name,state:'uploaded',size:16000000,browser_download_url:`https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.2.0/${name}`});
+ assert.equal(parseDesktopDownloads(release).macosIntel.size,'16.0MB');
+ assert.ok(parseDesktopDownloads(release).macosIntel.url.endsWith(name));
+});
