@@ -104,7 +104,7 @@ Before merging a product PR, append user-facing Chinese bullets and matching Eng
 
 Each functional change may end with related Issue and PR Markdown links, for example `Fix formula rendering. ([PR #142](https://github.com/Zleap-AI/SAG-Wiki/pull/142))`. Both languages retain these links. Links must accompany a functional description; link-only entries, commit subjects, commit hashes and commit links are not allowed.
 
-Fetch remote version tags before writing notes and use the next version computed by automation as the heading. Resolve version conflicts before merging. Preparation uses the reviewed notes for that version and aligns application, CLI and lockfile versions in a detached release commit without rewriting changelog headings on main. Missing or invalid notes stop preparation before tagging. Release descriptions and updater notes contain only bilingual product changes, without commit subjects, commit references, generated boilerplate or signing-migration prose. Historical prepared tags remain verifiable.
+Fetch remote version tags before writing notes and use the next version computed by automation as the heading. Resolve version conflicts before merging. Preparation uses the reviewed notes for that version and aligns application, CLI and lockfile versions in a detached release commit without rewriting changelog headings on main. Missing or invalid notes stop preparation before tagging. Updater notes contain only bilingual product changes, without commit subjects, commit references, generated boilerplate or signing-migration prose. GitHub Release descriptions also include the Windows x64, Apple Silicon and Intel installer download table. Historical prepared tags remain verifiable.
 
 ## Automated builds and releases
 
