@@ -7,7 +7,13 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="5fece8022af5e22d386e6705f6eea72173fa09cda48fc98011f413ff7a4cb3e8" aria-hidden="true" />
+<span data-docs-changelog-sha="24e5e24276610ede43ec723afb786e655b59febf8c5feccd9b5fe88fe8476543" aria-hidden="true" />
+
+## 0.3.9
+
+- **项目文件夹授权**：MCP 与 HTTP API 的 Key 可绑定多个知识库根目录或子目录，不同项目使用各自的 Key，仅搜索和浏览授权范围，公共目录可同时授权给多个项目。([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
+- **存量升级兼容**：已有 Key、MCP 地址、客户端配置和工具调用保持兼容，继续访问全部知识库及以后新增的目录；只有主动设置文件夹范围的 Key 才受限。
+- **范围管理与配置复制**：远程服务设置和 CLI 支持创建、编辑文件夹范围；多个可复制 Key 时明确选择项目凭据。范围修改取消该 Key 的运行中及排队请求，失效目录不会回退为全库访问。
 
 ## 0.3.8
 

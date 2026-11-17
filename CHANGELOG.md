@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.3.9
+
+- **项目文件夹授权**：MCP 与 HTTP API 的 Key 可绑定多个知识库根目录或子目录，不同项目使用各自的 Key，仅搜索和浏览授权范围，公共目录可同时授权给多个项目。([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
+- **存量升级兼容**：已有 Key、MCP 地址、客户端配置和工具调用保持兼容，继续访问全部知识库及以后新增的目录；只有主动设置文件夹范围的 Key 才受限。
+- **范围管理与配置复制**：远程服务设置和 CLI 支持创建、编辑文件夹范围；多个可复制 Key 时明确选择项目凭据。范围修改取消该 Key 的运行中及排队请求，失效目录不会回退为全库访问。
+
+### English
+
+- **Project folder access**: Bind MCP and HTTP API keys to multiple knowledge-base roots or subfolders. Projects use their own keys to search and browse only granted folders, while shared folders can belong to multiple projects. ([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
+- **Upgrade compatibility**: Existing keys, MCP endpoints, client configurations and tool calls remain compatible, retaining access to the entire knowledge base and folders added later. Only keys explicitly assigned folder scopes become restricted.
+- **Scope management and configuration copying**: Create and edit folder scopes in Remote services settings and the CLI. Select the project credential when multiple copyable keys exist. Scope changes cancel that key’s running and queued requests, and unavailable folders never fall back to full-library access.
+
 ## 0.3.8
 
 - **Intel Mac 安装包**：发布流程新增 Intel Mac（`x86_64`）独立安装包与应用内更新包，与 Apple Silicon（`arm64`）和 Windows x64 包分别构建。两种 Mac 架构并行签名与公证，并复用现有构建缓存。
