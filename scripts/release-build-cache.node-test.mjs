@@ -163,7 +163,7 @@ test('mocked gh CLI reuses an older failed tag platform, ignores newer runs and 
 });
 
 test('both Mac architectures reuse parallel native builds and signing before existing assembly',()=>{
- const workflow=readFileSync(new URL('../.github/workflows/desktop-release.yml',import.meta.url),'utf8');
+ const workflow=readFileSync(new URL('../.github/workflows/desktop-release.yml',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  for(const name of ['Test Rust macos','Test Rust macos-intel','Test Rust windows','Build macos','Build macos-intel','Build windows','Compile CLI macos-intel'])assert.ok(workflow.includes(`job_name: ${name}`));
  const signing=workflow.slice(workflow.indexOf('\n  sign-macos:'),workflow.indexOf('\n  release:'));
  assert.match(signing,/needs: validate/);
