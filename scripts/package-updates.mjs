@@ -10,9 +10,9 @@ import {verifyUpdate} from './verify-update.mjs';
 const root = resolve(import.meta.dirname, '..');
 export const legacyDigest = 'c4999619677baaa384c1b35d198f73517c5fc63801a99e4f8aee26b1aa5efde8';
 
-export function packageUpdates({version, macos, windows, notes = '', output}) {
+export function packageUpdates({version, macos, macosIntel, windows, notes = '', output}) {
   assert.match(version, /^\d+\.\d+\.\d+$/, 'A stable release version is required');
-  assert.ok(macos?.endsWith('.app.tar.gz') && windows?.endsWith('.exe'), 'Both macOS .app.tar.gz and Windows NSIS .exe are required');
+  assert.ok(macos?.endsWith('.app.tar.gz') && macosIntel?.endsWith('.app.tar.gz') && windows?.endsWith('.exe'), 'Both Mac architectures (.app.tar.gz) and Windows NSIS (.exe) are required');
   const keySource = process.env.TAURI_SIGNING_PRIVATE_KEY;
   assert.ok(keySource?.trim(), 'TAURI_SIGNING_PRIVATE_KEY must be provided by the release environment');
   const key = existsSync(keySource) ? readFileSync(keySource, 'utf8') : keySource;
@@ -24,6 +24,7 @@ export function packageUpdates({version, macos, windows, notes = '', output}) {
   const platforms = {};
   for (const [platform, input, name] of [
     ['darwin-aarch64', macos, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`],
+    ['darwin-x86_64', macosIntel, `SAG-Wiki-${version}-macOS-x86_64.app.tar.gz`],
     ['windows-x86_64', windows, `SAG-Wiki-${version}-Windows-x64-setup.exe`],
   ]) {
     const target = join(destination, name);
@@ -45,7 +46,7 @@ export function packageUpdates({version, macos, windows, notes = '', output}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const {values} = parseArgs({options: Object.fromEntries(['version', 'macos', 'windows', 'notes', 'output'].map(name => [name, {type: 'string'}]))});
+  const {values} = parseArgs({options: Object.fromEntries(['version', 'macos', 'macosIntel', 'windows', 'notes', 'output'].map(name => [name, {type: 'string'}]))});
   packageUpdates({...values, notes: values.notes ? readFileSync(resolve(values.notes), 'utf8') : ''});
-  console.log('Both update signatures and signed versions verified; latest-v2.json and legacy latest.json generated.');
+  console.log('All update signatures and signed versions verified; latest-v2.json and legacy latest.json generated.');
 }
