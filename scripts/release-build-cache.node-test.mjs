@@ -166,7 +166,8 @@ test('both Mac architectures reuse parallel native builds and signing before exi
  const workflow=readFileSync(new URL('../.github/workflows/desktop-release.yml',import.meta.url),'utf8').replace(/\r\n/g,'\n');
  for(const name of ['Test Rust macos','Test Rust macos-intel','Test Rust windows','Build macos','Build macos-intel','Build windows','Compile CLI macos-intel'])assert.ok(workflow.includes(`job_name: ${name}`));
  const signing=workflow.slice(workflow.indexOf('\n  sign-macos:'),workflow.indexOf('\n  release:'));
- assert.match(signing,/needs: validate/);
+ assert.match(signing,/needs: \[validate, build-macos\]/);
+ assert.match(signing,/needs: \[validate, build-macos-intel\]/);
  assert.ok(signing.indexOf('release-build-cache.mjs wait')<signing.indexOf('APPLE_CERTIFICATE_BASE64'));
  assert.match(signing,/runner: macos-15-intel/);assert.match(signing,/fail-fast: false/);
  assert.ok(signing.includes('name: desktop-${{ matrix.platform }}-signed-${{ github.sha }}\n'));
@@ -178,7 +179,7 @@ test('both Mac architectures reuse parallel native builds and signing before exi
  const release=workflow.slice(workflow.indexOf('\n  release:'));
  assert.ok(release.includes('pattern: desktop-*-signed-${{ github.sha }}\n'));
  assert.ok(!release.includes('signed-${{ github.sha }}-${{ github.run_attempt }}'));
- assert.match(release,/needs: \[validate, sign-macos\]/);
+ assert.match(release,/needs: \[validate, sign-macos, sign-macos-intel\]/);
  assert.match(release,/runs-on: ubuntu-24.04/);
  assert.ok(release.indexOf('wait all')<release.indexOf('TAURI_SIGNING_PRIVATE_KEY'));
  assert.match(release,/automatic-release\.mjs create-draft/);assert.match(workflow,/needs: \[validate, release\]/);

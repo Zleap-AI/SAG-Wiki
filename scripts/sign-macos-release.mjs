@@ -203,7 +203,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
       mkdirSync(updaterExtraction);
       run('tar', ['-xzf', archive, '-C', updaterExtraction], {env: archiveEnvironment});
       const updaterApp = join(updaterExtraction, appName);
-      const acceptApp = acceptedApp => {
+      const acceptApp = (acceptedApp, {full = true} = {}) => {
         const acceptedCli = join(acceptedApp, 'Contents/Resources/bin/sag');
         run('xcrun', ['stapler', 'validate', acceptedApp]);
         verify(acceptedCli);
@@ -212,7 +212,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
         const identity = JSON.parse(run(acceptedCli, ['--build-info']).stdout);
         assert.deepEqual(identity, original.build_identity, 'Packaged CLI build identity differs from the staged release');
         run('python3', [join(root, 'tests/desktop_bundle_test.py')], {env: {...childEnvironment, SAG_DESKTOP_BUNDLE: acceptedApp}});
-        run('python3', [join(root, 'tests/local-jev-e2e.py'), '--binary', acceptedCli]);
+        if (full) run('python3', [join(root, 'tests/local-jev-e2e.py'), '--binary', acceptedCli]);
       };
       assert.deepEqual(appContents(updaterApp), appContents(app), 'Updater archive differs from the stapled app, including code signatures');
       acceptApp(updaterApp);
@@ -224,7 +224,9 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
         run('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, dmg]);
         const mountedApp = join(mount, appName);
         assert.deepEqual(appContents(mountedApp), appContents(updaterApp), 'DMG app differs from the extracted updater app, including code signatures');
-        acceptApp(mountedApp);
+        // The DMG contains the exact already-tested app, signatures and ticket.
+        // Retain mounted-bundle, identity and launch checks without rerunning E2E.
+        acceptApp(mountedApp, {full:false});
       } finally {
         if (attachAttempted) run('hdiutil', ['detach', mount]);
       }

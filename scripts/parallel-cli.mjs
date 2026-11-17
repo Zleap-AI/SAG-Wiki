@@ -15,7 +15,7 @@ const files=(directory,prefix='')=>readdirSync(join(directory,prefix),{withFileT
 const allowed=(name,platform)=>!name.includes('\\')&&!name.includes(':')&&!name.split('/').some(part=>['','.','..'].includes(part))&&(
  name===`source/${platform==='windows'?'sag.exe':'sag'}`||name===`resources/bin/${platform==='windows'?'sag.exe':'sag'}`||name.startsWith('resources/bin/qpdf/'));
 const manifestName='manifest.json';
-export const desktopCompileConfig=()=>({build:{beforeBuildCommand:'npm run build:clipper:desktop && npm run build'}});
+export const desktopCompileConfig=({reuseWeb=false}={})=>({build:{beforeBuildCommand:reuseWeb?'npm run build:clipper:desktop':'npm run build:clipper:desktop && npm run build'}});
 export function recoverSkippedCli(job,{build,verify,record}){
  assert.equal(compilerJobMode(job),'reuse-skipped','Only a successful skipped reuse probe may recover inline');
  build();verify();record();
@@ -116,7 +116,7 @@ async function restore(ctx){
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(resolve(process.argv[1])).href){const command=process.argv[2];assert.ok(['stage','restore','compile-desktop','bundle'].includes(command));const ctx=context();
  if(command==='stage')stage(ctx);else if(command==='restore')await restore(ctx);else{const platformConfig=ctx.platform==='windows'?['--config','src-tauri/tauri.windows.conf.json']:[];
-  const args=command==='compile-desktop'?['build','--ci','--no-bundle','--target',ctx.target,...platformConfig,'--config',JSON.stringify(desktopCompileConfig()),'--','--locked','--timings']:['bundle','--ci','--target',ctx.target,...platformConfig];
+  const args=command==='compile-desktop'?['build','--ci','--no-bundle','--target',ctx.target,...platformConfig,'--config',JSON.stringify(desktopCompileConfig({reuseWeb:process.env.SAG_RELEASE_WEB_READY==='1'})),'--','--locked','--timings']:['bundle','--ci','--target',ctx.target,...platformConfig];
   const result=spawnSync(process.execPath,[resolve('node_modules/@tauri-apps/cli/tauri.js'),...args],{stdio:'inherit',env:{...process.env,...(command==='compile-desktop'?{SAG_DEFER_RELEASE_RESOURCES:'1'}:{})}});assert.equal(result.status,0,`${command} failed`);
  }
 }

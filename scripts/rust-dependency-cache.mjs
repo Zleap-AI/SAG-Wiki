@@ -93,11 +93,12 @@ async function restore(ctx) {
     for (const run of runs) {
       if (run.id >= ctx.currentRunId || !/^v\d+\.\d+\.\d+$/.test(run.head_branch ?? '')) continue;
       try {
+        // Reject incompatible inputs before fetching job/artifact histories.
+        if (dependencyKey(ctx.git, run.head_sha, ctx.compatibility) !== ctx.key) continue;
         const jobs = pages(`actions/runs/${run.id}/jobs?filter=all`, 'jobs');
         const job = trustedProducer(run, jobs, {...ctx, workflowId});
         // Recompute trust and compatibility from Git, not from artifact metadata.
         validateReleaseSource(ctx.git, run.head_sha, run.head_branch);
-        if (dependencyKey(ctx.git, run.head_sha, ctx.compatibility) !== ctx.key) continue;
         const artifacts = pages(`actions/runs/${run.id}/artifacts`, 'artifacts');
         const artifact = selectArchive(artifacts, run, name(ctx, job.run_attempt), job);
         const destination = join(temporary, String(run.id));
