@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.9
+
+- **发布兼容性验证**：修正 Windows 换行格式导致的发布回归测试失败，以及 Intel Mac 更新验证中固定使用 Apple Silicon 目标的测试清单；保留原有安装包、签名和公证检查。
+
+### English
+
+- **Release compatibility checks**: Fix release regression tests on Windows CRLF checkouts and use the current Mac architecture in the updater test manifest. Preserve the existing installer, signing and notarization checks.
+
 ## 0.3.8
 
 - **Intel Mac 安装包**：发布流程新增 Intel Mac（`x86_64`）独立安装包与应用内更新包，与 Apple Silicon（`arm64`）和 Windows x64 包分别构建。两种 Mac 架构并行签名与公证，并复用现有构建缓存。
