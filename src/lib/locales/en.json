@@ -2079,5 +2079,21 @@
   "找不到分享记录": "Share record not found",
   "分享记录文件损坏": "Share history file is damaged",
   "无法验证此分享的管理权限": "Unable to verify permission to manage this share",
-  "取消分享失败，请检查网络后重试": "Could not cancel the share. Check your connection and try again."
+  "取消分享失败，请检查网络后重试": "Could not cancel the share. Check your connection and try again.",
+  "全部知识库": "Entire knowledge base",
+  "指定文件夹": "Selected folders",
+  "全部知识库包含以后新增的目录；指定文件夹仅允许访问所选目录及其子目录。": "Entire knowledge base includes folders added later. Selected folders allows access only to those folders and their subfolders.",
+  "已加入知识库的文件夹": "Knowledge-base folders",
+  "此目录没有子文件夹。": "This folder has no subfolders.",
+  "浏览": "Browse",
+  "请选择至少一个文件夹": "Select at least one folder",
+  "编辑 {value0} 的访问范围": "Edit access scope for {value0}",
+  "编辑范围": "Edit scope",
+  "编辑访问范围": "Edit access scope",
+  "保存后立即生效，并取消此 Key 正在执行和排队的请求。其他 Key 不受影响。": "Changes take effect immediately and cancel this key’s running and queued requests. Other keys are unaffected.",
+  "保存访问范围": "Save access scope",
+  "选择 API Key": "Select API key",
+  "选择此项目使用的 Key，复制的 MCP 配置只使用该 Key 的访问范围。": "Select the key for this project. The copied MCP configuration uses that key’s access scope.",
+  "使用 {value0} 复制 MCP 配置": "Copy MCP configuration using {value0}",
+  "访问范围": "Access scope"
 }

@@ -9,7 +9,7 @@ pub mod explore;
 mod retrieval;
 pub mod types;
 mod api;
-pub use api::ApiAction;
+pub use api::{ApiAction, ApiScope};
 pub use build::*;
 pub use cli::*;
 use explore::*;

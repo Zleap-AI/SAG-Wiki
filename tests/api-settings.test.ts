@@ -23,7 +23,7 @@ beforeEach(()=>{
   if(action.action==='stop'){status.enabled=false;status.running=false;}
   if(action.action==='web_start'){status.web_enabled=true;status.web_running=true;}
   if(action.action==='web_stop'){status.web_enabled=false;status.web_running=false;}
-  if(action.action==='create_key'){keys=[{id:'key-1',name:action.name,prefix:'sag_demo…0001',created_at:new Date(2026,10,14,12).getTime(),copyable:true}];status.key_count=1;return {...keys[0],key:'test-api-secret'};}
+  if(action.action==='create_key'||action.action==='create_scoped_key'){keys=[{id:'key-1',name:action.name,prefix:'sag_demo…0001',created_at:new Date(2026,10,14,12).getTime(),copyable:true}];status.key_count=1;return {...keys[0],key:'test-api-secret'};}
   if(action.action==='copy_key')return {key:'test-api-secret'};
   if(action.action==='revoke_key'){keys=[];status.key_count=0;}
   if(action.action==='autostart')status.autostart=action.enabled;
@@ -32,7 +32,7 @@ beforeEach(()=>{
 });
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();vi.restoreAllMocks();});
 async function ready(){await vi.waitFor(()=>expect(document.querySelector('[aria-label="API 和 MCP"]')).not.toBeNull());}
-function click(text:string){const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(b=>b.textContent?.trim()===text);expect(button,text).toBeDefined();button!.click();}
+function click(text:string){const buttons=[...document.querySelectorAll<HTMLButtonElement>('button')];const button=buttons.find(b=>b.closest('[role=dialog]')&&b.textContent?.trim()===text)??buttons.find(b=>b.textContent?.trim()===text);expect(button,text).toBeDefined();button!.click();}
 it('网页可在 API 关闭时独立启用，并提供浏览器地址和访问码',async()=>{
  app=mount(ApiSettings,{target:document.body});await ready();
  const toggle=document.querySelector<HTMLButtonElement>('[aria-label="网页服务"]')!;
@@ -174,4 +174,78 @@ it.each([
  app=mount(ApiSettings,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.api-endpoints [role=status]')?.textContent).toBe(label));
  expect(document.querySelectorAll('.api-endpoints .api-address')).toHaveLength(running?4:0);
+});
+
+it('创建项目 Key 时多选已接入目录，空选择不会变成全库权限',async()=>{
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation((command,args)=>{
+  if(command==='list_roots')return Promise.resolve([{path:'/data/A',name:'Project A'},{path:'/data/B',name:'Project B'}]);
+  if(command==='list_entries')return Promise.resolve([{path:'/data/A/sub',name:'sub',directory:true,symlink:false},{path:'/data/A/.sag-converted',name:'.sag-converted',directory:true,symlink:false}]);
+  return original(command,args);
+ });
+ app=mount(ApiSettings,{target:document.body});await ready();click('创建 Key');await tick();
+ const name=document.querySelector<HTMLInputElement>('[aria-label="Key 名称"]')!;
+ name.value='Project A';name.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ const folders=document.querySelector<HTMLInputElement>('input[value="folders"]');expect(folders).not.toBeNull();folders!.click();await tick();
+ click('创建 Key');await tick();
+ expect(document.querySelector('[role=alert]')?.textContent).toContain('请选择至少一个文件夹');
+ expect(invoke.mock.calls.some(([,args])=>args?.action?.action==='create_key')).toBe(false);
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 Project A"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[aria-label="浏览 Project A"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 sub"]')).not.toBeNull());
+ expect(document.querySelector('[aria-label="选择 .sag-converted"]')).toBeNull();
+ document.querySelector<HTMLInputElement>('[aria-label="选择 sub"]')!.click();await tick();click('创建 Key');
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('manage_api',{action:{action:'create_scoped_key',name:'Project A',paths:['/data/A/sub']}}));
+});
+
+it('多个 Key 复制 MCP 配置时先选 Key，不使用最近创建的其他项目凭据',async()=>{
+ keys=[{id:'a',name:'Project A',prefix:'sag_a',created_at:0,copyable:true,scope:{type:'folders',paths:['/data/A']}},
+  {id:'b',name:'Project B',prefix:'sag_b',created_at:0,copyable:true,scope:{type:'folders',paths:['/data/B']}}];
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation((command,args)=>args?.action?.action==='copy_key'?Promise.resolve({key:args.action.id==='a'?'secret-a':'secret-b'}):original(command,args));
+ const clipboard=vi.fn();vi.spyOn(navigator.clipboard,'write').mockImplementation(async([item])=>{clipboard(await (await item.getType('text/plain')).text());});
+ status.enabled=status.running=true;
+ app=mount(ApiSettings,{target:document.body});await ready();
+ document.querySelector<HTMLButtonElement>('[aria-label="复制本机 MCP 配置"]')!.click();await tick();
+ expect(document.querySelector('[role=dialog]')?.textContent).toContain('选择 API Key');
+ expect(clipboard).not.toHaveBeenCalled();
+ document.querySelector<HTMLButtonElement>('[aria-label="使用 Project A 复制 MCP 配置"]')!.click();
+ await vi.waitFor(()=>expect(JSON.parse(clipboard.mock.lastCall![0]).mcpServers['sag-wiki'].headers.Authorization).toBe('Bearer secret-a'));
+ expect(invoke).toHaveBeenCalledWith('manage_api',{action:{action:'copy_key',id:'a'}});
+});
+
+it('旧 Key 显示全库权限，编辑范围只更新指定 Key',async()=>{
+ keys=[{id:'old',name:'Old key',prefix:'sag_old',created_at:0,copyable:true}];
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation((command,args)=>{
+  if(command==='list_roots')return Promise.resolve([{path:'/data/B',name:'Project B'}]);
+  return original(command,args);
+ });
+ app=mount(ApiSettings,{target:document.body});await ready();
+ expect(document.querySelector('.api-key-table')?.textContent).toContain('全部知识库');
+ document.querySelector<HTMLButtonElement>('[aria-label="编辑 Old key 的访问范围"]')!.click();await tick();
+ expect(document.querySelector<HTMLInputElement>('input[value="all"]')?.checked).toBe(true);
+ document.querySelector<HTMLInputElement>('input[value="folders"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 Project B"]')).not.toBeNull());
+ document.querySelector<HTMLInputElement>('[aria-label="选择 Project B"]')!.click();await tick();click('保存访问范围');
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('manage_api',{action:{action:'update_key_scope',id:'old',scope:{type:'folders',paths:['/data/B']}}}));
+ expect(invoke.mock.calls.some(([,args])=>args?.action?.action==='create_key'||args?.action?.action==='revoke_key')).toBe(false);
+});
+
+it('旧后台不认识受限创建操作时保留错误，不回退创建全库 Key',async()=>{
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation((command,args)=>{
+  if(command==='list_roots')return Promise.resolve([{path:'/data/A',name:'Project A'}]);
+  if(args?.action?.action==='create_scoped_key')return Promise.reject('后台不支持受限 Key，请更新并重启服务');
+  return original(command,args);
+ });
+ app=mount(ApiSettings,{target:document.body});await ready();click('创建 Key');await tick();
+ const name=document.querySelector<HTMLInputElement>('[aria-label="Key 名称"]')!;
+ name.value='Project A';name.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ document.querySelector<HTMLInputElement>('input[value="folders"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 Project A"]')).not.toBeNull());
+ document.querySelector<HTMLInputElement>('[aria-label="选择 Project A"]')!.click();await tick();click('创建 Key');
+ await vi.waitFor(()=>expect(document.querySelector('[role=alert]')?.textContent).toContain('后台不支持受限 Key'));
+ expect(document.querySelector('.api-secret')).toBeNull();
+ expect(invoke.mock.calls.some(([,args])=>args?.action?.action==='create_key')).toBe(false);
 });

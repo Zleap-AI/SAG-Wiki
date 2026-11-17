@@ -13,7 +13,7 @@ The default base address is `http://SERVER_IP:24681`; use the actual service con
 Authorization: Bearer <API_KEY>
 ```
 
-Multiple keys share the entire knowledge base. Missing, invalid or revoked keys return `401`, including when no key has been created. The API continues running when the valid-key count reaches zero.
+Each key can access the entire knowledge base or only its selected folders and their subfolders. Existing keys retain full-library access after upgrading; existing credentials and MCP configurations keep working without reconfiguration. Missing, invalid or revoked keys return `401`, including when no key has been created. The API continues running when the valid-key count reaches zero.
 
 ## Search
 
@@ -24,13 +24,13 @@ Multiple keys share the entire knowledge base. Missing, invalid or revoked keys 
 <ApiParameters>
   <ApiParameter name="query" type="string" required="Required">Search text. Must contain 1–2000 characters.</ApiParameter>
   <ApiParameter name="mode" type="string" defaultValue="Default: deep">Either deep (deep retrieval) or fast (full-text search).</ApiParameter>
-  <ApiParameter name="paths" type="string[]">Absolute server directory paths. Accepts multiple directories; omitted or empty searches the entire knowledge base.</ApiParameter>
+  <ApiParameter name="paths" type="string[]">Absolute server directory paths. Accepts multiple directories; omitted or empty searches all folders allowed by the current key. Full-library keys continue to search the entire knowledge base.</ApiParameter>
   <ApiParameter name="limit" type="integer" defaultValue="Default: 10">Maximum source passages returned. Range: 1–100.</ApiParameter>
 </ApiParameters>
 
 `fast` reuses local full-text search without a model. `deep` reuses the decision model and existing retrieval settings. Incomplete configuration or model failures return explicit errors while preserving the requested mode.
 
-One or more directories form a single search scope, including their permitted subdirectories. Duplicate scopes are removed and results ranked together. Any invalid or unauthorized path fails the entire request. The API does not import new directories automatically.
+One or more directories form a single search scope, including their permitted subdirectories. Duplicate scopes are removed and results ranked together. Any invalid path or path outside the current key’s scope fails the entire request, including mixed allowed and denied paths. Requested paths can narrow access but cannot expand it. The API does not import new directories automatically.
 
 Directories can use a symbolic-link path or its actual path; both resolve to the same search scope. If an indexed root later becomes a symbolic link, whole-library search can still use its existing index. Excluded directories and subdirectory links pointing outside the knowledge base remain inaccessible.
 
@@ -106,12 +106,12 @@ No matches returns `200` with an empty array. Already indexed content can be sea
 
 <ApiEndpoint method="GET" path="/v1/folders" />
 
-With no `path`, list all imported knowledge-base roots. Supplying `path` lists only that directory's immediate subfolders. Names are display labels; absolute paths distinguish identically named folders. No aliases are used.
+With no `path`, full-library keys list all knowledge-base roots; restricted keys list only their granted folders, including subfolders, without exposing parents or siblings. Supplying `path` lists only that directory's immediate subfolders. Names are display labels; absolute paths distinguish identically named folders. No aliases are used.
 
 ### Query parameters
 
 <ApiParameters>
-  <ApiParameter name="path" type="string">Absolute server directory path. Omit to list all roots; supply to list immediate subfolders. URL-encode the value.</ApiParameter>
+  <ApiParameter name="path" type="string">Absolute server directory path. Omit to list the current key’s granted entry folders; supply to list immediate subfolders. URL-encode the value.</ApiParameter>
 </ApiParameters>
 
 ### Request and response
@@ -182,11 +182,13 @@ Returns the actual version, API runtime state, decision-model configuration avai
 
 Decision-model fields, configuration names and error codes consistently use `decision`.
 
+For restricted keys, `roots` contains only granted directories. Each `indexed_files` count covers that granted directory, without disclosing its parent’s count.
+
 ## Deadlines and concurrency
 
 Fast requests have a 30-second deadline and deep requests a 60-second deadline, including queueing and execution. API searches share the existing 20 expensive-task slots with desktop and CLI. Full capacity causes waiting without resetting the deadline.
 
-A timeout, caller disconnect, revoked key or stopped API cancels the corresponding API search. Other keys, desktop requests, ordinary CLI commands and indexing tasks continue. Reaching the concurrency limit alone does not immediately return `429`.
+A timeout, caller disconnect, revoked key, changed key scope or stopped API cancels the corresponding API search. Other keys, desktop requests, ordinary CLI commands and indexing tasks continue. Reaching the concurrency limit alone does not immediately return `429`.
 
 The JSON request body is limited to 32 KiB and must arrive within 30 seconds. Search JSON responses are limited to 512 KiB; oversized responses omit complete passages and set `truncated` to `true`, without cutting passage text.
 
@@ -204,7 +206,8 @@ The JSON request body is limited to 32 KiB and must arrive within 30 seconds. Se
 | 400 | `invalid_request` | Invalid parameters, JSON, types or ranges |
 | 400 | `invalid_path` | Path is not an absolute directory path or has the wrong type |
 | 401 | `unauthorized` | Missing, invalid or revoked API key |
-| 403 | `path_not_allowed` | Path is outside the authorized knowledge-base scope |
+| 403 | `path_not_allowed` | Path is outside the knowledge base or the current key’s scope |
+| 403 | `scope_unavailable` | A granted folder was removed, became unavailable or changed its canonical path (for example, a retargeted symlink); reset the scope locally |
 | 404 | `directory_not_found` | Directory is missing or removed |
 | 404 | `not_found` | Endpoint does not exist |
 | 405 | `method_not_allowed` | HTTP method is unsupported |
@@ -223,3 +226,5 @@ To connect through an MCP client, see the [MCP guide](/en/docs/mcp-guide).
 HTTP MCP `search` (fast/deep) and `/v1/search` accept `exclude`: `{"query":"authentication flow","paths":["F:/project"],"exclude":[".git/**","archive/","*.zip"]}`. Patterns are relative to each search root. Excluding all files returns no results, never an unrestricted search. Converted documents use the original filename and extension; within a converted-output directory, relative subdirectories are preserved, for example `nested/report.csv` rather than `nested/report.csv.md`.
 
 With exclusions, each search uses the files allowed when filtering runs; newly added files are included on the next search.
+
+Folder grants apply before retrieval and decision scoring, with the same restrictions for fast/deep and MCP. Converted PDF/Office documents inherit access from their original source directories; do not grant the conversion storage directory. An unavailable grant returns an error and never falls back to full-library search.
