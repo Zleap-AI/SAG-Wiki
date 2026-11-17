@@ -13,7 +13,7 @@ description: "搜索、文件夹与服务状态接口的参数、响应和错误
 Authorization: Bearer <API_KEY>
 ```
 
-多个 Key 共享全部知识库。无 Key、Key 无效或已撤销时统一返回 `401`，包括服务尚未创建任何 Key 的情况。API 继续运行，不因 Key 数量变为零而关闭。
+每个 Key 可以访问全部知识库，或仅访问为其指定的文件夹及子目录。升级前已有 Key 保持全部知识库权限，原 Key 和 MCP 配置继续使用，无需重新配置。无 Key、Key 无效或已撤销时统一返回 `401`，包括服务尚未创建任何 Key 的情况。API 继续运行，不因 Key 数量变为零而关闭。
 
 ## 搜索
 
@@ -24,13 +24,13 @@ Authorization: Bearer <API_KEY>
 <ApiParameters>
   <ApiParameter name="query" type="string" required="必填">搜索内容，长度为 1–2000 个字符。</ApiParameter>
   <ApiParameter name="mode" type="string" defaultValue="默认 deep">可选 deep（深入检索）或 fast（快速搜索）。</ApiParameter>
-  <ApiParameter name="paths" type="string[]">服务端完整目录路径。可传入多个目录，省略或空数组时搜索全部知识库。</ApiParameter>
+  <ApiParameter name="paths" type="string[]">服务端完整目录路径。可传入多个目录，省略或空数组时搜索当前 Key 允许的全部文件夹。全库 Key 继续搜索全部知识库。</ApiParameter>
   <ApiParameter name="limit" type="integer" defaultValue="默认 10">最多返回的原文片段数，范围 1–100。</ApiParameter>
 </ApiParameters>
 
 `fast` 复用本地全文检索，无需模型。`deep` 复用决策模型与现有检索配置，配置不完整或模型请求失败时明确报错，不改变请求指定的模式。
 
-一个或多个目录作为同一次检索范围，包含其允许访问的子目录，去除重复范围后统一排序。任一路径无效或超出知识库范围时，整次请求报错。API 不自动导入目录。
+一个或多个目录作为同一次检索范围，包含其允许访问的子目录，去除重复范围后统一排序。任一路径无效或超出当前 Key 的授权范围时，整次请求报错，包括同时传入允许和不允许的目录。指定路径只能缩小范围，不能扩大权限。API 不自动导入目录。
 
 目录可使用符号链接路径或实际路径，两者指向同一目录时合并搜索。历史索引中的根目录后来变为符号链接时，全库搜索仍可使用原索引。已排除的目录，以及指向知识库范围外的子目录链接，仍不可访问。
 
@@ -106,12 +106,12 @@ curl http://127.0.0.1:24681/v1/search \
 
 <ApiEndpoint method="GET" path="/v1/folders" />
 
-不传 `path` 时，列出全部已加入知识库的根文件夹；传入时，只列出该目录的直接子文件夹。名称仅用于显示，同名目录通过完整路径区分，不使用别名。
+不传 `path` 时，全库 Key 列出全部知识库根文件夹，受限 Key 仅列出其授权文件夹（可以是子目录，不展示其上级和同级目录）；传入时，只列出该目录的直接子文件夹。名称仅用于显示，同名目录通过完整路径区分，不使用别名。
 
 ### 查询参数
 
 <ApiParameters>
-  <ApiParameter name="path" type="string">服务端完整目录路径。省略时列出全部根文件夹；传入时列出该目录的直接子文件夹。使用 URL 编码。</ApiParameter>
+  <ApiParameter name="path" type="string">服务端完整目录路径。省略时列出当前 Key 的授权入口；传入时列出该目录的直接子文件夹。使用 URL 编码。</ApiParameter>
 </ApiParameters>
 
 ### 请求与响应
@@ -176,7 +176,7 @@ curl http://127.0.0.1:24681/v1/status \
 
 </Tabs>
 
-`decision_configured` 表示服务端是否已保存可用的决策模型配置。
+`decision_configured` 表示服务端是否已保存可用的决策模型配置。受限 Key 的 `roots` 仅包含授权目录，`indexed_files` 只统计各授权目录下的索引文件，不展示上级目录的文件数。
 
 返回实际程序版本、API 运行状态、决策模型是否配置及根目录索引状态，不返回任何密钥或内部连接令牌。API 关闭时，使用本机 `sag api status` 或桌面设置查看状态。
 
@@ -186,7 +186,7 @@ curl http://127.0.0.1:24681/v1/status \
 
 快速搜索整次请求限时 30 秒，深入检索限时 60 秒，均包含排队与执行。API 与桌面端、CLI 共用现有 20 个耗时任务额度，满额后等待，等待不会重置截止时间。
 
-超时、调用方断开连接、所属 Key 被撤销或 API 被关闭时，取消对应 API 搜索。其他 Key、桌面端、普通 CLI 和后台索引任务继续运行。单纯达到并发上限时不立即返回 `429`。
+超时、调用方断开连接、所属 Key 被撤销、访问范围被修改或 API 被关闭时，取消对应 API 搜索。其他 Key、桌面端、普通 CLI 和后台索引任务继续运行。单纯达到并发上限时不立即返回 `429`。
 
 JSON 请求体上限为 32 KiB，接收限时 30 秒。搜索 JSON 响应上限为 512 KiB；超出时减少完整片段并设置 `truncated: true`，不裁切片段正文。
 
@@ -204,7 +204,8 @@ JSON 请求体上限为 32 KiB，接收限时 30 秒。搜索 JSON 响应上限�
 | 400 | `invalid_request` | 参数、JSON、类型或数值范围不正确 |
 | 400 | `invalid_path` | 不是完整目录路径或目录类型不正确 |
 | 401 | `unauthorized` | 缺少、无效或已撤销的 API Key |
-| 403 | `path_not_allowed` | 路径超出知识库授权范围 |
+| 403 | `path_not_allowed` | 路径超出知识库或当前 Key 的授权范围 |
+| 403 | `scope_unavailable` | 授权目录已移除、不可用或符号链接解析后的实际路径改变；请在本机重新设置访问范围 |
 | 404 | `directory_not_found` | 目录不存在或已移除 |
 | 404 | `not_found` | 接口不存在 |
 | 405 | `method_not_allowed` | HTTP 方法不受支持 |
@@ -223,3 +224,5 @@ JSON 请求体上限为 32 KiB，接收限时 30 秒。搜索 JSON 响应上限�
 HTTP MCP `search`（fast/deep）及 `/v1/search` 支持 `exclude` 数组：`{"query":"认证流程","paths":["F:/project"],"exclude":[".git/**","archive/","*.zip"]}`。规则分别相对于每个搜索根目录；全部排除返回空结果，不会扩大为全库搜索。转换文档按原始文件名及扩展名匹配；选择转换输出目录时，使用其下的相对目录结构，例如 `nested/report.csv`，而不是 `nested/report.csv.md`。
 
 启用排除规则后，本次搜索只使用筛选时允许的文件，新文件在下次搜索时纳入。
+
+指定目录的授权在检索和决策模型评分前生效，fast/deep 与 MCP 使用相同限制。PDF、Office 等转换文档继承原文件所在目录的权限，无需授权转换存储目录。受限 Key 的授权目录失效时返回错误，不会回退为全库搜索。

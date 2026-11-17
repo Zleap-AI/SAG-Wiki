@@ -7,6 +7,7 @@ struct Fixture {
     url: String,
     a: PathBuf,
     b: PathBuf,
+    model_requests: Arc<Mutex<Vec<Value>>>,
 }
 impl Fixture {
     async fn new() -> Self {
@@ -51,6 +52,7 @@ impl Fixture {
             url: format!("http://127.0.0.1:{port}"),
             a: a.canonicalize().unwrap(),
             b: b.canonicalize().unwrap(),
+            model_requests: Arc::new(Mutex::new(vec![])),
         }
     }
     async fn key(&self, name: &str) -> Value {
@@ -92,10 +94,12 @@ impl Fixture {
         settings.retrieval.max_hops = 0;
         self.service.store.save_settings(&settings).unwrap();
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let model_requests = self.model_requests.clone();
         let task = tokio::spawn(async move {
             loop {
                 let (mut socket, _) = listener.accept().await.unwrap();
                 let tx = tx.clone();
+                let model_requests = model_requests.clone();
                 tokio::spawn(async move {
                     let mut bytes = vec![];
                     let mut buf = [0u8; 4096];
@@ -121,6 +125,7 @@ impl Fixture {
                             }
                         }
                     };
+                    model_requests.lock().unwrap().push(value.clone());
                     tx.send(()).unwrap();
                     if hold {
                         let _ = socket.read(&mut buf).await;
@@ -670,4 +675,280 @@ async fn oversized_source_passages_are_omitted_whole_and_marked_truncated() {
     assert_eq!(response.status(),200);let bytes=response.bytes().await.unwrap();
     assert!(bytes.len()<sag_protocol::MAX_RESPONSE as usize);let value:Value=serde_json::from_slice(&bytes).unwrap();
     assert_eq!(value["truncated"],true);assert_eq!(value["results"],json!([]));f.finish().await;
+}
+
+async fn scoped_key(f: &Fixture, paths: Value) -> Value {
+    // JSON exercises the same versioned local-management boundary as desktop/CLI.
+    let action = serde_json::from_value(json!({"action":"create_scoped_key","name":"project","paths":paths})).unwrap();
+    f.service.api.manage(action, &f.service).await.unwrap()
+}
+
+async fn mcp_call(f: &Fixture, token: &str, name: &str, arguments: Value) -> Value {
+    reqwest::Client::new().post(format!("{}/mcp", f.url)).bearer_auth(token)
+        .header("accept", "application/json, text/event-stream")
+        .header("MCP-Protocol-Version", "2025-11-25")
+        .json(&json!({"jsonrpc":"2.0","id":1,"method":"tools/call",
+            "params":{"name":name,"arguments":arguments}}))
+        .send().await.unwrap().json().await.unwrap()
+}
+
+#[tokio::test]
+async fn folder_keys_and_legacy_keys_coexist_across_http_and_mcp() {
+    let f = Fixture::new().await;
+    let old = f.key("old global key").await;
+    let a = scoped_key(&f, json!([f.a.join("sub")])).await;
+    let b = scoped_key(&f, json!([f.b])).await;
+    let (_arrived, model) = f.model(false).await;
+    for (key, expected, visible) in [(&old, 3, None), (&a, 1, Some(f.a.join("sub"))), (&b, 1, Some(f.b.clone()))] {
+        let token = key["key"].as_str().unwrap();
+        for mode in ["fast", "deep"] {
+            for extra in [json!({}), json!({"paths":[]}), json!({"exclude":["unmatched/**"]})] {
+                let mut input = json!({"query":"deploymarker","mode":mode});
+                input.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+                let response = f.search(token, input.clone()).await;
+                assert_eq!(response.status(), 200);
+                let body: Value = response.json().await.unwrap();
+                assert_eq!(body["results"].as_array().unwrap().len(), expected, "{body}");
+                let body = mcp_call(&f, token, "search", input).await;
+                assert_eq!(body["result"]["structuredContent"]["results"].as_array().unwrap().len(), expected, "{body}");
+            }
+        }
+        let listed = f.get("/v1/folders", token).await.json::<Value>().await.unwrap();
+        let mcp = mcp_call(&f, token, "folders", json!({})).await;
+        assert_eq!(mcp["result"]["structuredContent"], listed);
+        if let Some(path) = visible {
+            assert_eq!(listed["folders"].as_array().unwrap().len(), 1);
+            assert_eq!(listed["folders"][0]["path"], path.to_str().unwrap());
+            let status = f.get("/v1/status", token).await.json::<Value>().await.unwrap();
+            assert_eq!(status["roots"].as_array().unwrap().len(), 1);
+            assert_eq!(status["roots"][0]["path"], path.to_str().unwrap());
+            assert_eq!(status["roots"][0]["indexed_files"], 1);
+        }
+    }
+    let token = a["key"].as_str().unwrap();
+    for paths in [json!([f.a]), json!([f.b]), json!([f.a.join("sub"),f.b])] {
+        let input = json!({"query":"deploymarker","mode":"fast","paths":paths});
+        assert_eq!(f.search(token, input.clone()).await.status(), 403);
+        let body = mcp_call(&f, token, "search", input).await;
+        assert_eq!(body["result"]["structuredContent"]["code"], "path_not_allowed");
+    }
+    let mut url = reqwest::Url::parse(&format!("{}/v1/folders", f.url)).unwrap();
+    url.query_pairs_mut().append_pair("path", f.a.to_str().unwrap());
+    assert_eq!(reqwest::Client::new().get(url).bearer_auth(token).send().await.unwrap().status(), 403);
+    model.abort();
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn upgrading_scope_less_config_preserves_credentials_and_dynamic_all_access() {
+    let f = Fixture::new().await;
+    let key = f.key("pre-upgrade").await;
+    let secret = key["key"].as_str().unwrap();
+    let path = f.service.data_dir.join("http-api.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    for record in config["keys"].as_array_mut().unwrap() { record.as_object_mut().unwrap().remove("scope"); }
+    // One legacy key has no recoverable secret, as in versions before copy support.
+    let mut digest_only = config["keys"][0].clone();
+    digest_only["id"] = json!("legacy-digest-only");
+    digest_only["digest"] = json!(Sha256::digest(b"legacy-digest-token").to_vec());
+    digest_only.as_object_mut().unwrap().remove("secret");
+    config["keys"].as_array_mut().unwrap().push(digest_only);
+    f.service.api.shutdown().await.unwrap();
+    write_private(&path, &serde_json::to_vec(&config).unwrap()).unwrap();
+    let mut f = f;
+    let data = f.service.data_dir.clone();
+    f.service.finish().await.unwrap();
+    f.service = Service::open(data).unwrap();
+    f.service.api.restore(&f.service).await;
+    // A legacy management client still omits scope on CreateKey.
+    let created: ApiAction = serde_json::from_value(json!({"action":"create_key","name":"legacy client"})).unwrap();
+    let created = f.service.api.manage(created, &f.service).await.unwrap();
+    assert_eq!(created["scope"], json!({"type":"all"}));
+    let c = f.dir.path().join("new-project");
+    std::fs::create_dir(&c).unwrap();
+    std::fs::write(c.join("new.md"), "deploymarker new material").unwrap();
+    let c = c.canonicalize().unwrap();
+    f.service.store.add_root(&c).unwrap();
+    f.service.store.scan(c.to_str().unwrap(), |_| {}).unwrap();
+    let restricted = scoped_key(&f, json!([f.b])).await;
+    assert_eq!(f.service.api.manage(ApiAction::CopyKey { id: Some(key["id"].as_str().unwrap().into()) }, &f.service).await.unwrap()["key"], secret);
+    for token in [secret, "legacy-digest-token", created["key"].as_str().unwrap()] {
+        for extra in [json!({}),json!({"paths":[]})] {
+            let mut input = json!({"query":"deploymarker","mode":"fast"});
+            input.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+            let body = mcp_call(&f, token, "search", input).await;
+            assert_eq!(body["result"]["structuredContent"]["results"].as_array().unwrap().len(), 4, "{body}");
+        }
+        assert_eq!(mcp_call(&f, token, "folders", json!({})).await["result"]["structuredContent"]["folders"].as_array().unwrap().len(), 3);
+    }
+    // Creating a scoped key persists the migrated records without rotating them.
+    let persisted: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    assert_eq!(persisted["keys"][0]["id"], key["id"]);
+    assert_eq!(persisted["keys"][0]["secret"], secret);
+    assert_eq!(persisted["keys"][0]["scope"], json!({"type":"all"}));
+    let token = restricted["key"].as_str().unwrap();
+    assert_eq!(f.search(token, json!({"query":"deploymarker","mode":"fast"})).await.json::<Value>().await.unwrap()["results"].as_array().unwrap().len(), 1);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn folder_grants_reject_empty_invalid_and_removed_scopes_without_global_fallback() {
+    let f = Fixture::new().await;
+    for paths in [json!([]), json!(["relative"]), json!([f.dir.path()]), json!([f.a.join("one.md")])] {
+        let action = serde_json::from_value(json!({"action":"create_scoped_key","name":"invalid","paths":paths})).unwrap();
+        assert!(f.service.api.manage(action, &f.service).await.is_err());
+    }
+    let a = scoped_key(&f, json!([f.a.join("sub")])).await;
+    f.service.store.remove_path(&f.a.join("sub")).unwrap();
+    let token = a["key"].as_str().unwrap();
+    for route in ["/v1/folders", "/v1/status"] { assert_eq!(f.get(route, token).await.status(), 403); }
+    let body = f.search(token, json!({"query":"deploymarker","mode":"fast"})).await;
+    assert_eq!(body.status(), 403);
+    assert_eq!(body.json::<Value>().await.unwrap()["error"]["code"], "scope_unavailable");
+    assert_eq!(mcp_call(&f, token, "search", json!({"query":"deploymarker","mode":"fast"})).await["result"]["isError"], true);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn scoped_search_inherits_external_conversion_access_from_original_directory() {
+    let f = Fixture::new().await;
+    for root in [f.a.join("sub"), f.b.clone()] {
+        std::fs::write(root.join("scan.rtf"), br"{\rtf1\ansi convertedgrantneedle}").unwrap();
+    }
+    for root in [&f.a, &f.b] { f.service.store.scan(root.to_str().unwrap(), |_| {}).unwrap(); }
+    let key = scoped_key(&f, json!([f.a.join("sub")])).await;
+    let (_arrived, model) = f.model(false).await;
+    for mode in ["fast", "deep"] {
+        for exclude in [json!([]),json!(["unmatched/**"])] {
+            let body = mcp_call(&f, key["key"].as_str().unwrap(), "search", json!({"query":"convertedgrantneedle","mode":mode,"exclude":exclude})).await;
+            let results = body["result"]["structuredContent"]["results"].as_array().unwrap();
+            assert_eq!(results.len(), 1, "{body}");
+            assert!(results[0]["content"].as_str().unwrap().contains("convertedgrantneedle"));
+        }
+    }
+    model.abort();
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn editing_scope_cancels_old_requests_and_preserves_other_keys() {
+    let f = Fixture::new().await;
+    let a = f.key("editable").await;
+    let b = f.key("unchanged").await;
+    let (mut arrived, model) = f.model(true).await;
+    let client = reqwest::Client::new();
+    let request = client.post(format!("{}/v1/search", f.url)).bearer_auth(a["key"].as_str().unwrap())
+        .json(&json!({"query":"deploymarker"})).send();
+    let running = tokio::spawn(request);
+    arrived.recv().await.unwrap();
+    let permits = f.service.requests.clone().acquire_many_owned(19).await.unwrap();
+    let queued_request = client.post(format!("{}/v1/search", f.url)).bearer_auth(a["key"].as_str().unwrap())
+        .json(&json!({"query":"deploymarker","mode":"fast"}));
+    let queued = tokio::spawn(async move { queued_request.send().await.unwrap() });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!queued.is_finished());
+    let action = serde_json::from_value(json!({"action":"update_key_scope","id":a["id"],"scope":{"type":"folders","paths":[f.b]}})).unwrap();
+    f.service.api.manage(action, &f.service).await.unwrap();
+    assert_eq!(running.await.unwrap().unwrap().status(), 401);
+    assert_eq!(tokio::time::timeout(Duration::from_secs(2), queued).await.unwrap().unwrap().status(), 401);
+    drop(permits);
+    for (key, count) in [(&a,1),(&b,3)] {
+        let response = f.search(key["key"].as_str().unwrap(), json!({"query":"deploymarker","mode":"fast"})).await;
+        assert_eq!(response.status(),200);
+        assert_eq!(response.json::<Value>().await.unwrap()["results"].as_array().unwrap().len(),count);
+    }
+    model.abort();
+    f.finish().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn folder_grants_reject_symlink_escape_and_changed_grant_targets() {
+    let f = Fixture::new().await;
+    let key = scoped_key(&f, json!([f.a.join("sub")])).await;
+    let token = key["key"].as_str().unwrap();
+    std::os::unix::fs::symlink(&f.b, f.a.join("sub/escape")).unwrap();
+    assert_eq!(f.search(token,json!({"query":"deploymarker","mode":"fast","paths":[f.a.join("sub/escape")]})).await.status(),403);
+    std::fs::remove_file(f.a.join("sub/escape")).unwrap();
+    std::fs::rename(f.a.join("sub"), f.a.join("original-sub")).unwrap();
+    std::os::unix::fs::symlink(&f.b, f.a.join("sub")).unwrap();
+    assert_eq!(f.search(token,json!({"query":"deploymarker","mode":"fast"})).await.status(),403);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn folder_grants_persist_and_empty_stored_grants_never_mean_all() {
+    let mut f = Fixture::new().await;
+    let old = f.key("all").await;
+    let project = scoped_key(&f, json!([f.a, f.b])).await;
+    let data = f.service.data_dir.clone();
+    f.service.finish().await.unwrap();
+    f.service = Service::open(data.clone()).unwrap();
+    f.service.api.restore(&f.service).await;
+    let token = project["key"].as_str().unwrap();
+    assert_eq!(f.search(token,json!({"query":"deploymarker","mode":"fast"})).await.json::<Value>().await.unwrap()["results"].as_array().unwrap().len(),3);
+    f.service.finish().await.unwrap();
+    let path = data.join("http-api.json");
+    let mut config: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    config["keys"][1]["scope"]["directories"] = json!([]);
+    write_private(&path, &serde_json::to_vec(&config).unwrap()).unwrap();
+    f.service = Service::open(data).unwrap();
+    f.service.api.restore(&f.service).await;
+    assert_eq!(f.search(token,json!({"query":"deploymarker","mode":"fast"})).await.status(),403);
+    assert_eq!(f.search(old["key"].as_str().unwrap(),json!({"query":"deploymarker","mode":"fast"})).await.json::<Value>().await.unwrap()["results"].as_array().unwrap().len(),3);
+    f.finish().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn restricted_search_never_sends_backslash_sibling_text_to_the_model() {
+    let f = Fixture::new().await;
+    let sibling = f.a.join("sub\\private");
+    std::fs::create_dir(&sibling).unwrap();
+    std::fs::write(sibling.join("secret.md"), "deploymarker PRIVATE_SIBLING_EVIDENCE").unwrap();
+    f.service.store.scan(f.a.to_str().unwrap(), |_| {}).unwrap();
+    let key = scoped_key(&f,json!([f.a.join("sub")])).await;
+    let (_arrived, model) = f.model(false).await;
+    let token = key["key"].as_str().unwrap();
+    let response = f.search(token,json!({"query":"deploymarker","mode":"deep"})).await;
+    let sent = serde_json::to_string(&*f.model_requests.lock().unwrap()).unwrap();
+    assert!(sent.contains("nested steps"), "expected the allowed passage to reach decision scoring");
+    assert!(!sent.contains("PRIVATE_SIBLING_EVIDENCE"), "outside text reached decision scoring");
+    assert_eq!(response.status(),200);
+    let body = f.search(token,json!({"query":"deploymarker","mode":"fast"})).await.json::<Value>().await.unwrap();
+    assert_eq!(body["results"].as_array().unwrap().len(),1);
+    model.abort();
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn restricted_keys_do_not_reveal_ungranted_path_existence_or_type() {
+    let f = Fixture::new().await;
+    let key = scoped_key(&f,json!([f.a.join("sub")])).await;
+    let token = key["key"].as_str().unwrap();
+    for path in [f.b.clone(), f.b.join("three.md"), f.b.join("missing"), f.dir.path().join("not-indexed")] {
+        let mut url = reqwest::Url::parse(&format!("{}/v1/folders",f.url)).unwrap();
+        url.query_pairs_mut().append_pair("path",path.to_str().unwrap());
+        let response = reqwest::Client::new().get(url).bearer_auth(token).send().await.unwrap();
+        assert_eq!(response.status(),403,"{path:?}");
+        assert_eq!(response.json::<Value>().await.unwrap()["error"]["code"],"path_not_allowed");
+        let body=mcp_call(&f,token,"folders",json!({"path":path})).await;
+        assert_eq!(body["result"]["structuredContent"]["code"],"path_not_allowed");
+        let response=f.search(token,json!({"query":"deploymarker","mode":"fast","paths":[path]})).await;
+        assert_eq!(response.status(),403);
+    }
+    assert_eq!(f.search(token,json!({"query":"deploymarker","mode":"fast","paths":[f.a.join("sub/missing")]})).await.status(),404);
+    f.finish().await;
+}
+
+#[tokio::test]
+async fn scoped_creation_uses_an_operation_old_services_cannot_accept_as_global() {
+    #[derive(Deserialize)]
+    #[serde(tag="action",rename_all="snake_case")]
+    enum LegacyAction { CreateKey { name: String } }
+    // Same old serde shape: extra fields on create_key would be silently ignored.
+    let legacy: LegacyAction = serde_json::from_value(json!({"action":"create_key","name":"old"})).unwrap();
+    let LegacyAction::CreateKey { name }=legacy;assert_eq!(name,"old");
+    let action: ApiAction=serde_json::from_value(json!({"action":"create_scoped_key","name":"project","paths":["/indexed"]})).unwrap();
+    assert!(serde_json::from_value::<LegacyAction>(serde_json::to_value(action).unwrap()).is_err());
 }
