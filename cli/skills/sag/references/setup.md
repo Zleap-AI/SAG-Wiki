@@ -104,6 +104,15 @@ If Bearer setup is required and credentials have not been supplied, ask the user
 
 Search and management commands that need the core start or reuse the service automatically. Stopping or restarting affects desktop and CLI requests sharing that service; run these actions when requested or necessary for an authorized service update. The internal `sag service serve` command runs the service in the foreground for startup diagnostics; normal use does not require it. Service subcommands do not accept `--json` or a directory.
 
+## API Key scopes and MCP configuration
+
+On the computer running SAG, check `sag api key create --help` and `sag api key set-scope --help` before managing folder permissions. If the scoped options are missing, update the CLI and its shared service through their installer before proceeding.
+
+1. Use `sag list` to identify the indexed roots. Confirm the intended absolute paths on the server; an indexed root or one of its subfolders can be granted. Create a project key with `sag api key create --name "Project A" --path "/data/project-a" --path "/data/shared"`, repeating `--path` for each authorized folder. Omitting `--path` or passing `--all` grants the entire knowledge base, including future folders. Use full-library access only when requested.
+2. Run `sag api key list --json` to verify the key ID and its scope without exposing the secret. To replace the folder scope, supply the complete desired set of paths to `sag api key set-scope KEY_ID --path "/data/project-a"`. Use `--all` instead only when full-library access is requested. The change takes effect immediately and cancels running and queued requests using that key.
+3. Run `sag api status` and, if the API is off, run `sag api start` when authorized for the connection. Export with `sag api mcp config --key-id KEY_ID` so the project receives its own key. For a client on another computer, add `--address` with a LAN MCP URL listed by `sag api status`. Save the JSON in the client's project configuration; it contains the full key, so keep it out of chat, shared logs and version control.
+4. Call the client's MCP `folders` tool and confirm the authorized entry folders before using `search`. Without a path filter, MCP search covers all folders allowed by that key. Report any scope mismatch before using the connection.
+
 ## Installation and removal
 
 For an npm-installed CLI, use `npm install -g @zleap-ai/sag` to update and `npm uninstall -g @zleap-ai/sag` to remove it. The commands below manage SAG's own executable installation or bundled Skill snapshot. For the current GitHub Skill, use the first-use workflow above.
