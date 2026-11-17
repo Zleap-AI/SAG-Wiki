@@ -7,7 +7,13 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="b3fd42b7b39bca4e7c13c722bab1caba86660516f32e74203aaf2a682e0688b3" aria-hidden="true" />
+<span data-docs-changelog-sha="1e1962fa99c8020116f16bda1aa539cf98f958b69d96aa29b999332efd91e0fd" aria-hidden="true" />
+
+## 0.3.9
+
+- **Intel Mac notarization connection**: Use TCP for Apple notarization tickets in the Intel signing job to avoid hosted-runner HTTP/3 connection drops. Preserve signature, notarization and ticket verification.
+- **Release task recovery**: Reuse unchanged successful builds and their original checkpoints when retrying failed tasks, avoiding missing artifacts caused by copied attempt records without repeating compilation.
+- **Release compatibility checks**: Fix release regression tests on Windows CRLF checkouts and use the current Mac architecture in the updater test manifest. Preserve the existing installer, signing and notarization checks.
 
 ## 0.3.8
 

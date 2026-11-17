@@ -14,7 +14,8 @@ const digest = path => createHash('sha256').update(readFileSync(path)).digest('h
 const external = (command, args, options = {}) => {
   const result = spawnSync(command, args, {cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, ...options});
   // Arguments and command output may contain credentials. Never include them in errors.
-  assert.equal(result.status, 0, `${basename(command)} failed (exit ${result.status ?? 'unavailable'})`);
+  const operation = command === 'xcrun' ? ['notarytool submit', 'stapler staple', 'stapler validate'].find(name => name === `${args[0]} ${args[1]}`) : undefined;
+  assert.equal(result.status, 0, `${basename(command)}${operation ? ` ${operation}` : ''} failed (exit ${result.status ?? 'unavailable'})`);
   return {stdout: result.stdout ?? '', stderr: result.stderr ?? ''};
 };
 
