@@ -16,6 +16,7 @@ export function nativeTestKey(git, ref) {
   });
   const paths = records.filter(({path}) =>
     /^(?:core|client|protocol|cli|src-tauri|tests|\.cargo)\//.test(path) ||
+    /^src\/lib\/(?:model-capabilities|sag-tools)\.json$/.test(path) ||
     /(?:^|\/)(?:Cargo\.(?:toml|lock)|rust-toolchain(?:\.toml)?)$/.test(path) ||
     path.startsWith('scripts/docling/') || /^scripts\/(?:prepare-qpdf\.mjs|test-windows-desktop\.ps1|windows-test\.manifest\.xml|install\.sh)$/.test(path)).sort((a,b)=>a.path.localeCompare(b.path));
   assert.ok(paths.some(({path})=>path==='core/Cargo.toml'), 'Missing native test inputs');
@@ -39,9 +40,15 @@ export function nativeTestKey(git, ref) {
   assert.ok(runners.includes(native['runs-on']), 'Unknown native test runner mapping');
   const testSteps = native.steps.filter(step=>step.name==='Run native tests with locked dependencies');
   assert.equal(testSteps.length,1,'Missing native Rust test recipe');
-  const recipes = [...new Set((testSteps[0].run.match(/cargo test[^\n]+/g) ?? []).map(command=>command
-    .replace(/ -- .*/, '').replace(/ --manifest-path \S+/g,'').replace(/ --test \S+/g,'')
-    .replace(/ --(?:locked|timings|lib|bins|tests)\b/g,'').trim()))].sort();
+  const commands=testSteps[0].run.match(/cargo test[^\n]+/g) ?? [];
+  const spawnProbe=commands.some(command=>/--manifest-path cli\/Cargo.toml --test service_spawn -- --nocapture$/.test(command));
+  const recipes = [...new Set(commands.map(command=>{
+    // Preserve package identities and selective filters. Only known equivalent
+    // unit/integration selectors and the separately executed probe normalize.
+    let recipe=command.replace(/ --(?:locked|timings)\b/g,'').replace(/ --(?:lib|bins) --tests\b/g,'');
+    if(spawnProbe && /--manifest-path cli\/Cargo.toml/.test(recipe)) recipe=recipe.replace(/ --skip background_service_releases_both_foreground_capture_pipes_while_still_running$/,'');
+    return recipe.replace(/ -- --nocapture$/,'').trim();
+  }))].sort();
   const environment = {global:config.env,native:native.env,runsOn:'${{ matrix.runner }}',
     matrix:native.strategy.matrix.include.filter(entry=>entry.kind==='test'),
     setup:native.steps.filter(step=>/^(?:dtolnay\/rust-toolchain|actions\/setup-(?:node|python))@/.test(step.uses ?? '')).map(step=>({uses:step.uses,with:step.with})),

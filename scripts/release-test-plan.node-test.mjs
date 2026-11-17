@@ -56,12 +56,26 @@ test('installer scripts, Windows test manifests and multiline Rust flags invalid
   files['.github/workflows/desktop-release.yml']=workflow.replace('-C debuginfo=1','-C debuginfo=2');
   assert.notEqual(nativeTestKey(git,'source'),before);
 });
+test('JSON configuration embedded by Rust invalidates native test reuse',()=>{
+ const {files,git}=fixture();
+ const paths=['src/lib/model-capabilities.json','src/lib/sag-tools.json'];
+ for(const path of paths) files[path]='{"version":1}';
+ const before=nativeTestKey(git,'source');
+ for(const path of paths){files[path]='{"version":2}';assert.notEqual(nativeTestKey(git,'source'),before,path);files[path]='{"version":1}';}
+});
 test('only reused results may use a lightweight runner; full tests retain the native mapping',()=>{
  const {files,git}=fixture(), before=nativeTestKey(git,'source');
  files['.github/workflows/desktop-release.yml']=workflow.replace('${{ matrix.runner }}',"${{ needs.validate.outputs.native_tests == 'reuse' && 'ubuntu-24.04' || matrix.runner }}");
  assert.equal(nativeTestKey(git,'source'),before);
  files['.github/workflows/desktop-release.yml']=workflow.replace('${{ matrix.runner }}','ubuntu-24.04');
  assert.throws(()=>nativeTestKey(git,'source'),/runner mapping/);
+});
+test('native test recipe retains package coverage and selective test filters',()=>{
+ const {files,git}=fixture(), before=nativeTestKey(git,'source');
+ for(const command of ['cargo test --locked --manifest-path client/Cargo.toml','cargo test --locked --manifest-path core/Cargo.toml --lib','cargo test --locked --manifest-path core/Cargo.toml -- --exact one_test']) {
+  files['.github/workflows/desktop-release.yml']=workflow.replace('cargo test --locked --manifest-path core/Cargo.toml',command);
+  assert.notEqual(nativeTestKey(git,'source'),before,command);
+ }
 });
 test('real Git native keys retain non-ASCII paths, newlines, binary fixtures and executable modes', t => {
   const directory=mkdtempSync(join(tmpdir(),'sag-native-key-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
