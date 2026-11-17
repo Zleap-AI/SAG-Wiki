@@ -35,12 +35,14 @@ export function nativeTestKey(git, ref) {
   const config = parse(git('show',`${ref}:.github/workflows/desktop-release.yml`),{maxAliasCount:10000});
   const native = config.jobs?.native;
   assert.ok(native?.strategy?.matrix?.include && native.steps, 'Missing native test configuration');
+  const runners=['${{ matrix.runner }}', "${{ needs.validate.outputs.native_tests == 'reuse' && 'ubuntu-24.04' || matrix.runner }}"];
+  assert.ok(runners.includes(native['runs-on']), 'Unknown native test runner mapping');
   const testSteps = native.steps.filter(step=>step.name==='Run native tests with locked dependencies');
   assert.equal(testSteps.length,1,'Missing native Rust test recipe');
   const recipes = [...new Set((testSteps[0].run.match(/cargo test[^\n]+/g) ?? []).map(command=>command
     .replace(/ -- .*/, '').replace(/ --manifest-path \S+/g,'').replace(/ --test \S+/g,'')
     .replace(/ --(?:locked|timings|lib|bins|tests)\b/g,'').trim()))].sort();
-  const environment = {global:config.env,native:native.env,runsOn:native['runs-on'],
+  const environment = {global:config.env,native:native.env,runsOn:'${{ matrix.runner }}',
     matrix:native.strategy.matrix.include.filter(entry=>entry.kind==='test'),
     setup:native.steps.filter(step=>/^(?:dtolnay\/rust-toolchain|actions\/setup-(?:node|python))@/.test(step.uses ?? '')).map(step=>({uses:step.uses,with:step.with})),
     testEnvironment:testSteps[0].env,recipes};

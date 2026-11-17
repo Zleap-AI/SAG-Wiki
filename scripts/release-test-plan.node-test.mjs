@@ -56,6 +56,13 @@ test('installer scripts, Windows test manifests and multiline Rust flags invalid
   files['.github/workflows/desktop-release.yml']=workflow.replace('-C debuginfo=1','-C debuginfo=2');
   assert.notEqual(nativeTestKey(git,'source'),before);
 });
+test('only reused results may use a lightweight runner; full tests retain the native mapping',()=>{
+ const {files,git}=fixture(), before=nativeTestKey(git,'source');
+ files['.github/workflows/desktop-release.yml']=workflow.replace('${{ matrix.runner }}',"${{ needs.validate.outputs.native_tests == 'reuse' && 'ubuntu-24.04' || matrix.runner }}");
+ assert.equal(nativeTestKey(git,'source'),before);
+ files['.github/workflows/desktop-release.yml']=workflow.replace('${{ matrix.runner }}','ubuntu-24.04');
+ assert.throws(()=>nativeTestKey(git,'source'),/runner mapping/);
+});
 test('real Git native keys retain non-ASCII paths, newlines, binary fixtures and executable modes', t => {
   const directory=mkdtempSync(join(tmpdir(),'sag-native-key-'));t.after(()=>rmSync(directory,{recursive:true,force:true}));
   const git=gitAt(directory);git('init','--quiet');git('config','user.email','test@example.invalid');git('config','user.name','Test');git('config','core.filemode','true');

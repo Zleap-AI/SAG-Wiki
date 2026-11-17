@@ -377,7 +377,7 @@ jobs:
             job_name: Test Rust windows
             runner: windows-2025
             target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ needs.validate.outputs.native_tests == 'reuse' && 'ubuntu-24.04' || matrix.runner }}
     timeout-minutes: 190
     env: &native_environment
       TARGET_TRIPLE: ${{ matrix.target }}
@@ -404,7 +404,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-build-cache.mjs reuse "${{ matrix.component }}"
       - name: Set up Python
-        if: steps.reuse.outputs.reuse != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13.9'
@@ -454,19 +454,6 @@ jobs:
       - name: Install locked JavaScript dependencies
         if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
         run: npm ci
-      # Release-tooling regressions run once in validate; native runtime checks stay here.
-      - name: Regress document workers and Windows resource loading
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
-        run: python -m unittest discover -s tests -p docling_pdf_session_test.py -v
-      - name: Test Safari native saving
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
-        run: |
-          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/ClipFileStoreTests.swift -o "$RUNNER_TEMP/clip-file-tests"
-          "$RUNNER_TEMP/clip-file-tests"
-          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/DefaultDirectoryTests.swift -o "$RUNNER_TEMP/clip-default-tests"
-          "$RUNNER_TEMP/clip-default-tests"
-          npm --prefix browser-extension ci --ignore-scripts
-          node --test scripts/clipper-build.node-test.mjs
       - name: Run native tests with locked dependencies
         env:
           # Keep assertions and overflow checks; reduce only test debug metadata.
@@ -593,6 +580,18 @@ jobs:
       - name: Bundle the independently compiled production inputs
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         run: node scripts/parallel-cli.mjs bundle
+      # Release-tooling regressions run once in validate; native runtime checks stay here.
+      - name: Regress document workers and Windows resource loading
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
+        run: python -m unittest discover -s tests -p docling_pdf_session_test.py -v
+      - name: Test Safari native saving
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'macos')
+        run: |
+          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/ClipFileStoreTests.swift -o "$RUNNER_TEMP/clip-file-tests"
+          "$RUNNER_TEMP/clip-file-tests"
+          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/DefaultDirectoryTests.swift -o "$RUNNER_TEMP/clip-default-tests"
+          "$RUNNER_TEMP/clip-default-tests"
+          node --test scripts/clipper-build.node-test.mjs
       - name: Upload desktop compilation timings
         if: always() && matrix.kind == 'build' && steps.reuse.outputs.reuse != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
