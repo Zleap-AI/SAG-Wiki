@@ -13,7 +13,7 @@ description: "Connect to SAG Wiki over Streamable HTTP to search source passages
 ## Connect an MCP client
 
 1. Add the folders you want to search on the computer running SAG Wiki. Open **Settings → Remote services**, create an API key, and enable the API. You can also start the service with the standalone CLI; see [Start the service](/en/docs/api-guide#start-the-service).
-2. Choose **Local MCP** on the same computer or **LAN MCP** on another computer on the network. Click the copy icon beside that address and import the full configuration, including the selected address and API key, into your client.
+2. Choose **Local MCP** on the same computer or **LAN MCP** on another computer on the network. Click the copy icon beside that address. If multiple copyable keys exist, select the key for this project before importing the complete configuration into your client. A single copyable key is used directly.
 3. Save and confirm that the client lists `search` and `folders`. Try asking: “Use SAG Wiki to list the indexed folders, then quickly search Project Notes for ‘deployment steps’ and tell me where the matching passages are.”
 
 ### Export configuration with the CLI
@@ -51,7 +51,7 @@ If your client imports `mcpServers` JSON, use this format. If you already have o
 | --- | --- |
 | `query` | Required. A keyword or full question, 1–2,000 characters. |
 | `mode` | `fast` matches keywords without a model. `deep` finds evidence for a full question and requires a decision model configured in SAG Wiki. Defaults to `deep`. |
-| `paths` | Optional. One or more absolute directory paths on the server. Omit it or pass `[]` to search the entire knowledge base. |
+| `paths` | Optional. One or more absolute directory paths on the server. Omit it or pass `[]` to search all folders allowed by the current key; full-library keys keep their existing behavior. |
 | `limit` | Optional. Maximum number of source passages, 1–100. Defaults to 10. |
 
 Example arguments for a quick search in Project Notes:
@@ -69,7 +69,7 @@ Each entry in `results` includes the file `path`, `heading`, `start_line`, `end_
 
 ### `folders`: Browse folders
 
-Pass `{}` to list the roots added to the knowledge base. Pass `path` to list the immediate subfolders of a directory, for example:
+Pass `{}` to list the current key’s granted entry folders. Full-library keys still list all roots; a granted subfolder is itself an entry folder. Pass `path` to list the immediate subfolders of a directory, for example:
 
 ```json
 {"path": "/data/project-notes"}
@@ -85,3 +85,11 @@ The returned `folders` array contains each folder's `name` and absolute `path`. 
 | `401` response | Check that the header contains the full key and the `Bearer ` prefix, and that the key has not been revoked. |
 | Decision model is not configured | Set a decision model in SAG Wiki, or specify `mode: "fast"`. |
 | Path denied or no matches | Use `folders` to confirm the server's directory path, then check that the files are indexed. |
+
+## Use different folders for different projects
+
+Create a separate key for each project and select its directories in [API settings](/en/docs/api-guide#limit-folders-by-project). Projects A and B can share the same `/mcp` address while using different keys. Searches without paths stay within each key’s scope, and shared folders may be granted to both. Store each configuration in the client’s project settings; projects using the same key have the same access scope.
+
+When exporting through the CLI, specify `sag api mcp config --key-id KEY_ID`. The existing command without `--key-id` still uses the most recently created copyable key for script compatibility.
+
+Existing keys and MCP configurations retain full-library access after upgrading. No endpoint, credential or tool-call changes are needed. A key becomes restricted only when you explicitly edit its scope. Unavailable grants return `scope_unavailable`; paths outside the scope return `path_not_allowed`, without searching other folders.

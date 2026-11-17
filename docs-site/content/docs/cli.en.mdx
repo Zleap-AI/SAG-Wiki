@@ -231,3 +231,9 @@ For development, builds and code checks, see the [development guide](/en/docs/de
 Search defaults to the current working directory; `--path` overrides it. Semantic search and `-E` / `-F` accept repeated `--exclude` patterns relative to the search root, e.g. `sag "aberration" --path "F:/docs" --exclude "archive/**" --exclude "backup/"`. Exclusions apply before candidate retrieval and JEV scoring, without deleting files or indexes. Excluding everything returns no results. Patterns without slashes also match file names. Converted documents in semantic search are matched by their original relative paths and extensions.
 
 For semantic searches with exclusions, each search uses the files allowed when filtering runs; newly added files are included on the next search.
+
+### API key folder scopes
+
+Repeat `--path` to select imported absolute directories, for example `sag api key create --name "Project A" --path "/data/project-a" --path "/data/shared"`. Omitting paths or explicitly choosing `--all` preserves full-library access. Existing keys and MCP configurations remain compatible after upgrading.
+
+Use `sag api key set-scope KEY_ID --path "/data/project-a"` to change a scope or `sag api key set-scope KEY_ID --all` to restore full-library access; one choice is required. Creation, scope changes and listing accept `--json`; listing shows scopes without full secrets. Scope changes apply immediately and cancel that key’s running and queued requests. Export project configurations with `sag api mcp config --key-id KEY_ID`. See [Limit folders by project](/en/docs/api-guide#limit-folders-by-project).

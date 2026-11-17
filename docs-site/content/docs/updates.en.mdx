@@ -7,7 +7,14 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="dd56c445216c6d6ec99c86b65bfeee1351c714ade4880738c08127855bc6f2ca" aria-hidden="true" />
+<span data-docs-changelog-sha="76777cd7a4026bf426b8b2f150472251d7a86a1336e26113ca6d3a77915e2e8d" aria-hidden="true" />
+
+## 0.3.11
+
+- **Project folder access**: Bind MCP and HTTP API keys to multiple knowledge-base roots or subfolders. Projects use their own keys to search and browse only granted folders, while shared folders can belong to multiple projects. ([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
+- **Upgrade compatibility**: Existing keys, MCP endpoints, client configurations and tool calls remain compatible, retaining access to the entire knowledge base and folders added later. Only keys explicitly assigned folder scopes become restricted.
+- **Scope management and configuration copying**: Create and edit folder scopes in Remote services settings and the CLI. Select the project credential when multiple copyable keys exist. Scope changes cancel that key’s running and queued requests, and unavailable folders never fall back to full-library access.
+- **Find in document**: Preserve Greek final-sigma matches when text also contains ligatures or full-width characters, keeping highlights aligned with the original source. ([PR #155](https://github.com/Zleap-AI/SAG-Wiki/pull/155))
 
 ## 0.3.10
 

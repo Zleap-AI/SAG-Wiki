@@ -32,7 +32,7 @@ sag api start
 
 `sag config` configures the decision model used by deep search. `sag api key create` creates credentials for applications calling the HTTP API. These keys are managed separately. Fast search needs no model configuration.
 
-New API keys are stored locally and can be copied again from the desktop key list. Keys created in earlier versions still work; create a new key to copy it from Settings. Each key can search the entire knowledge base and can be revoked individually.
+New API keys are stored locally and can be copied again from the desktop key list. Keys created in earlier versions still work; create a new key to copy it from Settings. Each key can be revoked individually and can use full-library or selected-folder access. Existing keys retain full-library access after upgrading, including folders added later; existing credentials and MCP configurations need no changes.
 
 ## Run a search
 
@@ -58,7 +58,7 @@ Calls wait synchronously for results. Deadlines include queueing and execution. 
 
 ## Select directories
 
-Call `GET /v1/folders` to list all imported root folders. Supplying `path` lists that directory's immediate subfolders for browsing one level at a time.
+Call `GET /v1/folders` to list the current key’s permitted entry folders. Full-library keys still list all imported roots; restricted keys list only granted directories, with a granted subfolder itself serving as an entry folder. Supplying `path` lists that directory’s immediate subfolders within the granted scope, one level at a time.
 
 ```sh
 curl --fail-with-body \
@@ -71,7 +71,7 @@ curl --fail-with-body --get \
   "$SAG_API_URL/v1/folders"
 ```
 
-Use the returned absolute paths in the search request's `paths` array to select one or more roots or subdirectories. Omitting `paths`, or supplying an empty array, searches the entire knowledge base. Paths refer to the server. Identically named folders are distinguished by their absolute paths.
+Use the returned absolute paths in the search request's `paths` array to select one or more roots or subdirectories. Omitting `paths`, or supplying an empty array, searches all folders allowed by the current key. Full-library keys continue to search the entire knowledge base. Paths refer to the server. Identically named folders are distinguished by their absolute paths.
 
 ```json
 {
@@ -113,3 +113,25 @@ Opening desktop restores the saved API enabled state. An API stopped manually re
 API searches share the existing 20 expensive-task slots with desktop and CLI, waiting when full. Indexed content remains searchable while indexing continues. Browser cross-origin access is off by default; normal local and LAN application calls are unaffected.
 
 Continue to the [API reference](/en/docs/api) for the complete endpoint contract.
+
+## Limit folders by project
+
+In **Settings → Remote services → Create key**, enter the project name and select **Entire knowledge base** or **Selected folders**. Select one or more imported roots or subfolders; shared folders may belong to multiple keys. Use **Edit scope** in the key list to change an existing key. Saving takes effect immediately and cancels that key’s running and queued requests without affecting other keys.
+
+![Select folders for a project key](/images/product-api-key-scope-en.png)
+
+You can also use the CLI with absolute server directory paths:
+
+```sh
+sag api key create --name "Project A" --path "/data/project-a" --path "/data/shared"
+sag api key set-scope KEY_ID --path "/data/project-a"
+sag api key set-scope KEY_ID --all
+sag api key list --json
+sag api mcp config --key-id KEY_ID
+```
+
+Omitting `--path` when creating a key preserves the original full-library behavior; `--all` selects it explicitly. Scope changes require `--path` or `--all`. The same scope applies to HTTP API and MCP. Restricted keys cannot request parent folders or other projects. Removed folders or changed canonical paths return `scope_unavailable`; select folders again locally. Access never falls back to the entire knowledge base.
+
+These grants do not change desktop, local management CLI or separate web-access-code permissions. A web access code is not a project key.
+
+Grants apply to the selected directory locations; later content updates remain accessible. Restricted searches use the indexed files allowed when the request resolves its scope; new files are included on the next search.

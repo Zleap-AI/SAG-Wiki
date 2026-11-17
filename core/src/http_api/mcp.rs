@@ -1,4 +1,4 @@
-use super::{folders, run_search, ApiError, HttpResponse, SearchRequest};
+use super::{access::KeyScope, folders, run_search, ApiError, HttpResponse, SearchRequest};
 use crate::service::Service;
 use hyper::{body::Incoming, Request, StatusCode};
 use rmcp::{
@@ -21,6 +21,7 @@ use tokio_util::sync::CancellationToken;
 #[derive(Clone)]
 struct ApiTools {
     service: Arc<Service>,
+    access: KeyScope,
     cancel: CancellationToken,
     started: Instant,
     id: String,
@@ -34,17 +35,17 @@ struct FolderArgs {
 
 fn tools() -> [Tool; 2] {
     [
-        Tool::new("search", "Search indexed documents and return original passages. Deep search uses the configured decision model; fast search uses the local index.", json!({
+        Tool::new("search", "Search indexed documents allowed by this API key and return original passages. Deep search uses the configured decision model; fast search uses the local index.", json!({
             "type":"object", "required":["query"], "additionalProperties":false,
             "properties":{
                 "query":{"type":"string","minLength":1,"maxLength":2000},
                 "mode":{"type":"string","enum":["deep","fast"],"default":"deep"},
-                "paths":{"type":"array","items":{"type":"string"},"description":"Absolute paths on the server, within indexed folders."},
+                "paths":{"type":"array","items":{"type":"string"},"description":"Absolute server directory paths within this key’s allowed folders. Omit or pass [] to search all folders allowed by this key."},
                 "exclude":{"type":"array","items":{"type":"string"},"description":"Glob exclusions relative to each selected directory, e.g. [\".git/**\",\"archive/\",\"*.zip\"]. Applied before retrieval and decision scoring; does not modify the index."},
                 "limit":{"type":"integer","minimum":1,"maximum":100,"default":10}
             }
         }).as_object().unwrap().clone()),
-        Tool::new("folders", "List knowledge-base roots or the immediate subfolders of an indexed directory.", json!({
+        Tool::new("folders", "List this API key’s allowed folders, or immediate subfolders within an allowed directory.", json!({
             "type":"object", "additionalProperties":false,
             "properties":{"path":{"type":"string","description":"Absolute directory path on the server. Omit to list roots."}}
         }).as_object().unwrap().clone()),
@@ -92,6 +93,7 @@ impl ServerHandler for ApiTools {
                 run_search(
                     self.service.clone(),
                     input,
+                    self.access.clone(),
                     self.cancel.clone(),
                     self.started,
                     self.id.clone(),
@@ -102,7 +104,8 @@ impl ServerHandler for ApiTools {
                 let input = serde_json::from_value::<FolderArgs>(args)
                     .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
                 let store = self.service.store.clone();
-                tokio::task::spawn_blocking(move || folders(&store, input.path.as_deref()))
+                let access = self.access.clone();
+                tokio::task::spawn_blocking(move || folders(&store, input.path.as_deref(), &access))
                     .await
                     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
             }
@@ -119,6 +122,7 @@ impl ServerHandler for ApiTools {
 pub(super) async fn handle(
     request: Request<Incoming>,
     service: Arc<Service>,
+    access: KeyScope,
     cancel: CancellationToken,
     started: Instant,
     id: &str,
@@ -130,6 +134,7 @@ pub(super) async fn handle(
     }
     let handler = ApiTools {
         service,
+        access,
         cancel: cancel.clone(),
         started,
         id: id.into(),
