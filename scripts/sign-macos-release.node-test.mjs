@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
-import {targets, validateVersions, validateStagedArtifacts} from './release.mjs';
+import {targets, validateVersions, validateStagedArtifacts, validateSignedMacOSArtifacts} from './release.mjs';
 
 const moduleUrl = new URL('./sign-macos-release.mjs', import.meta.url);
 const implementation = () => import(moduleUrl.href);
@@ -313,4 +313,22 @@ test('signs native Intel artifacts with x86_64 checks and separate output', asyn
   assert.equal(apple.state.submissions,2); assert.equal(apple.state.gates.length,3);
   assert.deepEqual(readdirSync(fixture.output),['macos-intel']);
  }finally{rmSync(fixture.directory,{recursive:true,force:true});}
+});
+
+test('both Mac finalizers accept archive-only inputs and still require a final signed DMG', async () => {
+ const {signMacosRelease}=await implementation();
+ for(const platform of ['macos','macos-intel']) {
+  const fixture=releaseFixture(), directory=join(fixture.input,platform);
+  try {
+   const metadataPath=join(directory,'metadata.json'), source=JSON.parse(readFileSync(metadataPath));
+   for(const name of Object.keys(source.files).filter(name=>name.endsWith('.dmg'))) {rmSync(join(directory,name));delete source.files[name];}
+   writeFileSync(metadataPath,JSON.stringify(source));
+   const apple=appleRunner(fixture,{hostArchitecture:platform==='macos'?'arm64':'x86_64'});
+   signMacosRelease({...fixture,'release-platform':platform},{run:apple.run,environment,platform:'darwin',arch:platform==='macos'?'arm64':'x64'});
+   const output=join(fixture.output,platform), signed=validateSignedMacOSArtifacts(output,source);
+   assert.equal(Object.keys(signed.files).length,2);assert.equal(apple.state.submissions,2);
+   const dmg=Object.keys(signed.files).find(name=>name.endsWith('.dmg'));assert.ok(dmg);
+   rmSync(join(output,dmg));assert.throws(()=>validateSignedMacOSArtifacts(output,source));
+  } finally {rmSync(fixture.directory,{recursive:true,force:true});}
+ }
 });

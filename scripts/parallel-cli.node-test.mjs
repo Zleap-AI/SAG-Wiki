@@ -16,6 +16,12 @@ test('desktop compile hook excludes CLI while retaining full runtime/resource co
 test('a shared web build skips rebuilding the frontend while retaining platform extension packaging',()=>{
  assert.equal(desktopCompileConfig({reuseWeb:true}).build.beforeBuildCommand,'npm run build:clipper:desktop');
 });
+test('Mac staging bundles only the app while Windows keeps its installer configuration',async()=>{
+ const {bundleArguments}=await import('./parallel-cli.mjs');
+ for(const [platform,target] of [['macos','aarch64-apple-darwin'],['macos-intel','x86_64-apple-darwin']]) assert.deepEqual(bundleArguments(platform,target),['bundle','--ci','--target',target,'--bundles','app']);
+ assert.deepEqual(bundleArguments('windows','x86_64-pc-windows-msvc'),['bundle','--ci','--target','x86_64-pc-windows-msvc','--config','src-tauri/tauri.windows.conf.json']);
+ assert.throws(()=>bundleArguments('windows','aarch64-apple-darwin'));
+});
 test('current-run CLI producer must be latest successful attempt with source validation',()=>{const run={id:20,head_sha:context.commit,repository:{full_name:'Zleap-AI/SAG-Wiki'},head_repository:{full_name:'Zleap-AI/SAG-Wiki'},workflow_id:4,path:'.github/workflows/desktop-release.yml',event:'workflow_dispatch'};const jobs=[{name:'Validate release source',id:1,run_attempt:1,status:'completed',conclusion:'success'},{name:'Compile CLI macos',id:41,run_attempt:2,status:'completed',conclusion:'success',steps:[{name:'Compile the production CLI with its real embedded web assets',conclusion:'success'}]}];assert.equal(validateCliProducer(run,jobs,{...context,workflowId:4}).id,41);assert.throws(()=>validateCliProducer({...run,id:19},jobs,{...context,workflowId:4}));assert.throws(()=>validateCliProducer(run,[...jobs,{...jobs[1],id:42,run_attempt:3,conclusion:'failure'}],{...context,workflowId:4}));assert.throws(()=>validateCliProducer(run,[{...jobs[0],conclusion:'failure'},jobs[1]],{...context,workflowId:4}));});
 
 test('build identity covers changes in the deferred-resource build helper',t=>{

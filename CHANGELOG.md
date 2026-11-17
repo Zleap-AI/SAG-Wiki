@@ -2,12 +2,12 @@
 
 ## 0.3.10
 
-- **发布耗时优化**：前端资源只构建一次，复用原生输入未变时已通过的原生 Rust 测试，移除 Safari 开发包和重复端到端验证；保留三平台安装包验证与 Mac 签名公证。
+- **发布耗时优化**：前端资源只构建一次，复用原生输入未变时已通过的原生 Rust 测试，移除 Safari 开发包、重复未签名 DMG 和重复端到端验证；保留三平台安装包验证与 Mac 签名公证。
 - **平台下载入口**：发布页直接列出 Windows x64、Apple Silicon 和 Intel 安装包下载链接，每次正式发布继续包含三个平台。
 
 ### English
 
-- **Faster releases**: Build frontend assets once, reuse successful native Rust tests when native inputs are unchanged, and remove Safari development packaging and duplicate end-to-end runs. Preserve three-platform installer verification and Mac signing and notarization.
+- **Faster releases**: Build frontend assets once, reuse successful native Rust tests when native inputs are unchanged, and remove Safari development packaging, duplicate unsigned DMGs and duplicate end-to-end runs. Preserve three-platform installer verification and Mac signing and notarization.
 - **Platform downloads**: List Windows x64, Apple Silicon and Intel installer links directly on the release page, with all three platforms included in every stable release.
 
 ## 0.3.9

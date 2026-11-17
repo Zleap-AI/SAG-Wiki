@@ -130,9 +130,9 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
   let keychainCreated = false;
   let searchListChanged = false;
   let originalSearchList = [];
-  const filenames = Object.keys(original.files);
-  const dmgName = filenames.find(name => name.endsWith('.dmg'));
-  const archiveName = filenames.find(name => name.endsWith('.app.tar.gz'));
+  const archiveName = Object.keys(original.files).find(name => name.endsWith('.app.tar.gz'));
+  const dmgName = `SAG-Wiki-${version}-macOS-${releasePlatform==='macos'?'arm64':'x86_64'}.dmg`;
+  const filenames = [archiveName,dmgName];
   try {
     mkdirSync(signed, {recursive: true});
     mkdirSync(extraction);

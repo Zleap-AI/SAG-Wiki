@@ -73,14 +73,12 @@ function stage({platform, target}) {
   const output = join(root, 'release-artifacts', platform);
   assert.ok(!existsSync(output), 'Staging directory must be fresh');
   mkdirSync(output, {recursive: true});
-  const names = expectedFiles(platform, version);
+  // The protected Mac finalizer creates the only DMG that will be published.
+  const names = expectedFiles(platform, version).filter(name=>platform==='windows'||name.endsWith('.app.tar.gz'));
   if (platform !== 'windows') {
-    const dmgs = readdirSync(join(bundle, 'dmg')).filter(name => name.endsWith('.dmg'));
-    assert.equal(dmgs.length, 1, 'Expected exactly one DMG');
-    copyFileSync(join(bundle, 'dmg', dmgs[0]), join(output, names[0]));
     // This is an ad-hoc build input. The protected finalizer adds Apple tickets
     // before creating the public updater archive with its metadata preserved.
-    run('tar', ['-czf', join(output, names[1]), '-C', join(bundle, 'macos'), 'SAG Wiki.app'], {env:{...process.env, COPYFILE_DISABLE:'1'}});
+    run('tar', ['-czf', join(output, names[0]), '-C', join(bundle, 'macos'), 'SAG Wiki.app'], {env:{...process.env, COPYFILE_DISABLE:'1'}});
   } else {
     const installers = readdirSync(join(bundle, 'nsis')).filter(name => name.endsWith('.exe'));
     assert.equal(installers.length, 1, 'Expected exactly one NSIS installer');
@@ -107,7 +105,11 @@ export function validateStagedArtifacts(input, version, commit, platforms = Obje
     assert.equal(metadata.target, targets[platform], 'Artifact target mismatch');
     assert.equal(metadata.build_identity.version, version, 'CLI identity version mismatch');
     assert.equal(metadata.build_identity.channel, 'release', 'Development CLI cannot be released');
-    assert.deepEqual(Object.keys(metadata.files).sort(), expectedFiles(platform, version).sort(), 'Unexpected or missing release artifacts');
+    const expected=expectedFiles(platform,version);
+    // Accept old two-file checkpoints and new archive-only Mac build inputs.
+    // Signed/public artifacts below still require both the updater and DMG.
+    const staged=platform!=='windows'&&!Object.hasOwn(metadata.files,expected[0])?expected.filter(name=>name.endsWith('.app.tar.gz')):expected;
+    assert.deepEqual(Object.keys(metadata.files).sort(), staged.sort(), 'Unexpected or missing release artifacts');
     assert.deepEqual(readdirSync(directory).sort(), [...Object.keys(metadata.files), 'metadata.json'].sort(), 'Untracked files in release staging');
     for (const [name, sha256] of Object.entries(metadata.files)) {
       assert.equal(basename(name), name, 'Invalid artifact path');
