@@ -13,17 +13,16 @@ function* scanMatches(text:string,terms:string[],sourceStart:number,segmentFirst
   normalized='';let canonicalText='',checkpoint=0;
   for(const {segment,index} of segmenter.segment(text)){
    const canonical=segment.normalize('NFKC'),folded=canonical.toLowerCase(),from=normalized.length;
-   if(segmentFirst)canonicalText+=canonical;
+   canonicalText+=canonical;
    normalized+=folded;
    if(segment.length!==1||folded.length!==1)spans.push({from,to:normalized.length,sourceFrom:index,sourceTo:index+segment.length});
    if(index+segment.length>=checkpoint+4096){checkpoint=index+segment.length;yield null;}
   }
-  if(segmentFirst){
-   // Reuse the already normalized graphemes for the identity-mapping check.
-   // Whole-string casing can differ from per-grapheme casing (Greek final sigma).
-   const whole=canonicalText.toLowerCase();
-   if(whole.length===text.length&&whole===text.toLowerCase()){normalized=whole;spans.length=0;}
-  }
+  // Lowercase the complete canonical text to retain context-sensitive casing
+  // (notably Greek final sigma) even when another grapheme changed under NFKC.
+  // Contextual default casing changes characters, not the mapped UTF-16 widths.
+  normalized=canonicalText.toLowerCase();
+  if(segmentFirst&&normalized.length===text.length&&normalized===text.toLowerCase())spans.length=0;
  }
  let spanIndex=0,delta=0,lastEnd=0;
  const offset=(position:number,end:boolean)=>{
