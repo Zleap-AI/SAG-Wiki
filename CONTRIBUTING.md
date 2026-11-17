@@ -10,7 +10,7 @@ Before merging a product PR, append user-facing Chinese bullets and matching Eng
 
 Each functional change may end with related Issue and PR Markdown links, for example `Fix formula rendering. ([PR #142](https://github.com/Zleap-AI/SAG-Wiki/pull/142))`. Both languages retain these links. Links must accompany a functional description; link-only entries, commit subjects, commit hashes and commit links are not allowed.
 
-Fetch remote version tags before writing notes and use the next version computed by automation as the heading. Resolve version conflicts before merging. Preparation uses the reviewed notes for that version and aligns application, CLI and lockfile versions in a detached release commit without rewriting changelog headings on main. Missing or invalid notes stop preparation before tagging. Release descriptions and updater notes contain only bilingual product changes, without commit subjects, commit references, generated boilerplate or signing-migration prose. Historical prepared tags remain verifiable.
+Fetch remote version tags before writing notes and use the next version computed by automation as the heading. Resolve version conflicts before merging. Preparation uses the reviewed notes for that version and aligns application, CLI and lockfile versions in a detached release commit without rewriting changelog headings on main. Missing or invalid notes stop preparation before tagging. Updater notes contain only bilingual product changes, without commit subjects, commit references, generated boilerplate or signing-migration prose. GitHub Release descriptions append a download table for Windows x64, Apple Silicon and Intel; the updater notes asset remains product-only. Historical prepared tags remain verifiable.
 
 Desktop release tags use `vX.Y.Z`. The signing Environment remains `release`. Desktop auto-update depends on the repository's Latest desktop release and `latest-v2.json`; keep release assets and update metadata consistent.
 
@@ -20,7 +20,7 @@ Every pull request must pass the desktop checks. Force pushes and deletion of `m
 
 Pull requests to `main` require `E2E macos` and `E2E windows`. These run the real CLI/service indexing and retrieval flow against a local Jev protocol fixture. They compile only the CLI test executable, not the desktop application or installers; they do not exercise the desktop GUI or real model inference.
 
-Desktop builds, unit/component tests, documentation builds, installer smoke tests and release validation remain in `Desktop build and release`, triggered after pushes to `main` or by manual dispatch. Keep the required status check names in branch protection aligned with `pr-e2e.yml`.
+Desktop builds, unit/component tests, documentation builds, installer smoke tests and release validation remain in `Desktop build and release`, dispatched for prepared release tags or manually. Keep the required status check names in branch protection aligned with `pr-e2e.yml`.
 
 ## CI resource use
 
@@ -33,11 +33,24 @@ This prevents `STATUS_ENTRYPOINT_NOT_FOUND` for `comctl32!TaskDialogIndirect`
 without modifying application binaries or skipping tests. It requires the
 Windows SDK manifest tool (`mt.exe`). macOS uses the regular `cargo test` command.
 
-Frontend unit tests run once on Linux in the main desktop workflow. Both native
-platforms retain Rust tests, installer builds and real packaged/installed CLI
-checks. macOS signing starts after its verified installer build, while Rust tests and
-Windows work continue. Publication still requires the exact commit whose
-frontend, documentation and both platforms' tests and builds succeeded.
+Frontend assets are built once and frontend unit tests run once on Linux. All
+three platforms retain production builds and packaged/installed CLI checks.
+Native Rust results may be reused only when native source, fixtures, dependencies,
+compiler configuration and platform mappings match a successful published ancestor
+with all three native jobs successful. Only automatic CLI/desktop version tokens
+are ignored. This includes the model-capability and SAG-tool JSON embedded by Rust;
+add any new external compile-time inputs to the selector and its regression tests.
+Changed or unverifiable inputs run complete Rust suites on native runners. Reused
+results are recorded by lightweight Ubuntu jobs without allocating Macs. Python
+and Safari native checks run in the corresponding production build. No required
+check or approval is added. Each Mac signer starts after its own build; final
+publication still requires all three platforms, frontend, documentation and artifact
+checks from the exact release commit. Mac staging contains only the App archive;
+the protected signer creates and verifies the final DMG. Legacy two-file Mac
+checkpoints remain reusable. Complete Jev E2E runs once on identical signed Mac
+binaries, with content, identity, signature and ticket checks retained for both
+updater archives and mounted DMGs. Each stable Release must include Windows x64
+and both Mac installers; existing assembly and publication requirements remain.
 
 CI sets `CARGO_TARGET_DIR` to `src-tauri/target` in each worker. CLI and desktop
 production compilation run on independent workers for each platform, then join
@@ -67,8 +80,9 @@ only `validation-rust-deps-*` artifacts, which trusted consumers reject. Export
 and upload are bounded, optional steps; include their overhead in CI timings.
 
 Tested main installers remain available for 14 days so a release can reuse them;
-Safari development installers and signed intermediate artifacts are retained for
-3 days. Public Release assets are unchanged.
+Signed intermediate artifacts are retained for 3 days. Safari development
+installers are built separately when needed, not as part of desktop releases.
+Public Release asset names and platform requirements are unchanged.
 
 Dependency archives use the runner's existing zstd with multithreaded compression and streaming tar I/O. Restore validates the complete staged content and decompressor result before atomically replacing dependency files. Cache failure remains a normal-compilation fallback.
 

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
-import {appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync} from 'node:fs';
+import {appendFileSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
@@ -87,6 +87,12 @@ export function releaseNotes(changelog, version) {
   return `## ${section.heading}\n\n${section.body}\n`;
 }
 
+export function releaseBody(version, notes) {
+  assert.ok(stable.test(version) && !version.startsWith('v'), 'Expected stable version');
+  const base = `https://github.com/${repository}/releases/download/v${version}/SAG-Wiki-${version}-`;
+  return `${notes}\n### 下载 / Downloads\n\n| 平台 / Platform | 安装包 / Installer |\n| --- | --- |\n| Windows x64 | [EXE](${base}Windows-x64-setup.exe) |\n| macOS Apple Silicon | [DMG](${base}macOS-arm64.dmg) |\n| macOS Intel | [DMG](${base}macOS-x86_64.dmg) |\n`;
+}
+
 function preparedChangelog(changelog, version, baselineChangelog = '') {
   const reviewed = changelogSection(changelog, version);
   if (reviewed) { releaseNotes(changelog, version); return changelog; }
@@ -166,7 +172,7 @@ export function releaseVersion(manifests, tags, changelog) {
 export function isProductPath(path) {
   return !(/^(?:docs\/|docs-site\/|\.github\/)/.test(path) ||
     /^(?:[^/]+\.md|LICENSE(?:\.[^/]+)?|\.gitignore|\.gitattributes)$/.test(path) ||
-    /^scripts\/(?:automatic-release|documentation-release|release(?:-build-cache|-downloads|-assembly)?|configure-release|migrate-release-environment|rust-dependency-cache|test-profile-ab|parallel-cli)(?:\.node-test)?\.mjs$/.test(path) ||
+    /^scripts\/(?:automatic-release|documentation-release|release(?:-build-cache|-downloads|-assembly|-test-plan)?|configure-release|migrate-release-environment|rust-dependency-cache|test-profile-ab|parallel-cli)(?:\.node-test)?\.mjs$/.test(path) ||
     path === 'scripts/rust-dependency-archive.py' || path === 'scripts/fixtures/documentation-history.json');
 }
 export const hasProductChanges = paths => paths.some(isProductPath);
@@ -488,9 +494,14 @@ function createDraft() {
   // All platform checks, signed assembly and attestation preceded this command.
   // Recover a partial upload by rebuilding only this exact bot-owned draft.
   if (existing) gh('release', 'delete', tag, '--repo', repository, '--yes');
-  gh('release', 'create', tag, '--repo', repository, '--verify-tag', '--target', commit, '--draft',
-    '--title', `SAG Wiki ${version}`, '--notes-file', join(directory, 'release-notes.md'),
-    ...readdirSync(directory).sort().map(name => join(directory, name)));
+  const temporary = mkdtempSync(join(tmpdir(),'sag-release-body-'));
+  try {
+    const notesFile = join(temporary,'body.md');
+    writeFileSync(notesFile,releaseBody(version,readFileSync(join(directory,'release-notes.md'),'utf8')));
+    gh('release', 'create', tag, '--repo', repository, '--verify-tag', '--target', commit, '--draft',
+      '--title', `SAG Wiki ${version}`, '--notes-file', notesFile,
+      ...readdirSync(directory).sort().map(name => join(directory, name)));
+  } finally { rmSync(temporary,{recursive:true,force:true}); }
   const checksumsDigest = createHash('sha256').update(readFileSync(join(directory, checksumName))).digest('hex');
   if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `checksums=${checksumsDigest}\n`);
   summary(`Verified draft ready for automatic publication: https://github.com/${repository}/releases/tag/${tag}`);

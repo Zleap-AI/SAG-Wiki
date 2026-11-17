@@ -1,5 +1,13 @@
 import test from 'node:test';
+import {buildWebAssets} from './build-web-assets.mjs';
 import assert from 'node:assert/strict';
+test('a supplied release web directory is reused without rebuilding and missing assets are rejected', t => {
+  const cwd = fixture(t), web = join(cwd,'verified-web');
+  mkdirSync(web); writeFileSync(join(web,'index.html'),'<html>release</html>');
+  const run = () => assert.fail('must not rebuild a supplied web artifact');
+  assert.equal(buildWebAssets({cwd,env:{SAG_WEB_DIST:'verified-web'},run}),web);
+  assert.throws(()=>buildWebAssets({cwd,env:{SAG_WEB_DIST:'missing'},run}),/web assets/);
+});
 import {mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';

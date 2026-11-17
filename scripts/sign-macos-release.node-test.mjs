@@ -6,7 +6,7 @@ import {tmpdir} from 'node:os';
 import {dirname, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import test from 'node:test';
-import {targets, validateVersions, validateStagedArtifacts} from './release.mjs';
+import {targets, validateVersions, validateStagedArtifacts, validateSignedMacOSArtifacts} from './release.mjs';
 
 const moduleUrl = new URL('./sign-macos-release.mjs', import.meta.url);
 const implementation = () => import(moduleUrl.href);
@@ -242,11 +242,11 @@ test('signs macOS-only input without waiting for Windows and publishes final has
     }
     assert.deepEqual(readdirSync(fixture.output), ['macos']);
     assert.equal(state.submissions, 2);
-    assert.equal(state.gates.length, 4);
+    assert.equal(state.gates.length, 3);
     assert.match(portable(state.gates[0].environment.SAG_DESKTOP_BUNDLE), /updater-extracted\/SAG Wiki\.app$/);
     assert.match(portable(state.gates[1].args.at(-1)), /updater-extracted\/SAG Wiki\.app\/Contents\/Resources\/bin\/sag$/);
     assert.match(portable(state.gates[2].environment.SAG_DESKTOP_BUNDLE), /mounted\/SAG Wiki\.app$/);
-    assert.match(portable(state.gates[3].args.at(-1)), /mounted\/SAG Wiki\.app\/Contents\/Resources\/bin\/sag$/);
+    assert.equal(state.gates.filter(gate=>gate.args[0].endsWith('local-jev-e2e.py')).length,1);
     assert.equal(state.restored && state.deleted && state.detached, true);
     assert.deepEqual(readdirSync(fixture.directory).sort(), ['input', 'output', 'payload']);
   } finally { rmSync(fixture.directory, {recursive: true, force: true}); }
@@ -310,7 +310,25 @@ test('signs native Intel artifacts with x86_64 checks and separate output', asyn
   signMacosRelease({...fixture,'release-platform':'macos-intel'}, {run,environment,platform:'darwin',arch:'x64'});
   const metadata=JSON.parse(readFileSync(join(fixture.output,'macos-intel/metadata.json')));
   assert.equal(metadata.target,'x86_64-apple-darwin'); assert.deepEqual(checked,['x86_64','x86_64']);
-  assert.equal(apple.state.submissions,2); assert.equal(apple.state.gates.length,4);
+  assert.equal(apple.state.submissions,2); assert.equal(apple.state.gates.length,3);
   assert.deepEqual(readdirSync(fixture.output),['macos-intel']);
  }finally{rmSync(fixture.directory,{recursive:true,force:true});}
+});
+
+test('both Mac finalizers accept archive-only inputs and still require a final signed DMG', async () => {
+ const {signMacosRelease}=await implementation();
+ for(const platform of ['macos','macos-intel']) {
+  const fixture=releaseFixture(), directory=join(fixture.input,platform);
+  try {
+   const metadataPath=join(directory,'metadata.json'), source=JSON.parse(readFileSync(metadataPath));
+   for(const name of Object.keys(source.files).filter(name=>name.endsWith('.dmg'))) {rmSync(join(directory,name));delete source.files[name];}
+   writeFileSync(metadataPath,JSON.stringify(source));
+   const apple=appleRunner(fixture,{hostArchitecture:platform==='macos'?'arm64':'x86_64'});
+   signMacosRelease({...fixture,'release-platform':platform},{run:apple.run,environment,platform:'darwin',arch:platform==='macos'?'arm64':'x64'});
+   const output=join(fixture.output,platform), signed=validateSignedMacOSArtifacts(output,source);
+   assert.equal(Object.keys(signed.files).length,2);assert.equal(apple.state.submissions,2);
+   const dmg=Object.keys(signed.files).find(name=>name.endsWith('.dmg'));assert.ok(dmg);
+   rmSync(join(output,dmg));assert.throws(()=>validateSignedMacOSArtifacts(output,source));
+  } finally {rmSync(fixture.directory,{recursive:true,force:true});}
+ }
 });

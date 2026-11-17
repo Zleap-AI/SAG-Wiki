@@ -7,7 +7,12 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="880ade94e1e4f789a3be4f7682ab3318a7e3fa38b6d4cbecd9bb82c9bf88c752" aria-hidden="true" />
+<span data-docs-changelog-sha="af8c12148d18dd1bea3bda9f7a2db1c9a2a20bb38ecba4527791186c7cb09ed7" aria-hidden="true" />
+
+## 0.3.10
+
+- **发布耗时优化**：前端资源只构建一次，复用原生输入未变时已通过的原生 Rust 测试，移除 Safari 开发包、重复未签名 DMG 和重复端到端验证；保留三平台安装包验证与 Mac 签名公证。
+- **平台下载入口**：发布页直接列出 Windows x64、Apple Silicon 和 Intel 安装包下载链接，每次正式发布继续包含三个平台。
 
 ## 0.3.9
 
