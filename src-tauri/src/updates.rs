@@ -427,7 +427,7 @@ mod tests {
                     let mut buffer = [0; 4096];
                     stream.read(&mut buffer).unwrap();
                     let manifest = serde_json::to_vec(
-                        &json!({"version":"9.9.9","platforms":{"darwin-aarch64":{
+                        &json!({"version":"9.9.9","platforms":{(format!("darwin-{}", std::env::consts::ARCH)):{
                             "url":format!("http://{address}/update"),"signature":signature
                         }}}),
                     )
