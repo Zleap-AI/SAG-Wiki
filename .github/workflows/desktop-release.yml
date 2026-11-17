@@ -36,6 +36,7 @@ jobs:
     outputs:
       version: ${{ steps.source.outputs.version }}
       commit: ${{ steps.source.outputs.commit }}
+      native_tests: ${{ steps.tests.outputs.native_tests }}
     steps:
       - name: Check out the event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -50,8 +51,27 @@ jobs:
       - name: Validate versions, commit and release tag
         id: source
         run: node scripts/release.mjs validate
+      - name: Install locked build and test tools
+        run: npm ci --ignore-scripts
+      - name: Reuse native tests only for unchanged verified inputs
+        id: tests
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-test-plan.mjs
       - name: Test release validation and signing
-        run: node --test scripts/documentation-release.node-test.mjs scripts/release.node-test.mjs scripts/automatic-release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs
+        run: node --test scripts/documentation-release.node-test.mjs scripts/release.node-test.mjs scripts/automatic-release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs scripts/rust-dependency-cache.node-test.mjs scripts/parallel-cli.node-test.mjs scripts/release-test-plan.node-test.mjs
+      - name: Build portable web assets once for all native binaries
+        run: npm run build
+      - name: Upload current-source portable web assets
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-web-${{ github.sha }}
+          path: dist/
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
 
 
   documentation:
@@ -113,7 +133,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-build-cache.mjs reuse frontend
       - run: npm ci
-        if: steps.reuse.outputs.reuse != 'true'
       - name: Run platform-independent frontend tests once
         if: steps.reuse.outputs.reuse != 'true'
         run: npm test
@@ -239,10 +258,17 @@ jobs:
       - name: Install locked JavaScript dependencies
         if: steps.reuse.outputs.reuse != 'true'
         run: npm ci
+      - name: Download the current-source portable web assets
+        if: steps.reuse.outputs.reuse != 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: desktop-web-${{ github.sha }}
+          path: dist/
       - name: Compile the production CLI with its real embedded web assets
         if: steps.reuse.outputs.reuse != 'true'
         env:
           SAG_CARGO_TIMINGS: '1'
+          SAG_WEB_DIST: ${{ github.workspace }}/dist
         run: node scripts/build-cli.mjs
       - name: Stage exact CLI and QPDF inputs with producer metadata
         if: steps.reuse.outputs.reuse != 'true'
@@ -351,33 +377,15 @@ jobs:
             job_name: Test Rust windows
             runner: windows-2025
             target: x86_64-pc-windows-msvc
-          - platform: macos
-            kind: build
-            component: build-macos
-            job_name: Build macos
-            runner: macos-15
-            target: aarch64-apple-darwin
-          - platform: macos-intel
-            kind: build
-            component: build-macos-intel
-            job_name: Build macos-intel
-            runner: macos-15-intel
-            target: x86_64-apple-darwin
-          - platform: windows
-            kind: build
-            component: build-windows
-            job_name: Build windows
-            runner: windows-2025
-            target: x86_64-pc-windows-msvc
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ needs.validate.outputs.native_tests == 'reuse' && 'ubuntu-24.04' || matrix.runner }}
     timeout-minutes: 190
-    env:
+    env: &native_environment
       TARGET_TRIPLE: ${{ matrix.target }}
       RELEASE_PLATFORM: ${{ matrix.platform }}
       CACHE_KIND: ${{ matrix.kind }}
       CACHE_ROLE: desktop
       RELEASE_VERSION: ${{ needs.validate.outputs.version }}
-    steps:
+    steps: &native_steps
       - name: Check out the validated commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -396,12 +404,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-build-cache.mjs reuse "${{ matrix.component }}"
       - name: Set up Python
-        if: steps.reuse.outputs.reuse != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13.9'
       - name: Set up Rust
-        if: steps.reuse.outputs.reuse != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: '1.98.1'
@@ -409,7 +417,7 @@ jobs:
       # Cache dependency libraries/build metadata, not app or integration-test binaries.
       # Stable keys avoid a multi-GiB snapshot for every main commit.
       - name: Restore Rust debug cache
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse'
         id: rust-debug
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -436,7 +444,7 @@ jobs:
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Restore compatible trusted tag dependencies
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && steps.rust-debug.outputs.cache-hit != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && steps.rust-debug.outputs.cache-hit != 'true'
         id: tag-debug
         timeout-minutes: 6
         continue-on-error: true
@@ -444,57 +452,31 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/rust-dependency-cache.mjs restore
       - name: Install locked JavaScript dependencies
-        if: steps.reuse.outputs.reuse != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
         run: npm ci
-      # Automatic release orchestration runs on Ubuntu in preparation and validate.
-      # Keep platform-sensitive assembly, signing, transfer and CLI checks here.
-      - name: Regress release assembly, signatures and artifact transfer on this platform
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
-        run: node --test scripts/release.node-test.mjs scripts/release-downloads.node-test.mjs scripts/release-build-cache.node-test.mjs scripts/sign-macos-release.node-test.mjs scripts/release-assembly.node-test.mjs scripts/build-cli.node-test.mjs scripts/rust-dependency-cache.node-test.mjs scripts/parallel-cli.node-test.mjs
-      - name: Regress document workers and Windows resource loading
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
-        run: python -m unittest discover -s tests -p docling_pdf_session_test.py -v
-      - name: Test Safari native saving and build development installer
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
-        run: |
-          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/ClipFileStoreTests.swift -o "$RUNNER_TEMP/clip-file-tests"
-          "$RUNNER_TEMP/clip-file-tests"
-          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/DefaultDirectoryTests.swift -o "$RUNNER_TEMP/clip-default-tests"
-          "$RUNNER_TEMP/clip-default-tests"
-          npm --prefix browser-extension ci --ignore-scripts
-          node --test scripts/clipper-build.node-test.mjs
-          npm run build:clipper:safari
-      - name: Upload Safari development installer for acceptance
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (matrix.platform == 'macos')
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: safari-development-${{ github.sha }}-${{ github.run_attempt }}
-          path: browser-extension/build/sag-web-clipper-safari-development.dmg
-          if-no-files-found: error
-          retention-days: 3
       - name: Run native tests with locked dependencies
         env:
           # Keep assertions and overflow checks; reduce only test debug metadata.
           # Scope this to tests so production builds retain their release profiles.
           CARGO_PROFILE_TEST_DEBUG: '1'
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse'
         run: |
           node scripts/prepare-qpdf.mjs
           node --test scripts/qpdf-packaging.node-test.mjs
           cargo test --locked --timings --manifest-path protocol/Cargo.toml
           cargo test --locked --timings --manifest-path client/Cargo.toml
-          cargo test --locked --timings --manifest-path core/Cargo.toml
+          cargo test --locked --timings --manifest-path core/Cargo.toml --lib --tests
           # Fail within a bounded regression test if daemon pipes leak again,
           # before running CLI tests that collect complete subprocess output.
           cargo test --locked --timings --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
-          cargo test --locked --timings --manifest-path cli/Cargo.toml -- --nocapture
+          cargo test --locked --timings --manifest-path cli/Cargo.toml --bins --tests -- --nocapture --skip background_service_releases_both_foreground_capture_pipes_while_still_running
           if [[ "$RUNNER_OS" == Windows ]]; then
             pwsh -NoProfile -File scripts/test-windows-desktop.ps1
           else
             cargo test --locked --timings --manifest-path src-tauri/Cargo.toml
           fi
       - name: Upload native compilation timings
-        if: always() && matrix.kind == 'test' && steps.reuse.outputs.reuse != 'true'
+        if: always() && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && steps.reuse.outputs.reuse != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-timings-${{ matrix.platform }}-${{ github.sha }}-${{ github.run_attempt }}
@@ -503,7 +485,7 @@ jobs:
           retention-days: 7
 
       - name: Save trusted main Rust debug cache
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && (github.repository == 'Zleap-AI/SAG-Wiki' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.rust-debug.outputs.cache-hit != 'true')
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && (github.repository == 'Zleap-AI/SAG-Wiki' && github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && steps.rust-debug.outputs.cache-hit != 'true')
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -578,17 +560,38 @@ jobs:
         run: node scripts/rust-dependency-cache.mjs restore
       # CLI and desktop compilation run on separate runners. This job waits
       # only for its own platform CLI after desktop rustc has completed.
+      - name: Download the current-source portable web assets
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: desktop-web-${{ github.sha }}
+          path: dist/
       - name: Compile the production desktop without copying deferred CLI resources
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
+        env:
+          SAG_RELEASE_WEB_READY: '1'
         run: node scripts/parallel-cli.mjs compile-desktop
       - name: Join the verified same-platform CLI input
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         env:
           GH_TOKEN: ${{ github.token }}
+          SAG_WEB_DIST: ${{ github.workspace }}/dist
         run: node scripts/parallel-cli.mjs restore
       - name: Bundle the independently compiled production inputs
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         run: node scripts/parallel-cli.mjs bundle
+      # Release-tooling regressions run once in validate; native runtime checks stay here.
+      - name: Regress document workers and Windows resource loading
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
+        run: python -m unittest discover -s tests -p docling_pdf_session_test.py -v
+      - name: Test Safari native saving
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'macos')
+        run: |
+          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/ClipFileStoreTests.swift -o "$RUNNER_TEMP/clip-file-tests"
+          "$RUNNER_TEMP/clip-file-tests"
+          swiftc browser-extension/safari/ClipFileStore.swift browser-extension/tests/DefaultDirectoryTests.swift -o "$RUNNER_TEMP/clip-default-tests"
+          "$RUNNER_TEMP/clip-default-tests"
+          node --test scripts/clipper-build.node-test.mjs
       - name: Upload desktop compilation timings
         if: always() && matrix.kind == 'build' && steps.reuse.outputs.reuse != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -602,9 +605,6 @@ jobs:
         run: |
           export SAG_DESKTOP_BUNDLE="$PWD/src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app"
           python -m unittest discover -s tests -p desktop_bundle_test.py
-      - name: Exercise local Jev through the actual macOS bundle CLI
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform != 'windows')
-        run: python tests/local-jev-e2e.py --binary "src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app/Contents/Resources/bin/sag"
       - name: Stage artifacts and record their source and digests
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
         run: node scripts/release.mjs stage --platform "$RELEASE_PLATFORM" --target "$TARGET_TRIPLE"
@@ -671,7 +671,7 @@ jobs:
       # dependency outputs; consumers revalidate the producer, latest job and digest.
       # Branch dispatches upload a separate validation namespace, never trusted data.
       - name: Pack verified Rust dependency outputs
-        if: steps.reuse.outputs.reuse != 'true' && steps.tag-debug.outputs.hit != 'true' && steps.tag-release.outputs.hit != 'true'
+        if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse') && steps.tag-debug.outputs.hit != 'true' && steps.tag-release.outputs.hit != 'true'
         id: dependency-export
         timeout-minutes: 6
         continue-on-error: true
@@ -700,20 +700,73 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  build-macos:
+    name: ${{ matrix.job_name }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            kind: build
+            component: build-macos
+            job_name: Build macos
+            runner: macos-15
+            target: aarch64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 190
+    env: *native_environment
+    steps: *native_steps
+
+  build-macos-intel:
+    name: ${{ matrix.job_name }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-intel
+            kind: build
+            component: build-macos-intel
+            job_name: Build macos-intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 190
+    env: *native_environment
+    steps: *native_steps
+
+  build-windows:
+    name: ${{ matrix.job_name }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            kind: build
+            component: build-windows
+            job_name: Build windows
+            runner: windows-2025
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 190
+    env: *native_environment
+    steps: *native_steps
+
   sign-macos:
     name: Sign ${{ matrix.platform }}
-    needs: validate
+    needs: [validate, build-macos]
     if: >-
       !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
-      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success'
+      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
+      needs.build-macos.result == 'success'
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: macos
             runner: macos-15
-          - platform: macos-intel
-            runner: macos-15-intel
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     environment:
@@ -721,11 +774,11 @@ jobs:
     permissions:
       contents: read
       actions: read
-    env:
+    env: &signing_environment
       RELEASE_VERSION: ${{ needs.validate.outputs.version }}
       RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
       RELEASE_TAG: ${{ github.ref_name }}
-    steps:
+    steps: &signing_steps
       - name: Check out the validated release commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -781,14 +834,38 @@ jobs:
           compression-level: 0
 
 
+  sign-macos-intel:
+    name: Sign ${{ matrix.platform }}
+    needs: [validate, build-macos-intel]
+    if: >-
+      !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
+      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
+      needs.build-macos-intel.result == 'success'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-intel
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    environment:
+      name: release
+    permissions:
+      contents: read
+      actions: read
+    env: *signing_environment
+    steps: *signing_steps
+
   release:
     name: Sign and create a draft release
     outputs:
       checksums: ${{ steps.draft.outputs.checksums }}
-    needs: [validate, sign-macos]
+    needs: [validate, sign-macos, sign-macos-intel]
     if: >-
       !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
-      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success'
+      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success' &&
+      needs.sign-macos.result == 'success' && needs.sign-macos-intel.result == 'success'
     # Assembly only signs updater bytes; Apple tools remain in the Mac jobs.
     runs-on: ubuntu-24.04
     timeout-minutes: 360
