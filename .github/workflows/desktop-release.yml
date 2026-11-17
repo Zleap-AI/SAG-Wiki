@@ -76,6 +76,9 @@ jobs:
         run: node scripts/release-build-cache.mjs reuse documentation
       - run: npm --prefix docs-site ci
         if: steps.reuse.outputs.reuse != 'true'
+      - name: Validate changelogs and record documentation provenance
+        run: node scripts/documentation-release.mjs build
+        if: steps.reuse.outputs.reuse != 'true'
       - run: npm --prefix docs-site run build
         if: steps.reuse.outputs.reuse != 'true'
 
