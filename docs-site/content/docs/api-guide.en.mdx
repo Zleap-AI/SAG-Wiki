@@ -58,7 +58,7 @@ Calls wait synchronously for results. Deadlines include queueing and execution. 
 
 ## Select directories
 
-Call `GET /v1/folders` to list the current key’s permitted entry folders. Supplying `path` lists that directory's immediate subfolders for browsing one level at a time.
+Call `GET /v1/folders` to list the current key’s permitted entry folders. Full-library keys still list all imported roots; restricted keys list only granted directories, with a granted subfolder itself serving as an entry folder. Supplying `path` lists that directory’s immediate subfolders within the granted scope, one level at a time.
 
 ```sh
 curl --fail-with-body \
