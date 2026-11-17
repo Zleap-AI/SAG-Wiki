@@ -1,5 +1,15 @@
 # 更新日志 / Changelog
 
+## 0.3.8
+
+- **Intel Mac 安装包**：发布流程新增 Intel Mac（`x86_64`）独立安装包与应用内更新包，与 Apple Silicon（`arm64`）和 Windows x64 包分别构建。两种 Mac 架构并行签名与公证，并复用现有构建缓存。
+- **按架构下载**：中英文安装页说明 Mac 芯片与安装包的对应关系，仅在正式版本实际包含 Intel 安装包时显示下载入口。
+
+### English
+
+- **Intel Mac packages**: Add separate Intel Mac (`x86_64`) installers and in-app update packages alongside Apple Silicon (`arm64`) and Windows x64 packages. Sign and notarize both Mac architectures in parallel and reuse existing build caches.
+- **Architecture-specific downloads**: Explain Mac chip and installer selection in both installation guides, and show the Intel download only when the published release includes that installer.
+
 ## 0.3.7
 
 - **分享记录**：分享弹窗和数据导入设置新增分享记录，查看本机发起的分享名称、分享码、分享时间和到期时间；过期记录自动清理。

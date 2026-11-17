@@ -88,13 +88,13 @@ test('requires both platforms from one commit and detects tampered transfer arti
     for (const platform of Object.keys(targets)) {
       const path = join(directory, platform);
       mkdirSync(path);
-      const names = platform === 'macos'
-        ? [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`]
+      const names = platform !== 'windows'
+        ? [`SAG-Wiki-${version}-macOS-${platform === 'macos-intel' ? 'x86_64' : 'arm64'}.dmg`, `SAG-Wiki-${version}-macOS-${platform === 'macos-intel' ? 'x86_64' : 'arm64'}.app.tar.gz`]
         : [`SAG-Wiki-${version}-Windows-x64-setup.exe`];
       for (const name of names) writeFileSync(join(path, name), bytes);
       writeFileSync(join(path, 'metadata.json'), JSON.stringify({schema: 1, version, commit, platform, target: targets[platform], build_identity: {version, channel: 'release'}, files: Object.fromEntries(names.map(name => [name, checksum]))}));
     }
-    assert.equal(Object.keys(validateStagedArtifacts(directory, version, commit)).length, 2);
+    assert.equal(Object.keys(validateStagedArtifacts(directory, version, commit)).length, 3);
     assert.throws(() => validateStagedArtifacts(directory, version, 'b'.repeat(40)), /same release commit/);
     const windows = join(directory, 'windows', `SAG-Wiki-${version}-Windows-x64-setup.exe`);
     writeFileSync(windows, 'corrupted after upload');
@@ -171,3 +171,5 @@ test('release staging locates both standalone and shared-target CLI artifacts', 
   }
  }
 });
+
+test('includes a distinct native Intel Mac release target', () => { assert.equal(targets['macos-intel'], 'x86_64-apple-darwin'); });

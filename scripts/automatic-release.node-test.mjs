@@ -398,7 +398,8 @@ test('publication finds a draft through its listed release ID when tag lookup is
 test('publication verifies every uploaded asset against the exact successful assembly job checksum output', () => {
   const version = '0.2.14';
   const names = [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`,
-    `SAG-Wiki-${version}-macOS-arm64.app.tar.gz.sig`, `SAG-Wiki-${version}-Windows-x64-setup.exe`,
+    `SAG-Wiki-${version}-macOS-arm64.app.tar.gz.sig`,
+    `SAG-Wiki-${version}-macOS-x86_64.dmg`, `SAG-Wiki-${version}-macOS-x86_64.app.tar.gz`, `SAG-Wiki-${version}-macOS-x86_64.app.tar.gz.sig`, `SAG-Wiki-${version}-Windows-x64-setup.exe`,
     `SAG-Wiki-${version}-Windows-x64-setup.exe.sig`, 'latest-v2.json', 'latest.json', 'build-metadata.json', 'release-notes.md'];
   const hash = 'a'.repeat(64);
   const checksums = names.map(name => `${hash}  ${name}`).join('\n') + '\n';

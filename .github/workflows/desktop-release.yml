@@ -136,6 +136,10 @@ jobs:
             job_name: Compile CLI macos
             runner: macos-15
             target: aarch64-apple-darwin
+          - platform: macos-intel
+            job_name: Compile CLI macos-intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
           - platform: windows
             job_name: Compile CLI windows
             runner: windows-2025
@@ -332,6 +336,12 @@ jobs:
             job_name: Test Rust macos
             runner: macos-15
             target: aarch64-apple-darwin
+          - platform: macos-intel
+            kind: test
+            component: rust-macos-intel
+            job_name: Test Rust macos-intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
           - platform: windows
             kind: test
             component: rust-windows
@@ -344,6 +354,12 @@ jobs:
             job_name: Build macos
             runner: macos-15
             target: aarch64-apple-darwin
+          - platform: macos-intel
+            kind: build
+            component: build-macos-intel
+            job_name: Build macos-intel
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
           - platform: windows
             kind: build
             component: build-windows
@@ -579,12 +595,12 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
       - name: Verify the actual macOS application bundle
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'macos')
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform != 'windows')
         run: |
           export SAG_DESKTOP_BUNDLE="$PWD/src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app"
           python -m unittest discover -s tests -p desktop_bundle_test.py
       - name: Exercise local Jev through the actual macOS bundle CLI
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform == 'macos')
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && (matrix.platform != 'windows')
         run: python tests/local-jev-e2e.py --binary "src-tauri/target/$TARGET_TRIPLE/release/bundle/macos/SAG Wiki.app/Contents/Resources/bin/sag"
       - name: Stage artifacts and record their source and digests
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build'
@@ -681,15 +697,90 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  release:
-    name: Sign and create a draft release
-    outputs:
-      checksums: ${{ steps.draft.outputs.checksums }}
+  sign-macos:
+    name: Sign ${{ matrix.platform }}
     needs: validate
     if: >-
       !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
       startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success'
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos
+            runner: macos-15
+          - platform: macos-intel
+            runner: macos-15-intel
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    environment:
+      name: release
+    permissions:
+      contents: read
+      actions: read
+    env:
+      RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - name: Check out the validated release commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.validate.outputs.commit }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13.9'
+      - name: Require automatic release restrictions and an unpublished tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          node scripts/release.mjs verify-environment
+          node scripts/release.mjs validate
+          node scripts/automatic-release.mjs check-draft
+      - name: Wait only for the verified macOS build and download its input
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/release-build-cache.mjs wait "${{ matrix.platform }}"
+      # Native tests and other architectures keep running while this Mac signs
+      # and notarizes. Final assembly retains the existing all-checkpoint check.
+      # Secrets are scoped to the protected signing steps, never main jobs.
+      - name: Sign, notarize and test the final macOS installer and updater
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/sign-macos-release.mjs --input release-artifacts --output signed-release-artifacts --release-platform "${{ matrix.platform }}"
+      - name: Upload verified signed macOS artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-${{ matrix.platform }}-signed-${{ github.sha }}
+          path: signed-release-artifacts/
+          # A release-only retry reuses successful signing jobs from this run.
+          overwrite: true
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
+
+  release:
+    name: Sign and create a draft release
+    outputs:
+      checksums: ${{ steps.draft.outputs.checksums }}
+    needs: [validate, sign-macos]
+    if: >-
+      !cancelled() && github.repository == 'Zleap-AI/SAG-Wiki' &&
+      startsWith(github.ref, 'refs/tags/v') && needs.validate.result == 'success'
+    # Assembly only signs updater bytes; Apple tools remain in the Mac jobs.
+    runs-on: ubuntu-24.04
     timeout-minutes: 360
     environment:
       name: release
@@ -722,35 +813,16 @@ jobs:
           node scripts/release.mjs verify-environment
           node scripts/release.mjs validate
           node scripts/automatic-release.mjs check-draft
-      - name: Wait only for the verified macOS build and download its input
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/release-build-cache.mjs wait macos
-      # Both platforms' tests and Windows compilation continue while Apple signs
-      # and notarizes. The all-checkpoint gate below still requires every test.
-      # Secrets are scoped to the protected signing steps, never main jobs.
-      - name: Sign, notarize and test the final macOS installer and updater
-        env:
-          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
-          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
-          APPLE_API_PRIVATE_KEY: ${{ secrets.APPLE_API_PRIVATE_KEY }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        run: node scripts/sign-macos-release.mjs --input release-artifacts --output signed-release-artifacts
-      - name: Upload verified signed macOS artifacts
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: desktop-macos-signed-${{ github.sha }}-${{ github.run_attempt }}
-          path: signed-release-artifacts/macos/
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-      - name: Require all final checkpoints and download verified Windows input
+      - name: Require all final checkpoints and download verified build inputs
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-build-cache.mjs wait all
+      - name: Download both signed Mac architectures
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          pattern: desktop-*-signed-${{ github.sha }}
+          path: signed-release-artifacts/
+          merge-multiple: true
       - name: Install locked signing tools before granting access to the key
         run: npm ci --ignore-scripts
       - name: Verify artifacts, sign updates and assemble the release

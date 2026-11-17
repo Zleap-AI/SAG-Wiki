@@ -9,8 +9,8 @@ import {validateStagedArtifacts, validateVersions} from './release.mjs';
 
 const repository = 'Zleap-AI/SAG-Wiki';
 const workflow = '.github/workflows/desktop-release.yml';
-export const components = ['documentation', 'frontend', 'rust-macos', 'rust-windows', 'build-macos', 'build-windows'];
-const jobNames = {documentation:'Build bilingual documentation', frontend:'Test frontend', 'rust-macos':'Test Rust macos', 'rust-windows':'Test Rust windows', 'build-macos':'Build macos', 'build-windows':'Build windows'};
+export const components = ['documentation', 'frontend', 'rust-macos', 'rust-windows', 'rust-macos-intel', 'build-macos-intel', 'build-macos', 'build-windows'];
+const jobNames = {'rust-macos-intel':'Test Rust macos-intel', 'build-macos-intel':'Build macos-intel', documentation:'Build bilingual documentation', frontend:'Test frontend', 'rust-macos':'Test Rust macos', 'rust-windows':'Test Rust windows', 'build-macos':'Build macos', 'build-windows':'Build windows'};
 const gh = (...args) => {
   const result = spawnSync('gh', args, {encoding:'utf8', maxBuffer:16 * 1024 * 1024, timeout:60000});
   assert.equal(result.status, 0, `GitHub request failed: ${result.stderr}`);
@@ -270,8 +270,8 @@ async function probeComponent(component) {
 }
 
 export function releaseComponents(platform) {
-  assert.ok(['macos', 'all'].includes(platform), 'Use wait macos or wait all');
-  return platform === 'macos' ? ['build-macos'] : components;
+  assert.ok(['macos', 'macos-intel', 'all'].includes(platform), 'Use wait macos, macos-intel or all');
+  return platform === 'all' ? components : [`build-${platform}`];
 }
 
 async function waitForRelease(platform) {
@@ -280,7 +280,7 @@ async function waitForRelease(platform) {
   const budget = Number(process.env.RELEASE_WAIT_TIMEOUT_MS ?? 210 * 60 * 1000);
   assert.ok(Number.isSafeInteger(budget) && budget >= 0 && budget <= 210 * 60 * 1000, 'Invalid wait timeout');
   const deadlinePath = '.release-wait-deadline';
-  if (platform === 'macos') writeFileSync(deadlinePath, String(Date.now() + budget));
+  if (platform !== 'all' || !existsSync(deadlinePath)) writeFileSync(deadlinePath, String(Date.now() + budget));
   assert.ok(existsSync(deadlinePath), 'Missing macOS release checkpoint deadline');
   const deadline = Number(readFileSync(deadlinePath, 'utf8'));
   assert.ok(Number.isSafeInteger(deadline), 'Invalid release checkpoint deadline');
@@ -288,10 +288,9 @@ async function waitForRelease(platform) {
     timeoutMs: Math.max(0, Math.min(budget, deadline - Date.now())),
     pollMs: Number(process.env.RELEASE_WAIT_POLL_MS ?? 60000)});
   const artifacts = results.flatMap(result => result.artifact ? [result.artifact] : []);
-  // After Apple signing, preserve the exact original macOS input; final gating
-  // rechecks provenance, but downloads only the still-missing Windows input.
-  downloadArtifacts(artifacts.filter(a => platform === 'macos' || a.platform === 'windows'), 'release-artifacts');
-  validateStagedArtifacts(resolve('release-artifacts'), validateVersions(), ctx.commit, platform === 'macos' ? ['macos'] : ['macos', 'windows']);
+  // Signing and assembly run in separate jobs, each with fresh artifact inputs.
+  downloadArtifacts(artifacts, 'release-artifacts');
+  validateStagedArtifacts(resolve('release-artifacts'), validateVersions(), ctx.commit, platform === 'all' ? ['macos', 'macos-intel', 'windows'] : [platform]);
   console.log(`Verified ${requested.join(', ')}`);
 }
 
@@ -318,7 +317,7 @@ export function downloadArtifacts(artifacts, destination) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [command, argument] = process.argv.slice(2);
-  assert.ok(['reuse', 'probe', 'wait'].includes(command), 'Use reuse|probe COMPONENT or wait macos|all');
+  assert.ok(['reuse', 'probe', 'wait'].includes(command), 'Use reuse|probe COMPONENT or wait macos|macos-intel|all');
   if (command === 'reuse') await reuseComponent(argument);
   else if (command === 'probe') await probeComponent(argument);
   else await waitForRelease(argument);

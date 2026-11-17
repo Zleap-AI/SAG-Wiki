@@ -10,7 +10,7 @@ import {gitAt, releaseNotes, validateReleaseSource} from './automatic-release.mj
 
 const root = resolve(import.meta.dirname, '..');
 const repository = 'Zleap-AI/SAG-Wiki';
-export const targets = {macos: 'aarch64-apple-darwin', windows: 'x86_64-pc-windows-msvc'};
+export const targets = {macos: 'aarch64-apple-darwin', 'macos-intel': 'x86_64-apple-darwin', windows: 'x86_64-pc-windows-msvc'};
 const json = path => JSON.parse(readFileSync(path, 'utf8'));
 const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex');
 const run = (command, args, options = {}) => {
@@ -50,8 +50,9 @@ function validate() {
 }
 
 function expectedFiles(platform, version) {
-  return platform === 'macos'
-    ? [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`]
+  const arch = platform === 'macos-intel' ? 'x86_64' : 'arm64';
+  return platform !== 'windows'
+    ? [`SAG-Wiki-${version}-macOS-${arch}.dmg`, `SAG-Wiki-${version}-macOS-${arch}.app.tar.gz`]
     : [`SAG-Wiki-${version}-Windows-x64-setup.exe`];
 }
 
@@ -73,7 +74,7 @@ function stage({platform, target}) {
   assert.ok(!existsSync(output), 'Staging directory must be fresh');
   mkdirSync(output, {recursive: true});
   const names = expectedFiles(platform, version);
-  if (platform === 'macos') {
+  if (platform !== 'windows') {
     const dmgs = readdirSync(join(bundle, 'dmg')).filter(name => name.endsWith('.dmg'));
     assert.equal(dmgs.length, 1, 'Expected exactly one DMG');
     copyFileSync(join(bundle, 'dmg', dmgs[0]), join(output, names[0]));
@@ -122,9 +123,9 @@ export function validateSignedMacOSArtifacts(directory, source) {
   for (const field of ['schema', 'version', 'commit', 'platform', 'target', 'build_identity']) {
     assert.deepEqual(metadata[field], source[field], `Signed macOS ${field} mismatch`);
   }
-  assert.equal(source.platform, 'macos', 'Expected original macOS build');
+  assert.ok(['macos', 'macos-intel'].includes(source.platform), 'Expected original macOS build');
   assert.deepEqual(metadata.source_files, source.files, 'Signed macOS artifacts must derive from the tested source');
-  assert.deepEqual(Object.keys(metadata.files).sort(), expectedFiles('macos', source.version).sort(), 'Unexpected signed macOS artifacts');
+  assert.deepEqual(Object.keys(metadata.files).sort(), expectedFiles(source.platform, source.version).sort(), 'Unexpected signed macOS artifacts');
   assert.deepEqual(readdirSync(directory).sort(), [...Object.keys(metadata.files), 'metadata.json'].sort(), 'Untracked signed macOS files');
   assert.match(metadata.apple_signing?.team_id ?? '', /^[A-Z0-9]{10}$/, 'Missing Apple team');
   for (const kind of ['app', 'dmg']) {
@@ -138,27 +139,31 @@ export function validateSignedMacOSArtifacts(directory, source) {
 }
 
 
-function assemble({input, output, 'signed-macos': signedMacOS}) {
+function assemble({input, output, 'signed-macos': signedMacOS, 'signed-macos-intel': signedIntel}) {
   const version = validateVersions();
   const commit = git('rev-parse', 'HEAD');
   const source = resolve(input ?? 'release-artifacts');
   const metadata = validateStagedArtifacts(source, version, commit);
   const signed = resolve(signedMacOS ?? 'signed-release-artifacts/macos');
   metadata.macos = validateSignedMacOSArtifacts(signed, metadata.macos);
+  const intel = resolve(signedIntel ?? 'signed-release-artifacts/macos-intel');
+  metadata['macos-intel'] = validateSignedMacOSArtifacts(intel, metadata['macos-intel']);
   const destination = resolve(output ?? join(root, 'releases', version, 'updates'));
   assert.ok(!existsSync(destination), 'Release output must be fresh');
   mkdirSync(destination, {recursive: true});
   const notes = releaseNotes(readFileSync(join(root, 'CHANGELOG.md'), 'utf8'), version);
   packageUpdates({version, notes, output: destination,
+    macosIntel: join(intel, `SAG-Wiki-${version}-macOS-x86_64.app.tar.gz`),
     macos: join(signed, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`),
     windows: join(source, 'windows', `SAG-Wiki-${version}-Windows-x64-setup.exe`),
   });
   copyFileSync(join(signed, `SAG-Wiki-${version}-macOS-arm64.dmg`), join(destination, `SAG-Wiki-${version}-macOS-arm64.dmg`));
+  copyFileSync(join(intel, `SAG-Wiki-${version}-macOS-x86_64.dmg`), join(destination, `SAG-Wiki-${version}-macOS-x86_64.dmg`));
   writeFileSync(join(destination, 'release-notes.md'), notes);
   writeFileSync(join(destination, 'build-metadata.json'), JSON.stringify({repository, commit, version, platforms: metadata}, null, 2) + '\n');
   const checksums = readdirSync(destination).sort().map(name => `${digest(join(destination, name))}  ${name}`).join('\n') + '\n';
   writeFileSync(join(destination, `v${version}-SHA256SUMS.txt`), checksums);
-  console.log(`Verified dual-platform release assembled at ${destination}`);
+  console.log(`Verified release assembled at ${destination}`);
 }
 
 export function validateEnvironment(environment, policies) {
@@ -181,7 +186,7 @@ export function verifyEnvironment() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries(['platform', 'target', 'input', 'output', 'signed-macos'].map(name => [name, {type: 'string'}]))});
+  const {positionals, values} = parseArgs({allowPositionals: true, options: Object.fromEntries(['platform', 'target', 'input', 'output', 'signed-macos', 'signed-macos-intel'].map(name => [name, {type: 'string'}]))});
   const commands = {validate, stage, assemble, 'verify-environment': verifyEnvironment};
   assert.ok(commands[positionals[0]], 'Use validate, stage, assemble or verify-environment');
   commands[positionals[0]](values);

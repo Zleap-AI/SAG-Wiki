@@ -506,7 +506,8 @@ export function validatePublicationAssets(release, checksums, expectedDigest, ve
   });
   entries.push({name: `v${version}-SHA256SUMS.txt`, digest: `sha256:${expectedDigest}`});
   const expectedNames = [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`,
-    `SAG-Wiki-${version}-macOS-arm64.app.tar.gz.sig`, `SAG-Wiki-${version}-Windows-x64-setup.exe`,
+    `SAG-Wiki-${version}-macOS-arm64.app.tar.gz.sig`,
+    `SAG-Wiki-${version}-macOS-x86_64.dmg`, `SAG-Wiki-${version}-macOS-x86_64.app.tar.gz`, `SAG-Wiki-${version}-macOS-x86_64.app.tar.gz.sig`, `SAG-Wiki-${version}-Windows-x64-setup.exe`,
     `SAG-Wiki-${version}-Windows-x64-setup.exe.sig`, 'latest-v2.json', 'latest.json', 'build-metadata.json',
     'release-notes.md', `v${version}-SHA256SUMS.txt`].sort();
   assert.deepEqual(entries.map(entry => entry.name).sort(), expectedNames, 'Unexpected assembled asset manifest');

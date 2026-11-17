@@ -38,6 +38,7 @@ export function ReleaseDownloads({language}: {language: 'zh' | 'en'}) {
       <thead><tr><th>{english ? 'System' : '系统'}</th><th>{english ? 'Architecture' : '架构'}</th><th>{english ? 'Download' : '下载'}</th><th>{english ? 'Size' : '大小'}</th></tr></thead>
       <tbody>
         <tr><td>macOS</td><td>Apple Silicon</td><td><a href={downloads.macos.url}>{english ? 'Download DMG' : '下载 DMG'}</a></td><td>{downloads.macos.size}</td></tr>
+        {downloads.macosIntel && <tr><td>macOS</td><td>Intel (x86_64)</td><td><a href={downloads.macosIntel.url}>{english ? 'Download DMG' : '下载 DMG'}</a></td><td>{downloads.macosIntel.size}</td></tr>}
         <tr><td>Windows</td><td>x64</td><td><a href={downloads.windows.url}>{english ? 'Download installer' : '下载安装器'}</a></td><td>{downloads.windows.size}</td></tr>
       </tbody>
     </table>

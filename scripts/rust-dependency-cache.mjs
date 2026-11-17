@@ -5,6 +5,7 @@ import {tmpdir} from 'node:os';
 import {resolve, join} from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {pathToFileURL} from 'node:url';
+import {targets} from './release.mjs';
 import {gitAt, validateReleaseSource} from './automatic-release.mjs';
 import {validateRun, componentState, selectArchive, downloadArtifacts, hashFile,latestJob} from './release-build-cache.mjs';
 
@@ -66,9 +67,9 @@ function context() {
   assert.equal(process.env.GITHUB_REPOSITORY, repository);
   const kind = process.env.CACHE_KIND;
   const platform = process.env.RELEASE_PLATFORM;
-  assert.ok(['test', 'build'].includes(kind) && ['macos', 'windows'].includes(platform));
+  assert.ok(['test', 'build'].includes(kind) && Object.hasOwn(targets, platform));
   const target = process.env.TARGET_TRIPLE;
-  assert.equal(target, platform === 'macos' ? 'aarch64-apple-darwin' : 'x86_64-pc-windows-msvc');
+  assert.equal(target, targets[platform]);
   const commit = process.env.GITHUB_SHA;
   assert.match(commit ?? '', /^[a-f0-9]{40}$/);
   const currentRunId = Number(process.env.GITHUB_RUN_ID);

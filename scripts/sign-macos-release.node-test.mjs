@@ -113,7 +113,7 @@ function releaseFixture(executable = Buffer.concat([Buffer.from('cffaedfe', 'hex
   for (const platform of Object.keys(targets)) {
     const destination = join(input, platform);
     mkdirSync(destination, {recursive: true});
-    const names = platform === 'macos' ? [`SAG-Wiki-${version}-macOS-arm64.dmg`, `SAG-Wiki-${version}-macOS-arm64.app.tar.gz`] : [`SAG-Wiki-${version}-Windows-x64-setup.exe`];
+    const names = platform !== 'windows' ? [`SAG-Wiki-${version}-macOS-${platform === 'macos-intel' ? 'x86_64' : 'arm64'}.dmg`, `SAG-Wiki-${version}-macOS-${platform === 'macos-intel' ? 'x86_64' : 'arm64'}.app.tar.gz`] : [`SAG-Wiki-${version}-Windows-x64-setup.exe`];
     for (const name of names) {
       if (name.endsWith('.tar.gz')) execute('tar', ['-czf', join(destination, name), '-C', dirname(app), 'SAG Wiki.app']);
       else writeFileSync(join(destination, name), 'unsigned artifact');
@@ -193,34 +193,37 @@ function appleRunner(fixture, {rejectNotarization = false, rejectDmgNotarization
   return {run, state};
 }
 
-test('checks bundled Mach-O architecture with real lipo and rejects non-arm64 code', {skip: process.platform !== 'darwin'}, async () => {
+test('checks both Mac targets with real lipo, accepting matching code and rejecting the other architecture', {skip: process.platform !== 'darwin'}, async () => {
   const {signMacosRelease} = await implementation();
   const directory = mkdtempSync(join(tmpdir(), 'sag-lipo-test-'));
   try {
-    for (const architecture of ['arm64', 'x86_64']) {
-      const object = join(directory, `${architecture}.o`);
-      execute('clang', ['-arch', architecture, '-x', 'c', '-c', '-o', object, '-'], {input: 'int fixture(void) { return 0; }\n'});
-      const fixture = releaseFixture(readFileSync(object));
-      const apple = appleRunner(fixture);
-      let checks = 0;
-      const run = (command, args, options) => {
-        if (command === 'lipo') { checks++; return execute(command, args, options); }
-        return apple.run(command, args, options);
-      };
-      try {
-        if (architecture === 'arm64') {
-          signMacosRelease(fixture, {run, environment, platform: 'darwin', arch: 'arm64'});
-          assert.equal(checks, 2, 'Both desktop and bundled CLI require architecture checks');
-          assert.equal(apple.state.submissions, 2);
-        } else {
-          assert.throws(() => signMacosRelease(fixture, {run, environment, platform: 'darwin', arch: 'arm64'}));
-          assert.equal(checks, 1);
-          assert.equal(apple.state.submissions, 0, 'Wrong architecture must fail before notarization');
-          assert.equal(existsSync(join(fixture.output, 'macos/metadata.json')), false);
-        }
-      } finally { rmSync(fixture.directory, {recursive: true, force: true}); }
+    for (const [releasePlatform, expected, nodeArch] of [['macos','arm64','arm64'],['macos-intel','x86_64','x64']]) {
+      for (const architecture of ['arm64', 'x86_64']) {
+        const object = join(directory, `${architecture}.o`);
+        execute('clang', ['-arch', architecture, '-x', 'c', '-c', '-o', object, '-'], {input: 'int fixture(void) { return 0; }\n'});
+        const fixture = releaseFixture(readFileSync(object));
+        const apple = appleRunner(fixture, {hostArchitecture:expected});
+        let checks = 0;
+        const run = (command, args, options) => {
+          if (command === 'lipo') { checks++; return execute(command, args, options); }
+          return apple.run(command, args, options);
+        };
+        const options = {run, environment, platform:'darwin', arch:nodeArch};
+        try {
+          if (architecture === expected) {
+            signMacosRelease({...fixture,'release-platform':releasePlatform}, options);
+            assert.equal(checks, 2, 'Both desktop and bundled CLI require architecture checks');
+            assert.equal(apple.state.submissions, 2);
+          } else {
+            assert.throws(() => signMacosRelease({...fixture,'release-platform':releasePlatform}, options));
+            assert.equal(checks, 1);
+            assert.equal(apple.state.submissions, 0, 'Wrong architecture must fail before notarization');
+            assert.equal(existsSync(join(fixture.output,releasePlatform,'metadata.json')), false);
+          }
+        } finally { rmSync(fixture.directory, {recursive:true,force:true}); }
+      }
     }
-  } finally { rmSync(directory, {recursive: true, force: true}); }
+  } finally { rmSync(directory, {recursive:true,force:true}); }
 });
 
 test('signs macOS-only input without waiting for Windows and publishes final hashes after both notarizations', async () => {
@@ -296,4 +299,18 @@ test('signs verified macOS input before Windows exists while final assembly stil
     assert.ok(existsSync(join(fixture.output, 'macos/metadata.json')));
     assert.throws(() => validateStagedArtifacts(fixture.input, fixture.version, fixture.commit), /ENOENT/);
   } finally { rmSync(fixture.directory, {recursive: true, force: true}); }
+});
+
+test('signs native Intel artifacts with x86_64 checks and separate output', async () => {
+ const {signMacosRelease} = await implementation();
+ const fixture=releaseFixture(); const apple=appleRunner(fixture,{hostArchitecture:'x86_64'}); const checked=[];
+ const run=(command,args,options)=>{ if(command==='lipo')checked.push(args.at(-1)); return apple.run(command,args,options); };
+ try {
+  rmSync(join(fixture.input,'macos'),{recursive:true});
+  signMacosRelease({...fixture,'release-platform':'macos-intel'}, {run,environment,platform:'darwin',arch:'x64'});
+  const metadata=JSON.parse(readFileSync(join(fixture.output,'macos-intel/metadata.json')));
+  assert.equal(metadata.target,'x86_64-apple-darwin'); assert.deepEqual(checked,['x86_64','x86_64']);
+  assert.equal(apple.state.submissions,2); assert.equal(apple.state.gates.length,4);
+  assert.deepEqual(readdirSync(fixture.output),['macos-intel']);
+ }finally{rmSync(fixture.directory,{recursive:true,force:true});}
 });
