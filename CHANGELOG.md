@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.8
+
+- **文内查找**：修复文本包含连字或全角字符时，希腊语词尾 Sigma 无法匹配的问题，并保留正确的原文高亮位置。
+
+### English
+
+- **Find in document**: Preserve Greek final-sigma matches when text also contains ligatures or full-width characters, keeping highlights aligned with the original source.
+
 ## 0.3.7
 
 - **分享记录**：分享弹窗和数据导入设置新增分享记录，查看本机发起的分享名称、分享码、分享时间和到期时间；过期记录自动清理。
