@@ -7,13 +7,24 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="24e5e24276610ede43ec723afb786e655b59febf8c5feccd9b5fe88fe8476543" aria-hidden="true" />
+<span data-docs-changelog-sha="27a86d75005ffdca7918b5a326785f7a153620cc0f0c6d3800840f3b6ae4f556" aria-hidden="true" />
 
-## 0.3.9
+## 0.3.11
 
 - **项目文件夹授权**：MCP 与 HTTP API 的 Key 可绑定多个知识库根目录或子目录，不同项目使用各自的 Key，仅搜索和浏览授权范围，公共目录可同时授权给多个项目。([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
 - **存量升级兼容**：已有 Key、MCP 地址、客户端配置和工具调用保持兼容，继续访问全部知识库及以后新增的目录；只有主动设置文件夹范围的 Key 才受限。
 - **范围管理与配置复制**：远程服务设置和 CLI 支持创建、编辑文件夹范围；多个可复制 Key 时明确选择项目凭据。范围修改取消该 Key 的运行中及排队请求，失效目录不会回退为全库访问。
+
+## 0.3.10
+
+- **发布耗时优化**：前端资源只构建一次，复用原生输入未变时已通过的原生 Rust 测试，移除 Safari 开发包、重复未签名 DMG 和重复端到端验证；保留三平台安装包验证与 Mac 签名公证。
+- **平台下载入口**：发布页直接列出 Windows x64、Apple Silicon 和 Intel 安装包下载链接，每次正式发布继续包含三个平台。
+
+## 0.3.9
+
+- **Intel Mac 公证连接**：在 Intel 签名任务中让 Apple 公证票据请求使用 TCP，避免运行器 HTTP/3 连接中断；保留签名、公证及票据验证。
+- **发布任务恢复**：失败任务重跑时复用未重新执行的成功构建及其原始 checkpoint，避免 attempt 编号变化造成产物缺失；无需重复编译。
+- **发布兼容性验证**：修正 Windows 换行格式导致的发布回归测试失败，以及 Intel Mac 更新验证中固定使用 Apple Silicon 目标的测试清单；保留原有安装包、签名和公证检查。
 
 ## 0.3.8
 

@@ -39,7 +39,19 @@ export function latestJob(jobs, name) {
   const latest = Math.max(...candidates.map(job => job.run_attempt));
   const matches = candidates.filter(job => job.run_attempt === latest);
   assert.equal(matches.length, 1, `Duplicate job: ${name}`);
-  return matches[0];
+  const current = matches[0];
+  // GitHub copies retained successful jobs into later attempts with new IDs.
+  // Their execution and step timestamps stay unchanged; their artifacts and
+  // receipts still belong to the original job, not to the copied API record.
+  if (current.status === 'completed' && current.conclusion === 'success' &&
+      current.started_at && current.completed_at && current.steps?.length &&
+      current.steps.every(step => step.started_at && step.completed_at)) {
+    const execution = job => JSON.stringify([job.started_at, job.completed_at,
+      job.steps?.map(step => [step.name, step.status, step.conclusion, step.started_at, step.completed_at])]);
+    const retained = candidates.filter(job => job.status === 'completed' && job.conclusion === 'success' && execution(job) === execution(current));
+    return retained.reduce((original, job) => job.run_attempt < original.run_attempt ? job : original, current);
+  }
+  return current;
 }
 
 export function compilerJobMode(job) {

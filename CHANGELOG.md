@@ -1,6 +1,6 @@
 # 更新日志 / Changelog
 
-## 0.3.9
+## 0.3.11
 
 - **项目文件夹授权**：MCP 与 HTTP API 的 Key 可绑定多个知识库根目录或子目录，不同项目使用各自的 Key，仅搜索和浏览授权范围，公共目录可同时授权给多个项目。([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
 - **存量升级兼容**：已有 Key、MCP 地址、客户端配置和工具调用保持兼容，继续访问全部知识库及以后新增的目录；只有主动设置文件夹范围的 Key 才受限。
@@ -11,6 +11,28 @@
 - **Project folder access**: Bind MCP and HTTP API keys to multiple knowledge-base roots or subfolders. Projects use their own keys to search and browse only granted folders, while shared folders can belong to multiple projects. ([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
 - **Upgrade compatibility**: Existing keys, MCP endpoints, client configurations and tool calls remain compatible, retaining access to the entire knowledge base and folders added later. Only keys explicitly assigned folder scopes become restricted.
 - **Scope management and configuration copying**: Create and edit folder scopes in Remote services settings and the CLI. Select the project credential when multiple copyable keys exist. Scope changes cancel that key’s running and queued requests, and unavailable folders never fall back to full-library access.
+
+## 0.3.10
+
+- **发布耗时优化**：前端资源只构建一次，复用原生输入未变时已通过的原生 Rust 测试，移除 Safari 开发包、重复未签名 DMG 和重复端到端验证；保留三平台安装包验证与 Mac 签名公证。
+- **平台下载入口**：发布页直接列出 Windows x64、Apple Silicon 和 Intel 安装包下载链接，每次正式发布继续包含三个平台。
+
+### English
+
+- **Faster releases**: Build frontend assets once, reuse successful native Rust tests when native inputs are unchanged, and remove Safari development packaging, duplicate unsigned DMGs and duplicate end-to-end runs. Preserve three-platform installer verification and Mac signing and notarization.
+- **Platform downloads**: List Windows x64, Apple Silicon and Intel installer links directly on the release page, with all three platforms included in every stable release.
+
+## 0.3.9
+
+- **Intel Mac 公证连接**：在 Intel 签名任务中让 Apple 公证票据请求使用 TCP，避免运行器 HTTP/3 连接中断；保留签名、公证及票据验证。
+- **发布任务恢复**：失败任务重跑时复用未重新执行的成功构建及其原始 checkpoint，避免 attempt 编号变化造成产物缺失；无需重复编译。
+- **发布兼容性验证**：修正 Windows 换行格式导致的发布回归测试失败，以及 Intel Mac 更新验证中固定使用 Apple Silicon 目标的测试清单；保留原有安装包、签名和公证检查。
+
+### English
+
+- **Intel Mac notarization connection**: Use TCP for Apple notarization tickets in the Intel signing job to avoid hosted-runner HTTP/3 connection drops. Preserve signature, notarization and ticket verification.
+- **Release task recovery**: Reuse unchanged successful builds and their original checkpoints when retrying failed tasks, avoiding missing artifacts caused by copied attempt records without repeating compilation.
+- **Release compatibility checks**: Fix release regression tests on Windows CRLF checkouts and use the current Mac architecture in the updater test manifest. Preserve the existing installer, signing and notarization checks.
 
 ## 0.3.8
 

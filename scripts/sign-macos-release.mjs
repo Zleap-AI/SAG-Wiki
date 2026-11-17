@@ -14,7 +14,8 @@ const digest = path => createHash('sha256').update(readFileSync(path)).digest('h
 const external = (command, args, options = {}) => {
   const result = spawnSync(command, args, {cwd: root, encoding: 'utf8', maxBuffer: 16 * 1024 * 1024, ...options});
   // Arguments and command output may contain credentials. Never include them in errors.
-  assert.equal(result.status, 0, `${basename(command)} failed (exit ${result.status ?? 'unavailable'})`);
+  const operation = command === 'xcrun' ? ['notarytool submit', 'stapler staple', 'stapler validate'].find(name => name === `${args[0]} ${args[1]}`) : undefined;
+  assert.equal(result.status, 0, `${basename(command)}${operation ? ` ${operation}` : ''} failed (exit ${result.status ?? 'unavailable'})`);
   return {stdout: result.stdout ?? '', stderr: result.stderr ?? ''};
 };
 
@@ -129,9 +130,9 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
   let keychainCreated = false;
   let searchListChanged = false;
   let originalSearchList = [];
-  const filenames = Object.keys(original.files);
-  const dmgName = filenames.find(name => name.endsWith('.dmg'));
-  const archiveName = filenames.find(name => name.endsWith('.app.tar.gz'));
+  const archiveName = Object.keys(original.files).find(name => name.endsWith('.app.tar.gz'));
+  const dmgName = `SAG-Wiki-${version}-macOS-${releasePlatform==='macos'?'arm64':'x86_64'}.dmg`;
+  const filenames = [archiveName,dmgName];
   try {
     mkdirSync(signed, {recursive: true});
     mkdirSync(extraction);
@@ -202,7 +203,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
       mkdirSync(updaterExtraction);
       run('tar', ['-xzf', archive, '-C', updaterExtraction], {env: archiveEnvironment});
       const updaterApp = join(updaterExtraction, appName);
-      const acceptApp = acceptedApp => {
+      const acceptApp = (acceptedApp, {full = true} = {}) => {
         const acceptedCli = join(acceptedApp, 'Contents/Resources/bin/sag');
         run('xcrun', ['stapler', 'validate', acceptedApp]);
         verify(acceptedCli);
@@ -211,7 +212,7 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
         const identity = JSON.parse(run(acceptedCli, ['--build-info']).stdout);
         assert.deepEqual(identity, original.build_identity, 'Packaged CLI build identity differs from the staged release');
         run('python3', [join(root, 'tests/desktop_bundle_test.py')], {env: {...childEnvironment, SAG_DESKTOP_BUNDLE: acceptedApp}});
-        run('python3', [join(root, 'tests/local-jev-e2e.py'), '--binary', acceptedCli]);
+        if (full) run('python3', [join(root, 'tests/local-jev-e2e.py'), '--binary', acceptedCli]);
       };
       assert.deepEqual(appContents(updaterApp), appContents(app), 'Updater archive differs from the stapled app, including code signatures');
       acceptApp(updaterApp);
@@ -223,7 +224,9 @@ export function signMacosRelease({input = 'release-artifacts', output = 'signed-
         run('hdiutil', ['attach', '-readonly', '-nobrowse', '-mountpoint', mount, dmg]);
         const mountedApp = join(mount, appName);
         assert.deepEqual(appContents(mountedApp), appContents(updaterApp), 'DMG app differs from the extracted updater app, including code signatures');
-        acceptApp(mountedApp);
+        // The DMG contains the exact already-tested app, signatures and ticket.
+        // Retain mounted-bundle, identity and launch checks without rerunning E2E.
+        acceptApp(mountedApp, {full:false});
       } finally {
         if (attachAttempted) run('hdiutil', ['detach', mount]);
       }

@@ -5,12 +5,19 @@ import {chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, w
 import {dirname, join, resolve} from 'node:path';
 import {tmpdir} from 'node:os';
 import test from 'node:test';
-import {changedPaths, compareVersions, createPreparedCommit, validateReleaseDocumentation, releaseNotes, validatePullRequestNotes, gitAt, hasProductChanges, isProductPath, latestPublished,
+import {changedPaths, compareVersions, createPreparedCommit, validateReleaseDocumentation, releaseNotes, releaseBody, validatePullRequestNotes, gitAt, hasProductChanges, isProductPath, latestPublished,
   shouldSkipRelease, nextVersion, releaseVersion, hasNewerPreparedSource, preparedContents, releaseForTag, retryAction, updateVersionFiles, validateReleaseSource, validateReplaceableDraft, validatePublicationAssets, versionFiles} from './automatic-release.mjs';
 import {assertNoPendingReleaseDeployments, releaseApiPath} from './migrate-release-environment.mjs';
 import {validateVersions} from './release.mjs';
 
 const root = resolve(import.meta.dirname, '..');
+test('every release body exposes Windows and both Mac installers without changing updater notes', () => {
+  const notes = '## 0.3.10\n\n- 中文\n\n### English\n\n- English\n';
+  const body = releaseBody('0.3.10', notes);
+  assert.ok(body.startsWith(notes));
+  for (const name of ['macOS-arm64.dmg','macOS-x86_64.dmg','Windows-x64-setup.exe']) assert.ok(body.includes(`https://github.com/Zleap-AI/SAG-Wiki/releases/download/v0.3.10/SAG-Wiki-0.3.10-${name}`));
+  assert.throws(()=>releaseBody('../unsafe',notes));
+});
 function fixture(documentationPath = 'docs/zh-CN/中文 更新 说明.md') {
   const directory = mkdtempSync(join(tmpdir(), 'sag-automatic-release-'));
   for (const name of [...versionFiles, 'CHANGELOG.md']) {
