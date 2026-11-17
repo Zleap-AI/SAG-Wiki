@@ -9,7 +9,6 @@
     "types:check": "next typegen && tsc --noEmit",
     "changelog:generate": "node ../scripts/documentation-release.mjs generate",
     "changelog:lint": "node ../scripts/documentation-release.mjs lint",
-    "prebuild": "node ../scripts/documentation-release.mjs build",
     "verify:deployment": "node ../scripts/documentation-release.mjs verify"
   },
   "dependencies": {

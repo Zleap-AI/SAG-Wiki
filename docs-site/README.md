@@ -22,6 +22,19 @@ The root URL selects Chinese or English from the browser's preferred languages. 
 
 ## 构建与验证 / Build and verify
 
+`docs-site` 可单独复制到 Docker 构建目录，无需上层仓库、根目录更新日志或 Git：
+
+You can copy `docs-site` into its own Docker build context. Building it requires no parent repository, root changelog or Git:
+
+```sh
+cd docs-site
+npm ci
+npm run build
+npm run start -- --hostname 0.0.0.0 --port 3000
+```
+
+从完整仓库运行 / From the full repository:
+
 ```sh
 npm --prefix docs-site run types:check
 npm --prefix docs-site run build
@@ -66,9 +79,9 @@ npm --prefix docs-site run changelog:lint
 npm --prefix docs-site run build
 ```
 
-PR CI 对所有 PR 强制执行 lint，不依赖是否触发桌面发布。构建前再次 lint，并生成不入库的 `public/docs-version.json`，记录实际源码提交、日志哈希、版本列表和双语内容哈希。部署必须使用同一次构建的产物。
+PR CI 对所有 PR 强制执行 lint，不依赖是否触发桌面发布。独立构建直接使用已提交的双语 MDX 页面，不访问上层目录。需要源码提交校验信息的发布构建，在完整仓库中先运行 `node scripts/documentation-release.mjs build`，再运行 `npm --prefix docs-site run build`；桌面发布 CI 已包含这两步。前一步校验日志并生成不入库的 `public/docs-version.json`，记录源码提交、日志哈希、版本列表和双语内容哈希。部署必须使用同一次构建的产物。
 
-PR CI lints every PR independently of desktop-release eligibility. The build also lints and emits an untracked `public/docs-version.json` containing the source commit, changelog digest, versions and bilingual content digests. Deploy the outputs from that same build.
+PR CI lints every PR independently of desktop-release eligibility. A standalone build uses the committed bilingual MDX pages without accessing parent directories. For a release build with source provenance, run `node scripts/documentation-release.mjs build` from the full repository before `npm --prefix docs-site run build`; desktop release CI includes both steps. The first step validates the changelogs and emits an untracked `public/docs-version.json` containing the source commit, changelog digest, versions and bilingual content digests. Deploy the outputs from that same build.
 
 在实际部署完成步骤中，检出预期提交后执行以下命令；线上版本信息及两个实际页面的内容标记均须一致。旧缓存、部分部署、错误提交或未收录的发布版本会使命令失败。校验不要求文档最高版本等于最新 Release，允许提前编写下一版本。
 
@@ -78,6 +91,6 @@ After deployment, check out the expected source commit and run the following com
 npm --prefix docs-site run verify:deployment -- --url https://your-docs-host.example --expected-sha <full-commit-sha> --release v0.3.5
 ```
 
-`--release` 可省略；提交及内容一致性始终检查。此仓库没有实际部署任务，本命令供部署完成步骤调用，不会部署站点或发布桌面新版本。
+`--release` 可省略；提交及内容一致性始终检查。此命令在完整仓库中运行，部署产物须包含上述发布构建生成的 `docs-version.json`。此仓库没有实际部署任务，本命令供部署完成步骤调用，不会部署站点或发布桌面新版本。
 
-`--release` is optional; source and content consistency are always checked. No deployment job is configured in this repository. This command is a post-deployment hook, not a site deployment or a desktop release.
+`--release` is optional; source and content consistency are always checked. Run this command from the full repository, and deploy the `docs-version.json` produced by the release preparation step above. No deployment job is configured in this repository. This command is a post-deployment hook, not a site deployment or a desktop release.
