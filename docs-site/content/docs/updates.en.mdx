@@ -7,7 +7,7 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="76777cd7a4026bf426b8b2f150472251d7a86a1336e26113ca6d3a77915e2e8d" aria-hidden="true" />
+<span data-docs-changelog-sha="9d6a97f0f0806144b80f7b709c4b4562459abbf3b477b8b5013969b6039b2c52" aria-hidden="true" />
 
 ## 0.3.11
 
@@ -74,8 +74,6 @@ Major changes by version. See the feature guides for instructions and the [Insta
 - **Windows app**: Restore the existing main window when reopening the app, avoiding duplicate windows.
 - **App exit**: On Windows, quitting from the tray or app menu stops the standalone service before exiting the client and prevents automatic restarts during shutdown. Fix an intermittent “Access is denied” error during shutdown. macOS retains its existing behavior: the service keeps running after the client exits, so CLI and MCP remain available. Closing the window hides the app.
 
-### Historical documentation details
-
 See [Folders and indexing](/en/docs/folders) and [Preferences and shortcuts](/en/docs/preferences) for details, and [Installation](/en/docs/installation) for installers.
 
 ## 0.3.0
@@ -85,8 +83,6 @@ See [Folders and indexing](/en/docs/folders) and [Preferences and shortcuts](/en
 - **Note imports**: Import Notion HTML exports, Evernote ENEX, Google Keep Takeout and macOS Apple Notes as Markdown, retaining supported formatting, internal links and attachments, then add them to the knowledge base.
 - **Data import entry points**: Access chat and note imports from Data import in Settings or the add-folder dialog. “File types to index” distinguishes indexing preferences from data imports.
 
-### Historical documentation details
-
 See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release](https://github.com/Zleap-AI/SAG-Wiki/releases/tag/v0.3.0) for installers.
 
 ## 0.2.18
@@ -94,8 +90,6 @@ See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release]
 - **Conversion storage**: Save converted files in the app data directory, library folders, or a custom directory. Move existing results without repeating OCR, and open the original file from the reader.
 - **File and parser settings**: Configure Docling and MinerU in File settings, choose the preferred parser, and use the revised settings groups.
 - **macOS update restart**: After an in-app update, wait for the old process to exit before reopening the app from its original location.
-
-### Historical documentation details
 
 - **Conversion storage**: Choose the app data directory, library folders, or a custom directory. Move existing results without repeating OCR and open the original file from the reader.
 - **File and parser settings**: Configure Docling and MinerU in one place, choose the preferred parser, and use the revised settings groups.
@@ -108,8 +102,6 @@ See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release]
 - **Document parsing**: Install Docling from the resource site and configure a custom MinerU endpoint. File conversion defaults to four concurrent tasks and preserves saved settings.
 - **System proxy**: Model requests on Windows and macOS support manually configured system proxies. Changes take effect without restarting.
 
-### Historical documentation details
-
 - **Narrow layouts**: Improve the sidebar, settings, search, and chat on mobile browsers and in narrow desktop windows.
 - **Chat models and search summaries**: Fetch model lists and use OpenAI Decisions. Choose a separate model for search summaries and view its usage.
 - **Document parsing**: Install Docling from the resource site and configure a custom MinerU endpoint. File conversion defaults to four concurrent tasks and preserves saved settings.
@@ -120,8 +112,6 @@ See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release]
 - **Math formulas**: Render TeX formulas in answers and document reading views, including offline.
 - **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
 - **PDF indexing**: Fix indexing for PDFs whose page count could not be read. Reindex affected files to retry.
-
-### Historical documentation details
 
 - **Math formulas**: Render TeX formulas offline in answers and document reading views.
 - **Search exclusions**: Exclude files and folders by relative path in CLI, MCP, and HTTP API searches.
@@ -136,8 +126,6 @@ See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release]
 
 - **MCP access**: Connect external MCP clients through the API service to search the knowledge base and browse folders. Copy the configuration from desktop settings or export it with the CLI.
 - **API key management**: Copy newly created keys again from desktop settings. Existing keys continue to work.
-
-### Historical documentation details
 
 - **Upgrade cache reuse and indexing summaries**: Startup and upgrade checks reuse unchanged indexes and compatible conversion results. Indexing details distinguish checked, reused, updated and failed files, so a check is not mistaken for a rebuild. Content changes, parsing settings and required migrations can still update affected documents.
 - **Office text only**: Add an opt-in DOCX/PPTX parsing mode that skips images and embedded objects without image OCR. Changed settings recheck affected documents. See [Folders and indexing](/en/docs/folders).
@@ -157,8 +145,6 @@ See [Import data](/en/docs/data-import) for instructions and the [0.3.0 release]
 - **Component installation and distribution**: adjust document-component installation memory limits while retaining diagnostics, correctly report Windows parser memory-limit failures during startup, and further reduce the QPDF distribution payload.
 
 The desktop app and bundled CLI both use 0.2.12. Searchable basic text does not imply complete scanned-content or complex-table coverage; check the displayed state and original document.
-
-### Historical documentation details
 
 - **Progressive indexing**: Search available PDF text while OCR and table recognition continue in the background. Other files can be indexed while a large PDF is processed.
 - **PDF segments**: Reuse Docling models across segments of the same PDF and show conversion progress.
@@ -226,8 +212,6 @@ The desktop app and bundled CLI both use 0.2.8.
 
 The desktop app and bundled CLI both use 0.2.7.
 
-### Historical documentation details
-
 - **Document folding**: Markdown supports multiple reading levels and direct switching between cards and a map while keeping the source editable.
 - **Background processing and caching**: processing continues when the panel closes, with progress, explicit cancellation and reuse of completed results.
 - **Long-document indexing**: improve handling of long table rows, Windows line endings and numeric content while preserving complete source text and locations.
@@ -244,8 +228,6 @@ The desktop app and bundled CLI both use 0.2.7.
 - **Documentation**: the documentation site covers Quick Search, HTML tables and local images, conversion memory and indexing budgets, cross-language Q&A, adding MCP servers and Skill setup, with refreshed Chinese and English screenshots.
 
 The desktop app and bundled CLI both use 0.2.6, retaining the current update-signing channel. This update requires no database migration.
-
-### Historical documentation details
 
 - **Quick Search**: a global shortcut (⌘⇧Space on macOS, Ctrl+Shift+Space on Windows) opens a search popup that lists local matches and opens the passage in the main window, then returns to the previous app. Settings can enable, disable or rebind it.
 - **Cross-language retrieval**: Q&A includes equivalent Chinese and English wording in the same search and answers Chinese questions in Chinese; exact text and code stay untranslated.
@@ -266,8 +248,6 @@ The desktop app and bundled CLI both use 0.2.6.
 
 The desktop app and bundled CLI both use 0.2.5, retaining the current update-signing channel. This update requires no database migration.
 
-### Historical documentation details
-
 - **Search summaries**: open the automatic summary by default when results and an answer model are available.
 - **Source navigation**: highlight Markdown paragraphs from the selected passage's source position and scroll to it when switching files.
 - **HTML highlight fix**: outline the selected paragraph while keeping its text and background colors.
@@ -284,8 +264,6 @@ The desktop app and bundled CLI both use 0.2.5.
 - **Windows window controls**: restore minimize, maximize/restore and close to the top of the sidebar, removing the separate title bar. Keep controls available with the sidebar collapsed; macOS retains its native window controls.
 
 The desktop app and bundled CLI both use 0.2.4, retaining the current update-signing channel. This update requires no database migration.
-
-### Historical documentation details
 
 - **CLI connection feedback**: collapse successful connection details by default, with an option to expand them.
 - **Connection state updates**: clear stale results before retesting and prevent duplicate requests; clear cached feedback when CLI access is disabled.
