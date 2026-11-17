@@ -171,6 +171,10 @@ test('both Mac architectures reuse parallel native builds and signing before exi
  assert.match(signing,/runner: macos-15-intel/);assert.match(signing,/fail-fast: false/);
  assert.ok(signing.includes('name: desktop-${{ matrix.platform }}-signed-${{ github.sha }}\n'));
  assert.match(signing,/overwrite: true/);
+ const network=signing.slice(signing.indexOf('      - name: Use TCP for Apple'),signing.indexOf('      - name: Sign, notarize'));
+ assert.match(network,/if: matrix.platform == 'macos-intel'/);
+ assert.match(network,/proto udp from any to any port 443/);
+ assert.match(network,/sudo pfctl -E/);
  const release=workflow.slice(workflow.indexOf('\n  release:'));
  assert.ok(release.includes('pattern: desktop-*-signed-${{ github.sha }}\n'));
  assert.ok(!release.includes('signed-${{ github.sha }}-${{ github.run_attempt }}'));
@@ -229,4 +233,28 @@ test('Intel signing readiness is independent of ARM builds and tests while using
  for(const name of ['Build macos','Test Rust macos-intel','Build windows'])Object.assign(s.jobs.find(j=>j.name===name),{status:'in_progress',conclusion:null});
  const result=await awaitComponents(ctx,releaseComponents('macos-intel'),{gate:true,snapshot:()=>[s],receiptReader,pause:()=>{throw new Error('Intel signing waited for another architecture');}});
  assert.deepEqual(result.map(r=>r.artifact?.platform),['macos-intel']);
+});
+
+test('retained successful job copies resolve to their actual artifact-producing execution', () => {
+ const s=source(20); const c='build-macos-intel';
+ const original=s.jobs.find(j=>j.name===names[c]);
+ original.steps=[{name:'Build',status:'completed',conclusion:'success',started_at:original.started_at,completed_at:original.completed_at}];
+ const copied={...original,id:99001,run_attempt:2};s.jobs.push(copied);
+ assert.equal(latestJob(s.jobs,names[c]).id,original.id);
+ assert.equal(choose([s],c,{gate:true}).artifact.name,`desktop-macos-intel-${commit}-1`);
+ // A real rerun, even one with no new artifact yet, must supersede the old success.
+ copied.started_at='2026-01-02T00:00:00Z';copied.completed_at='2026-01-02T00:10:00Z';
+ assert.equal(latestJob(s.jobs,names[c]).id,copied.id);
+ assert.throws(()=>choose([s],c,{gate:true}),/superseded|artifact|checkpoint job/);
+ copied.conclusion='failure';assert.throws(()=>choose([s],c,{gate:true}),/checkpoint failed/);
+ copied.conclusion=null;copied.status='in_progress';assert.equal(choose([s],c,{gate:true}).state,'pending');
+});
+
+test('retained CLI copies preserve compiler receipt identity without masking new executions', () => {
+ const s=source(20), compiler=job('Compile CLI macos-intel',8801);
+ compiler.steps[0].started_at=compiler.started_at;compiler.steps[0].completed_at=compiler.completed_at;
+ s.jobs.push(compiler,{...compiler,id:8802,run_attempt:2});
+ s.receipts['build-macos-intel']={...s.receipts['build-macos-intel'],schema:2,cli_producer:{run:20,job:8801,attempt:1}};
+ assert.equal(choose([s],'build-macos-intel',{gate:true}).state,'success');
+ s.jobs.at(-1).conclusion='failure';assert.throws(()=>choose([s],'build-macos-intel',{gate:true}),/CLI compiler/);
 });

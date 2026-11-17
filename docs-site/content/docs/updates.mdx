@@ -7,10 +7,12 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="701249b93ab4a210840f2b6080006889ae5caceb8e32c5717eeb14353b012d63" aria-hidden="true" />
+<span data-docs-changelog-sha="880ade94e1e4f789a3be4f7682ab3318a7e3fa38b6d4cbecd9bb82c9bf88c752" aria-hidden="true" />
 
 ## 0.3.9
 
+- **Intel Mac 公证连接**：在 Intel 签名任务中让 Apple 公证票据请求使用 TCP，避免运行器 HTTP/3 连接中断；保留签名、公证及票据验证。
+- **发布任务恢复**：失败任务重跑时复用未重新执行的成功构建及其原始 checkpoint，避免 attempt 编号变化造成产物缺失；无需重复编译。
 - **发布兼容性验证**：修正 Windows 换行格式导致的发布回归测试失败，以及 Intel Mac 更新验证中固定使用 Apple Silicon 目标的测试清单；保留原有安装包、签名和公证检查。
 
 ## 0.3.8

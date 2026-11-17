@@ -749,6 +749,13 @@ jobs:
       # Native tests and other architectures keep running while this Mac signs
       # and notarizes. Final assembly retains the existing all-checkpoint check.
       # Secrets are scoped to the protected signing steps, never main jobs.
+      # Intel hosted runners can lose Apple's HTTP/3 ticket connection.
+      # Force TCP only in this disposable signing job (runner-images#14924).
+      - name: Use TCP for Apple ticket delivery on Intel
+        if: matrix.platform == 'macos-intel'
+        run: |
+          echo "block return out quick proto udp from any to any port 443" | sudo pfctl -f -
+          sudo pfctl -E
       - name: Sign, notarize and test the final macOS installer and updater
         env:
           APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}

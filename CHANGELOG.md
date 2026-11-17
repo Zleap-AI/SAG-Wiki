@@ -2,10 +2,14 @@
 
 ## 0.3.9
 
+- **Intel Mac 公证连接**：在 Intel 签名任务中让 Apple 公证票据请求使用 TCP，避免运行器 HTTP/3 连接中断；保留签名、公证及票据验证。
+- **发布任务恢复**：失败任务重跑时复用未重新执行的成功构建及其原始 checkpoint，避免 attempt 编号变化造成产物缺失；无需重复编译。
 - **发布兼容性验证**：修正 Windows 换行格式导致的发布回归测试失败，以及 Intel Mac 更新验证中固定使用 Apple Silicon 目标的测试清单；保留原有安装包、签名和公证检查。
 
 ### English
 
+- **Intel Mac notarization connection**: Use TCP for Apple notarization tickets in the Intel signing job to avoid hosted-runner HTTP/3 connection drops. Preserve signature, notarization and ticket verification.
+- **Release task recovery**: Reuse unchanged successful builds and their original checkpoints when retrying failed tasks, avoiding missing artifacts caused by copied attempt records without repeating compilation.
 - **Release compatibility checks**: Fix release regression tests on Windows CRLF checkouts and use the current Mac architecture in the updater test manifest. Preserve the existing installer, signing and notarization checks.
 
 ## 0.3.8
