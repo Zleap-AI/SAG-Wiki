@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.12
+
+- **大文档解析提速**：长 PDF 分段并发调用 MinerU，并行数跟随文档解析设置，默认 2，所有文档共享总并发上限；显示已完成和正在处理的分段，失败重试复用成功段，结果按原页顺序合并。([PR #165](https://github.com/Zleap-AI/SAG-Wiki/pull/165))
+
+### English
+
+- **Faster large-document parsing**: Process long PDF segments concurrently with MinerU using the document parsing concurrency setting, defaulting to 2 with a shared limit across documents. Show completed and active segments, reuse successful segments on retry, and merge results in original page order. ([PR #165](https://github.com/Zleap-AI/SAG-Wiki/pull/165))
+
 ## 0.3.11
 
 - **项目文件夹授权**：MCP 与 HTTP API 的 Key 可绑定多个知识库根目录或子目录，不同项目使用各自的 Key，仅搜索和浏览授权范围，公共目录可同时授权给多个项目。([PR #159](https://github.com/Zleap-AI/SAG-Wiki/pull/159))
