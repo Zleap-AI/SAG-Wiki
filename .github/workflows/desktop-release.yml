@@ -266,9 +266,6 @@ jobs:
           restore-keys: |
             rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
             rust-v3-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
-      - name: Install locked JavaScript dependencies
-        if: steps.reuse.outputs.reuse != 'true'
-        run: npm ci
       - name: Download the current-source portable web assets
         if: steps.reuse.outputs.reuse != 'true'
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -469,10 +466,10 @@ jobs:
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Install locked JavaScript dependencies
-        if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
+        if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || (needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_desktop != 'false'))
         run: npm ci
       - name: Prepare and verify QPDF for native tests
-        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && (needs.validate.outputs.test_core != 'false' || needs.validate.outputs.test_cli != 'false' || needs.validate.outputs.test_desktop != 'false')
         run: |
           node scripts/prepare-qpdf.mjs
           node --test scripts/qpdf-packaging.node-test.mjs

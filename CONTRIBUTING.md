@@ -21,7 +21,8 @@ Every pull request must pass the desktop checks. Force pushes and deletion of `m
 Pull requests to `main` require `E2E macos` and `E2E windows`. The test plan
 compares the base commit with the merge candidate, counting both sides of a
 rename. Documentation-only changes complete these checks on Linux without
-compiling the CLI. Frontend changes run the frontend suite and browser fixture.
+compiling the CLI. Frontend changes run the frontend suite and browser fixture. The Linux test
+plan job builds the browser workspace once for both native E2E jobs.
 Changes to Rust core, client, CLI or protocol run the relevant service and CLI
 fixtures. Shared build inputs and unfamiliar paths select all suites. A failed
 plan fails both required checks.
@@ -57,7 +58,9 @@ and desktop. Reuse requires matching suite inputs, including dependent Rust
 packages, fixtures, dependencies, compiler configuration and platform mappings,
 and proof that the suite ran successfully on all three platforms for a published
 ancestor. A skipped suite in a newer release does not count as fresh evidence.
-If no matching verified execution is found, run that suite on all three platforms. Only automatic CLI/desktop version tokens
+If no matching verified execution is found, run that suite on all three platforms.
+Only desktop build and test jobs install the JavaScript workspace. Production
+CLI compilation uses the portable web artifact from the current release run. Only automatic CLI/desktop version tokens
 are ignored. This includes the model-capability and SAG-tool JSON embedded by Rust;
 add any new external compile-time inputs to the selector and its regression tests.
 Changed or unverifiable inputs run the affected suites on native runners. Reused

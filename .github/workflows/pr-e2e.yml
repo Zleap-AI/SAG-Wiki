@@ -15,7 +15,7 @@ jobs:
   test-plan:
     name: Select PR tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 10
     outputs:
       native: ${{ steps.plan.outputs.native }}
       client: ${{ steps.plan.outputs.client }}
@@ -40,6 +40,21 @@ jobs:
         run: |
           node --test scripts/pr-test-plan.node-test.mjs
           node scripts/pr-test-plan.mjs
+      - name: Build the portable browser workspace once
+        if: steps.plan.outputs.web == 'true'
+        run: |
+          npm ci
+          node --input-type=module -e "import {buildWebAssets} from './scripts/build-web-assets.mjs'; buildWebAssets();"
+      - name: Upload the browser workspace for this merge candidate
+        if: steps.plan.outputs.web == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr-web-${{ github.sha }}
+          path: dist-web/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+          overwrite: true
 
   e2e:
     name: E2E ${{ matrix.platform }}
@@ -112,18 +127,23 @@ jobs:
           key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
           restore-keys: |
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
-      - name: Verify relocatable QPDF runtime package
-        if: needs.test-plan.outputs.qpdf == 'true'
-        run: node --test scripts/qpdf-packaging.node-test.mjs
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         if: needs.test-plan.outputs.native == 'true'
         with:
           node-version: '24'
-      - name: Embed the browser workspace in the E2E executable
-        if: needs.test-plan.outputs.native == 'true'
+      - name: Verify relocatable QPDF runtime package
+        if: needs.test-plan.outputs.qpdf == 'true'
+        run: node --test scripts/qpdf-packaging.node-test.mjs
+      - name: Download the browser workspace for this merge candidate
+        if: needs.test-plan.outputs.web == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: pr-web-${{ github.sha }}
+          path: dist-web/
+      - name: Use the verified browser workspace in the E2E executable
+        if: needs.test-plan.outputs.web == 'true'
         run: |
-          npm ci
-          node --input-type=module -e "import {buildWebAssets} from './scripts/build-web-assets.mjs'; buildWebAssets();"
+          test -f "$GITHUB_WORKSPACE/dist-web/index.html"
           echo "SAG_WEB_DIST=$GITHUB_WORKSPACE/dist-web" >> "$GITHUB_ENV"
       # Only compile the CLI needed by E2E, without Tauri or installers.
       - name: Prepare E2E executable
