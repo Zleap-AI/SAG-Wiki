@@ -60,7 +60,11 @@ and proof that the suite ran successfully on all three platforms for a published
 ancestor. A skipped suite in a newer release does not count as fresh evidence.
 If no matching verified execution is found, run that suite on all three platforms.
 Only desktop build and test jobs install the JavaScript workspace. Production
-CLI compilation uses the portable web artifact from the current release run. Only automatic CLI/desktop version tokens
+CLI compilation uses the portable web artifact from the current release run.
+The Intel CLI compiler runs on Apple Silicon with an explicit x86_64 target.
+It verifies Rosetta and checks the CLI and QPDF architectures before uploading
+the input. Intel desktop packaging, installer validation and signing still run
+on Intel runners. The compiler host forms part of the dependency cache key. Only automatic CLI/desktop version tokens
 are ignored. This includes the model-capability and SAG-tool JSON embedded by Rust;
 add any new external compile-time inputs to the selector and its regression tests.
 Changed or unverifiable inputs run the affected suites on native runners. Reused

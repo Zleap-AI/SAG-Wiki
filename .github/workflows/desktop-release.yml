@@ -165,7 +165,7 @@ jobs:
             target: aarch64-apple-darwin
           - platform: macos-intel
             job_name: Compile CLI macos-intel
-            runner: macos-15-intel
+            runner: macos-15
             target: x86_64-apple-darwin
           - platform: windows
             job_name: Compile CLI windows
@@ -200,6 +200,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/release-build-cache.mjs probe "build-${{ matrix.platform }}"
+      - name: Verify Rosetta for the Intel CLI producer
+        if: steps.reuse.outputs.reuse != 'true' && matrix.platform == 'macos-intel'
+        run: |
+          test "$(uname -m)" = arm64
+          /usr/bin/arch -x86_64 /usr/bin/true
       - name: Set up Python
         if: steps.reuse.outputs.reuse != 'true'
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -283,7 +288,12 @@ jobs:
         id: cli-stage
         env:
           GH_TOKEN: ${{ github.token }}
-        run: node scripts/parallel-cli.mjs stage
+        run: |
+          if [[ "$RELEASE_PLATFORM" == macos-intel ]]; then
+            test "$(lipo -archs src-tauri/bin/sag)" = x86_64
+            test "$(lipo -archs src-tauri/bin/qpdf/bin/qpdf)" = x86_64
+          fi
+          node scripts/parallel-cli.mjs stage
       - name: Upload the verified CLI input
         if: steps.reuse.outputs.reuse != 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
