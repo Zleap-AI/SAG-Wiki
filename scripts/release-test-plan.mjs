@@ -15,7 +15,8 @@ export function nativeTestKey(git, ref) {
     assert.ok(match, 'Invalid native input tree'); return {mode:match[1],blob:match[2],path:match[3]};
   });
   const paths = records.filter(({path}) =>
-    /^(?:core|client|protocol|cli|src-tauri|tests|\.cargo)\//.test(path) ||
+    /^(?:core|client|protocol|cli|src-tauri|prompts|\.cargo)\//.test(path) ||
+    (path.startsWith('tests/') && !/^tests\/[^/]+\.test\.[cm]?[jt]s$/.test(path)) ||
     /^src\/lib\/(?:model-capabilities|sag-tools)\.json$/.test(path) ||
     /(?:^|\/)(?:Cargo\.(?:toml|lock)|rust-toolchain(?:\.toml)?)$/.test(path) ||
     path.startsWith('scripts/docling/') || /^scripts\/(?:prepare-qpdf\.mjs|test-windows-desktop\.ps1|windows-test\.manifest\.xml|install\.sh)$/.test(path)).sort((a,b)=>a.path.localeCompare(b.path));

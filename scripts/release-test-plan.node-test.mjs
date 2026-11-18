@@ -37,6 +37,7 @@ function fixture() {
 test('native-test reuse ignores UI and release version changes but retains native code, tests, dependencies and profile inputs', () => {
   const {files, git} = fixture(), before = nativeTestKey(git, 'source');
   files['src/App.svelte'] = 'new UI'; files['CHANGELOG.md'] = 'new notes';
+  files['tests/search.test.ts'] = 'frontend-only tests';
   files['core/Cargo.toml'] = files['core/Cargo.toml'].replace('0.1.0','0.1.1');
   // Only CLI/desktop versions are changed by automatic release preparation.
   assert.notEqual(nativeTestKey(git,'source'),before);
@@ -52,7 +53,7 @@ test('native-test reuse ignores UI and release version changes but retains nativ
 });
 test('installer scripts, Windows test manifests and multiline Rust flags invalidate reuse', () => {
   const {files,git}=fixture(), before=nativeTestKey(git,'source');
-  for(const path of ['scripts/install.sh','scripts/windows-test.manifest.xml']) {files[path]='new input';assert.notEqual(nativeTestKey(git,'source'),before);delete files[path];}
+  for(const path of ['scripts/install.sh','scripts/windows-test.manifest.xml','prompts/context-summary.md','tests/sag2_v10_oracle.json']) {files[path]='new input';assert.notEqual(nativeTestKey(git,'source'),before);delete files[path];}
   files['.github/workflows/desktop-release.yml']=workflow.replace('-C debuginfo=1','-C debuginfo=2');
   assert.notEqual(nativeTestKey(git,'source'),before);
 });

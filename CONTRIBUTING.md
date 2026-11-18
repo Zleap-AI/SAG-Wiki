@@ -18,9 +18,26 @@ Every pull request must pass the desktop checks. Force pushes and deletion of `m
 
 ## Desktop PR checks
 
-Pull requests to `main` require `E2E macos` and `E2E windows`. These run the real CLI/service indexing and retrieval flow against a local Jev protocol fixture. They compile only the CLI test executable, not the desktop application or installers; they do not exercise the desktop GUI or real model inference.
+Pull requests to `main` require `E2E macos` and `E2E windows`. The test plan
+compares the base commit with the merge candidate, counting both sides of a
+rename. Documentation-only changes complete these checks on Linux without
+compiling the CLI. Frontend changes run the frontend suite and browser fixture.
+Changes to Rust core, client, CLI or protocol run the relevant service and CLI
+fixtures. Shared build inputs and unfamiliar paths select all suites. A failed
+plan fails both required checks.
 
-Desktop builds, unit/component tests, documentation builds, installer smoke tests and release validation remain in `Desktop build and release`, dispatched for prepared release tags or manually. Keep the required status check names in branch protection aligned with `pr-e2e.yml`.
+The Jev, HTTP API and browser fixtures each have a separate temporary data
+directory and select ephemeral ports. At most two run together per platform.
+The PR Jev fixture covers the base endpoint and a representative full endpoint.
+Packaged release checks retain the complete endpoint matrix. CLI and client
+tests keep their existing outer fixture limit. These checks use
+local model fixtures and compile the CLI, without building installers or
+exercising the desktop GUI or real model inference.
+
+Desktop builds, the complete native test suite, installation smoke tests and
+release validation run in `Desktop build and release`. Native result reuse
+checks the embedded prompts and fixtures alongside Rust inputs. Top-level
+frontend test files are covered by the frontend suite.
 
 ## CI resource use
 
