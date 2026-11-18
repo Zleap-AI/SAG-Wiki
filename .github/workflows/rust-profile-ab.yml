@@ -6,12 +6,12 @@ on:
       comparison:
         description: Single-variable comparisons to execute
         type: choice
-        options: ['debug-and-cgu', 'cgu-only']
+        options: ['debug-and-cgu', 'cgu-only', 'core-debug-only']
         default: 'debug-and-cgu'
       platform:
         description: Platforms to measure
         type: choice
-        options: ['both', 'macos', 'windows']
+        options: ['both', 'macos', 'macos-intel', 'windows']
         default: 'both'
       rounds:
         description: Paired rounds per platform (three for an adoption decision)
@@ -33,10 +33,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
+        platform: ${{ fromJSON(inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'macos-intel' && '["macos-intel"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
         round: ${{ fromJSON(inputs.rounds == '3' && '[1,2,3]' || '[1]') }}
-    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || 'windows-2025' }}
-    timeout-minutes: 90
+    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || matrix.platform == 'macos-intel' && 'macos-15-intel' || 'windows-2025' }}
+    timeout-minutes: ${{ matrix.platform == 'macos-intel' && 180 || 90 }}
     defaults:
       run:
         shell: bash

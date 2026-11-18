@@ -108,6 +108,12 @@ codegen candidates. Use three paired rounds before adopting a setting; a lower
 single-run time is insufficient evidence. Benchmark artifacts never substitute
 for native release checks.
 
+Use `platform=macos-intel` and `comparison=core-debug-only` to compare the
+desktop baseline with debug metadata disabled only for `sag-core` on an Intel
+runner. Both profiles configure the same third-party dependencies and run the
+same named tests. Check paired build-plus-test time and retain the Cargo timing
+reports to identify the compilation unit responsible for any difference.
+
 The measured candidates have not established a material, stable net reduction
 in core compilation plus execution. Desktop native tests therefore retain
 `CARGO_PROFILE_TEST_DEBUG=1` and the existing nonincremental CGU16 baseline;

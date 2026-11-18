@@ -211,7 +211,7 @@ jobs:
         id: rust-release
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
+          path: &cli_release_cache_paths |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
@@ -243,10 +243,7 @@ jobs:
             !src-tauri/target/${{ matrix.target }}/release/build/sag-*
             !src-tauri/target/${{ matrix.target }}/release/deps/libsag_*
             !src-tauri/target/${{ matrix.target }}/release/deps/sag_*
-          key: rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
-          restore-keys: |
-            rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
-            rust-v3-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
+          key: &cli_release_cache_key rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
       - name: Restore compatible trusted tag dependencies
         if: steps.reuse.outputs.reuse != 'true' && steps.rust-release.outputs.cache-hit != 'true'
         id: tag-release
@@ -255,6 +252,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/rust-dependency-cache.mjs restore
+      - name: Restore older Rust cache if no compatible archive was found
+        if: steps.reuse.outputs.reuse != 'true' && steps.rust-release.outputs.cache-hit != 'true' && steps.tag-release.outputs.hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: *cli_release_cache_paths
+          key: *cli_release_cache_key
+          restore-keys: |
+            rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
+            rust-v3-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
       - name: Install locked JavaScript dependencies
         if: steps.reuse.outputs.reuse != 'true'
         run: npm ci
@@ -421,7 +427,7 @@ jobs:
         id: rust-debug
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
+          path: &native_debug_cache_paths |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
@@ -439,10 +445,7 @@ jobs:
             !src-tauri/target/debug/build/sag-*
             !src-tauri/target/debug/deps/libsag_*
             !src-tauri/target/debug/deps/sag_*
-          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
-          restore-keys: |
-            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-
-            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
+          key: &native_debug_cache_key rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
       - name: Restore compatible trusted tag dependencies
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && steps.rust-debug.outputs.cache-hit != 'true'
         id: tag-debug
@@ -451,6 +454,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/rust-dependency-cache.mjs restore
+      - name: Restore older Rust cache if no compatible archive was found
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && steps.rust-debug.outputs.cache-hit != 'true' && steps.tag-debug.outputs.hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: *native_debug_cache_paths
+          key: *native_debug_cache_key
+          restore-keys: |
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
       - name: Install locked JavaScript dependencies
         if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
         run: npm ci
@@ -514,7 +526,7 @@ jobs:
         id: rust-release
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: |
+          path: &desktop_release_cache_paths |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
             ~/.cargo/git/db
@@ -546,10 +558,7 @@ jobs:
             !src-tauri/target/${{ matrix.target }}/release/build/sag-*
             !src-tauri/target/${{ matrix.target }}/release/deps/libsag_*
             !src-tauri/target/${{ matrix.target }}/release/deps/sag_*
-          key: rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
-          restore-keys: |
-            rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
-            rust-v3-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
+          key: &desktop_release_cache_key rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
       - name: Restore compatible trusted tag dependencies
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && steps.rust-release.outputs.cache-hit != 'true'
         id: tag-release
@@ -558,6 +567,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/rust-dependency-cache.mjs restore
+      - name: Restore older Rust cache if no compatible archive was found
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'build' && steps.rust-release.outputs.cache-hit != 'true' && steps.tag-release.outputs.hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: *desktop_release_cache_paths
+          key: *desktop_release_cache_key
+          restore-keys: |
+            rust-v4-${{ env.CACHE_ROLE }}-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
+            rust-v3-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-release-
       # CLI and desktop compilation run on separate runners. This job waits
       # only for its own platform CLI after desktop rustc has completed.
       - name: Download the current-source portable web assets
