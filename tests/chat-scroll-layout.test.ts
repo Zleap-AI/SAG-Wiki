@@ -34,3 +34,18 @@ it('keeps a reader paused when layout also shrinks after they scroll up',async()
  contentHeight+=200;action.update([0,'new streamed text']);
  await frame();expect(host.scrollTop).toBe(450);
 });
+
+it('keeps following when the browser rounds a programmatic scroll position down',async()=>{
+ let actualTop=0;
+ Object.defineProperty(host,'scrollTop',{
+  get:()=>actualTop,
+  set:(target:number)=>{actualTop=Math.min(target,bottom()-2/3)},
+ });
+ await frame();
+ expect(host.scrollTop).toBeCloseTo(bottom()-2/3);
+ host.dispatchEvent(new Event('scroll'));
+
+ contentHeight+=200;action.update([0,'new streamed text']);
+ await frame();
+ expect(host.scrollTop).toBeCloseTo(bottom()-2/3);
+});

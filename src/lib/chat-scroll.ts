@@ -6,7 +6,11 @@ export function followChat(node:HTMLElement,[resetKey]:readonly [number,...unkno
   if(!following)return;
   cancelAnimationFrame(frame);
   frame=requestAnimationFrame(()=>{
-   if(following)lastTop=node.scrollTop=lastBottom=bottom();
+   if(!following)return;
+   lastBottom=bottom();
+   node.scrollTop=lastBottom;
+   // The browser can clamp or round the requested offset to a fractional value.
+   lastTop=node.scrollTop;
   });
  };
  const onScroll=()=>{
