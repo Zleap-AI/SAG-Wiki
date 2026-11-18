@@ -141,12 +141,13 @@ runner. Both profiles configure the same third-party dependencies and run the
 same named tests. Check paired build-plus-test time and retain the Cargo timing
 reports to identify the compilation unit responsible for any difference.
 
-The measured candidates have not established a material, stable net reduction
-in core compilation plus execution. Desktop native tests therefore retain
-`CARGO_PROFILE_TEST_DEBUG=1` and the existing nonincremental CGU16 baseline;
-release LTO, codegen units and optimization settings remain unchanged. Evaluate
-both compile and test execution costs rather than selecting by compiler time
-alone.
+Three paired Intel runs supported disabling debug information for `sag-core`
+in the Intel Core and CLI test suites. Both suites pass the same Cargo package
+override so the CLI suite can reuse the core library. Other crates and platforms
+retain debug level 1 and the nonincremental CGU16 baseline. The Intel change
+reduces source detail in core test backtraces. It applies only to the test
+profile and keeps assertions and overflow checks enabled. Production release
+LTO, codegen units and optimization settings remain unchanged.
 
 For an internal/build-only PR that does not need its own release, maintainers may add `release:skip` before merging. PR checks remain required. Automatic preparation checks merged PR associations for every product commit in the captured main push (merge, squash or rebase); all must have this label to skip tag creation and publication. Mixed pushes containing an ordinary feature PR still release. API errors stop preparation without creating a tag. This is a per-push decision: a later feature release includes the accumulated changes. Labels are read when the workflow runs; adding one after preparation has started does not cancel an existing release.
 
