@@ -164,7 +164,7 @@ Node.js 18 以降がインストールされている場合：
 npm install -g @zleap-ai/sag
 ```
 
-[公開されている npm パッケージ](https://www.npmjs.com/package/@zleap-ai/sag)には、**macOS Apple Silicon、Windows x64、Linux ARM64 / x86_64** のバイナリが含まれています（Linux は Ubuntu 24.04 と Debian 12 で検証済み）。Rust ツールチェーンやソースからのコンパイルは不要です。CLI をインストールしても、デスクトップアプリはインストールされません。
+[公開されている npm パッケージ](https://www.npmjs.com/package/@zleap-ai/sag)には、**macOS Apple Silicon と Intel（Intel は `0.3.11` 以降）、Windows x64、Linux ARM64 / x86_64** のバイナリが含まれています（Linux は Ubuntu 24.04 と Debian 12 で検証済み）。Rust ツールチェーンやソースからのコンパイルは不要です。CLI をインストールしても、デスクトップアプリはインストールされません。
 
 <details>
 <summary>手動でのインストールと使い方</summary>
