@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.13
+
+- **日语界面与文档**：在通用设置中选择日本語，主界面、网页界面、快捷搜索和托盘可使用日语，文档站提供日语安装、入门、文件、搜索与问答指南。
+
+### English
+
+- **Japanese interface and documentation**: Select Japanese in General settings for the desktop app, browser workspace, Quick Search and tray. Japanese guides cover installation, getting started, files, search and Q&A.
+
 ## 0.3.12
 
 - **大文档解析提速**：长 PDF 分段并发调用 MinerU，并行数跟随文档解析设置，默认 2，所有文档共享总并发上限；显示已完成和正在处理的分段，失败重试复用成功段，结果按原页顺序合并。([PR #165](https://github.com/Zleap-AI/SAG-Wiki/pull/165))

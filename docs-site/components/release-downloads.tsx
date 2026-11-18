@@ -3,10 +3,37 @@
 import {useEffect, useState} from 'react';
 import {latestReleaseApi, latestReleaseUrl, parseDesktopDownloads, type DesktopDownloads} from '../lib/release-downloads';
 
-export function ReleaseDownloads({language}: {language: 'zh' | 'en'}) {
+const copy = {
+  en: {
+    unavailable: 'Download details are temporarily unavailable. ',
+    loading: 'Loading the latest release… ',
+    latest: 'Open the latest release',
+    intro: (version: string) => <>Installers for <strong>{version}</strong> are available below.</>,
+    system: 'System', architecture: 'Architecture', download: 'Download', size: 'Size',
+    dmg: 'Download DMG', installer: 'Download installer',
+  },
+  zh: {
+    unavailable: '暂时无法读取下载信息。',
+    loading: '正在读取最新版本… ',
+    latest: '前往最新正式版下载',
+    intro: (version: string) => <>当前提供 <strong>{version}</strong> 安装包。</>,
+    system: '系统', architecture: '架构', download: '下载', size: '大小',
+    dmg: '下载 DMG', installer: '下载安装器',
+  },
+  ja: {
+    unavailable: 'ダウンロード情報を取得できませんでした。',
+    loading: '最新のリリースを取得しています… ',
+    latest: '最新の安定版を開く',
+    intro: (version: string) => <><strong>{version}</strong> のインストーラーをダウンロードできます。</>,
+    system: 'OS', architecture: 'アーキテクチャ', download: 'ダウンロード', size: 'サイズ',
+    dmg: 'DMG をダウンロード', installer: 'インストーラーをダウンロード',
+  },
+};
+
+export function ReleaseDownloads({language}: {language: keyof typeof copy}) {
   const [downloads, setDownloads] = useState<DesktopDownloads | null>(null);
   const [failed, setFailed] = useState(false);
-  const english = language === 'en';
+  const labels = copy[language];
   useEffect(() => {
     let active = true;
     const controller = new AbortController();
@@ -27,19 +54,17 @@ export function ReleaseDownloads({language}: {language: 'zh' | 'en'}) {
     return () => {active = false; clearTimeout(timeout); controller.abort();};
   }, []);
 
-  if (!downloads) return <p role="status">{failed
-    ? (english ? 'Download details are temporarily unavailable. ' : '暂时无法读取下载信息。')
-    : (english ? 'Loading the latest release… ' : '正在读取最新版本… ')}
-    <a href={latestReleaseUrl}>{english ? 'Open the latest release' : '前往最新正式版下载'}</a>
+  if (!downloads) return <p role="status">{failed ? labels.unavailable : labels.loading}
+    <a href={latestReleaseUrl}>{labels.latest}</a>
   </p>;
   return <>
-    <p>{english ? <>Installers for <strong>{downloads.version}</strong> are available below.</> : <>当前提供 <strong>{downloads.version}</strong> 安装包。</>}</p>
+    <p>{labels.intro(downloads.version)}</p>
     <table>
-      <thead><tr><th>{english ? 'System' : '系统'}</th><th>{english ? 'Architecture' : '架构'}</th><th>{english ? 'Download' : '下载'}</th><th>{english ? 'Size' : '大小'}</th></tr></thead>
+      <thead><tr><th>{labels.system}</th><th>{labels.architecture}</th><th>{labels.download}</th><th>{labels.size}</th></tr></thead>
       <tbody>
-        <tr><td>macOS</td><td>Apple Silicon</td><td><a href={downloads.macos.url}>{english ? 'Download DMG' : '下载 DMG'}</a></td><td>{downloads.macos.size}</td></tr>
-        {downloads.macosIntel && <tr><td>macOS</td><td>Intel (x86_64)</td><td><a href={downloads.macosIntel.url}>{english ? 'Download DMG' : '下载 DMG'}</a></td><td>{downloads.macosIntel.size}</td></tr>}
-        <tr><td>Windows</td><td>x64</td><td><a href={downloads.windows.url}>{english ? 'Download installer' : '下载安装器'}</a></td><td>{downloads.windows.size}</td></tr>
+        <tr><td>macOS</td><td>Apple Silicon</td><td><a href={downloads.macos.url}>{labels.dmg}</a></td><td>{downloads.macos.size}</td></tr>
+        {downloads.macosIntel && <tr><td>macOS</td><td>Intel (x86_64)</td><td><a href={downloads.macosIntel.url}>{labels.dmg}</a></td><td>{downloads.macosIntel.size}</td></tr>}
+        <tr><td>Windows</td><td>x64</td><td><a href={downloads.windows.url}>{labels.installer}</a></td><td>{downloads.windows.size}</td></tr>
       </tbody>
     </table>
   </>;
