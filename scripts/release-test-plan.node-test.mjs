@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {nativeTestKey, verifiedNativeBaseline} from './release-test-plan.mjs';
+import {nativeTestKey, suiteActuallyPassed, verifiedNativeBaseline} from './release-test-plan.mjs';
 import {createHash} from 'node:crypto';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,chmodSync} from 'node:fs';
 import {tmpdir} from 'node:os';
@@ -97,4 +97,39 @@ test('a native baseline needs a completed successful trusted tag and all three l
   for (const patch of [{conclusion:'failure'},{status:'in_progress'},{id:21},{head_branch:'main'},{head_repository:{full_name:'other/repo'}}]) assert.throws(()=>verifiedNativeBaseline({...run,...patch},jobs,context));
   assert.throws(()=>verifiedNativeBaseline(run,jobs.slice(0,-1),context));
   assert.throws(()=>verifiedNativeBaseline(run,[...jobs,{...jobs[2],id:8,run_attempt:2,conclusion:'failure'}],context));
+});
+
+test('module fingerprints include Rust dependencies without treating unrelated test suites as inputs', () => {
+  const {files, git} = fixture();
+  files['.github/workflows/desktop-release.yml'] = workflow.replace(
+    'run: cargo test --locked --manifest-path core/Cargo.toml',
+    'run: |\n' + ['protocol','client','core','cli','src-tauri']
+      .map(name => `          cargo test --locked --manifest-path ${name}/Cargo.toml`).join('\n'));
+  const modules = ['protocol','client','core','cli','desktop'];
+  const before = Object.fromEntries(modules.map(name => [name, nativeTestKey(git, 'source', name)]));
+  function changed(path) {
+    files[path] = 'changed';
+    const affected = modules.filter(name => nativeTestKey(git, 'source', name) !== before[name]);
+    delete files[path];
+    return affected;
+  }
+  assert.deepEqual(changed('core/src/new.rs'), ['core', 'cli']);
+  assert.deepEqual(changed('cli/skills/sag/SKILL.md'), ['core', 'cli']);
+  assert.deepEqual(changed('src-tauri/src/new.rs'), ['desktop']);
+  assert.deepEqual(changed('protocol/src/new.rs'), modules);
+  assert.deepEqual(changed('tests/sag2_v10_oracle.json'), modules);
+  assert.deepEqual(changed('tests/search.test.ts'), []);
+});
+
+test('only test steps actually executed successfully on all three platforms are reusable', () => {
+  const jobs = ['macos','macos-intel','windows'].map(platform => ({
+    name: `Test Rust ${platform}`, id:1, run_attempt:1, conclusion:'success',
+    steps:[{name:'Run native tests with locked dependencies', conclusion:'success'}],
+  }));
+  assert.equal(suiteActuallyPassed(jobs, 'core'), true);
+  jobs[2].steps = [{name:'Run native Rust suite: core', conclusion:'skipped'}];
+  assert.equal(suiteActuallyPassed(jobs, 'core'), false);
+  jobs[2].steps[0].conclusion = 'success';
+  assert.equal(suiteActuallyPassed(jobs, 'core'), true);
+  assert.equal(suiteActuallyPassed(jobs, 'cli'), false);
 });

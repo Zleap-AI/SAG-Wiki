@@ -37,6 +37,11 @@ jobs:
       version: ${{ steps.source.outputs.version }}
       commit: ${{ steps.source.outputs.commit }}
       native_tests: ${{ steps.tests.outputs.native_tests }}
+      test_protocol: ${{ steps.tests.outputs.test_protocol }}
+      test_client: ${{ steps.tests.outputs.test_client }}
+      test_core: ${{ steps.tests.outputs.test_core }}
+      test_cli: ${{ steps.tests.outputs.test_cli }}
+      test_desktop: ${{ steps.tests.outputs.test_desktop }}
     steps:
       - name: Check out the event commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -466,22 +471,42 @@ jobs:
       - name: Install locked JavaScript dependencies
         if: steps.reuse.outputs.reuse != 'true' && (matrix.kind == 'build' || needs.validate.outputs.native_tests != 'reuse')
         run: npm ci
-      - name: Run native tests with locked dependencies
-        env:
-          # Keep assertions and overflow checks; reduce only test debug metadata.
-          # Scope this to tests so production builds retain their release profiles.
-          CARGO_PROFILE_TEST_DEBUG: '1'
+      - name: Prepare and verify QPDF for native tests
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse'
         run: |
           node scripts/prepare-qpdf.mjs
           node --test scripts/qpdf-packaging.node-test.mjs
+      - name: 'Run native Rust suite: protocol'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_protocol != 'false'
+        run: |
           cargo test --locked --timings --manifest-path protocol/Cargo.toml
+      - name: 'Run native Rust suite: client'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_client != 'false'
+        run: |
           cargo test --locked --timings --manifest-path client/Cargo.toml
+      - name: 'Run native Rust suite: core'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_core != 'false'
+        run: |
           cargo test --locked --timings --manifest-path core/Cargo.toml --lib --tests
-          # Fail within a bounded regression test if daemon pipes leak again,
-          # before running CLI tests that collect complete subprocess output.
+      - name: 'Run native Rust suite: cli'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_cli != 'false'
+        run: |
+          # Run the pipe leak probe first, then exclude its duplicate invocation.
           cargo test --locked --timings --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
           cargo test --locked --timings --manifest-path cli/Cargo.toml --bins --tests -- --nocapture --skip background_service_releases_both_foreground_capture_pipes_while_still_running
+      - name: 'Run native Rust suite: desktop'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_desktop != 'false'
+        run: |
           if [[ "$RUNNER_OS" == Windows ]]; then
             pwsh -NoProfile -File scripts/test-windows-desktop.ps1
           else

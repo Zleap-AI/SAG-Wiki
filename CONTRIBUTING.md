@@ -52,12 +52,15 @@ Windows SDK manifest tool (`mt.exe`). macOS uses the regular `cargo test` comman
 
 Frontend assets are built once and frontend unit tests run once on Linux. All
 three platforms retain production builds and packaged/installed CLI checks.
-Native Rust results may be reused only when native source, fixtures, dependencies,
-compiler configuration and platform mappings match a successful published ancestor
-with all three native jobs successful. Only automatic CLI/desktop version tokens
+Native Rust tests are selected per Cargo package: protocol, client, core, CLI,
+and desktop. Reuse requires matching suite inputs, including dependent Rust
+packages, fixtures, dependencies, compiler configuration and platform mappings,
+and proof that the suite ran successfully on all three platforms for a published
+ancestor. A skipped suite in a newer release does not count as fresh evidence.
+If no matching verified execution is found, run that suite on all three platforms. Only automatic CLI/desktop version tokens
 are ignored. This includes the model-capability and SAG-tool JSON embedded by Rust;
 add any new external compile-time inputs to the selector and its regression tests.
-Changed or unverifiable inputs run complete Rust suites on native runners. Reused
+Changed or unverifiable inputs run the affected suites on native runners. Reused
 results are recorded by lightweight Ubuntu jobs without allocating Macs. Python
 and Safari native checks run in the corresponding production build. No required
 check or approval is added. Each Mac signer starts after its own build; final
