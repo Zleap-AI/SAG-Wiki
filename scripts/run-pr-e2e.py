@@ -1,11 +1,9 @@
 """Run selected E2E fixtures in isolated subprocesses, two at a time."""
 import argparse
 from concurrent.futures import ThreadPoolExecutor
-import os
 from pathlib import Path
 import subprocess
 import sys
-import tempfile
 from time import monotonic
 
 FIXTURES = {
@@ -17,22 +15,18 @@ FIXTURES = {
 
 def run_fixture(suite, binary):
     fixture = Path(__file__).resolve().parent.parent / "tests" / FIXTURES[suite]
-    # The fixtures each create their own SAG data directory and choose an
-    # ephemeral port. Also isolate temporary files created by child processes.
-    with tempfile.TemporaryDirectory(prefix=f"sag-pr-{suite}-") as temporary:
-        env = {**os.environ, "TMPDIR": temporary, "TEMP": temporary, "TMP": temporary}
-        command = [sys.executable, str(fixture), "--binary", str(binary)]
-        if suite == "jev":
-            command.append("--smoke")
-        started = monotonic()
-        print(f"Starting {suite}", flush=True)
-        result = subprocess.run(
-            command,
-            env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True, encoding="utf-8", errors="replace",
-        )
-        elapsed = monotonic() - started
-        print(f"Finished {suite} in {elapsed:.1f}s (exit {result.returncode})", flush=True)
+    # Each fixture owns its data directory and ephemeral ports.
+    command = [sys.executable, str(fixture), "--binary", str(binary)]
+    if suite == "jev":
+        command.append("--smoke")
+    started = monotonic()
+    print(f"Starting {suite}", flush=True)
+    result = subprocess.run(
+        command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, encoding="utf-8", errors="replace",
+    )
+    elapsed = monotonic() - started
+    print(f"Finished {suite} in {elapsed:.1f}s (exit {result.returncode})", flush=True)
     return suite, result.returncode, result.stdout
 
 
