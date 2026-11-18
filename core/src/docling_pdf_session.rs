@@ -24,6 +24,12 @@ impl<'a> PdfSession<'a> {
         }
     }
 
+    /// Called by the owning local worker between requests when another document
+    /// holds a required part and may itself need this worker's memory reservation.
+    pub(crate) fn release_idle_model(&self) {
+        self.worker.lock().unwrap().take();
+    }
+
     pub(crate) fn convert(
         &self,
         source: &Path,

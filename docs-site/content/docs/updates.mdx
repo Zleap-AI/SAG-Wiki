@@ -7,7 +7,11 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="1c96f614cb6d13ed344a158aabad4b9ce2309f0dc300afbf90b98e9f13cbeaa1" aria-hidden="true" />
+<span data-docs-changelog-sha="130f23ee720f245007ab1f10d96761cdebba61575e7e804e1fcfd4ae9fb4ad80" aria-hidden="true" />
+
+## 0.3.12
+
+- **大文档解析提速**：长 PDF 分段并发调用 MinerU，并行数跟随文档解析设置，默认 2，所有文档共享总并发上限；显示已完成和正在处理的分段，失败重试复用成功段，结果按原页顺序合并。([PR #165](https://github.com/Zleap-AI/SAG-Wiki/pull/165))
 
 ## 0.3.11
 

@@ -267,7 +267,7 @@ fn admission(config: &MineruConfig, cancel: &impl Fn() -> bool) -> Result<Admiss
 // reach the same source simultaneously. The service owns one process per user.
 static TASK_LOCKS: LazyLock<(Mutex<HashSet<PathBuf>>, Condvar)> =
     LazyLock::new(|| (Mutex::new(HashSet::new()), Condvar::new()));
-struct TaskLock(PathBuf);
+pub(crate) struct TaskLock(PathBuf);
 impl Drop for TaskLock {
     fn drop(&mut self) {
         TASK_LOCKS.0.lock().unwrap().remove(&self.0);
@@ -275,11 +275,23 @@ impl Drop for TaskLock {
     }
 }
 fn task_lock(path: &Path, cancel: &impl Fn() -> bool) -> Result<TaskLock> {
+    task_lock_with_wait(path, cancel, || ())
+}
+
+pub(crate) fn task_lock_with_wait<W>(path: &Path, cancel: &impl Fn() -> bool, on_wait: impl FnOnce() -> W) -> Result<TaskLock> {
+    let mut notify = Some(on_wait);
+    let mut _waiting = None;
     let mut active = TASK_LOCKS.0.lock().unwrap();
     loop {
         ensure!(!cancel(), "已停止等待 MinerU 任务，未发布输出");
         if active.insert(path.to_path_buf()) {
             return Ok(TaskLock(path.to_path_buf()));
+        }
+        if let Some(notify) = notify.take() {
+            drop(active);
+            _waiting = Some(notify());
+            active = TASK_LOCKS.0.lock().unwrap();
+            continue;
         }
         active = TASK_LOCKS
             .1
@@ -566,6 +578,11 @@ fn equation_body(text: &str) -> String {
         }
     }
     source.to_owned()
+}
+
+#[cfg(test)]
+pub(crate) fn replay_archive_with_assets(archive: Vec<u8>, start: u32, end: u32, limit: u64, parent: &Path) -> Result<String> {
+    archive_content_with_assets(archive, start, end, true, limit, Some(parent))
 }
 
 // Immutable result packages survive the staged Markdown renames performed by
@@ -915,6 +932,7 @@ async fn parse_part(
         require_pages,
         progress,
         RuntimeSettings::default().conversion_output_mib as u64 * MIB,
+        None,
     )
     .await
 }
@@ -928,7 +946,25 @@ async fn parse_part_with_limit(
     require_pages: bool,
     progress: &impl Fn(&str),
     output_limit: u64,
+    pause_submissions: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<String> {
+    // Also runs when the async operation is dropped by cancellation or timeout.
+    // A retained, nonterminal journal must be queried before another submission.
+    struct RemoteState<'a> {
+        path: &'a Path,
+        paused: Option<&'a std::sync::atomic::AtomicBool>,
+        terminal: bool,
+    }
+    impl Drop for RemoteState<'_> {
+        fn drop(&mut self) {
+            if !self.terminal && self.path.exists() {
+                if let Some(paused) = self.paused {
+                    paused.store(true, std::sync::atomic::Ordering::Release);
+                }
+            }
+        }
+    }
+    let mut remote = RemoteState { path, paused: pause_submissions, terminal: false };
     let mut task = match read_task(path)? {
         Some(task) => {
             ensure!(
@@ -938,6 +974,8 @@ async fn parse_part_with_limit(
             task
         }
         None => {
+            ensure!(!pause_submissions.is_some_and(|paused| paused.load(std::sync::atomic::Ordering::Acquire)),
+                "当前文档有未确认的云任务，暂停新提交并尝试本地解析");
             progress("uploading");
             let mut task = Task {
                 result: None,
@@ -1023,7 +1061,7 @@ async fn parse_part_with_limit(
         task.upload = None;
         write_task(path, &task)?;
     }
-    if let Some(result)=&task.result {progress("downloading");return finish_302(client,result,part,require_pages,output_limit,path.parent().and_then(Path::parent)).await;}
+    if let Some(result)=&task.result {remote.terminal = true; progress("downloading");return finish_302(client,result,part,require_pages,output_limit,path.parent().and_then(Path::parent)).await;}
     progress("queued");
     let poll = endpoint(
         base,
@@ -1040,6 +1078,7 @@ async fn parse_part_with_limit(
         };
         match field(result, "state")? {
             "done" => {
+                remote.terminal = true;
                 progress("downloading");
                 if config.provider==MineruProvider::Ai302 {
                     return finish_302(client,result,part,require_pages,output_limit,path.parent().and_then(Path::parent)).await;
@@ -1164,6 +1203,7 @@ pub(crate) fn convert_pdf_segment_with_runtime(
     cancel: &impl Fn() -> bool,
     progress: &impl Fn(&str),
     original_start: u32,
+    pause_submissions: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     convert_range_at_with_progress(
         source,
@@ -1175,6 +1215,7 @@ pub(crate) fn convert_pdf_segment_with_runtime(
         runtime,
         progress,
         Some(original_start),
+        pause_submissions,
     )
 }
 
@@ -1189,7 +1230,7 @@ fn convert_at_with_progress(
     progress: &impl Fn(&str),
 ) -> Result<()> {
     convert_range_at_with_progress(
-        source, output, config, key, cancel, base, runtime, progress, None,
+        source, output, config, key, cancel, base, runtime, progress, None, None,
     )
 }
 
@@ -1203,6 +1244,7 @@ fn convert_range_at_with_progress(
     runtime: &RuntimeSettings,
     progress: &impl Fn(&str),
     original_start: Option<u32>,
+    pause_submissions: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<()> {
     if config.provider == MineruProvider::Ai302 {
         ensure!(source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")),"302.AI 开源部署版仅支持 PDF，尝试本地解析");
@@ -1211,7 +1253,6 @@ fn convert_range_at_with_progress(
     validate_base_url(base)?;
     ensure!(!cancel(), "已停止 MinerU 转换，未发布输出");
     ensure!(!key.trim().is_empty(), "请填写 MinerU API Key");
-    let _admission = admission(config, cancel)?;
     progress("preparing");
     let started = std::time::Instant::now();
     let mut parts = prepare_with_runtime(
@@ -1238,6 +1279,7 @@ fn convert_range_at_with_progress(
     lock_paths.sort();
     lock_paths.dedup();
     let _task_locks = lock_paths.iter().map(|path| task_lock(path, cancel)).collect::<Result<Vec<_>>>()?;
+    let _admission = admission(config, cancel)?;
     // Waiting for the same source does not consume its conversion time budget.
     let remaining = Duration::from_secs(config.task_timeout_secs).saturating_sub(prepared_elapsed);
     ensure!(!remaining.is_zero(), "MinerU 文件准备超过任务时间限制");
@@ -1250,7 +1292,7 @@ fn convert_range_at_with_progress(
             let http=client(config.request_timeout_secs)?;
             let mut output_text=String::new();
             for (part,path) in parts.iter().zip(&paths){
-                let text=parse_part_with_limit(&http,base,part,path,config,key,parts.len()>1 || original_start.is_some(),progress,output_limit).await?;
+                let text=parse_part_with_limit(&http,base,part,path,config,key,parts.len()>1 || original_start.is_some(),progress,output_limit,pause_submissions).await?;
                 ensure!(output_text.len() as u64+text.len()as u64<=output_limit,"MinerU 合并正文超过大小限制");
                 if part.start>0 && original_start.is_none(){output_text.push_str(&format!("\n\n<!-- source-pages:{}-{} -->\n\n",part.start,part.end));}
                 output_text.push_str(&text);

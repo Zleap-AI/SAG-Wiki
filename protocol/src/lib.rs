@@ -162,11 +162,30 @@ pub struct ConversionSegment {
     pub end_page: u32,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ActiveSegment {
+    pub segment_id: usize,
+    pub start_page: u32,
+    pub end_page: u32,
+    pub engine: String,
+    pub phase: String,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct SegmentProgress {
+    pub total: usize,
+    pub completed: usize,
+    pub active: Vec<ActiveSegment>,
+    pub waiting_local: usize,
+    pub failed: usize,
+    pub cancelled: usize,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexConversion {
     pub path: String,
     pub engine: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub segment: Option<ConversionSegment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_progress: Option<SegmentProgress>,
 }
 /// Unique indexed targets checked in a task, independent of phase traversal totals.
 /// An update followed by a failure counts in both fields: actual writes are retained.
@@ -213,6 +232,8 @@ pub struct IndexHistory {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct IndexFileLog {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment: Option<ConversionSegment>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phase: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

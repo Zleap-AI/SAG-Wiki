@@ -41,7 +41,7 @@ export function indexStage(stage:string|undefined,parsing=false){
 export function isConversionStage(stage:string|undefined){return !!stage&&['converting','retrying_conversion','enhancing','retrying_enhancement'].includes(stage);}
 export function conversionParsers(tasks:IndexTask[]){
  const engines=new Set(tasks.filter(task=>isConversionStage(task.stage))
-  .flatMap(task=>(task.conversions??[]).filter(item=>task.files.includes(item.path)).map(item=>item.engine).filter(Boolean)));
+  .flatMap(task=>(task.conversions??[]).filter(item=>task.files.includes(item.path)).flatMap(item=>item.segment_progress?item.segment_progress.active.map(segment=>segment.engine):[item.engine]).filter(Boolean)));
  return ['MinerU','anydoc','Docling'].filter(engine=>engines.delete(engine)).concat([...engines].sort());
 }
 
