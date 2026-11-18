@@ -1331,15 +1331,16 @@ fn unknown_remote_status_pauses_new_parts_but_allows_journal_recovery() {
 #[test]
 fn multiple_documents_finish_within_shared_provider_admission() {
     use std::sync::{Barrier, atomic::{AtomicUsize, Ordering}};
-    let config = MineruConfig {provider:MineruProvider::Official, concurrency:2, ..Default::default()};
-    let ready = Barrier::new(6);
+    for width in [1, 2, 4] {
+    let config = MineruConfig {provider:MineruProvider::Official, concurrency:width, ..Default::default()};
+    let ready = Barrier::new(3 * width);
     let active = AtomicUsize::new(0);
     let peak = AtomicUsize::new(0);
     let deadline = std::time::Instant::now() + Duration::from_secs(15);
     std::thread::scope(|scope| {
-        // Three documents, each with two cloud workers and eight parts.
+        // Three documents each request the configured number of cloud workers.
         let mut threads = Vec::new();
-        for _ in 0..6 {
+        for _ in 0..(3 * width) {
             threads.push(scope.spawn(|| {
                 ready.wait();
                 for _ in 0..4 {
@@ -1352,5 +1353,6 @@ fn multiple_documents_finish_within_shared_provider_admission() {
         }
         for thread in threads { thread.join().unwrap(); }
     });
-    assert!(peak.load(Ordering::SeqCst) <= 2);
+    assert!(peak.load(Ordering::SeqCst) <= width);
+    }
 }

@@ -254,6 +254,14 @@ fn progress_only() -> Attempt {
     }
 }
 
+fn configured_cloud_width(settings: &Settings, parts: usize) -> usize {
+    if settings.mineru.enabled {
+        settings.mineru.concurrency.min(parts)
+    } else {
+        0
+    }
+}
+
 pub(super) fn convert_document(
     parts: &[Part],
     output: &Path,
@@ -270,11 +278,7 @@ pub(super) fn convert_document(
         identity,
         settings.runtime.conversion_output_mib as u64 * 1024 * 1024,
     )?;
-    let width = if settings.mineru.enabled {
-        settings.mineru.concurrency.min(2).min(parts.len())
-    } else {
-        0
-    };
+    let width = configured_cloud_width(settings, parts.len());
     let paused = AtomicBool::new(false);
     schedule_with_session(
         &doc,
@@ -650,6 +654,53 @@ mod tests {
             })
             .collect()
     }
+    #[test]
+    fn configured_cloud_width_follows_setting_and_available_parts() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.mineru.concurrency, 2);
+        assert_eq!(configured_cloud_width(&settings, 8), 0);
+        settings.mineru.enabled = true;
+        for width in [1, 2, 4, 16] {
+            settings.mineru.concurrency = width;
+            assert_eq!(configured_cloud_width(&settings, 20), width);
+            assert_eq!(configured_cloud_width(&settings, 3), width.min(3));
+            assert_eq!(configured_cloud_width(&settings, 0), 0);
+        }
+    }
+
+    #[test]
+    fn configured_width_four_runs_four_parts_together() {
+        use std::sync::{Condvar, Mutex};
+        use std::time::Duration;
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("out.md");
+        let parts: Vec<_> = (1..=4).map(|page| Part {
+            bytes: vec![page as u8], start: page, end: page,
+            name: format!("page-{page}.pdf"),
+        }).collect();
+        let doc = Document::new(&parts, &output, "four-parts", 4096).unwrap();
+        let mut settings = Settings::default();
+        settings.mineru.enabled = true;
+        settings.mineru.concurrency = 4;
+        let arrived = (Mutex::new(0usize), Condvar::new());
+        schedule(&doc, configured_cloud_width(&settings, parts.len()), &|| false, &mut |_| {},
+            |i, job, _, _| {
+                let mut count = arrived.0.lock().unwrap();
+                *count += 1;
+                arrived.1.notify_all();
+                let (count, timeout) = arrived.1.wait_timeout_while(count, Duration::from_secs(3), |n| *n < 4).unwrap();
+                anyhow::ensure!(!timeout.timed_out() && *count == 4, "four cloud parts must overlap");
+                drop(count);
+                fs::write(&job.parsed, format!("part {}", i + 1))?;
+                Ok(())
+            }, || { |_, _: &Job, _: &Stop<'_>, _: &mut dyn FnMut(Attempt)| anyhow::bail!("unexpected local fallback") }
+        ).unwrap();
+        doc.merge(&output, &|| false).unwrap();
+        let body = fs::read_to_string(&output).unwrap();
+        let positions: Vec<_> = (1..=4).map(|i| body.find(&format!("part {i}")).unwrap()).collect();
+        assert!(positions.windows(2).all(|p| p[0] < p[1]));
+    }
+
     #[test]
     fn later_cloud_parts_can_finish_and_cache_while_the_first_is_active() {
         use std::sync::{mpsc::channel, Mutex};

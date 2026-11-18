@@ -100,6 +100,7 @@ fn full_book_mineru_c1_and_forced_out_of_order_c2_are_equivalent() {
         // after the first reports active. The first only proceeds after the
         // coordinator publishes the second segment and reports it complete.
         let rendezvous = (Mutex::new((false, false)), Condvar::new());
+        let all_started = (Mutex::new(0usize), Condvar::new());
         let mut order = Vec::new();
         let mut active_peak = 0;
         schedule(
@@ -117,7 +118,7 @@ fn full_book_mineru_c1_and_forced_out_of_order_c2_are_equivalent() {
                 let segment = attempt.segment.expect("completion has a segment ID");
                 assert_eq!(progress.completed, order.len() + 1);
                 order.push(segment.current);
-                if width == 2 && segment.current == 2 {
+                if width >= 2 && segment.current == 2 {
                     rendezvous.0.lock().unwrap().1 = true;
                     rendezvous.1.notify_all();
                 }
@@ -128,7 +129,14 @@ fn full_book_mineru_c1_and_forced_out_of_order_c2_are_equivalent() {
                     phase: Some("downloading".into()),
                     ..progress_only()
                 });
-                if width == 2 && i < 2 {
+                if width == 4 && i < 4 {
+                    let mut started = all_started.0.lock().unwrap();
+                    *started += 1;
+                    all_started.1.notify_all();
+                    let (started, _) = all_started.1.wait_timeout_while(started, WAIT, |n| *n < 4).unwrap();
+                    ensure!(*started == 4, "four cloud workers failed to overlap");
+                }
+                if width >= 2 && i < 2 {
                     let mut state = rendezvous.0.lock().unwrap();
                     if i == 0 {
                         state.0 = true;
@@ -172,13 +180,15 @@ fn full_book_mineru_c1_and_forced_out_of_order_c2_are_equivalent() {
         );
         if width == 1 {
             assert_eq!(order, (1..=8).collect::<Vec<_>>());
-        } else {
+        } else if width == 2 {
             assert_eq!(
                 order.first(),
                 Some(&2),
                 "second segment must complete before first"
             );
             assert!(order.contains(&1));
+        } else {
+            assert!(order.iter().position(|n| *n == 2) < order.iter().position(|n| *n == 1));
         }
         doc.merge(&output, &|| false).unwrap();
 
@@ -228,10 +238,8 @@ fn full_book_mineru_c1_and_forced_out_of_order_c2_are_equivalent() {
         );
         (body, assets)
     };
-    assert_eq!(
-        run_width(1),
-        run_width(2),
-        "scheduling must preserve final output"
-    );
+    let serial = run_width(1);
+    assert_eq!(serial, run_width(2), "scheduling must preserve final output");
+    assert_eq!(serial, run_width(4), "four cloud workers must preserve final output");
     assert_eq!(crate::docling::fingerprint(&source).unwrap(), SOURCE_SHA);
 }
