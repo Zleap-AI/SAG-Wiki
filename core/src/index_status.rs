@@ -200,11 +200,19 @@ impl IndexControl {
         // cloud phase updates without being inferred from old log rows.
         if let Some(task) = state.tasks.get_mut(&self.key(root)) {
             if task.files.contains(&path) && (task.stage == "converting" || task.stage == "enhancing") {
-                let segment = attempt.segment.clone().or_else(|| task.conversions.iter()
-                    .find(|item| item.path == path).and_then(|item| item.segment.clone()));
+                let previous = task.conversions.iter().find(|item| item.path == path);
+                let (segment, segment_progress, engine) = match attempt.segment_status.clone() {
+                    Some((progress, representative)) => {
+                        let engine = representative.as_ref().and_then(|s| progress.active.iter()
+                            .find(|a| a.segment_id == s.current)).map(|a| a.engine.clone()).unwrap_or_default();
+                        (representative, Some(progress), engine)
+                    }
+                    None => (attempt.segment.clone().or_else(|| previous.and_then(|i| i.segment.clone())),
+                        None, attempt.phase.as_ref().map(|_| attempt.engine.clone()).unwrap_or_default()),
+                };
                 task.conversions.retain(|item| item.path != path);
-                if attempt.phase.is_some() || segment.is_some() {
-                    task.conversions.push(IndexConversion { path: path.clone(), engine: if attempt.phase.is_none() { String::new() } else { attempt.engine.clone() }, segment });
+                if attempt.phase.is_some() || segment.is_some() || segment_progress.is_some() {
+                    task.conversions.push(IndexConversion { path: path.clone(), engine, segment, segment_progress });
                     task.conversions.sort_by(|a,b| a.path.cmp(&b.path));
                 }
             }
@@ -212,13 +220,13 @@ impl IndexControl {
         // Starting only drives live status; retain the existing history format.
         if matches!(attempt.phase.as_deref(), Some("starting" | "segment")) { return; }
         if let Some(log)=state.logs.get_mut(&self.key(root)) {
-            if attempt.phase.is_some() && log.iter().rev().find(|row|row.path==path&&row.engine.as_deref()==Some(&attempt.engine))
+            if attempt.phase.is_some() && log.iter().rev().find(|row|row.path==path&&row.segment.as_ref().map(|s|s.current)==attempt.segment.as_ref().map(|s|s.current)&&row.engine.as_deref()==Some(&attempt.engine))
                 .is_some_and(|row|row.phase==attempt.phase) {return;}
             // Preserve final engine outcomes when long cloud queues fill the bounded log.
             if log.len()>=100 && attempt.phase.is_none() {
                 if let Some(index)=log.iter().position(|row|row.path==path&&row.phase.is_some()){log.remove(index);}
             }
-            if log.len()<100 {log.push(IndexFileLog {time:crate::store::now(),path,stage:"converting".into(),phase:attempt.phase.clone(),engine:Some(attempt.engine),elapsed_ms:Some(attempt.elapsed_ms),status:if attempt.phase.is_some(){"running"}else if attempt.error.is_some(){"fallback"}else{"completed"}.into(),error:attempt.error});}
+            if log.len()<100 {log.push(IndexFileLog {segment:attempt.segment,time:crate::store::now(),path,stage:"converting".into(),phase:attempt.phase.clone(),engine:Some(attempt.engine),elapsed_ms:Some(attempt.elapsed_ms),status:if attempt.phase.is_some(){"running"}else if attempt.error.is_some(){"fallback"}else{"completed"}.into(),error:attempt.error});}
         }
     }
     pub fn file<T>(&self, root: &str, path: &Path, work: impl FnOnce() -> Result<T>) -> Result<T> {
@@ -243,6 +251,7 @@ impl IndexControl {
         let log = state.logs.get_mut(&self.key(root)).unwrap();
         if log.len() < 100 {
             log.push(IndexFileLog {
+                segment: None,
                 time: crate::store::now(), path, stage, phase: None, engine: None, elapsed_ms: None,
                 status: if result.is_ok() { "completed" } else { "failed" }.into(),
                 error: result.as_ref().err().map(ToString::to_string),
@@ -326,6 +335,7 @@ mod parser_status_tests {
     use super::*;
     fn report(control: &IndexControl, path: &str, engine: &str, phase: Option<&str>) {
         control.conversion_attempt("root", Path::new(path), crate::conversion::Attempt {
+                segment_status: None,
             segment: None, engine: engine.into(), phase: phase.map(Into::into), elapsed_ms: 0, error: None,
         });
     }
@@ -362,6 +372,7 @@ mod parser_status_tests {
         let control=IndexControl::default();control.begin("root");control.phase("root","converting",1);
         control.file("root",Path::new("long.pdf"),|| {
             control.conversion_attempt("root",Path::new("long.pdf"),crate::conversion::Attempt {
+                segment_status: None,
                 segment:Some(sag_protocol::ConversionSegment {current:2,total:20,start_page:51,end_page:100}),
                 phase:Some("segment".into()),engine:String::new(),elapsed_ms:0,error:None,
             });
@@ -382,6 +393,7 @@ mod parser_status_tests {
     fn active_parser_does_not_depend_on_bounded_history() {
         let control = IndexControl::default(); control.begin("root"); control.phase("root", "converting", 1);
         control.shared.state.lock().unwrap().logs.insert(control.key("root"), (0..100).map(|_| IndexFileLog {
+                segment: None,
             time:0,path:"old.pdf".into(),stage:"converting".into(),phase:None,engine:None,elapsed_ms:None,status:"completed".into(),error:None,
         }).collect());
         control.file("root", Path::new("a.pdf"), || {

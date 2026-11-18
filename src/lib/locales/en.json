@@ -1,4 +1,9 @@
 {
+  "waiting_local": "Waiting for local parsing",
+  "running_local": "Parsing locally",
+  "starting": "Starting",
+  "等待本地解析：{value0} 段": "Waiting for local parsing: {value0} parts",
+  "失败 {value0} 段 · 已取消 {value1} 段": "Failed: {value0} parts · Cancelled: {value1} parts",
   "无法读取分享设置": "Unable to load sharing settings",
   "正在准备…": "Preparing…",
   "导入数据": "Import data",

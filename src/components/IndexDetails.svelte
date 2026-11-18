@@ -1,4 +1,5 @@
 <script lang="ts">
+ import SegmentProgress from './SegmentProgress.svelte';
  import {displayPath} from '../lib/domain';
  import {onMount} from 'svelte';
  import {Button} from 'bits-ui';
@@ -121,7 +122,7 @@
      <p class="index-stage-description">{$t(indexStage(task.stage)?.description??'先索引文本，再转换其他格式，最后索引转换结果。')}</p>
      {#if task.summary}<p class="index-outcomes">{$t('已检查 {value0} · 已复用 {value1} · 已更新 {value2} · 失败 {value3}',{value0:task.summary.checked,value1:task.summary.reused,value2:task.summary.updated,value3:task.summary.failed})}</p>{/if}
      {#if task.total>0}<div class="index-count">{$t(task.summary?'当前阶段：已处理 {value0} / {value1} 个文件':'已处理 {value0} / {value1} 个文件',{value0:task.completed,value1:task.total})}</div><progress aria-label={$t('{value0} 的当前阶段进度',{value0:root.name})} value={task.completed} max={task.total}></progress>{/if}
-     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span class="index-current-file-copy"><span class="index-current-file-path">{displayPath(file)}</span>{#if isConversionStage(task.stage)}{@const conversion=task.conversions?.find(item=>item.path===file)}<span class="index-file-parser">{conversion?.engine?$t('解析方式：{value0}',{value0:conversion.engine}):conversion?.segment?$t('正在处理分段…'):$t('正在检查转换状态…')}</span>{#if conversion?.segment}<span class="index-file-segment">{$t('当前文档：第 {value0} / {value1} 段',{value0:conversion.segment.current,value1:conversion.segment.total})} · {$t('第 {value0}–{value1} 页',{value0:conversion.segment.start_page,value1:conversion.segment.end_page})}</span>{/if}{/if}</span></li>{/each}</ul>{/if}
+     {#if task.files.length}<ul class="index-current-files" aria-label={$t('正在处理的文件')}>{#each task.files as file}<li>{@html icon('file')}<span class="index-current-file-copy"><span class="index-current-file-path">{displayPath(file)}</span>{#if isConversionStage(task.stage)}{@const conversion=task.conversions?.find(item=>item.path===file)}{#if conversion?.segment_progress}<SegmentProgress progress={conversion.segment_progress}/>{:else}<span class="index-file-parser">{conversion?.engine?$t('解析方式：{value0}',{value0:conversion.engine}):conversion?.segment?$t('正在处理分段…'):$t('正在检查转换状态…')}</span>{#if conversion?.segment}<span class="index-file-segment">{$t('当前文档：第 {value0} / {value1} 段',{value0:conversion.segment.current,value1:conversion.segment.total})} · {$t('第 {value0}–{value1} 页',{value0:conversion.segment.start_page,value1:conversion.segment.end_page})}</span>{/if}{/if}{/if}</span></li>{/each}</ul>{/if}
     {/if}
    </section>
   {/each}

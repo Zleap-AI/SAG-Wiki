@@ -7,7 +7,11 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="9d6a97f0f0806144b80f7b709c4b4562459abbf3b477b8b5013969b6039b2c52" aria-hidden="true" />
+<span data-docs-changelog-sha="34d2bef1389b0b8c63851c175cd753f611605a58addc34e64ef48745ba6e7d96" aria-hidden="true" />
+
+## 0.3.12
+
+- **Faster large-document parsing**: Process long PDF segments concurrently with MinerU using the document parsing concurrency setting, defaulting to 2 with a shared limit across documents. Show completed and active segments, reuse successful segments on retry, and merge results in original page order. ([PR #165](https://github.com/Zleap-AI/SAG-Wiki/pull/165))
 
 ## 0.3.11
 

@@ -46,13 +46,15 @@ export type DoclingStatus={installed:boolean;running:boolean;stage:string;messag
 export type ConversionSegment={current:number;total:number;start_page:number;end_page:number};
 export type IndexSummary={checked:number;reused:number;updated:number;failed:number};
 export type IndexProgress={id?:string;kind?:'primary'|'enhancement';path:string;count:number;total:number;stage?:string;summary?:IndexSummary};
-export type IndexTask={id?:string;kind?:'primary'|'enhancement';path:string;stage:string;completed:number;total:number;files:string[];summary?:IndexSummary;conversions?:{path:string;engine:string;segment?:ConversionSegment}[]};
+export type ActiveSegment={segment_id:number;start_page:number;end_page:number;engine:string;phase:string};
+export type SegmentProgress={total:number;completed:number;active:ActiveSegment[];waiting_local?:number;failed:number;cancelled:number};
+export type IndexTask={id?:string;kind?:'primary'|'enhancement';path:string;stage:string;completed:number;total:number;files:string[];summary?:IndexSummary;conversions?:{path:string;engine:string;segment?:ConversionSegment;segment_progress?:SegmentProgress}[]};
 export type ConversionState={source:string;root:string;status:string;searchable:boolean;error?:string|null};
 export type IndexFailure={path:string;root:string;error:string};
 export type IndexStatus={paused:boolean;tasks:IndexTask[];failed_files?:number;failed_documents?:IndexFailure[];conversion_states?:ConversionState[]};
 export type FolderIndexOptions={extensions?:string[]|null;file_types:FileTypes;convert_other_formats:boolean;conversion_formats?:string[]|null};
 export type IndexHistory={id:number;path:string;name:string;started_at:number;finished_at:number;completed:number;total:number;status:string;error:string|null;summary?:IndexSummary};
-export type IndexFileLog={phase?:string;engine?:string;elapsed_ms?:number;time:number;path:string;stage:string;status:string;error:string|null};
+export type IndexFileLog={segment?:ConversionSegment;phase?:string;engine?:string;elapsed_ms?:number;time:number;path:string;stage:string;status:string;error:string|null};
 export type IndexHistoryLog={raw:string|null};
 
 export type NoteSourceState='intact'|'moved'|'changed'|'missing'|'unverified';
