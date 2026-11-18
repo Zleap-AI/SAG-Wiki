@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.13
+
+- **桌面更新源**：官方更新源随已保存的界面语言切换，简体中文使用 Zleap 官网，英文使用 GitHub。升级时迁移已有的默认官方更新设置，并保留自定义更新源。
+
+### English
+
+- **Desktop update source**: Follow the saved interface language for official updates. Simplified Chinese uses the Zleap website and English uses GitHub. Upgrade existing default settings once and preserve custom sources.
+
 ## 0.3.12
 
 - **大文档解析提速**：长 PDF 分段并发调用 MinerU，并行数跟随文档解析设置，默认 2，所有文档共享总并发上限；显示已完成和正在处理的分段，失败重试复用成功段，结果按原页顺序合并。([PR #165](https://github.com/Zleap-AI/SAG-Wiki/pull/165))
