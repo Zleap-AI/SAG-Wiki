@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+from time import monotonic
 
 FIXTURES = {
     "jev": "local-jev-e2e.py",
@@ -23,11 +24,15 @@ def run_fixture(suite, binary):
         command = [sys.executable, str(fixture), "--binary", str(binary)]
         if suite == "jev":
             command.append("--smoke")
+        started = monotonic()
+        print(f"Starting {suite}", flush=True)
         result = subprocess.run(
             command,
             env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace",
         )
+        elapsed = monotonic() - started
+        print(f"Finished {suite} in {elapsed:.1f}s (exit {result.returncode})", flush=True)
     return suite, result.returncode, result.stdout
 
 
