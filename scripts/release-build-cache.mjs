@@ -298,7 +298,7 @@ async function waitForRelease(platform) {
   assert.ok(Number.isSafeInteger(deadline), 'Invalid release checkpoint deadline');
   const results = await awaitComponents(ctx, requested, {gate:true,
     timeoutMs: Math.max(0, Math.min(budget, deadline - Date.now())),
-    pollMs: Number(process.env.RELEASE_WAIT_POLL_MS ?? 60000)});
+    pollMs: Number(process.env.RELEASE_WAIT_POLL_MS ?? 20000)});
   const artifacts = results.flatMap(result => result.artifact ? [result.artifact] : []);
   // Signing and assembly run in separate jobs, each with fresh artifact inputs.
   downloadArtifacts(artifacts, 'release-artifacts');

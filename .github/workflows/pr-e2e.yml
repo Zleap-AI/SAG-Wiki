@@ -12,8 +12,54 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  test-plan:
+    name: Select PR tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      native: ${{ steps.plan.outputs.native }}
+      client: ${{ steps.plan.outputs.client }}
+      cli: ${{ steps.plan.outputs.cli }}
+      jev: ${{ steps.plan.outputs.jev }}
+      http: ${{ steps.plan.outputs.http }}
+      web: ${{ steps.plan.outputs.web }}
+      qpdf: ${{ steps.plan.outputs.qpdf }}
+      frontend: ${{ steps.plan.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - name: Select suites from the merge candidate
+        id: plan
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          node --test scripts/pr-test-plan.node-test.mjs
+          node scripts/pr-test-plan.mjs
+      - name: Build the portable browser workspace once
+        if: steps.plan.outputs.web == 'true'
+        run: |
+          npm ci
+          node --input-type=module -e "import {buildWebAssets} from './scripts/build-web-assets.mjs'; buildWebAssets();"
+      - name: Upload the browser workspace for this merge candidate
+        if: steps.plan.outputs.web == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: pr-web-${{ github.sha }}
+          path: dist-web/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+          overwrite: true
+
   e2e:
     name: E2E ${{ matrix.platform }}
+    needs: test-plan
+    if: ${{ always() && !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +72,7 @@ jobs:
             runner: windows-2025
             target: x86_64-pc-windows-msvc
             binary: src-tauri/target/debug/sag.exe
-    runs-on: ${{ matrix.runner }}
+    runs-on: ${{ needs.test-plan.outputs.native == 'true' && matrix.runner || 'ubuntu-24.04' }}
     timeout-minutes: 30
     defaults:
       run:
@@ -39,17 +85,25 @@ jobs:
       CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
       PYTHONUTF8: '1'
     steps:
+      - name: Require a successful test plan
+        env:
+          PLAN_RESULT: ${{ needs.test-plan.result }}
+        run: test "$PLAN_RESULT" = success
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.test-plan.outputs.native == 'true'
         with:
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: needs.test-plan.outputs.native == 'true'
         with:
           python-version: '3.13.9'
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        if: needs.test-plan.outputs.native == 'true'
         with:
           toolchain: '1.98.1'
       # PR debug-profile compatibility cache is read-only and isolated from Desktop debug1.
       - name: Restore trusted Rust E2E dependencies
+        if: needs.test-plan.outputs.native == 'true'
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -73,42 +127,62 @@ jobs:
           key: rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
           restore-keys: |
             rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
-      - name: Verify relocatable QPDF runtime package
-        run: node --test scripts/qpdf-packaging.node-test.mjs
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: needs.test-plan.outputs.native == 'true'
         with:
           node-version: '24'
-      - name: Embed the browser workspace in the E2E executable
+      - name: Verify relocatable QPDF runtime package
+        if: needs.test-plan.outputs.qpdf == 'true'
+        run: node --test scripts/qpdf-packaging.node-test.mjs
+      - name: Download the browser workspace for this merge candidate
+        if: needs.test-plan.outputs.web == 'true'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: pr-web-${{ github.sha }}
+          path: dist-web/
+      - name: Use the verified browser workspace in the E2E executable
+        if: needs.test-plan.outputs.web == 'true'
         run: |
-          npm ci
-          node --input-type=module -e "import {buildWebAssets} from './scripts/build-web-assets.mjs'; buildWebAssets();"
+          test -f "$GITHUB_WORKSPACE/dist-web/index.html"
           echo "SAG_WEB_DIST=$GITHUB_WORKSPACE/dist-web" >> "$GITHUB_ENV"
       # Only compile the CLI needed by E2E, without Tauri or installers.
       - name: Prepare E2E executable
+        if: needs.test-plan.outputs.native == 'true'
         run: cargo build --locked --manifest-path cli/Cargo.toml
       - name: Verify service shutdown synchronization
+        if: needs.test-plan.outputs.client == 'true'
         run: cargo test --locked --manifest-path client/Cargo.toml shutdown_tests
       - name: Verify captured commands stay console-free
+        if: needs.test-plan.outputs.client == 'true'
         run: cargo test --locked --manifest-path client/Cargo.toml captured_tests
       - name: Test CLI integration
+        if: needs.test-plan.outputs.cli == 'true'
         run: cargo test --locked --manifest-path cli/Cargo.toml
-      - name: Exercise real service and CLI with local Jev fixture
-        run: python tests/local-jev-e2e.py --binary "${{ matrix.binary }}"
-
-      - name: Exercise CLI-managed HTTP API and persisted state
-        run: python tests/http-api-e2e.py --binary "${{ matrix.binary }}"
-
-      - name: Exercise the real browser workspace and independent service switches
-        env:
-          PLAYWRIGHT_BROWSER_CHANNEL: chromium
-          PLAYWRIGHT_MODULE: ${{ runner.temp }}/sag-web-browser/node_modules/playwright
+      - name: Prepare Chromium for the web fixture
+        if: needs.test-plan.outputs.web == 'true'
         run: |
           npm install --prefix "$RUNNER_TEMP/sag-web-browser" --no-save --package-lock=false playwright@1.65.1
           node "$RUNNER_TEMP/sag-web-browser/node_modules/playwright/cli.js" install chromium
-          python tests/web-service-e2e.py --binary "${{ matrix.binary }}"
+
+      - name: Run selected end-to-end fixtures
+        if: needs.test-plan.outputs.jev == 'true' || needs.test-plan.outputs.http == 'true' || needs.test-plan.outputs.web == 'true'
+        env:
+          TEST_JEV: ${{ needs.test-plan.outputs.jev }}
+          TEST_HTTP: ${{ needs.test-plan.outputs.http }}
+          TEST_WEB: ${{ needs.test-plan.outputs.web }}
+          PLAYWRIGHT_BROWSER_CHANNEL: chromium
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/sag-web-browser/node_modules/playwright
+        run: |
+          suites=()
+          if [[ "$TEST_JEV" == true ]]; then suites+=(jev); fi
+          if [[ "$TEST_HTTP" == true ]]; then suites+=(http); fi
+          if [[ "$TEST_WEB" == true ]]; then suites+=(web); fi
+          python scripts/run-pr-e2e.py --binary "${{ matrix.binary }}" "${suites[@]}"
 
   qpdf-linux:
     name: QPDF package Linux
+    needs: test-plan
+    if: needs.test-plan.outputs.qpdf == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -117,6 +191,23 @@ jobs:
           persist-credentials: false
       - name: Verify relocatable QPDF runtime package
         run: node --test scripts/qpdf-packaging.node-test.mjs
+
+  frontend:
+    name: Test frontend
+    needs: test-plan
+    if: needs.test-plan.outputs.frontend == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+          cache: npm
+      - run: npm ci
+      - run: npm test
 
   release-tooling:
     name: Test release tooling
