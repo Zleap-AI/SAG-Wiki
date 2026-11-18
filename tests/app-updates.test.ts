@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,unmount,tick} from 'svelte';
-import {get} from 'svelte/store';
+import {fromStore,get,writable} from 'svelte/store';
 import AppUpdates from '../src/components/AppUpdates.svelte';
 import SettingsPanel from '../src/components/Settings.svelte';
 import UpdateNotification from '../src/components/UpdateNotification.svelte';
@@ -18,7 +18,7 @@ const click=(text:string)=>{
  const button=[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()===text);
  expect(button, text).toBeDefined();button!.click();
 };
-beforeEach(()=>{setLanguage('zh-CN');updateDownload.set({key:'',version:'',stage:'idle',downloaded:0,total:null,error:''});updateState.set({key:'',checking:false,info:null,error:''});invoke.mockReset();invoke.mockResolvedValue(latest)});
+beforeEach(()=>{setLanguage('zh-CN');updateDownload.set({version:'',stage:'idle',downloaded:0,total:null,error:''});updateState.set({key:'',checking:false,info:null,error:''});invoke.mockReset();invoke.mockResolvedValue(latest)});
 afterEach(async()=>{for(const app of apps.splice(0))await unmount(app);vi.useRealTimers();document.body.innerHTML=''});
 
 it('checks at startup, shows a new-version prompt and opens About on click',async()=>{
@@ -167,6 +167,34 @@ it('keeps an already verified update available after the official source changes
  apps.push(mount(AppUpdates,{target:document.body,props:{config}}));
  await tick();click('重启并更新');
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('install_app_update',{version:latest.latest_version}));
+});
+
+it('keeps a failed download visible and checks the new source after a saved language change',async()=>{
+ const configStore=writable(defaultUpdateSettings);
+ const config=fromStore(configStore);
+ const sourceProps={get config(){return config.current}};
+ apps.push(mount(UpdateNotification,{target:document.body,props:{onOpen:vi.fn(),get config(){return config.current}}}));
+ apps.push(mount(AppUpdates,{target:document.body,props:sourceProps}));
+ await vi.waitFor(()=>expect(document.querySelector('.app-updates')?.textContent).toContain('发现新版本'));
+ let failDownload!:(error:Error)=>void;
+ invoke.mockImplementationOnce(()=>new Promise((_resolve,reject)=>{failDownload=reject}));
+ click('下载更新');
+ await vi.waitFor(()=>expect(get(updateDownload).stage).toBe('downloading'));
+
+ const github=updateSettingsForLanguage(defaultUpdateSettings,'en');
+ configStore.set(github);
+ await tick();
+ expect(invoke).toHaveBeenCalledTimes(2);
+ failDownload(new Error('Download failed'));
+
+ await vi.waitFor(()=>expect(document.querySelector('.app-updates [role=alert]')?.textContent??'').toContain('Download failed'));
+ await vi.waitFor(()=>expect(invoke).toHaveBeenLastCalledWith('check_app_update',{config:github}));
+ expect(invoke).toHaveBeenCalledTimes(3);
+ expect(document.querySelector('.app-updates .update-recheck')).not.toBeNull();
+ click('重新检查更新');
+ await vi.waitFor(()=>expect(document.querySelector('.app-updates [role=alert]')).toBeNull());
+ expect(invoke).toHaveBeenCalledTimes(4);
+ expect(invoke).toHaveBeenLastCalledWith('check_app_update',{config:github});
 });
 
 
