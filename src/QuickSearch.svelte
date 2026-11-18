@@ -16,7 +16,7 @@
  $:deepReady=!!settings?.jev.url&&!!settings.jev.model&&(settings.jev.auth_mode==='none'||settings.jev.has_key);
  async function refresh(){
   [settings,roots]=await Promise.all([api<Settings>('get_settings'),api<Root[]>('list_roots')]);
-  setLanguage(settings.language??'zh-CN');applyTheme(settings.theme);
+  setLanguage(settings.language);applyTheme(settings.theme);
  }
  async function cancel(){const previous=job;job='';busy=false;if(previous)await api('cancel_query',{id:previous});}
  function changed(){
@@ -60,6 +60,8 @@
   const stops:(()=>void)[]=[watchSystemTheme()];let disposed=false;
   void(async()=>{
    for(const [name,handler] of [['quick-search-shown',()=>void shown()],['quick-search-hidden',hidden]] as const){const stop=await listen(name,handler);if(disposed)stop();else stops.push(stop);}
+   const stopLanguage=await listen<string>('interface-language-changed',event=>setLanguage(event.payload));
+   if(disposed)stopLanguage();else stops.push(stopLanguage);
    if(!disposed)await shown();
   })().catch(e=>error=String(e));
   return()=>{disposed=true;hidden();stops.forEach(stop=>stop());};

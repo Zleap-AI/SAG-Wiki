@@ -571,7 +571,7 @@ impl Store {
         }
         anyhow::ensure!(s.search_summary_sources > 0, "自动问答参考数量必须大于 0");
         anyhow::ensure!(s.search_summary_model.is_empty() || s.answer.models.contains(&s.search_summary_model), "总结模型必须从可选问答模型中选择");
-        if !matches!(s.language.as_str(), "zh-CN" | "en") {
+        if !sag_protocol::locales::supports_interface_language(&s.language) {
             bail!("不支持的界面语言")
         }
         if s.max_tool_calls > 100 {
@@ -4093,9 +4093,12 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         settings.language = "en".into();
         store.save_settings(&settings).unwrap();
         assert_eq!(store.settings().unwrap().language, "en");
+        settings.language = "ja".into();
+        store.save_settings(&settings).unwrap();
+        assert_eq!(store.settings().unwrap().language, "ja");
         settings.language = "unsupported".into();
         assert!(store.save_settings(&settings).is_err());
-        assert_eq!(store.settings().unwrap().language, "en");
+        assert_eq!(store.settings().unwrap().language, "ja");
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();
         legacy.as_object_mut().unwrap().remove("language");
         let restored: Settings = serde_json::from_value(legacy).unwrap();

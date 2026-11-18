@@ -130,7 +130,7 @@ macro_rules! remote {
         async fn $name($($arg:$ty,)+state:State<'_,Arc<AppState>>)->CommandResult<serde_json::Value>{rpc(&state,Operation::$variant{$($arg),+}).await}
     };
 }
-/// Connects to the service once at startup and localizes the tray menu.
+/// Connects to the service once at startup to prepare the default library.
 ///
 /// Connection failures are reported to the window instead of aborting
 /// setup: a stale service record, an older daemon that is still running,
@@ -139,7 +139,7 @@ macro_rules! remote {
 fn connect_on_startup(state: Arc<AppState>, fresh_library: bool) {
     tauri::async_runtime::spawn(async move {
         match rpc(&state, Operation::GetSettings).await {
-            Ok(value) => {
+            Ok(_) => {
                 if fresh_library {
                     let result = async {
                         let documents = dirs::document_dir().ok_or("无法获取文稿目录")?;
@@ -149,23 +149,29 @@ fn connect_on_startup(state: Arc<AppState>, fresh_library: bool) {
                     }.await;
                     if let Err(error) = result { emit(&state.app, "app-error", error); }
                 }
-                if let Some(language) = value.get("language").and_then(|v| v.as_str()) {
-                    if let Some(tray) = state.app.tray_by_id("main") {
-                        match tray_menu(&state.app, language) {
-                            Ok(menu) => {
-                                if let Err(e) = tray.set_menu(Some(menu)) {
-                                    eprintln!("更新托盘菜单失败：{e}");
-                                }
-                            }
-                            Err(e) => eprintln!("构建托盘菜单失败：{e}"),
-                        }
-                    }
-                }
             }
             Err(error) => eprintln!("启动时连接 SAG 服务失败：{error:#}"),
         }
     });
 }
+fn apply_interface_language<R: tauri::Runtime>(app: &tauri::AppHandle<R>, language: &str) {
+    if let Some(tray) = app.tray_by_id("main") {
+        let result = tray_menu(app, language).and_then(|menu| tray.set_menu(Some(menu)));
+        if let Err(error) = result {
+            eprintln!("Could not update the tray menu: {error}");
+        }
+    }
+    emit(app, "interface-language-changed", language);
+}
+
+async fn refresh_interface_language<R: tauri::Runtime>(app: &tauri::AppHandle<R>, client: &Client) {
+    match client.call(Operation::GetSettings, Duration::from_secs(2)).await {
+        Ok(Output::Settings(settings)) => apply_interface_language(app, &settings.language),
+        Ok(_) => eprintln!("Unexpected settings response while refreshing the interface language"),
+        Err(error) => eprintln!("Could not load the interface language: {error}"),
+    }
+}
+
 fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let mut reported: Option<String> = None;
@@ -212,16 +218,16 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                 }
             }
             let mut events = client.subscribe();
-            if let Err(error) = client
-                .call(Operation::Snapshot, Duration::from_secs(30))
-                .await
-            {
-                emit(
-                    &state.app,
-                    "app-error",
-                    format!("无法恢复 SAG 状态：{error:#}"),
-                );
-                continue;
+            match client.call(Operation::Snapshot, Duration::from_secs(30)).await {
+                Ok(Output::Snapshot(snapshot)) => apply_interface_language(&state.app, &snapshot.settings.language),
+                Ok(_) => {
+                    emit(&state.app, "app-error", "无法恢复 SAG 状态：快照响应无效");
+                    continue;
+                }
+                Err(error) => {
+                    emit(&state.app, "app-error", format!("无法恢复 SAG 状态：{error:#}"));
+                    continue;
+                }
             }
             emit(&state.app, "data-changed", ());
             emit(&state.app, "history-changed", ());
@@ -230,7 +236,10 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                 match events.recv().await {
                     Ok(envelope) => match envelope.event {
                         ServiceEvent::DataChanged => emit(&state.app, "data-changed", ()),
-                        ServiceEvent::SettingsChanged => emit(&state.app, "settings-changed", ()),
+                        ServiceEvent::SettingsChanged => {
+                            emit(&state.app, "settings-changed", ());
+                            refresh_interface_language(&state.app, &client).await;
+                        }
                         ServiceEvent::HistoryChanged => emit(&state.app, "history-changed", ()),
                         ServiceEvent::IndexProgress(value) => {
                             emit(&state.app, "index-progress", value)
@@ -252,6 +261,8 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                     },
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                         emit(&state.app, "data-changed", ());
+                        emit(&state.app, "settings-changed", ());
+                        refresh_interface_language(&state.app, &client).await;
                     }
                     Err(error) => {
                         emit(
@@ -275,23 +286,23 @@ fn show_main_window(app: &tauri::AppHandle) -> tauri::Result<()> {
     window.unminimize()?;
     window.set_focus()
 }
-fn tray_menu(app: &tauri::AppHandle, language: &str) -> tauri::Result<Menu<tauri::Wry>> {
-    let english = language == "en";
+fn tray_menu<R: tauri::Runtime>(app: &tauri::AppHandle<R>, language: &str) -> tauri::Result<Menu<R>> {
+    let labels = &protocol::locales::interface_locale(language).tray;
     let open = MenuItem::with_id(
         app,
         "sag-open",
-        if english { "Open SAG Wiki" } else { "打开 SAG Wiki" },
+        &labels.open,
         true,
         None::<&str>,
     )?;
     let quit = MenuItem::with_id(
         app,
         "sag-quit",
-        if english { "Quit SAG Wiki" } else { "退出 SAG Wiki" },
+        &labels.quit,
         true,
         None::<&str>,
     )?;
-    let quick = MenuItem::with_id(app, "sag-quick-search", if english { "Quick Search" } else { "快捷搜索" }, true, None::<&str>)?;
+    let quick = MenuItem::with_id(app, "sag-quick-search", &labels.quick_search, true, None::<&str>)?;
     Menu::with_items(app, &[&quick, &open, &quit])
 }
 #[tauri::command]
@@ -429,10 +440,8 @@ async fn save_settings(
     mineru_key: Option<String>,
     mcp_credentials: Option<std::collections::BTreeMap<String, McpCredentials>>,
     state: State<'_, Arc<AppState>>,
-    app: tauri::AppHandle,
 ) -> CommandResult<serde_json::Value> {
-    let language = settings.language.clone();
-    let result = rpc(
+    rpc(
         &state,
         Operation::SaveSettings {
             settings,
@@ -442,12 +451,7 @@ async fn save_settings(
             mcp_credentials,
         },
     )
-    .await?;
-    app.tray_by_id("main")
-        .unwrap()
-        .set_menu(Some(tray_menu(&app, &language).map_err(error)?))
-        .map_err(error)?;
-    Ok(result)
+    .await
 }
 #[tauri::command]
 async fn reveal_path(path: String, state: State<'_, Arc<AppState>>) -> CommandResult<()> {
@@ -619,7 +623,7 @@ pub fn run() {
                 .map_err(anyhow::Error::msg)?;
             // The service is connected asynchronously by `connect_on_startup`
             // and on demand by `rpc`; the tray starts with the default language.
-            let language = "zh-CN";
+            let language = protocol::locales::default_interface_language();
             let icon = app.default_window_icon().unwrap().clone();
             #[cfg(target_os = "macos")]
             let icon = {

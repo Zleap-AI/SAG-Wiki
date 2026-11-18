@@ -358,7 +358,7 @@ impl Default for Settings {
             },
             retrieval: Retrieval::default(),
             theme: "light".into(),
-            language: "zh-CN".into(),
+            language: crate::locales::default_interface_language().into(),
             start_page: "ask".into(),
             editor_size: 15,
             show_hidden: false,
