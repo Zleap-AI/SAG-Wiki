@@ -190,7 +190,7 @@ test('classifies docs/CI-only pushes independently of cumulative unreleased prod
     'CHANGELOG.md', 'AGENTS.md', 'scripts/automatic-release.mjs', 'scripts/automatic-release.node-test.mjs', 'scripts/release.mjs',
     'scripts/release-build-cache.node-test.mjs', 'scripts/test-profile-ab.mjs', 'scripts/test-profile-ab.node-test.mjs',
     'scripts/parallel-cli.mjs', 'scripts/parallel-cli.node-test.mjs', 'scripts/rust-dependency-cache.mjs',
-    'scripts/rust-dependency-cache.node-test.mjs', 'scripts/rust-dependency-archive.py', 'scripts/configure-release.mjs', 'scripts/migrate-release-environment.mjs']) assert.equal(isProductPath(path), false, path);
+    'scripts/rust-dependency-cache.node-test.mjs', 'scripts/rust-dependency-archive.py', 'scripts/run-pr-e2e.py', 'tests/local-jev-e2e.py', 'scripts/pr-test-plan.mjs', 'scripts/pr-test-plan.node-test.mjs', 'scripts/configure-release.mjs', 'scripts/migrate-release-environment.mjs']) assert.equal(isProductPath(path), false, path);
   for (const path of ['src/App.svelte', 'core/src/lib.rs', 'package-lock.json', 'src-tauri/tauri.conf.json',
     'scripts/build-cli.mjs', 'scripts/sign-macos-release.mjs', 'scripts/package-updates.mjs', 'unknown/new-file']) assert.equal(isProductPath(path), true, path);
   const f = fixture();

@@ -190,7 +190,7 @@ def require(condition, message):
         raise AssertionError(message)
 
 
-def run(binary):
+def run(binary, *, smoke=False):
     completed = []
     with tempfile.TemporaryDirectory(prefix="sag-local-jev-e2e-") as temporary, JevFixture() as fixture:
         temporary = Path(temporary).resolve()
@@ -340,12 +340,15 @@ if ($rules[0].IdentityReference.Value -ne $sid -or $rules[0].AccessControlType -
             require(json.loads(cli("config", "--if-needed").stdout)["auth_mode"] == "none", "--if-needed does not recognize configured no-auth Jev")
             completed.append("none mode via CLI and SaveSettings without leaking the saved key")
 
-            for suffix in ("/v1", "/v1/", "/v1/systemone", "/v1/systemone/", "/decisions", "/decisions/"):
+            endpoint_suffixes = ("/v1/systemone/",) if smoke else (
+                "/v1", "/v1/", "/v1/systemone", "/v1/systemone/", "/decisions", "/decisions/",
+            )
+            for suffix in endpoint_suffixes:
                 cli("config", "--url", fixture.origin + suffix)
                 require(test_connection() == "连接成功", f"connection test failed for {suffix}")
                 deep_search()
                 search_cli()
-            completed.append("six base/full/trailing-slash endpoints: TestModel, deep search, CLI search")
+            completed.append(f"{len(endpoint_suffixes)} endpoint variants: TestModel, deep search, CLI search")
 
             cli("service", "restart")
             verify_endpoint_permissions()
@@ -366,7 +369,7 @@ if ($rules[0].IdentityReference.Value -ne $sid -or $rules[0].AccessControlType -
             require(coverage["index_ready"] and coverage["indexed_files"] == len(DOCUMENTS),
                     "service restart did not preserve the indexed documents")
             persisted = settings()["jev"]
-            require(persisted["url"] == fixture.origin + "/decisions/" and persisted["model"] == MODEL
+            require(persisted["url"] == fixture.origin + endpoint_suffixes[-1] and persisted["model"] == MODEL
                     and persisted["auth_mode"] == "none", "service restart lost the local Jev configuration")
             require(test_connection() == "连接成功", "persisted configuration could not reconnect")
             deep_search()
@@ -417,6 +420,7 @@ def main():
     binary_name = "sag.exe" if os.name == "nt" else "sag"
     parser.add_argument("--binary", type=Path, default=Path(__file__).resolve().parents[1] / "cli/target/debug" / binary_name)
     parser.add_argument("--serve", action="store_true", help="run only the strict no-auth Jev fixture for desktop UI acceptance")
+    parser.add_argument("--smoke", action="store_true", help="use representative endpoint coverage for PR checks")
     arguments = parser.parse_args()
     if arguments.serve:
         with JevFixture() as fixture:
@@ -430,7 +434,7 @@ def main():
     binary = arguments.binary.resolve()
     if not binary.is_file():
         parser.error(f"CLI binary does not exist: {binary}; build cli/Cargo.toml first")
-    run(binary)
+    run(binary, smoke=arguments.smoke)
 
 
 if __name__ == "__main__":
