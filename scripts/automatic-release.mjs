@@ -173,7 +173,7 @@ export function isProductPath(path) {
   return !(/^(?:docs\/|docs-site\/|\.github\/)/.test(path) ||
     /^(?:[^/]+\.md|LICENSE(?:\.[^/]+)?|\.gitignore|\.gitattributes)$/.test(path) ||
     /^scripts\/(?:automatic-release|documentation-release|release(?:-build-cache|-downloads|-assembly|-test-plan)?|configure-release|migrate-release-environment|rust-dependency-cache|test-profile-ab|pr-test-plan|parallel-cli)(?:\.node-test)?\.mjs$/.test(path) ||
-    ['scripts/rust-dependency-archive.py', 'scripts/run-pr-e2e.py'].includes(path) || path === 'scripts/fixtures/documentation-history.json');
+    ['scripts/rust-dependency-archive.py', 'scripts/run-pr-e2e.py', 'tests/local-jev-e2e.py'].includes(path) || path === 'scripts/fixtures/documentation-history.json');
 }
 export const hasProductChanges = paths => paths.some(isProductPath);
 export const changedPaths = (git, base, source) => git.raw('diff', '--name-only', '-z', '--no-renames', base, source, '--').split('\0').filter(Boolean);
