@@ -10,8 +10,8 @@ vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();listeners.clear();localStorage.clear()});
 const failures=[{path:'/notes/broken.pdf',root:'/notes',error:'识别超时'},{path:'/notes/second.epub',root:'/notes',error:'索引写入失败'}];
-function start(active=true,searchable=false){
- const task={id:'enhancement:/notes',kind:'enhancement',path:'/notes',stage:'enhancing',completed:1,total:2,files:['/notes/guide.pdf'],conversions:[{path:'/notes/guide.pdf',engine:'Docling',segment:{current:4,total:8,start_page:151,end_page:200}}],summary:{checked:1,reused:0,updated:1,failed:0}};
+function start(active=true,searchable=false,aggregate?:object){
+ const task={id:'enhancement:/notes',kind:'enhancement',path:'/notes',stage:'enhancing',completed:1,total:2,files:['/notes/guide.pdf'],conversions:[{path:'/notes/guide.pdf',engine:'Docling',segment_progress:aggregate,segment:{current:4,total:8,start_page:151,end_page:200}}],summary:{checked:1,reused:0,updated:1,failed:0}};
  invoke.mockImplementation(async command=>command==='get_settings'?{language:'zh-CN',theme:'light',start_page:'ask',answer:{model:'test',models:['test']}}:
   command==='list_roots'?[{path:'/notes',name:'Notes',status:active?'indexing':'partial',count:1,error:active?null:'两个文件未能处理'}]:
   command==='get_index_status'?{paused:false,tasks:active?[task]:[],failed_files:active?0:2,failed_documents:active?[]:failures,conversion_states:active?[{source:'/notes/guide.pdf',root:'/notes',status:'enhancing',searchable,error:null}]:[]}:
@@ -27,6 +27,16 @@ it('keeps only title/current filename outside inline details and uses completed 
  expect(details.textContent).toContain('解析完成后可搜索');
  const progress=details.querySelector('progress')!;expect(progress.value).toBe(3);expect(progress.max).toBe(8);
  for(const removed of ['已检查','已复用','本批文件','隐藏进度'])expect(card.textContent).not.toContain(removed);
+});
+it('uses the explicit ready count and shows the pages of all active segments',async()=>{
+ start(true,true,{total:8,completed:5,failed:0,cancelled:0,active:[
+  {segment_id:4,start_page:151,end_page:200,engine:'MinerU',phase:'parsing'},
+  {segment_id:7,start_page:301,end_page:350,engine:'Docling',phase:'running_local'}]});
+ await vi.waitFor(()=>expect(document.querySelector('progress')).not.toBeNull());
+ const details=document.querySelector('.index-status-card details')!;
+ expect(details.querySelector('progress')?.value).toBe(5);
+ expect(details.textContent).toContain('301–350');
+ expect(details.textContent).toContain('MinerU');
 });
 it('shows actual partial search availability without claiming full indexing is finished',async()=>{
  start(true,true);await vi.waitFor(()=>expect(document.querySelector('.index-status-card details')?.textContent).toContain('已可搜索部分内容'));
@@ -142,4 +152,11 @@ it('reports pause errors and allows retrying the title control',async()=>{
  document.querySelector<HTMLButtonElement>('.pause-button')!.click();
  await vi.waitFor(()=>expect(document.querySelector('#notice')?.textContent).toContain('无法暂停索引'));
  expect(document.querySelector<HTMLButtonElement>('.pause-button')?.disabled).toBe(false);
+});
+
+it('refreshes a stable snapshot when only another segment phase changes',async()=>{
+ const {sameIndexStatus}=await import('../src/lib/stable-snapshot');
+ const status=(phase:string)=>({paused:false,tasks:[{path:'/notes',stage:'enhancing',completed:0,total:1,files:['guide.pdf'],conversions:[{path:'guide.pdf',engine:'MinerU',segment_progress:{total:8,completed:1,failed:0,cancelled:0,active:[{segment_id:2,start_page:51,end_page:100,engine:'MinerU',phase}]}}]}]});
+ expect(sameIndexStatus(status('queued'),status('parsing'))).toBe(false);
+ expect(sameIndexStatus(status('parsing'),status('parsing'))).toBe(true);
 });

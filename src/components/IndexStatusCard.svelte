@@ -1,4 +1,5 @@
 <script lang="ts">
+ import SegmentProgress from './SegmentProgress.svelte';
  import {t} from '../lib/i18n';
  import {basename,displayPath} from '../lib/domain';
  import {icon} from '../lib/icons';
@@ -52,13 +53,16 @@
     <div class="document-detail">
      {#if currentFiles.length>1}<p class="detail-filename">{basename(path)}</p>{/if}
      {#if state}<p class="availability" class:searchable={state.searchable}>{state.searchable?$t('已可搜索部分内容'):$t('解析完成后可搜索')}</p>{/if}
-     {#if isConversionStage(task?.stage)&&conversion?.segment}
+     {#if isConversionStage(task?.stage)&&conversion?.segment_progress}
+      <p class="detail-heading">{$t('当前文档进度')}</p>
+      <SegmentProgress progress={conversion.segment_progress}/>
+     {:else if isConversionStage(task?.stage)&&conversion?.segment}
       <p class="detail-heading">{$t('当前文档进度')}</p>
       <div class="index-status-segment"><span>{$t('正在处理第 {value0}/{value1} 段',{value0:conversion.segment.current,value1:conversion.segment.total})}</span><span>{$t('第 {value0}–{value1} 页',{value0:conversion.segment.start_page,value1:conversion.segment.end_page})}</span></div>
       <progress value={Math.max(0,conversion.segment.current-1)} max={conversion.segment.total} aria-label={$t('当前文档已完成分段')}></progress>
       <p class="segment-completed">{$t('已完成 {value0}/{value1} 段',{value0:Math.max(0,conversion.segment.current-1),value1:conversion.segment.total})}</p>
      {/if}
-     {#if isConversionStage(task?.stage)&&conversion?.engine}<p class="index-status-parser">{$t('解析方式：{value0}',{value0:conversion.engine})}</p>{/if}
+     {#if isConversionStage(task?.stage)&&conversion?.engine&&!conversion.segment_progress}<p class="index-status-parser">{$t('解析方式：{value0}',{value0:conversion.engine})}</p>{/if}
     </div>
    {/each}
    {#if retrying}<p class="status-note" role="status">{$t('仅重试失败文件，已成功的文件不重复处理。')}</p>{/if}

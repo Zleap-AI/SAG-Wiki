@@ -11,6 +11,9 @@ use std::{fs, path::Path, time::Instant};
 mod pdf_segments;
 
 pub struct Attempt {
+    /// Aggregate snapshot and lowest unfinished segment. The event's own segment
+    /// below is kept separately for the per-engine history.
+    pub segment_status: Option<(sag_protocol::SegmentProgress, Option<sag_protocol::ConversionSegment>)>,
     pub segment: Option<sag_protocol::ConversionSegment>,
     pub phase: Option<String>,
     pub engine: String,
@@ -60,7 +63,7 @@ fn run_engines(
             bail!("已停止转换，未发布输出")
         }
         report(Attempt {
-            segment: None,
+            segment_status: None, segment: None,
             phase: Some("starting".into()),
             engine: (*engine).into(),
             elapsed_ms: 0,
@@ -70,7 +73,7 @@ fn run_engines(
         let result = convert(engine);
         let message = result.as_ref().err().map(|error| format!("{error:#}"));
         report(Attempt {
-            segment: None,
+            segment_status: None, segment: None,
             phase: None,
             engine: (*engine).into(),
             elapsed_ms: started.elapsed().as_millis() as u64,
@@ -277,44 +280,17 @@ fn convert_mode(
                 // Docling can still repair it. Only a decision the user made
                 // (page/input limits) or a cancellation stays fatal.
                 Err(error) if preflight_falls_back(&error) => {
-                    return convert_single(source, output, docling, settings, cancel, report, None, enhanced, None);
+                    return convert_using(source, output, docling, settings, cancel, report, None, enhanced, None, Engines::All);
                 }
                 Err(error) => return Err(error),
             };
         if parts.len() > 1 {
-            let report = std::cell::RefCell::new(&mut report);
-            // Cloud-only documents acquire no local component lease. The first
-            // fallback creates a session shared by all remaining PDF parts.
-            let session = std::cell::OnceCell::new();
-            let cancelled = &cancel;
-            let reporter = &report;
-            return pdf_segments::convert_parts(
-                &parts,
-                output,
+            return pdf_segments::convert_document(&parts, output,
                 &format!("{}:enhanced={enhanced}", identity(source, settings)),
-                settings.runtime.conversion_output_mib as u64 * 1024 * 1024,
-                &cancel,
-                |part, current, total| report.borrow_mut()(Attempt {
-                    segment: Some(sag_protocol::ConversionSegment { current, total, start_page: part.start, end_page: part.end }),
-                    phase: Some("segment".into()), engine: String::new(), elapsed_ms: 0, error: None,
-                }),
-                move |part, input, result| {
-                    convert_single(
-                        input,
-                        result,
-                        docling,
-                        settings,
-                        cancelled,
-                        |attempt| reporter.borrow_mut()(attempt),
-                        Some(part.start),
-                        enhanced,
-                        Some(&session),
-                    )
-                },
-            );
+                docling, settings, &cancel, &mut report, enhanced);
         }
     }
-    convert_single(source, output, docling, settings, cancel, report, None, enhanced, None)
+    convert_using(source, output, docling, settings, cancel, report, None, enhanced, None, Engines::All)
 }
 
 /// Whether a failed PDF segment preflight leaves the file convertible as a whole.
@@ -328,7 +304,14 @@ fn preflight_falls_back(error: &anyhow::Error) -> bool {
     })
 }
 
-fn convert_single<'a>(
+#[derive(Clone, Copy)]
+enum Engines<'a> {
+    All,
+    Cloud(&'a std::sync::atomic::AtomicBool),
+    Local,
+}
+
+fn convert_using<'a>(
     source: &Path,
     output: &Path,
     docling: &'a Docling,
@@ -338,6 +321,7 @@ fn convert_single<'a>(
     original_start: Option<u32>,
     enhanced: bool,
     session: Option<&std::cell::OnceCell<crate::docling::PdfSession<'a>>>,
+    engines_to_run: Engines<'_>,
 ) -> Result<()> {
     if cancel() {
         bail!("已停止转换，未发布输出")
@@ -346,14 +330,14 @@ fn convert_single<'a>(
         return Err(Failure::new(FailureKind::Memory, "文档超过配置的转换输入大小限制").into());
     }
     let mut engines = vec![];
-    if !anydoc::office_text_only(source, &settings.runtime) && cloud_supports(source, &settings.mineru) {
+    if !matches!(engines_to_run, Engines::Local) && !anydoc::office_text_only(source, &settings.runtime) && cloud_supports(source, &settings.mineru) {
         engines.push("MinerU")
     }
-    if !enhanced && anydoc::handles(source) {
+    if !matches!(engines_to_run, Engines::Cloud(_)) && !enhanced && anydoc::handles(source) {
         engines.push("anydoc")
     }
     // Ordinary fallback parsers may load assets, so they cannot serve text-only requests.
-    if !anydoc::office_text_only(source, &settings.runtime) {
+    if !matches!(engines_to_run, Engines::Cloud(_)) && !anydoc::office_text_only(source, &settings.runtime) {
         engines.push("Docling");
     }
     let parent = output.parent().context("转换输出缺少父目录")?;
@@ -371,9 +355,12 @@ fn convert_single<'a>(
             match engine {
                 "MinerU" => {
                     let key = crate::mineru::key(docling.data_directory(), &settings.mineru)?;
+                    let last_phase = std::cell::RefCell::new(String::new());
                     let progress = |phase: &str| {
+                        if last_phase.borrow().as_str() == phase { return; }
+                        last_phase.borrow_mut().replace_range(.., phase);
                         report.borrow_mut()(Attempt {
-                            segment: None,
+                            segment_status: None, segment: None,
                             phase: Some(phase.into()),
                             engine: "MinerU".into(),
                             elapsed_ms: 0,
@@ -390,6 +377,7 @@ fn convert_single<'a>(
                             &cancel,
                             &progress,
                             start,
+                            match engines_to_run { Engines::Cloud(paused) => Some(paused), _ => None },
                         )?;
                     } else {
                         crate::mineru::convert_with_runtime(
@@ -567,12 +555,9 @@ mod tests {
             |a| attempts.push(a),
         )
         .unwrap();
-        let engines = attempts
-            .iter()
-            .filter(|a| a.phase.is_none())
-            .map(|a| a.engine.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(engines, ["MinerU", "anydoc", "MinerU", "anydoc"]);
+        let progress = &attempts.last().unwrap().segment_status.as_ref().unwrap().0;
+        assert_eq!((progress.completed, progress.total), (2, 2));
+        assert!(progress.active.is_empty());
         assert!(attempts
             .iter()
             .filter(|a| a.engine == "MinerU" && a.phase.is_none())
@@ -588,6 +573,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(fs::read(output).unwrap(), first);
+    }
+
+    #[test]
+    fn concurrent_parts_tag_each_engine_outcome_with_its_original_pages() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("report.pdf");
+        fs::write(&source, text_pdf(51)).unwrap();
+        let mut settings = Settings::default();
+        settings.mineru.enabled = true;
+        let mut outcomes = vec![];
+        convert(&source, &dir.path().join("out.md"), &Docling::new(dir.path()), &settings,
+            || false, |attempt| {
+                if attempt.phase.is_none() {
+                    outcomes.push((attempt.segment.map(|s| s.start_page), attempt.engine));
+                }
+            }).unwrap();
+        for start in [1, 51] {
+            let engines = outcomes.iter().filter(|(page, _)| *page == Some(start))
+                .map(|(_, engine)| engine.as_str()).collect::<Vec<_>>();
+            assert_eq!(engines, ["MinerU", "anydoc"]);
+        }
     }
 
     // A valid PDF whose trailer points at a missing catalog object: lopdf loads it

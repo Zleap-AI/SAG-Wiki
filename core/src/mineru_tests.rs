@@ -1218,6 +1218,7 @@ fn segment_cloud_results_keep_original_page_offsets() {
         &RuntimeSettings::default(),
         &|_| {},
         Some(51),
+        None,
     )
     .unwrap();
     let text = std::fs::read_to_string(output).unwrap();
@@ -1300,4 +1301,56 @@ fn segmented_table_empty_results_and_caption_only_tables_remain_failures() {
     ] {
         assert!(archive_content(archive("full", Some(rows)), 201, 202, true).is_err());
     }
+}
+
+#[cfg(unix)]
+#[path = "mineru_tests/full_book_retry.rs"]
+mod full_book_retry;
+
+#[test]
+fn unknown_remote_status_pauses_new_parts_but_allows_journal_recovery() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let server = Fixture::new(|_| vec![Step {method:"POST",path:"/file-urls/batch",status:500,body:vec![]}]);
+    let root = tempfile::tempdir().unwrap();
+    let source = root.path().join("part.pdf");
+    let output = root.path().join("out.md");
+    std::fs::write(&source, pdf(1)).unwrap();
+    let paused = AtomicBool::new(false);
+    let config = MineruConfig {provider:MineruProvider::Official, ..Default::default()};
+    let convert = || convert_range_at_with_progress(&source, &output, &config, "test-key", &|| false,
+        &server.base, &RuntimeSettings::default(), &|_| {}, Some(1), Some(&paused));
+    assert!(convert().is_err());
+    assert!(paused.load(Ordering::Acquire));
+    assert!(convert().unwrap_err().to_string().contains("避免重复提交"));
+    std::fs::write(&source, pdf(2)).unwrap();
+    assert!(convert().unwrap_err().to_string().contains("暂停新提交"));
+    assert_eq!(std::fs::read_dir(root.path().join(".sag-mineru-tasks")).unwrap().count(),1);
+    server.finish(1);
+}
+
+#[test]
+fn multiple_documents_finish_within_shared_provider_admission() {
+    use std::sync::{Barrier, atomic::{AtomicUsize, Ordering}};
+    let config = MineruConfig {provider:MineruProvider::Official, concurrency:2, ..Default::default()};
+    let ready = Barrier::new(6);
+    let active = AtomicUsize::new(0);
+    let peak = AtomicUsize::new(0);
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    std::thread::scope(|scope| {
+        // Three documents, each with two cloud workers and eight parts.
+        let mut threads = Vec::new();
+        for _ in 0..6 {
+            threads.push(scope.spawn(|| {
+                ready.wait();
+                for _ in 0..4 {
+                    let _permit = admission(&config,&|| std::time::Instant::now() >= deadline).unwrap();
+                    peak.fetch_max(active.fetch_add(1,Ordering::SeqCst)+1,Ordering::SeqCst);
+                    std::thread::sleep(Duration::from_millis(5));
+                    active.fetch_sub(1,Ordering::SeqCst);
+                }
+            }));
+        }
+        for thread in threads { thread.join().unwrap(); }
+    });
+    assert!(peak.load(Ordering::SeqCst) <= 2);
 }
