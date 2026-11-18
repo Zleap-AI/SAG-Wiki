@@ -119,6 +119,7 @@ test('module fingerprints include Rust dependencies without treating unrelated t
   assert.deepEqual(changed('protocol/src/new.rs'), modules);
   assert.deepEqual(changed('tests/sag2_v10_oracle.json'), modules);
   assert.deepEqual(changed('tests/search.test.ts'), []);
+  assert.deepEqual(changed('tests/local-jev-e2e.py'), []);
 });
 
 test('only test steps actually executed successfully on all three platforms are reusable', () => {

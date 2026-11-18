@@ -40,7 +40,7 @@ export function nativeTestKey(git, ref, suite) {
   });
   const paths = records.filter(({path}) =>
     /^(?:core|client|protocol|cli|src-tauri|prompts|\.cargo)\//.test(path) ||
-    (path.startsWith('tests/') && !/^tests\/[^/]+\.test\.[cm]?[jt]s$/.test(path)) ||
+    (path.startsWith('tests/') && !/^tests\/(?:local-jev-e2e\.py|http-api-e2e\.py|web-service-(?:e2e\.py|browser\.cjs))$/.test(path) && !/^tests\/[^/]+\.test\.[cm]?[jt]s$/.test(path)) ||
     /^src\/lib\/(?:model-capabilities|sag-tools)\.json$/.test(path) ||
     /(?:^|\/)(?:Cargo\.(?:toml|lock)|rust-toolchain(?:\.toml)?)$/.test(path) ||
     path.startsWith('third-party/qpdf/') || path.startsWith('scripts/docling/') || /^scripts\/(?:prepare-qpdf\.mjs|qpdf-packaging\.node-test\.mjs|test-windows-desktop\.ps1|windows-test\.manifest\.xml|install\.sh)$/.test(path)).sort((a,b)=>a.path.localeCompare(b.path));
