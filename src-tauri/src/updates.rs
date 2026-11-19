@@ -353,23 +353,18 @@ mod tests {
     }
 
     #[test]
-    fn checks_release_manifest_without_rest_api() {
+    fn new_installation_uses_zleap_manifest() {
         let config = UpdateSettings::default();
         assert_eq!(
-            github_endpoint(&config.github_url).unwrap(),
-            Url::parse("https://github.com/Zleap-AI/SAG-Wiki/releases/latest/download/latest-v2.json")
-                .unwrap(),
-            "checking and downloading must use the same release manifest, without the REST API"
-        );
-        assert_eq!(
-            github_endpoint(&config.github_url).unwrap(),
-            manifest_endpoint(&config).unwrap()
+            manifest_endpoint(&config).unwrap().as_str(),
+            "https://zleap.com/update/latest-v2.json"
         );
     }
 
     #[test]
     fn resolves_signed_manifests_without_opening_a_browser() {
         let config = UpdateSettings {
+            source: UpdateSource::Github,
             github_url: "https://github.com/Zleap-AI/SAG-Wiki.git/".into(),
             ..Default::default()
         };
@@ -418,16 +413,21 @@ mod tests {
             .unwrap();
         let payload = include_bytes!("update-fixtures/SAG-Test.app.tar.gz");
         let signature = include_str!("update-fixtures/SAG-Test.app.tar.gz.sig").trim();
-        for corrupt in [true, false] {
+        for (announced, requested, corrupt, expected_error) in [
+            ("9.9.9", "9.9.8", false, Some("发布版本已变化")),
+            ("9.9.8", "9.9.8", false, Some("更新下载或签名校验失败")),
+            ("9.9.9", "9.9.9", true, Some("更新下载或签名校验失败")),
+            ("9.9.9", "9.9.9", false, None),
+        ] {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let server = std::thread::spawn(move || {
-                for request in 0..2 {
+                for request in 0..if announced == requested { 2 } else { 1 } {
                     let (mut stream, _) = listener.accept().unwrap();
                     let mut buffer = [0; 4096];
                     stream.read(&mut buffer).unwrap();
                     let manifest = serde_json::to_vec(
-                        &json!({"version":"9.9.9","platforms":{(format!("darwin-{}", std::env::consts::ARCH)):{
+                        &json!({"version":announced,"platforms":{(format!("darwin-{}", std::env::consts::ARCH)):{
                             "url":format!("http://{address}/update"),"signature":signature
                         }}}),
                     )
@@ -473,10 +473,15 @@ mod tests {
                 }
                 Ok(())
             });
-            let result = tauri::async_runtime::block_on(download_package(update, "9.9.9", channel));
+            let result = tauri::async_runtime::block_on(download_package(update, requested, channel));
             server.join().unwrap();
-            if corrupt {
-                assert!(result.is_err());
+            if let Some(expected_error) = expected_error {
+                let error = result.err().expect("invalid update must fail");
+                assert!(error.to_string().contains(expected_error), "{error:#}");
+                if announced == "9.9.8" {
+                    assert!(matches!(error.downcast_ref::<tauri_plugin_updater::Error>(),
+                        Some(tauri_plugin_updater::Error::SignedVersionMismatch { .. })), "{error:#}");
+                }
                 assert_eq!(std::fs::read(&application).unwrap(), b"old application");
             } else {
                 let (update, bytes) = result.unwrap();
@@ -571,10 +576,10 @@ mod tests {
     }
 
     #[test]
-    fn supports_a_future_website_source() {
+    fn reads_a_website_manifest() {
         let release = serde_json::from_value(
             json!({"version":"0.2.0", "notes":"Website notes", "platforms":{
-                "darwin-aarch64":{"url":"https://example.com/new.dmg"},
+                "darwin-aarch64":{"url":"https://example.com/new.app.tar.gz"},
                 "windows-x86_64":{"url":"https://example.com/new.exe"}
             }}),
         )
@@ -585,20 +590,18 @@ mod tests {
             Some("https://example.com/new.exe")
         );
         assert_eq!(info.notes, "Website notes");
-        let settings: sag_protocol::types::Settings = serde_json::from_str("{}").unwrap();
-        assert!(matches!(settings.updates.source, UpdateSource::Github));
-        assert!(settings.updates.website_url.is_empty());
     }
 
     #[test]
     #[ignore = "read-only live GitHub integration check"]
     fn checks_real_github_release() {
+        let config = UpdateSettings { source: UpdateSource::Github, ..Default::default() };
         for (os, arch, suffix) in [
             ("macos", "aarch64", "macOS-arm64.app.tar.gz"),
             ("windows", "x86_64", "Windows-x64-setup.exe"),
         ] {
             let info =
-                tauri::async_runtime::block_on(check(UpdateSettings::default(), "0.1.6", os, arch))
+                tauri::async_runtime::block_on(check(config.clone(), "0.1.6", os, arch))
                     .unwrap();
             assert!(info.available);
             assert!(info.download_url.unwrap().ends_with(suffix));

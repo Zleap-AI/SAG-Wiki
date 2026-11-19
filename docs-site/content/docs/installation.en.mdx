@@ -13,6 +13,8 @@ On macOS, check the chip or processor in **About This Mac**: choose Apple Silico
 
 On macOS, open the DMG and drag SAG Wiki into Applications. On Windows, run the installer and follow its steps. The installer offers Simplified Chinese, Traditional Chinese and English.
 
+After launching the app, open **Settings → General** to select Simplified Chinese, Traditional Chinese, English, Japanese, Korean, or Spanish. The Windows installer language is selected separately. See [Preferences](/en/docs/preferences). Japanese, Traditional Chinese, Korean, and Spanish interface languages are available starting in 0.3.13.
+
 [Open the latest stable release for installers and release notes](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
 
 ## CLI only
@@ -40,8 +42,11 @@ Location: **Settings → About**. This page shows the installed version and link
 
 The app checks for updates at startup and every 8 hours while it stays running. Select **Check updates** to check manually. When notified of a new version, select **Download update** and wait for verification. The action then becomes **Restart and update**.
 
+Starting in 0.3.13, the desktop app selects the official update source from the saved interface language. Simplified Chinese checks for and downloads updates from the Zleap website. English, Traditional Chinese, Japanese, Korean and Spanish use GitHub. Default official update settings migrate once on upgrade, and custom sources are preserved. For older standalone CLI installations, see [Sharing with desktop](/en/docs/cli#sharing-with-desktop).
+
 - Expand **Release notes** to read version changes with headings, lists, bold text and links.
 - Continue using the app during download; closing Settings does not interrupt it.
+- If a saved language change switches the official source and the current download fails, About shows the failure and automatically checks the newly selected source.
 - Handle unsaved documents before installation, following the save or cancel prompt. On macOS, the app reopens from its original location after the old process exits.
 - Exiting the whole app requires an unfinished download to start again.
 - Failures display an error. Recheck or download the full installer from GitHub.

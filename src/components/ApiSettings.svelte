@@ -2,7 +2,7 @@
  import {onMount,onDestroy} from 'svelte';
  import {Button} from 'bits-ui';
  import {api} from '../lib/api';
- import {t,language} from '../lib/i18n';
+ import {t,language,interfaceLocales} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import Switch from './ui/Switch.svelte';
  import Input from './ui/Input.svelte';
@@ -23,7 +23,7 @@
  let status:Status|undefined,keys:Key[]=[],host='',port:number|undefined=24681,error='',notice='',creating=false,keyName='',created:{key:string}|null=null,revoking:Key|null=null,dialogError='',refreshing=false;
  $: changed=!!status&&(host!==status.host||port!==status.port);
  $: mcpUrl=status?`${status.local_url}/mcp`:'';
- $: example=`curl ${status?.local_url??'http://127.0.0.1:24681'}/v1/search \\\n  -H "Authorization: Bearer <API_KEY>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"query":"${$language==='en'?'Deployment steps':'部署步骤'}","mode":"deep","limit":10}'`;
+ $: example=`curl ${status?.local_url??'http://127.0.0.1:24681'}/v1/search \\\n  -H "Authorization: Bearer <API_KEY>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"query":"${$t('部署步骤')}","mode":"deep","limit":10}'`;
  const call=<T,>(action:Record<string,unknown>)=>api<T>('manage_api',{action});
  async function refresh(reset=false){
   const next=await call<Status>({action:'status'});
@@ -94,7 +94,7 @@
 <div class="api-settings" lang={$language} aria-busy={pending}>
  <header class="settings-page-heading api-page-heading">
   <h2>{$t('远程服务')}</h2>
-  <div class="api-docs-link"><a href={`http://sag-wiki.zleap.com/${$language==='en'?'en':'zh'}/docs/api`} target="_blank" rel="noopener noreferrer" on:click|preventDefault={()=>{void api('open_external_link',{url:`http://sag-wiki.zleap.com/${$language==='en'?'en':'zh'}/docs/api`}).catch(e=>error=String(e));}}>{$t('API 文档')}{@html icon('externalLink')}</a></div>
+  <div class="api-docs-link"><a href={`http://sag-wiki.zleap.com/${$language==='zh-CN'?'zh':'en'}/docs/api`} target="_blank" rel="noopener noreferrer" on:click|preventDefault={()=>{void api('open_external_link',{url:`http://sag-wiki.zleap.com/${$language==='zh-CN'?'zh':'en'}/docs/api`}).catch(e=>error=String(e));}}>{$t('API 文档')}{@html icon('externalLink')}</a></div>
  </header>
  {#if !status}<p role="status">{$t('正在读取 API 设置…')}</p>
  {:else}
@@ -141,7 +141,7 @@
  <section class="settings-group" aria-labelledby="api-keys-heading">
   {#if keys.length}
    <table class="api-key-table"><thead><tr><th>{$t('名称')}</th><th>Key</th><th>{$t('创建时间')}</th><th><span class="sr-only">{$t('操作')}</span></th></tr></thead><tbody>
-    {#each keys as key}<tr><td>{key.name}<small class="api-scope-description" title={keyScope(key)}>{keyScope(key)}</small></td><td><div class="api-key-value"><code>{key.prefix}</code>{#if key.copyable}<Button.Root type="button" class="icon-button" aria-label={$t('复制 Key：{value0}',{value0:key.name})} onclick={()=>copyCredential({id:key.id})}>{@html icon(copied===key.id?'check':'copy')}</Button.Root>{/if}</div></td><td>{new Date(key.created_at).toLocaleDateString($language==='en'?'en-US':'zh-CN')}</td><td><Button.Root type="button" class="api-revoke" disabled={pending} aria-label={$t('编辑 {value0} 的访问范围',{value0:key.name})} onclick={()=>editScope(key)}>{$t('编辑范围')}</Button.Root><Button.Root type="button" class="api-revoke" disabled={pending} onclick={()=>{revoking=key;dialogError='';}} aria-label={$t('撤销 {value0}',{value0:key.name})}>{$t('撤销 Key')}</Button.Root></td></tr>{/each}
+    {#each keys as key}<tr><td>{key.name}<small class="api-scope-description" title={keyScope(key)}>{keyScope(key)}</small></td><td><div class="api-key-value"><code>{key.prefix}</code>{#if key.copyable}<Button.Root type="button" class="icon-button" aria-label={$t('复制 Key：{value0}',{value0:key.name})} onclick={()=>copyCredential({id:key.id})}>{@html icon(copied===key.id?'check':'copy')}</Button.Root>{/if}</div></td><td>{new Date(key.created_at).toLocaleDateString(interfaceLocales[$language].format)}</td><td><Button.Root type="button" class="api-revoke" disabled={pending} aria-label={$t('编辑 {value0} 的访问范围',{value0:key.name})} onclick={()=>editScope(key)}>{$t('编辑范围')}</Button.Root><Button.Root type="button" class="api-revoke" disabled={pending} onclick={()=>{revoking=key;dialogError='';}} aria-label={$t('撤销 {value0}',{value0:key.name})}>{$t('撤销 Key')}</Button.Root></td></tr>{/each}
    </tbody></table>
   {:else}<p class="settings-help api-key-empty">{$t('没有有效 Key，请求将返回未授权（401）。')}</p>{/if}
  </section>

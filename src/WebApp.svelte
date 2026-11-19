@@ -2,10 +2,9 @@
  import {onMount} from 'svelte';
  import {connectWeb,disconnectWeb,onWebSignOut,savedWebCode} from './lib/web-connection';
  import {logo} from './lib/icons';
+ import {t,setLanguage,resolveBrowserLanguage} from './lib/i18n';
  import App from './App.svelte';
  let connected=false,busy=false,code='',error='';
- let english=!navigator.language.startsWith('zh');
- const label=(zh:string,en:string)=>english?en:zh;
  async function signIn(accessCode:string){
   busy=true;error='';
   try{await connectWeb(accessCode.trim());connected=true;code='';}
@@ -14,8 +13,9 @@
  }
  function signOut(){disconnectWeb();connected=false;}
  onMount(()=>{
+  setLanguage(resolveBrowserLanguage(navigator.language));
   const saved=savedWebCode();if(saved)void signIn(saved);
-  return onWebSignOut(()=>{connected=false;error=label('请重新输入网页访问码。','Enter the web access code again.');});
+  return onWebSignOut(()=>{connected=false;error='请重新输入网页访问码。';});
  });
 </script>
 
@@ -25,10 +25,10 @@
  <main class="web-login">
   <form on:submit|preventDefault={()=>signIn(code)}>
    <div class="web-brand">{@html logo}<h1>SAG Wiki</h1></div>
-   <label for="web-code">{label('网页访问码','Web access code')}</label>
+   <label for="web-code">{$t('网页访问码')}</label>
    <input id="web-code" type="password" bind:value={code} autocomplete="current-password" spellcheck="false" required/>
-   {#if error}<p class="form-error" role="alert">{error}</p>{/if}
-   <button class="primary" disabled={busy||!code.trim()}>{busy?label('正在连接…','Connecting…'):label('进入知识库','Open knowledge base')}</button>
+   {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
+   <button class="primary" disabled={busy||!code.trim()}>{$t(busy?'正在连接…':'进入知识库')}</button>
   </form>
  </main>
 {/if}

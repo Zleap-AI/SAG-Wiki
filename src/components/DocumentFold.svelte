@@ -4,7 +4,7 @@
  import {listen} from '../lib/app-events';
  import type {UnlistenFn} from '@tauri-apps/api/event';
  import {api} from '../lib/api';
- import {t,language} from '../lib/i18n';
+ import {t,language,interfaceLocales} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import {foldSource,type FoldSource,type FoldResult,type FoldProgress} from '../lib/document-fold';
  import {textfoldData} from '../lib/textfold-reader';
@@ -46,7 +46,7 @@
   const style=getComputedStyle(editor),palette:Record<string,string>={};
   for(const [target,from] of Object.entries({'--surface':'paper','--card':'paper','--ink':'ink','--ink-2':'secondary','--muted':'secondary','--line':'rule','--line-2':'panel'}))palette[target]=style.getPropertyValue(`--color-${from}`).trim();
   palette['--sans']=style.fontFamily;palette['--serif']=style.fontFamily;
-  frame.contentWindow!.postMessage({type:'sag-fold-init',document:textfoldData(source!,result!,'sag:'+path),ui:$language==='zh-CN'?'zh':'en',level,palette,dark:!!editor.closest('[data-theme="dark"]')},location.origin);
+  frame.contentWindow!.postMessage({type:'sag-fold-init',document:textfoldData(source!,result!,'sag:'+path),ui:interfaceLocales[$language].fold,controlsLabel:$t('reader.controls'),level,palette,dark:!!editor.closest('[data-theme="dark"]')},location.origin);
  }
  function receive(event:MessageEvent){
   if(!active||event.source!==frame?.contentWindow||event.origin!==location.origin)return;

@@ -250,12 +250,19 @@ pub struct FolderIndexOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conversion_formats: Option<Vec<String>>,
 }
+pub const OFFICIAL_UPDATE_GITHUB: &str = "https://github.com/Zleap-AI/SAG-Wiki";
+pub const OFFICIAL_UPDATE_MANIFEST: &str = "https://zleap.com/update/latest-v2.json";
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(default)]
 pub struct UpdateSettings {
+    #[serde(default)]
     pub source: UpdateSource,
+    #[serde(default = "official_update_github")]
     pub github_url: String,
+    #[serde(default)]
     pub website_url: String,
+    #[serde(default)]
+    pub follow_language: bool,
 }
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -264,12 +271,16 @@ pub enum UpdateSource {
     Github,
     Website,
 }
+fn official_update_github() -> String {
+    OFFICIAL_UPDATE_GITHUB.into()
+}
 impl Default for UpdateSettings {
     fn default() -> Self {
         Self {
-            source: UpdateSource::Github,
-            github_url: "https://github.com/Zleap-AI/SAG-Wiki".into(),
-            website_url: String::new(),
+            source: UpdateSource::Website,
+            github_url: official_update_github(),
+            website_url: OFFICIAL_UPDATE_MANIFEST.into(),
+            follow_language: true,
         }
     }
 }
@@ -358,7 +369,7 @@ impl Default for Settings {
             },
             retrieval: Retrieval::default(),
             theme: "light".into(),
-            language: "zh-CN".into(),
+            language: crate::locales::default_interface_language().into(),
             start_page: "ask".into(),
             editor_size: 15,
             show_hidden: false,

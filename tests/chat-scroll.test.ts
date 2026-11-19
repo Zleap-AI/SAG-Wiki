@@ -82,7 +82,8 @@ it('手动上滚时暂停跟随，回到底部后继续跟随流式输出',async
  const id=invoke.mock.calls.find(([name])=>name==='run_query')![1].query.id;
  const delta=()=>listeners.get('query-progress')!({payload:{id,stage:'正在生成回答',delta:'新增内容。'.repeat(40),count:0}});
  delta();await tick();
- // The scroll can occur while an output-following animation frame is already queued.
+ // A real wheel gesture must pause even when the next streamed layout is already queued.
+ log().dispatchEvent(new WheelEvent('wheel',{deltaY:-100}));
  log().scrollTop=100;log().dispatchEvent(new Event('scroll'));
  delta();await tick();resizeCallbacks.forEach(callback=>callback());
  await new Promise(requestAnimationFrame);

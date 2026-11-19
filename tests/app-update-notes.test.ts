@@ -7,7 +7,7 @@ const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke,Channel:class{}}));
 let app:ReturnType<typeof mount>;
 beforeEach(()=>{
- updateDownload.set({key:'',version:'',stage:'idle',downloaded:0,total:null,error:''});
+ updateDownload.set({version:'',stage:'idle',downloaded:0,total:null,error:''});
  updateState.set({key:'',checking:false,info:null,error:''});
 });
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});

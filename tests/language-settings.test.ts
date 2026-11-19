@@ -7,7 +7,7 @@ import {version} from '../package.json';
 import SettingsPanel from '../src/components/Settings.svelte';
 import RichEditor from '../src/components/RichEditor.svelte';
 import ToolCall from '../src/components/ToolCall.svelte';
-import {language,setLanguage} from '../src/lib/i18n';
+import {language,setLanguage,translate,type Language} from '../src/lib/i18n';
 import type {Settings} from '../src/lib/types';
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn(async (_command:string,_args?:Record<string,unknown>):Promise<any>=>({directory:'/Documents/sag-wiki/share',clipboard:false}))}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
@@ -18,12 +18,12 @@ const settings:Settings={language:'zh-CN',answer:{url:'https://example.com/v1',m
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 const click=(label:string)=>{const element=[...document.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent?.trim()===label||node.getAttribute('aria-label')===label);expect(element,label).toBeDefined();element!.click()};
-async function chooseEnglish(){
+async function chooseLanguage(locale:Language){
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="界面语言"]')).not.toBeNull());
  const control=document.querySelector<HTMLButtonElement>('[aria-label="界面语言"]')!;
  control.focus();control.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
- await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="en"]')).not.toBeNull());
- document.querySelector('[role=option][data-value="en"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
+ await vi.waitFor(()=>expect(document.querySelector(`[role=option][data-value="${locale}"]`)).not.toBeNull());
+ document.querySelector(`[role=option][data-value="${locale}"]`)!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
 }
 
 it('shows project and company links in About and opens them outside the app',async()=>{
@@ -41,20 +41,23 @@ it('shows project and company links in About and opens them outside the app',asy
  }
 });
 
-it('previews English immediately, persists it on save, and restores Chinese on cancel',async()=>{
+it.each(['en','ja','zh-TW','ko','es'] as const)('previews %s immediately, persists it on save, and restores Chinese on cancel',async(locale)=>{
+ const heading=translate('通用',locale),saveLabel=translate('保存设置',locale);
+ expect(heading).not.toBe('通用');
+ expect(saveLabel).not.toBe('保存设置');
  const onSave=vi.fn(),onClose=vi.fn();
  const original={...settings,answer:{...settings.answer,models:['another-model','test']}};
  app=mount(SettingsPanel,{target:document.body,props:{value:original,onSave,onClose}});
- await chooseEnglish();
- expect(document.documentElement.lang).toBe('en');
- expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('General');
- expect(document.querySelector('.settings-footer')?.textContent).toContain('Save settings');
+ await chooseLanguage(locale);
+ expect(document.documentElement.lang).toBe(locale);
+ expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe(heading);
+ expect(document.querySelector('.settings-footer')?.textContent).toContain(saveLabel);
  document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
- expect(onSave.mock.calls[0][0].language).toBe('en');
+ expect(onSave.mock.calls[0][0].language).toBe(locale);
  expect(onSave.mock.calls[0][0].answer.model).toBe('test');
  await unmount(app);document.body.innerHTML='';setLanguage('zh-CN');
  app=mount(SettingsPanel,{target:document.body,props:{value:settings,onSave,onClose}});
- await chooseEnglish();await unmount(app);document.body.innerHTML='';
+ await chooseLanguage(locale);await unmount(app);document.body.innerHTML='';
  expect(get(language)).toBe('zh-CN');
  app=mount(SettingsPanel,{target:document.body,props:{value:settings,onSave,onClose}});
 });

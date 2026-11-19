@@ -263,5 +263,7 @@
   "选择 API Key": "选择 API Key",
   "选择此项目使用的 Key，复制的 MCP 配置只使用该 Key 的访问范围。": "选择此项目使用的 Key，复制的 MCP 配置只使用该 Key 的访问范围。",
   "使用 {value0} 复制 MCP 配置": "使用 {value0} 复制 MCP 配置",
-  "访问范围": "访问范围"
+  "访问范围": "访问范围",
+  "settings.interfaceLanguage": "界面语言",
+  "reader.controls": "阅读操作说明"
 }

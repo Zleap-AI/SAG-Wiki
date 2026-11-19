@@ -39,6 +39,8 @@ Give your agent the [SAG Skill GitHub link](https://github.com/Zleap-AI/SAG-Wiki
 
 CLI and the optional SAG Wiki desktop use the same indexing, retrieval and configuration implementation in `core/`, along with the same user data directory, `sag.sqlite`, keys and ignore rules.
 
+Use an updated CLI to save model settings when the desktop app uses an interface language introduced in 0.3.13. A standalone 0.3.12 CLI can connect to a running 0.3.13 service. If it starts its own older service, saving settings can fail because that service does not support the saved language. Launch the updated desktop app to update its managed CLI. Update an npm-managed CLI separately.
+
 - Desktop and CLI share a standalone background service, configuration and knowledge base. Directory changes appear in both.
 - On macOS, the service keeps running after the desktop client exits, so CLI and MCP remain available. On Windows, quitting from the tray or app menu also stops the service. Reopening the desktop or running a CLI command that needs the service starts it on demand. `sag add` returns after indexing finishes; the running service watches file and ignore-rule changes.
 - `sag service status` shows the service version and process. `sag service stop` stops it; `sag service restart` restarts it after the old instance has shut down and released its instance lock. Status inspection does not automatically start it.
@@ -85,7 +87,7 @@ sag uninstall cli
 
 Search requires no `search` subcommand: run `sag "search query"` directly. `add`, `remove`, `list`, `check`, `status`, `config`, `service`, `install` and `uninstall` are reserved management commands. Use `--` when searching those literal words or queries beginning with `-`, for example `sag -c -- "status"`.
 
-Search defaults to the current working directory. A positional path and `--path` cannot be combined. The default result limit is 10 chunks, with 1–100 allowed. `-c` changes output only, without changing recall or ranking. Paths resolve relative to the command's working directory. JSON includes absolute paths, line numbers, actual ranges and truncation flags. Only `-c` returns `content`. Separate source ranges are output separately, so discontinuous chunks are not represented as continuous lines.
+Search defaults to the current working directory. A positional path and `--path` cannot be combined. Semantic search uses up to 10 retrieved candidates to assemble the output by default. Set `-m` to a value from 1 to 100. The per-round candidate setting can lower the number used. `-c` changes output only, without changing recall or ranking. Paths resolve relative to the command's working directory. JSON includes absolute paths, line numbers, actual ranges and truncation flags. Only `-c` returns `content`. Output is grouped by file path and heading. Overlapping or adjacent source ranges are merged, and disjoint ranges are returned separately.
 
 ### Regular-expression and fixed-string matching
 

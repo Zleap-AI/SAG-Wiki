@@ -3,6 +3,7 @@ import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {mount,tick,unmount} from 'svelte';
 import App from '../src/App.svelte';
 import type {Draft} from '../src/lib/types';
+import {setLanguage} from '../src/lib/i18n';
 
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
@@ -72,6 +73,24 @@ it('首次保存可以直接编辑名称，并自动补充 Markdown 后缀',asyn
  expect(invoke).toHaveBeenCalledWith('save_document',{path:'/notes/项目说明.md',body:'使用保存时输入的名称',expectedHash:null});
  expect(document.querySelector<HTMLInputElement>('.editor-head [aria-label="文件名"]')?.value).toBe('项目说明.md');
 });
+it.each([
+ ['ja','無題.md','会議メモ'],
+ ['zh-TW','未命名.md','會議記錄'],
+ ['ko','제목 없음.md','회의 메모'],
+ ['es','Sin título.md','Notas de la reunión'],
+])('asks for a name when first saving a %s draft from the overview',async(locale,defaultName,filename)=>{
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>command==='get_settings'
+  ? {...await original(command,args),language:locale}
+  : original(command,args));
+ await start();await newDocument();save();
+ const input=()=>document.querySelector<HTMLInputElement>('.new-document-dialog .save-document-name input');
+ await vi.waitFor(()=>expect(input()?.value).toBe(defaultName));
+ input()!.value=filename;
+ input()!.dispatchEvent(new Event('input',{bubbles:true}));
+ await tick();await confirmSave();
+ expect(invoke).toHaveBeenCalledWith('save_document',{path:`/notes/${filename}.md`,body:'',expectedHash:null});
+});
 it('空名称不能保存，无效名称在保存弹窗中提示并允许修正',async()=>{
  await start();await newDocument();save();await tick();await nameBeforeSave('  ');
  expect(document.querySelector<HTMLButtonElement>('.new-document-dialog .primary')!.disabled).toBe(true);
@@ -137,6 +156,20 @@ it('在子文件夹内未命名的新文档，首次保存时输入名称并保�
  expect(document.querySelector('.save-folder-tree')).toBeNull();
  await nameBeforeSave('子目录保存名称');await confirmSave();
  expect(invoke).toHaveBeenCalledWith('save_document',{path:'/notes/nested/子目录保存名称.md',body:'',expectedHash:null});
+});
+it('keeps first-save naming after changing the language of a Japanese draft',async()=>{
+ await start();
+ document.querySelector<HTMLButtonElement>('.simple-file-list [title="/notes"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.folder-browser h1')?.textContent).toBe('notes'));
+ setLanguage('ja');
+ await newDocument();
+ setLanguage('zh-CN');
+ await tick();
+ save();
+ await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>('.new-document-dialog [aria-label="文件名"]')?.value).toBe('無題.md'));
+ expect(document.querySelector('.save-folder-tree')).toBeNull();
+ await nameBeforeSave('会議メモ');await confirmSave();
+ expect(invoke).toHaveBeenCalledWith('save_document',{path:'/notes/会議メモ.md',body:'',expectedHash:null});
 });
 it('没有文件夹也能先写文档，保存时可以添加文件夹后继续保存',async()=>{
  roots=[];await start();await newDocument();await writeBody('没有文件夹时的正文');

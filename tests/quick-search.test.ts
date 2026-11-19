@@ -4,7 +4,7 @@ import {mount,unmount,tick} from 'svelte';
 import QuickSearch from '../src/QuickSearch.svelte';
 import QuickSearchSettings from '../src/components/QuickSearchSettings.svelte';
 import {shortcutFromKey} from '../src/lib/quick-search';
-const {invoke,events}=vi.hoisted(()=>({invoke:vi.fn(),events:new Map<string,()=>void>()}));
+const {invoke,events}=vi.hoisted(()=>({invoke:vi.fn(),events:new Map<string,(event?:{payload:string})=>void>()}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async(name,handler)=>{events.set(name,handler);return()=>events.delete(name)})}));
 const hit=(id:number)=>({id,document_id:id,path:`/notes/${id}.md`,title:`${id}.md`,heading:'',content:`匹配内容 ${id}`,start_line:1,end_line:1,source_ranges:[[1,1]],source_spans:[],bm25:0,score:1,order:id,hash:'same'});
@@ -26,6 +26,30 @@ function type(text:string){const input=document.querySelector('input')!;input.va
 function key(key:string,target:EventTarget=document.querySelector('input')!,options:KeyboardEventInit={}){target.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...options}));}
 async function search(text='测试'){const input=type(text);key('Enter',input);await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(2));}
 describe('快捷搜索',()=>{
+ it.each([['ja','ショートカット検索'],['zh-TW','快捷搜尋'],['ko','단축키 검색'],['es','Búsqueda rápida']])
+ ('updates an open shortcut search window after the saved language changes to %s',async(locale,label)=>{
+  await setup();
+  events.get('interface-language-changed')!({payload:locale});
+  await tick();
+  expect(document.documentElement.lang).toBe(locale);
+  expect(document.querySelector('main')?.getAttribute('aria-label')).toBe(label);
+ });
+
+ it('keeps a saved language change received while the initial roots are loading',async()=>{
+  const original=invoke.getMockImplementation()!;
+  let finishRoots!:(roots:unknown)=>void;
+  invoke.mockImplementation((command,args)=>command==='list_roots'
+   ?new Promise(resolve=>{finishRoots=resolve})
+   :original(command,args));
+  app=mount(QuickSearch,{target:document.body});
+  await vi.waitFor(()=>expect(finishRoots).toBeDefined());
+  events.get('interface-language-changed')!({payload:'ja'});
+  await tick();
+  expect(document.documentElement.lang).toBe('ja');
+  finishRoots([]);
+  await vi.waitFor(()=>expect(document.activeElement?.tagName).toBe('INPUT'));
+  expect(document.documentElement.lang).toBe('ja');
+ });
  it('最多展示十个文件，点击或方向键只更新右侧高亮预览',async()=>{
   await setup();const base=invoke.getMockImplementation()!;
   invoke.mockImplementation((c,a)=>c==='run_query'?Promise.resolve({results:[...Array.from({length:12},(_,i)=>hit(i+1)),hit(1)],terms:['匹配'],trace:[],conversation:null}):base(c,a));

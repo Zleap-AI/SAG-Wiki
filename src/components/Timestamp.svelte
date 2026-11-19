@@ -1,4 +1,5 @@
 <script lang="ts">
+ import {language,interfaceLocales} from '../lib/i18n';
  export let value:number;
  $:date=new Date(value);
  $:today=new Date();
@@ -7,7 +8,7 @@
   : [date.getFullYear(),String(date.getMonth()+1).padStart(2,'0'),String(date.getDate()).padStart(2,'0')].join('-');
 </script>
 
-<time datetime={date.toISOString()} title={date.toLocaleString()}>{label}</time>
+<time datetime={date.toISOString()} title={date.toLocaleString(interfaceLocales[$language].format)}>{label}</time>
 
 <style>
  time{color:var(--color-muted);font-size:12px;font-weight:400;white-space:nowrap;flex-shrink:0;font-variant-numeric:tabular-nums}
