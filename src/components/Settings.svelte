@@ -27,7 +27,7 @@
  import DataImport from './DataImport.svelte';
  import AppUpdates from './AppUpdates.svelte';
  import QuickSearchSettings from './QuickSearchSettings.svelte';
- import {defaultUpdateSettings} from '../lib/updates';
+ import {defaultUpdateSettings,updateSettingsForLanguage} from '../lib/updates';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
  export let onShareReceived:((path:string)=>void)|undefined=undefined;
  export let onChatImported:(()=>Promise<void>)|undefined=undefined;
@@ -301,7 +301,7 @@
       <span class="settings-about-version">v{appVersion}</span>
       <div class="settings-about-links"><a href="https://github.com/Zleap-AI/SAG-Wiki" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'project')}>{$t('开源项目')} · GitHub</a><a href="https://zleap.com" target="_blank" rel="noopener noreferrer" on:click={event=>openAboutLink(event,'company')}>{$t('开发公司')} · Zleap</a></div>
      </section>
-     <AppUpdates bind:config={settings.updates} onBeforeInstall={onBeforeUpdate}/>
+     <AppUpdates config={updateSettingsForLanguage(settings.updates,value.language)} onBeforeInstall={onBeforeUpdate}/>
     {/if}
    </div>
    {#if page==='imports'}<div class="settings-footer"><Button.Root type="button" class="primary" onclick={onClose}>{$t('完成')}</Button.Root></div>{:else if page==='api'}<div class="settings-footer api-settings-footer"><span class="settings-status">{$t('更改即时生效')}</span><Button.Root type="button" class="primary" disabled={apiBusy||busy} onclick={onClose}>{$t('完成')}</Button.Root></div>{:else}

@@ -40,8 +40,11 @@ Location: **Settings → About**. This page shows the installed version and link
 
 The app checks for updates at startup and every 8 hours while it stays running. Select **Check updates** to check manually. When notified of a new version, select **Download update** and wait for verification. The action then becomes **Restart and update**.
 
+In versions that support the update source migration, the Simplified Chinese interface checks for and downloads updates through Zleap's website by default. The English interface continues to use GitHub. The saved interface language determines the official source. Existing official GitHub settings migrate once after upgrading; custom sources and other preferences are preserved. Saving model settings with an older standalone CLI preserves automatic update source selection in the desktop app.
+
 - Expand **Release notes** to read version changes with headings, lists, bold text and links.
 - Continue using the app during download; closing Settings does not interrupt it.
+- If a saved language change switches the official source and the current download fails, About shows the failure and automatically checks the newly selected source.
 - Handle unsaved documents before installation, following the save or cancel prompt. On macOS, the app reopens from its original location after the old process exits.
 - Exiting the whole app requires an unfinished download to start again.
 - Failures display an error. Recheck or download the full installer from GitHub.
