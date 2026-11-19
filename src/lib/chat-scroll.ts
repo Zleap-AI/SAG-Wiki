@@ -3,18 +3,23 @@ export function followChat(node:HTMLElement,[resetKey]:readonly [number,...unkno
  const bottom=()=>Math.max(0,node.scrollHeight-node.clientHeight);
  let frame=0,following=true,lastTop=node.scrollTop,lastBottom=bottom();
  const scroll=()=>{
-  if(!following)return;
-  cancelAnimationFrame(frame);
+  if(!following||frame)return;
   frame=requestAnimationFrame(()=>{
-   if(following)lastTop=node.scrollTop=lastBottom=bottom();
+   frame=0;
+   if(!following)return;
+   lastBottom=bottom();
+   node.scrollTop=lastBottom;
+   // The browser can clamp or round the requested offset to a fractional value.
+   lastTop=node.scrollTop;
   });
  };
  const onScroll=()=>{
   const top=node.scrollTop,nextBottom=bottom();
-  // Closing a process panel can clamp scrollTop to the new bottom without user input.
-  const clamped=following&&nextBottom<lastBottom&&top>=nextBottom-1;
-  if(top<lastTop&&!clamped)following=false;
-  else if(nextBottom-top<=4)following=true;
+  // A layout change can clamp scrollTop before the next streamed update grows it again.
+  // Its deferred scroll event can run before the queued follow frame, even at the old height.
+  if(top<lastTop){
+   if(!frame&&nextBottom===lastBottom)following=false;
+  }else if(nextBottom-top<=4)following=true;
   lastTop=top;lastBottom=nextBottom;
  };
  const onWheel=(event:WheelEvent)=>{
