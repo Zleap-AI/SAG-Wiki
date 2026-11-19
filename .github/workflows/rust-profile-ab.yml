@@ -6,7 +6,7 @@ on:
       comparison:
         description: Single-variable comparisons to execute
         type: choice
-        options: ['debug-and-cgu', 'cgu-only', 'core-debug-only', 'intel-release-cli']
+        options: ['debug-and-cgu', 'cgu-only', 'core-debug-only', 'intel-core-cgu', 'intel-release-cli']
         default: 'debug-and-cgu'
       platform:
         description: Platforms to measure
