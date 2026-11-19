@@ -24,9 +24,9 @@ npm --prefix docs-site run dev -- --hostname 127.0.0.1 --port 3219
 
 The root URL matches the request's `Accept-Language` header against the supported locales. If none match, it opens the Simplified Chinese home. A missing header or a wildcard-only preference (`*`) opens the English home. A URL with a supported locale prefix looks up the page in that locale.
 
-繁体中文、日语、韩语和西班牙语页面缺少译文时，先跳到对应的英文页面，再回退到简体中文。各语言的导航和搜索只收录该语言已有的内容。
+直接访问缺少繁体中文、日语、韩语或西班牙语译文的页面时，站点优先跳转到英文版，其次是简体中文版。在语言菜单中切换到缺少当前页面译文的语言时，会打开该语言的文档首页。搜索只收录所选语言的页面，导航也会标出可参阅的英文资料。
 
-When a Traditional Chinese, Japanese, Korean, or Spanish translation is missing, the page redirects to English if available, then to Simplified Chinese. Navigation and search include only pages available in the selected language.
+A direct link to an untranslated Traditional Chinese, Japanese, Korean, or Spanish page opens the English version if available, with Simplified Chinese as the next fallback. Switching languages from a page without a translation opens the selected language’s documentation home. Search indexes pages in the selected language, and navigation also includes labeled links to English references.
 
 ## 构建与验证 / Build and verify
 

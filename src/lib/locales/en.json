@@ -2114,5 +2114,8 @@
   "请重新连接网页服务": "Reconnect to the web service",
   "进入知识库": "Open knowledge base",
   "无法获取已签名的更新，请确认更新清单和签名已发布": "Could not retrieve a signed update. Make sure the update manifest and signatures are published.",
-  "无法获取已签名的更新，请确认更新清单和签名已发布: {value0}": "Could not retrieve a signed update. Make sure the update manifest and signatures are published. {value0}"
+  "无法获取已签名的更新，请确认更新清单和签名已发布: {value0}": "Could not retrieve a signed update. Make sure the update manifest and signatures are published. {value0}",
+  "模型请求超过总时间限制": "The model request exceeded its time limit.",
+  "已有证据超过上下文预算。请减少扩展起点或调整切分；原文未截断。": "The existing evidence exceeds the context budget. Reduce the number of expansion seeds or adjust chunking. Source text was preserved.",
+  "模型生成失败": "The model failed to generate a response."
 }

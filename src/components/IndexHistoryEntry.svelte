@@ -18,7 +18,7 @@
  $:hint=indexErrorHint(record.error);
  $:failed=record.status==='partial'||record.status==='error';
  // One sentence per run: how many files missed, the recognized cause, and what still works.
- $:notice=record.status==='partial'?[failedFiles.length?$t('{value0} 个文件未进入索引。',{value0:failedFiles.length}):'',hint?$t(hint):'',$t('其他文件可正常检索。')].filter(Boolean).join($language==='en'?' ':''):record.error?$t(hint??'索引未能完成，查看文件记录了解详情。'):'';
+ $:notice=record.status==='partial'?[failedFiles.length?$t('{value0} 个文件未进入索引。',{value0:failedFiles.length}):'',hint?$t(hint):'',$t('其他文件可正常检索。')].filter(Boolean).join(['en','ko','es'].includes($language)?' ':''):record.error?$t(hint??'索引未能完成，查看文件记录了解详情。'):'';
  function when(time:number){const day=new Date(time),today=new Date(),pad=(n:number)=>String(n).padStart(2,'0'),clock=`${pad(day.getHours())}:${pad(day.getMinutes())}`,start=new Date(today.getFullYear(),today.getMonth(),today.getDate()).getTime();return time>=start?$t('今天 {value0}',{value0:clock}):time>=start-86400000?$t('昨天 {value0}',{value0:clock}):`${day.getFullYear()}-${pad(day.getMonth()+1)}-${pad(day.getDate())} ${clock}`}
  onMount(()=>{if(record.status==='partial')void loadFiles();});
  onDestroy(()=>{disposed=true});

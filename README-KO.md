@@ -64,7 +64,7 @@ https://github.com/Zleap-AI/SAG-Wiki/blob/main/cli/skills/sag/SKILL.md 의 Skill
 
 Markdown을 읽고 편집하거나 HTML을 미리 볼 수 있습니다. 관련 문서를 탐색하거나 터미널에서 검색할 수도 있습니다. PDF, Office, EPUB 문서는 기본으로 변환할 수 있으며 이미지 인식과 오디오·동영상 전사는 선택형 구성 요소로 제공됩니다.
 
-이미지가 많은 DOCX/PPTX에서 텍스트만 필요한 경우 **설정 → 파일 설정**에서 **Office 텍스트만 추출**을 켜세요. 기본값은 꺼짐입니다. 이 기능을 켜면 이미지와 삽입 개체를 불러오기 전에 건너뛰므로 이미지 안의 텍스트는 인식되지 않습니다. [폴더와 인덱싱 가이드](docs-site/content/docs/folders.ko.mdx) · [Office 텍스트 전용 설정 상세 설명 (영어)](docs-site/content/docs/folders.en.mdx#office-text-only)
+이미지가 많은 DOCX/PPTX에서 텍스트만 필요한 경우 **설정 → 파일 설정**에서 **Office 문서에서 텍스트만 추출**을 켜세요. 기본값은 꺼짐입니다. 이 기능을 켜면 이미지와 삽입 개체를 불러오기 전에 건너뛰므로 이미지 안의 텍스트는 인식되지 않습니다. [폴더와 인덱싱 가이드](docs-site/content/docs/folders.ko.mdx) · [Office 텍스트 전용 설정 상세 설명 (영어)](docs-site/content/docs/folders.en.mdx#office-text-only)
 
 ### 다른 방식과 비교
 
