@@ -27,6 +27,18 @@ it.each(['process collapse','larger viewport'])('keeps following after browser c
  await frame();expect(host.scrollTop).toBe(bottom());
 });
 
+it.each([1000,1050])('keeps following when content regrows to %i before the browser reports a clamp',async(regrownHeight)=>{
+ await frame();expect(host.scrollTop).toBe(bottom());
+ contentHeight=650;
+ host.scrollTop=bottom();
+ contentHeight=regrownHeight;
+ action.update([0,'new render']);
+ host.dispatchEvent(new Event('scroll'));
+
+ contentHeight+=200;action.update([0,'new streamed text']);
+ await frame();expect(host.scrollTop).toBe(bottom());
+});
+
 it('keeps a reader paused when layout also shrinks after they scroll up',async()=>{
  await frame();host.dispatchEvent(new WheelEvent('wheel',{deltaY:-1}));
  host.scrollTop=700;host.dispatchEvent(new Event('scroll'));
