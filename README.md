@@ -5,7 +5,7 @@
 <h1 align="center">SAG-Wiki</h1>
 
 <p align="center">
-  <strong>English</strong> · <a href="README-CN.md">简体中文</a> · <a href="README-JA.md">日本語</a> · <a href="CHANGELOG.md">Changelog</a>
+  <strong>English</strong> · <a href="README-CN.md">简体中文</a> · <a href="README-ZH-TW.md">繁體中文</a> · <a href="README-JA.md">日本語</a> · <a href="README-KO.md">한국어</a> · <a href="README-ES.md">Español</a> · <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
