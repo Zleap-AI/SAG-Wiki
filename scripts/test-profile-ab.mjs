@@ -27,12 +27,14 @@ export function profileOrder(round, comparison = 'debug-and-cgu') {
   return [...selected.slice(offset), ...selected.slice(0, offset)];
 }
 
-export function profileEnvironment(profile, inherited = {}) {
+export function profileEnvironment(profile, inherited = {}, comparison) {
   assert.ok([...profiles,'baseline-cgu64',...intelCoreProfiles].includes(profile), 'Unknown test profile');
-  return {...inherited, CARGO_INCREMENTAL:'0', RUST_TEST_THREADS:'2',
+  const environment = {...inherited, CARGO_INCREMENTAL:'0', RUST_TEST_THREADS:'2',
     CARGO_PROFILE_TEST_DEBUG:profile.startsWith('baseline') ? '1' : 'line-tables-only',
     CARGO_PROFILE_TEST_CODEGEN_UNITS:profile.endsWith('cgu64') ? '64' : '16',
     CARGO_PROFILE_TEST_DEBUG_ASSERTIONS:'true', CARGO_PROFILE_TEST_OVERFLOW_CHECKS:'true'};
+  if (comparison === 'intel-core-cgu') delete environment.CARGO_PROFILE_TEST_CODEGEN_UNITS;
+  return environment;
 }
 
 export function timingMetrics(html) {
@@ -157,7 +159,7 @@ function runComparison() {
   let expected;
   for (const profile of order) {
     const target = mkdtempSync(join(process.env.RUNNER_TEMP, 'sag-profile-ab-'));
-    const env = profileEnvironment(profile, {...process.env, CARGO_TARGET_DIR:target, CARGO_TERM_COLOR:'never'});
+    const env = profileEnvironment(profile, {...process.env, CARGO_TARGET_DIR:target, CARGO_TERM_COLOR:'never'}, comparison);
     assert.ok(!env.RUSTFLAGS && !env.CARGO_ENCODED_RUSTFLAGS, 'Ambient Rust flags make the comparison ambiguous');
     // Keep the dependency profile identical. Only sag-core loses debug metadata.
     const cargoConfig = profileCargoConfig(profile);

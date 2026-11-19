@@ -37,6 +37,7 @@ test('CGU-only comparison changes exactly one setting and rotates two profiles',
 test('Intel core comparison only changes the sag-core package codegen units', () => {
   assert.deepEqual(profileOrder(1,'intel-core-cgu'),['baseline-core-debug0','baseline-core-cgu32-debug0','baseline-core-cgu64-debug0']);
   assert.deepEqual(profileOrder(2,'intel-core-cgu'),['baseline-core-cgu32-debug0','baseline-core-cgu64-debug0','baseline-core-debug0']);
+  assert.equal(profileEnvironment('baseline-core-debug0', {CARGO_PROFILE_TEST_CODEGEN_UNITS:'64'}, 'intel-core-cgu').CARGO_PROFILE_TEST_CODEGEN_UNITS, undefined);
   assert.deepEqual(profileCargoConfig('baseline-core-debug0'),['--config','profile.test.package.sag-core.debug=0']);
   for (const units of [32,64]) {
     const profile='baseline-core-cgu'+units+'-debug0';

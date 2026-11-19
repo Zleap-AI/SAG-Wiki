@@ -434,14 +434,14 @@ test('publishing uses numeric asset and release IDs and reconciles an uncertain 
   const validate = bytes => assert.equal(bytes, 'verified bytes');
   const update = (id, latest) => {
     calls.push(['update', id, latest]);
-    throw new Error('connection reset');
+    throw new Error('spawnSync gh ETIMEDOUT');
   };
   const read = id => { calls.push(['read', id]); return {draft: false, id}; };
   await publishDraftById(release, 'v0.3.13', validate, () => false, {download, update, read, pause:async()=>{}});
   assert.deepEqual(calls, [['download',730],['download',730],['update',42,false],['read',42]]);
   let writes = 0;
   await assert.rejects(publishDraftById(release,'v0.3.13',validate,()=>true,{
-    download: () => 'verified bytes', update: () => { writes++; throw new Error('connection reset'); },
+    download: () => 'verified bytes', update: () => { writes++; throw new Error('spawnSync gh ETIMEDOUT'); },
     read: () => { throw new Error('HTTP 503'); }, pause:async()=>{},
   }), /503/);
   assert.equal(writes,1,'a failed state check must not result in another PATCH');

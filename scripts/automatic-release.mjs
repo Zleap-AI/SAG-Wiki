@@ -540,7 +540,7 @@ export function releaseForTag(tag, list = pages, read = api) {
   return read(`releases/${release.id}`);
 }
 
-const transientReleaseError = error => /HTTP (?:404|408|429|5\d\d)\b|Release v\d+\.\d+\.\d+ not found|connection reset|connection refused|timed? out|timeout|unexpected EOF|ECONNRESET|EAI_AGAIN|TLS handshake/i.test(String(error));
+const transientReleaseError = error => /HTTP (?:404|408|429|5\d\d)\b|Release v\d+\.\d+\.\d+ not found|connection reset|connection refused|timed? out|timeout|unexpected EOF|ETIMEDOUT|ECONNRESET|EAI_AGAIN|TLS handshake/i.test(String(error));
 const releaseRetryPause = milliseconds => new Promise(resolve => setTimeout(resolve,milliseconds));
 
 async function retryReleaseRequest(request, pause) {
