@@ -34,6 +34,21 @@ describe('快捷搜索',()=>{
   expect(document.querySelector('main')?.getAttribute('aria-label')).toBe('ショートカット検索');
  });
 
+ it('keeps a saved language change received while the initial roots are loading',async()=>{
+  const original=invoke.getMockImplementation()!;
+  let finishRoots!:(roots:unknown)=>void;
+  invoke.mockImplementation((command,args)=>command==='list_roots'
+   ?new Promise(resolve=>{finishRoots=resolve})
+   :original(command,args));
+  app=mount(QuickSearch,{target:document.body});
+  await vi.waitFor(()=>expect(finishRoots).toBeDefined());
+  events.get('interface-language-changed')!({payload:'ja'});
+  await tick();
+  expect(document.documentElement.lang).toBe('ja');
+  finishRoots([]);
+  await vi.waitFor(()=>expect(document.activeElement?.tagName).toBe('INPUT'));
+  expect(document.documentElement.lang).toBe('ja');
+ });
  it('最多展示十个文件，点击或方向键只更新右侧高亮预览',async()=>{
   await setup();const base=invoke.getMockImplementation()!;
   invoke.mockImplementation((c,a)=>c==='run_query'?Promise.resolve({results:[...Array.from({length:12},(_,i)=>hit(i+1)),hit(1)],terms:['匹配'],trace:[],conversation:null}):base(c,a));

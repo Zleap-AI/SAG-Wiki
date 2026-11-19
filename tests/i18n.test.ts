@@ -38,6 +38,15 @@ describe('interface translations',()=>{
   expect(translate('路径不可用：/資料/会議.md','ja')).toContain('/資料/会議.md');
   expect(translate('Provider error: retry later','ja')).toBe('Provider error: retry later');
  });
+ it.each([
+  ['ja','署名付きの更新を取得できませんでした。更新マニフェストと署名が公開されていることを確認してください。'],
+  ['en','Could not retrieve a signed update. Make sure the update manifest and signatures are published.'],
+ ] as const)('translates the current signed update error in %s and keeps its diagnostic', (locale, message)=>{
+  const source='无法获取已签名的更新，请确认更新清单和签名已发布';
+  expect(translate(source,locale)).toBe(message);
+  expect(translate(source+': HTTP 503 from https://example.com/latest-v2.json',locale))
+   .toBe(message+' HTTP 503 from https://example.com/latest-v2.json');
+ });
  it('applies the saved Japanese language to the document and translator',()=>{
   setLanguage('ja');
   expect(get(language)).toBe('ja');

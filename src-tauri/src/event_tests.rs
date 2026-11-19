@@ -136,6 +136,11 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
     .unwrap();
     let refuse = Arc::new(AtomicBool::new(false));
     let disconnect = Arc::new(Notify::new());
+    let settings_requested = Arc::new(Notify::new());
+    let settings_release = Arc::new(Notify::new());
+    let first_snapshot = Arc::new(AtomicBool::new(true));
+    let server_settings_requested = settings_requested.clone();
+    let server_settings_release = settings_release.clone();
     let server_refuse = refuse.clone();
     let server_disconnect = disconnect.clone();
     let server = tokio::spawn(async move {
@@ -146,6 +151,9 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
             }
             let info = info.clone();
             let disconnect = server_disconnect.clone();
+            let settings_requested = server_settings_requested.clone();
+            let settings_release = server_settings_release.clone();
+            let first_snapshot = first_snapshot.clone();
             tokio::spawn(async move {
                 let (read, mut write) = stream.into_split();
                 let mut read = BufReader::new(read);
@@ -164,6 +172,7 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
                     let Some(Frame::Request { id, operation }) = frame else {
                         break;
                     };
+                    let snapshot = matches!(&operation, Operation::Snapshot);
                     let result = match operation {
                         Operation::Snapshot => Output::Snapshot(Snapshot {
                             roots: vec![],
@@ -173,6 +182,14 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
                             drafts: vec![],
                         }),
                         Operation::Info => Output::Info(info.clone()),
+                        Operation::GetSettings => {
+                            settings_requested.notify_one();
+                            settings_release.notified().await;
+                            Output::Settings(Settings {
+                                language: "ja".into(),
+                                ..Settings::default()
+                            })
+                        }
                         _ => panic!("unexpected test request"),
                     };
                     wire::write(
@@ -184,6 +201,22 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
                     )
                     .await
                     .unwrap();
+                    if !snapshot {
+                        continue;
+                    }
+                    if first_snapshot.swap(false, Ordering::SeqCst) {
+                        wire::write(
+                            &mut write,
+                            &Frame::Event {
+                                envelope: EventEnvelope {
+                                    request_id: None,
+                                    event: ServiceEvent::SettingsChanged,
+                                },
+                            },
+                        )
+                        .await
+                        .unwrap();
+                    }
                     wire::write(
                         &mut write,
                         &Frame::Event {
@@ -213,6 +246,10 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
     app.listen("query-progress", move |_| {
         progress_tx.send(()).unwrap();
     });
+    let (language_tx, mut language) = mpsc::unbounded_channel();
+    app.listen("interface-language-changed", move |event| {
+        language_tx.send(event.payload().to_owned()).unwrap();
+    });
     let (errors_tx, mut errors) = mpsc::unbounded_channel();
     app.listen("app-error", move |event| {
         errors_tx.send(event.payload().to_owned()).unwrap();
@@ -227,10 +264,19 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
         quitting: AtomicBool::new(false),
     });
     let forwarding = forward_events(state.clone());
-    tokio::time::timeout(Duration::from_secs(3), progress.recv())
+    tokio::time::timeout(Duration::from_secs(3), settings_requested.notified())
         .await
-        .unwrap()
+        .expect("language refresh requested settings");
+    tokio::time::timeout(Duration::from_secs(1), progress.recv())
+        .await
+        .expect("progress streams even while the language refresh is pending")
         .unwrap();
+    settings_release.notify_one();
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while language.recv().await.unwrap() != r#""ja""# {}
+    })
+    .await
+    .expect("the language change is still applied");
     refuse.store(true, Ordering::SeqCst);
     disconnect.notify_waiters();
     tokio::time::timeout(Duration::from_secs(3), async {

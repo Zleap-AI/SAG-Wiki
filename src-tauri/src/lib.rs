@@ -164,11 +164,29 @@ fn apply_interface_language<R: tauri::Runtime>(app: &tauri::AppHandle<R>, langua
     emit(app, "interface-language-changed", language);
 }
 
-async fn refresh_interface_language<R: tauri::Runtime>(app: &tauri::AppHandle<R>, client: &Client) {
-    match client.call(Operation::GetSettings, Duration::from_secs(2)).await {
-        Ok(Output::Settings(settings)) => apply_interface_language(app, &settings.language),
-        Ok(_) => eprintln!("Unexpected settings response while refreshing the interface language"),
-        Err(error) => eprintln!("Could not load the interface language: {error}"),
+async fn refresh_interface_language<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
+    client: Client,
+    mut language: String,
+    mut changes: tokio::sync::watch::Receiver<()>,
+) {
+    while changes.changed().await.is_ok() {
+        let response = client.call(Operation::GetSettings, Duration::from_secs(2)).await;
+        match changes.has_changed() {
+            Ok(true) => continue,
+            Ok(false) => {}
+            Err(_) => break,
+        }
+        match response {
+            Ok(Output::Settings(settings)) => {
+                if settings.language != language {
+                    language = settings.language;
+                    apply_interface_language(&app, &language);
+                }
+            }
+            Ok(_) => eprintln!("Unexpected settings response while refreshing the interface language"),
+            Err(error) => eprintln!("Could not load the interface language: {error}"),
+        }
     }
 }
 
@@ -218,8 +236,8 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                 }
             }
             let mut events = client.subscribe();
-            match client.call(Operation::Snapshot, Duration::from_secs(30)).await {
-                Ok(Output::Snapshot(snapshot)) => apply_interface_language(&state.app, &snapshot.settings.language),
+            let language = match client.call(Operation::Snapshot, Duration::from_secs(30)).await {
+                Ok(Output::Snapshot(snapshot)) => snapshot.settings.language,
                 Ok(_) => {
                     emit(&state.app, "app-error", "无法恢复 SAG 状态：快照响应无效");
                     continue;
@@ -228,7 +246,16 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                     emit(&state.app, "app-error", format!("无法恢复 SAG 状态：{error:#}"));
                     continue;
                 }
-            }
+            };
+            apply_interface_language(&state.app, &language);
+            let (language_refresh, changes) = tokio::sync::watch::channel(());
+            let mut language_worker = tokio::task::JoinSet::new();
+            language_worker.spawn(refresh_interface_language(
+                state.app.clone(),
+                client.clone(),
+                language,
+                changes,
+            ));
             emit(&state.app, "data-changed", ());
             emit(&state.app, "history-changed", ());
             emit(&state.app, "settings-changed", ());
@@ -238,7 +265,7 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                         ServiceEvent::DataChanged => emit(&state.app, "data-changed", ()),
                         ServiceEvent::SettingsChanged => {
                             emit(&state.app, "settings-changed", ());
-                            refresh_interface_language(&state.app, &client).await;
+                            let _ = language_refresh.send(());
                         }
                         ServiceEvent::HistoryChanged => emit(&state.app, "history-changed", ()),
                         ServiceEvent::IndexProgress(value) => {
@@ -262,7 +289,7 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
                         emit(&state.app, "data-changed", ());
                         emit(&state.app, "settings-changed", ());
-                        refresh_interface_language(&state.app, &client).await;
+                        let _ = language_refresh.send(());
                     }
                     Err(error) => {
                         emit(
@@ -274,6 +301,7 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                     }
                 }
             }
+            language_worker.shutdown().await;
         }
     })
 }

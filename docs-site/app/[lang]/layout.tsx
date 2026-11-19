@@ -1,4 +1,5 @@
-import { RootProvider } from 'fumadocs-ui/provider/next';
+import { DocsProvider } from '@/components/docs-provider';
+import { source } from '@/lib/source';
 import { i18nProvider } from 'fumadocs-ui/i18n';
 import { translations } from '@/lib/layout.shared';
 import { notFound } from 'next/navigation';
@@ -20,5 +21,14 @@ export async function generateMetadata({ params }: { params: Promise<{ lang: str
 export default async function Layout({ children, params }: { children: React.ReactNode; params: Promise<{ lang: string }> }) {
   const { lang } = await params;
   if (!isDocsLocale(lang)) notFound();
-  return <html lang={docsLocales[lang].htmlLang} suppressHydrationWarning><body><RootProvider i18n={i18nProvider(translations, lang)}>{children}</RootProvider></body></html>;
+  const japanesePaths = source.getPages('ja').map((page) => page.url);
+  return (
+    <html lang={docsLocales[lang].htmlLang} suppressHydrationWarning>
+      <body>
+        <DocsProvider i18n={i18nProvider(translations, lang)} japanesePaths={japanesePaths}>
+          {children}
+        </DocsProvider>
+      </body>
+    </html>
+  );
 }

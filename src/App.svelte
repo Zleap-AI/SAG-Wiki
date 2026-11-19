@@ -6,7 +6,7 @@
  import {isLargeMarkdown} from './lib/large-document-policy';
  import {beginDocumentTrace,cancelDocumentTrace,afterDocumentPaint,type DocumentTrace} from './lib/document-performance';
  import {displayPath,sourceName,sourceFolder,citedNumbers} from './lib/domain';
- import {t,setLanguage,language,interfaceLocales} from './lib/i18n';
+ import {t,setLanguage,language,interfaceLocales,languageOptions,translate} from './lib/i18n';
  import {externalLinkClick} from './lib/external-links';
  import {applyTheme,watchSystemTheme} from './lib/theme';
  import DesktopWindowControls from './components/DesktopWindowControls.svelte';
@@ -439,7 +439,8 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   saving=true;
   try{
    let folder=draftFolder(draft);
-   const needsName=!draft.name.trim()||draft.name==='未命名.md'||draft.name==='Untitled.md';
+   const draftName=draft.name.trim();
+   const needsName=!draftName||languageOptions.some(({value})=>draftName===translate('未命名.md',value));
    if(draft.is_new&&(!folder||needsName)){
     newDocumentFolder=folder||roots[0]?.path||'';
     saveFolderExpanded=new Set();saveFolderError='';saveNameNeeded=needsName;
