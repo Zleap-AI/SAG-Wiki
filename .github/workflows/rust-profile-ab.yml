@@ -6,12 +6,12 @@ on:
       comparison:
         description: Single-variable comparisons to execute
         type: choice
-        options: ['debug-and-cgu', 'cgu-only']
+        options: ['debug-and-cgu', 'cgu-only', 'core-debug-only', 'intel-release-cli']
         default: 'debug-and-cgu'
       platform:
         description: Platforms to measure
         type: choice
-        options: ['both', 'macos', 'windows']
+        options: ['both', 'macos', 'macos-intel', 'windows']
         default: 'both'
       rounds:
         description: Paired rounds per platform (three for an adoption decision)
@@ -23,20 +23,20 @@ permissions:
   contents: read
 
 concurrency:
-  group: rust-profile-ab-${{ github.ref }}
+  group: rust-profile-ab-${{ github.ref }}-${{ inputs.comparison }}
   cancel-in-progress: false
 
 jobs:
   compare:
     name: Profile A/B ${{ matrix.platform }} round ${{ matrix.round }}
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/')
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && inputs.comparison != 'intel-release-cli'
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
+        platform: ${{ fromJSON(inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'macos-intel' && '["macos-intel"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
         round: ${{ fromJSON(inputs.rounds == '3' && '[1,2,3]' || '[1]') }}
-    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || 'windows-2025' }}
-    timeout-minutes: 90
+    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || matrix.platform == 'macos-intel' && 'macos-15-intel' || 'windows-2025' }}
+    timeout-minutes: ${{ matrix.platform == 'macos-intel' && 180 || 90 }}
     defaults:
       run:
         shell: bash
@@ -79,5 +79,69 @@ jobs:
         with:
           name: profile-ab-${{ matrix.platform }}-round-${{ matrix.round }}-${{ github.sha }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/profile-ab-results/
+          if-no-files-found: warn
+          retention-days: 7
+
+  intel-release-cli:
+    name: Intel production CLI on Apple Silicon
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && inputs.comparison == 'intel-release-cli'
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      TAURI_ENV_TARGET_TRIPLE: x86_64-apple-darwin
+      CARGO_INCREMENTAL: '0'
+      SAG_CARGO_TIMINGS: '1'
+      SAG_WEB_DIST: ${{ github.workspace }}/dist-web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24.13.0'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.98.1'
+          targets: x86_64-apple-darwin
+      - name: Verify the x86_64 runtime is available
+        run: |
+          test "$(uname -m)" = arm64
+          /usr/bin/arch -x86_64 /usr/bin/true
+      - name: Build the same embedded web resources for both profiles
+        run: |
+          npm ci
+          npx --no-install vite build --outDir dist-web
+          mv node_modules "$RUNNER_TEMP/web-build-dependencies"
+      - name: Compile and smoke test both x86_64 release profiles
+        run: |
+          set -euo pipefail
+          results="$RUNNER_TEMP/intel-cli-results"
+          mkdir -p "$results"
+          printf 'profile,wall_seconds,binary_bytes\n' > "$results/times.csv"
+          for profile in fat thin; do
+            export CARGO_TARGET_DIR="$RUNNER_TEMP/intel-cli-$profile"
+            if [[ "$profile" == thin ]]; then
+              export CARGO_PROFILE_RELEASE_LTO=thin
+            fi
+            started=$(date +%s)
+            node scripts/build-cli.mjs 2>&1 | tee "$results/$profile-build.log"
+            elapsed=$(( $(date +%s) - started ))
+            binary=src-tauri/bin/sag
+            test "$(lipo -archs "$binary")" = x86_64
+            test "$(lipo -archs src-tauri/bin/qpdf/bin/qpdf)" = x86_64
+            "$binary" --build-info > "$results/$profile-build-info.json"
+            src-tauri/bin/qpdf/bin/qpdf --version
+            python3 tests/local-jev-e2e.py --binary "$binary" --smoke | tee "$results/$profile-smoke.log"
+            printf '%s,%s,%s\n' "$profile" "$elapsed" "$(stat -f %z "$binary")" >> "$results/times.csv"
+            cp "$CARGO_TARGET_DIR/cargo-timings/cargo-timing.html" "$results/$profile-timing.html"
+          done
+          cat "$results/times.csv"
+      - name: Upload isolated production CLI experiment
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: intel-cli-production-${{ github.sha }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/intel-cli-results
           if-no-files-found: warn
           retention-days: 7

@@ -136,5 +136,15 @@ if(args.includes('--no-run')){
     assert.deepEqual(focusedReport.order,['baseline-cgu64','baseline']);
     assert.ok(focusedReport.results.every(result=>result.environment.CARGO_PROFILE_TEST_DEBUG==='1'));
     assert.equal(readFileSync(join(focused,'trace'),'utf8').trim().split('\n').length,8);
+    const coreDebug = mkdtempSync(join(directory, 'core-debug-'));
+    const resultDebug = spawnSync(process.execPath, [command, 'run'], {
+      cwd: directory, encoding: 'utf8',
+      env: {...env, RUNNER_TEMP: coreDebug, AB_TRACE: join(coreDebug, 'trace'), AB_COMPARISON: 'core-debug-only'},
+    });
+    assert.equal(resultDebug.status, 0, resultDebug.stderr);
+    const debugTrace = readFileSync(join(coreDebug, 'trace'), 'utf8').trim().split('\n').map(JSON.parse);
+    assert.ok(debugTrace.every(operation => operation.debug === '1' && operation.cgu === '16'));
+    assert.deepEqual(debugTrace.filter(operation => operation.args.includes('profile.test.package.sag-core.debug=0'))
+      .map(operation => operation.args[0]), ['build', 'test', 'test']);
   } finally {rmSync(directory,{recursive:true,force:true});}
 });
