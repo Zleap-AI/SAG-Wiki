@@ -84,9 +84,9 @@ Local FTS5 BM25 merges hits by file and paginates them, displaying 20 files per 
 
 ### SAG2 semantic retrieval
 
-BM25 recalls candidates, Jev judges evidence relevance, configured term expansion drives subsequent retrieval, and local diversity ranking produces the final results. Statistics, query and term-frequency caches are reused and invalidated by index version. Candidates exceeding a single model request's budget are processed in batches while keeping chunks intact.
+BM25 recalls candidates, Jev judges evidence relevance, configured term expansion drives subsequent retrieval, and candidates are sorted locally by relevance score after each round. Statistics, query and term-frequency caches are reused and invalidated by index version. Candidates exceeding a single model request's budget are processed in batches while keeping chunks intact.
 
-Q&A uses the configured candidate and result counts. Desktop deep search has a separate limit for displayed files. The CLI's `-m` controls the final output count. All share the same underlying retrieval implementation.
+Q&A uses the configured candidate and result counts. Desktop deep search shows the final round’s results first, then appends other scored matches from earlier rounds, with a limit of 100 files. In CLI semantic search, `-m` caps the number of retrieved candidates used to assemble the output. All share the same underlying retrieval implementation.
 
 ### Q&A and tools
 
