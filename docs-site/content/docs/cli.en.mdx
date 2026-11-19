@@ -39,6 +39,8 @@ Give your agent the [SAG Skill GitHub link](https://github.com/Zleap-AI/SAG-Wiki
 
 CLI and the optional SAG Wiki desktop use the same indexing, retrieval and configuration implementation in `core/`, along with the same user data directory, `sag.sqlite`, keys and ignore rules.
 
+Use an updated CLI to save model settings when the desktop app uses an interface language introduced in 0.3.13. A standalone 0.3.12 CLI can connect to a running 0.3.13 service. If it starts its own older service, saving settings can fail because that service does not support the saved language. Launch the updated desktop app to update its managed CLI. Update an npm-managed CLI separately.
+
 - Desktop and CLI share a standalone background service, configuration and knowledge base. Directory changes appear in both.
 - On macOS, the service keeps running after the desktop client exits, so CLI and MCP remain available. On Windows, quitting from the tray or app menu also stops the service. Reopening the desktop or running a CLI command that needs the service starts it on demand. `sag add` returns after indexing finishes; the running service watches file and ignore-rule changes.
 - `sag service status` shows the service version and process. `sag service stop` stops it; `sag service restart` restarts it after the old instance has shut down and released its instance lock. Status inspection does not automatically start it.

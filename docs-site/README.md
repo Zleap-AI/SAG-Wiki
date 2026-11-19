@@ -13,12 +13,20 @@ npm --prefix docs-site ci
 npm --prefix docs-site run dev -- --hostname 127.0.0.1 --port 3219
 ```
 
-- 中文：http://127.0.0.1:3219/zh/docs
+- 简体中文：http://127.0.0.1:3219/zh/docs
 - English: http://127.0.0.1:3219/en/docs
+- 繁體中文：http://127.0.0.1:3219/zh-TW/docs
+- 日本語：http://127.0.0.1:3219/ja/docs
+- 한국어：http://127.0.0.1:3219/ko/docs
+- Español: http://127.0.0.1:3219/es/docs
 
-访问根地址时按浏览器首选语言选择中文或英文；其他语言或未提供语言时默认英文。带有 `/zh/` 或 `/en/` 的地址保持指定语言。
+访问根地址时，站点根据请求的 `Accept-Language` 匹配文档语言。没有匹配项时进入简体中文首页。请求缺少此标头或只接受任意语言（`*`）时进入英文首页。带有受支持语言前缀的地址按该语言查找页面。
 
-The root URL selects Chinese or English from the browser's preferred languages. Other languages or a missing language preference default to English. URLs with `/zh/` or `/en/` retain that language.
+The root URL matches the request's `Accept-Language` header against the supported locales. If none match, it opens the Simplified Chinese home. A missing header or a wildcard-only preference (`*`) opens the English home. A URL with a supported locale prefix looks up the page in that locale.
+
+繁体中文、日语、韩语和西班牙语页面缺少译文时，先跳到对应的英文页面，再回退到简体中文。各语言的导航和搜索只收录该语言已有的内容。
+
+When a Traditional Chinese, Japanese, Korean, or Spanish translation is missing, the page redirects to English if available, then to Simplified Chinese. Navigation and search include only pages available in the selected language.
 
 ## 构建与验证 / Build and verify
 
@@ -43,9 +51,9 @@ npm --prefix docs-site run start -- --hostname 127.0.0.1 --port 3219
 
 ## 内容维护 / Content maintenance
 
-- `content/docs/*.mdx`：中文页面 / Chinese pages.
-- `content/docs/*.en.mdx`：对应英文页面，保持相同 slug / Matching English pages with the same slugs.
-- `content/docs/meta.json`、`meta.en.json`：双语导航 / Navigation in both languages.
+- `content/docs/<slug>.mdx`：简体中文页面 / Simplified Chinese pages.
+- `content/docs/<slug>.<locale>.mdx`：其他语言的对应页面，使用相同的 slug，语言后缀为 `en`、`zh-TW`、`ja`、`ko` 或 `es` / Translations with the same slug and an `en`, `zh-TW`, `ja`, `ko`, or `es` suffix.
+- `content/docs/meta.json`、`content/docs/meta.<locale>.json`：分别维护简体中文和其他语言的导航 / Navigation for Simplified Chinese and each translated locale, respectively.
 - `public/images/`：正式产品截图及品牌图标 / Product screenshots and brand assets.
 - `package-lock.json`：提交到仓库，使用 `npm ci` 安装锁定依赖 / Commit this lockfile and install with `npm ci`.
 

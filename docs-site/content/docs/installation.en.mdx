@@ -42,7 +42,7 @@ Location: **Settings → About**. This page shows the installed version and link
 
 The app checks for updates at startup and every 8 hours while it stays running. Select **Check updates** to check manually. When notified of a new version, select **Download update** and wait for verification. The action then becomes **Restart and update**.
 
-In versions that support the update source migration, the Simplified Chinese interface checks for and downloads updates through Zleap's website by default. The English interface continues to use GitHub. The saved interface language determines the official source. Existing official GitHub settings migrate once after upgrading; custom sources and other preferences are preserved. Saving model settings with an older standalone CLI preserves automatic update source selection in the desktop app.
+Starting in 0.3.13, the desktop app selects the official update source from the saved interface language. Simplified Chinese checks for and downloads updates from the Zleap website. English, Traditional Chinese, Japanese, Korean and Spanish use GitHub. Default official update settings migrate once on upgrade, and custom sources are preserved. For older standalone CLI installations, see [Sharing with desktop](/en/docs/cli#sharing-with-desktop).
 
 - Expand **Release notes** to read version changes with headings, lists, bold text and links.
 - Continue using the app during download; closing Settings does not interrupt it.
