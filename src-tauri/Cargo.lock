@@ -3709,7 +3709,7 @@ dependencies = [
 
 [[package]]
 name = "sag-desktop"
-version = "0.3.11"
+version = "0.3.13"
 dependencies = [
  "anyhow",
  "arboard",
