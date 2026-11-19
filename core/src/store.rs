@@ -341,6 +341,22 @@ fn register_rank(connection: &Connection) -> Result<()> {
     connection.pragma_update(None, "mmap_size", 2_147_483_648_i64)?;
     Ok(())
 }
+fn is_official_update_repository(value: &str) -> bool {
+    reqwest::Url::parse(value.trim()).is_ok_and(|url| {
+        url.scheme() == "https" && url.host_str() == Some("github.com")
+            && url.port().is_none() && url.username().is_empty() && url.password().is_none()
+            && url.path().trim_matches('/').split_once('/').is_some_and(|(owner, repo)| {
+                owner.eq_ignore_ascii_case("Zleap-AI")
+                    && repo.strip_suffix(".git").unwrap_or(repo).eq_ignore_ascii_case("SAG-Wiki")
+            })
+    })
+}
+
+fn follows_official_update_language(config: &UpdateSettings) -> bool {
+    config.follow_language && config.website_url == OFFICIAL_UPDATE_MANIFEST
+        && is_official_update_repository(&config.github_url)
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -482,22 +498,19 @@ impl Store {
         if preferences.get("update_source_migrated").and_then(serde_json::Value::as_bool) != Some(true) {
             if let Some(config) = preferences.get_mut("updates") {
                 let previous: UpdateSettings = serde_json::from_value(config.clone())?;
-                let official_repo = reqwest::Url::parse(previous.github_url.trim()).is_ok_and(|url| {
-                    url.scheme() == "https" && url.host_str() == Some("github.com")
-                        && url.port().is_none() && url.username().is_empty() && url.password().is_none()
-                        && url.path().trim_matches('/').split_once('/').is_some_and(|(owner, repo)| {
-                            owner.eq_ignore_ascii_case("Zleap-AI") && repo.strip_suffix(".git").unwrap_or(repo).eq_ignore_ascii_case("SAG-Wiki")
-                        })
-                });
-                if matches!(previous.source, UpdateSource::Github) && official_repo
+                if matches!(previous.source, UpdateSource::Github)
+                    && is_official_update_repository(&previous.github_url)
                     && matches!(previous.website_url.trim(), "" | OFFICIAL_UPDATE_MANIFEST)
                 {
-                    config["source"] = "website".into();
+                    config["source"] = "github".into();
                     config["website_url"] = OFFICIAL_UPDATE_MANIFEST.into();
                     config["follow_language"] = true.into();
                 }
             } else {
-                preferences.insert("updates".into(), serde_json::to_value(UpdateSettings::default())?);
+                preferences.insert("updates".into(), serde_json::to_value(UpdateSettings {
+                    source: UpdateSource::Github,
+                    ..UpdateSettings::default()
+                })?);
             }
             preferences.insert("update_source_migrated".into(), true.into());
             saved = serde_json::to_string(&preferences)?;
@@ -586,6 +599,9 @@ impl Store {
             },
             None => Settings::default(),
         };
+        if follows_official_update_language(&settings.updates) {
+            settings.updates.source = UpdateSource::Website;
+        }
         settings.mineru.enabled = settings.document_parser != Some(DocumentParser::Docling)
             && crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
         Ok(settings)
@@ -666,6 +682,11 @@ impl Store {
             settings.conversion_storage = self.validate_conversion_storage(&settings.conversion_storage)?;
             self.prepare_conversion_migration(&previous.conversion_storage, &settings.conversion_storage)?
         } else { Vec::new() };
+        // Older CLIs discard the locale policy fields when rewriting preferences.
+        // Persist the recognizable GitHub defaults so reopening can restore the policy.
+        if follows_official_update_language(&settings.updates) {
+            settings.updates.source = UpdateSource::Github;
+        }
         let mut db = self.connection();
         let transaction = db.transaction()?;
         transaction.execute("INSERT INTO preferences VALUES(1,json_set(?, '$.update_source_migrated', json('true'))) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(&settings)?])?;
@@ -4126,6 +4147,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
             (Some(json!({"github_url":"https://github.com/Zleap-AI/SAG-Wiki/releases"})), false),
             (Some(json!({"website_url":"https://example.com/custom.json"})), false),
             (Some(json!({"source":"website","website_url":"https://example.com/custom.json"})), false),
+            (Some(json!({"source":"website","website_url":OFFICIAL_UPDATE_MANIFEST})), false),
             (Some(json!({"source":"github","github_url":official,"website_url":"https://example.com/custom.json"})), false),
         ];
         for (previous, migrate) in cases {
@@ -4170,6 +4192,21 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         settings.language = "en".into();
         store.save_settings(&settings).unwrap();
         assert!(store.settings().unwrap().updates.follow_language);
+        // An older CLI rewrites preferences using only the fields it understands.
+        store.connection().execute(
+            "UPDATE preferences SET value=json_set(
+                json_remove(value, '$.updates.follow_language', '$.update_source_migrated'),
+                '$.jev.model', 'legacy-cli-model'
+            ) WHERE id=1", [],
+        ).unwrap();
+        drop(store);
+
+        let store = Store::open(&path).unwrap();
+        let mut settings = store.settings().unwrap();
+        assert!(settings.updates.follow_language, "the old CLI must not disable language-based updates");
+        assert!(matches!(settings.updates.source, UpdateSource::Website));
+        assert_eq!(settings.language, "en");
+        assert_eq!(settings.jev.model, "legacy-cli-model");
         settings.updates = serde_json::from_value(json!({"source":"github","github_url":official})).unwrap();
         store.save_settings(&settings).unwrap();
         store.connection().execute_batch("CREATE TRIGGER forbid_extra_update BEFORE UPDATE ON preferences BEGIN SELECT RAISE(ABORT, 'unexpected write'); END;").unwrap();
