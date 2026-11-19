@@ -28,6 +28,10 @@ The background service checks files against existing indexes at startup. The fil
 
 Changed content, settings that affect parsed text, or a required parsing or index migration can still update affected documents. Keep indexes and the conversion output folder to retain reusable data.
 
+## What does a file-monitoring failure on Linux mean?
+
+The message “the system watch limit (Linux inotify) is exhausted” means the kernel watch quota (`fs.inotify.max_user_watches`, commonly 65536 by default) is used up, typically when indexing several folders with very large directory trees. Indexing and search are unaffected; only automatic updates are limited. Raise the limit to recover: run `sudo sysctl fs.inotify.max_user_watches=524288`, add the same setting to `/etc/sysctl.conf` to persist it, then restart the app and rebuild the index from the folder's indexing settings to remount watching. Rebuilding without raising the limit keeps failing.
+
 ## What if the database was created by a newer version?
 
 Keep the data directory and continue using the newer application that created it, or install a compatible newer version. Applications with the version guard reject a newer database schema before running migrations. Previously shipped older binaries do not gain this protection. Do not downgrade the application or delete indexes and conversion caches to resolve the message.

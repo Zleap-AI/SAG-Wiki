@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.14
+
+- **Linux 文件监听**：监视数量达到系统上限时，根状态、CLI 与桌面提示给出调大 inotify 配额的可操作指引，不再误导为重建索引可恢复。([PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
+
+### English
+
+- **Linux file monitoring**: When the system watch limit is reached, root status, CLI, and desktop messages now give an actionable hint to raise the inotify quota instead of suggesting an index rebuild that cannot recover. ([PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
+
 ## 0.3.13
 
 - **桌面更新源**：官方更新源随已保存的界面语言切换。简体中文使用 Zleap 官网，其余界面语言使用 GitHub。升级时迁移默认官方更新设置，并保留自定义更新源。

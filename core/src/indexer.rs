@@ -220,6 +220,15 @@ pub(crate) fn apply_foreground_request(store: &Store, request: IndexRequest, pro
     }
 }
 
+/// 内核监视数量上限耗尽时，重建索引无法恢复自动更新，必须先调大系统上限。
+pub(crate) fn describe_watch_error(error: &notify::Error) -> String {
+    if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) {
+        "系统文件监视数量已达上限（Linux inotify）。请先调大上限并重启应用：sudo sysctl fs.inotify.max_user_watches=524288（写入 /etc/sysctl.conf 可持久化）；在此之前重建索引仍会失败。".into()
+    } else {
+        error.to_string()
+    }
+}
+
 // Owned exclusively by the indexing worker.
 pub(crate) struct RootWatcher<W> {
     watcher: W,
@@ -237,7 +246,7 @@ impl<W: notify::Watcher> RootWatcher<W> {
         progress();
         let result = self.watcher.watch(std::path::Path::new(root), notify::RecursiveMode::Recursive);
         store.indexing.finish(root);
-        store.set_watch_error(root, result.as_ref().err().map(ToString::to_string).as_deref())?;
+        store.set_watch_error(root, result.as_ref().err().map(describe_watch_error).as_deref())?;
         result?;
         self.roots.insert(root.into());
         Ok(())
@@ -288,6 +297,14 @@ mod tests {
         }
         fn unwatch(&mut self, _: &std::path::Path) -> notify::Result<()> { self.removals += 1; Ok(()) }
         fn kind() -> notify::WatcherKind { notify::WatcherKind::NullWatcher }
+    }
+
+    #[test]
+    fn watch_limit_errors_describe_the_kernel_remedy() {
+        let limit = describe_watch_error(&notify::Error::new(notify::ErrorKind::MaxFilesWatch));
+        assert!(limit.contains("fs.inotify.max_user_watches"), "remedy command missing: {limit}");
+        let other = describe_watch_error(&notify::Error::generic("mount failed"));
+        assert_eq!(other, "mount failed");
     }
 
     #[test]

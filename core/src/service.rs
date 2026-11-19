@@ -1176,7 +1176,8 @@ impl Service {
                             "path":root,"count":0,"total":0,"stage":"preparing_watch",
                         }));
                     }) {
-                        emit(&handle, "app-error", format!("文件监听失败：{root}：{err}"));
+                        let detail = err.downcast_ref::<notify::Error>().map(indexer::describe_watch_error).unwrap_or_else(|| err.to_string());
+                        emit(&handle, "app-error", format!("文件监听失败：{root}：{detail}"));
                     }
                 }
                 // Only a full recovery scan that starts after the background
