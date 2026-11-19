@@ -154,8 +154,11 @@ Run `Rust test profile A/B` on a branch with `platform=macos-intel` and
 baseline with `sag-core` CGU32 and CGU64. The experiment rotates the profiles
 over three paired rounds, runs the same named Core tests and then the two
 release CLI test commands. Compare the paired Core-plus-CLI wall times from
-`scripts/test-profile-ab.mjs summarize`. Benchmark runs neither publish releases
-nor write trusted release checkpoints.
+`scripts/test-profile-ab.mjs summarize`. In [run 44503310286](https://github.com/Zleap-AI/SAG-Wiki/actions/runs/44503310286),
+CGU32 improved all three paired Core-plus-CLI times by 80, 93, and 251 seconds.
+CGU64 regressed one round by 176 seconds. Intel Core and CLI now use CGU32
+only for `sag-core` in the test profile. The baseline remains CGU16 for future
+comparisons. Benchmark runs create neither releases nor trusted checkpoints.
 
 The draft release job reports per-job GitHub queue and execution time, and
 reports checkpoint waiting separately from artifact download and validation.
