@@ -1,147 +1,162 @@
-name: Rust test profile A/B
-
-on:
-  workflow_dispatch:
-    inputs:
-      comparison:
-        description: Single-variable comparisons to execute
-        type: choice
-        options: ['debug-and-cgu', 'cgu-only', 'core-debug-only', 'intel-core-cgu', 'intel-release-cli']
-        default: 'debug-and-cgu'
-      platform:
-        description: Platforms to measure
-        type: choice
-        options: ['both', 'macos', 'macos-intel', 'windows']
-        default: 'both'
-      rounds:
-        description: Paired rounds per platform (three for an adoption decision)
-        type: choice
-        options: ['3', '1']
-        default: '3'
-
+name: Intel runner A/B
+on: workflow_dispatch
 permissions:
   contents: read
-
-concurrency:
-  group: rust-profile-ab-${{ github.ref }}-${{ inputs.comparison }}
-  cancel-in-progress: false
-
+  actions: read
 jobs:
   compare:
-    name: Profile A/B ${{ matrix.platform }} round ${{ matrix.round }}
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && inputs.comparison != 'intel-release-cli'
+    name: Intel Rust on ${{ matrix.runner }}
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(inputs.comparison == 'intel-core-cgu' && '["macos-intel"]' || inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'macos-intel' && '["macos-intel"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
-        round: ${{ fromJSON(inputs.rounds == '3' && '[1,2,3]' || '[1]') }}
-    runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || matrix.platform == 'macos-intel' && 'macos-15-intel' || 'windows-2025' }}
-    timeout-minutes: ${{ matrix.platform == 'macos-intel' && 180 || 90 }}
+        runner: [macos-15-intel, macos-15-large]
+        platform: [macos-intel]
+        target: [x86_64-apple-darwin]
+        kind: [test]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
     defaults:
       run:
         shell: bash
     env:
-      AB_PLATFORM: ${{ matrix.platform }}
-      AB_ROUND: ${{ matrix.round }}
-      AB_COMPARISON: ${{ inputs.comparison }}
-      PYTHONUTF8: '1'
-      RUST_BACKTRACE: '1'
+      TARGET_TRIPLE: x86_64-apple-darwin
+      RELEASE_PLATFORM: macos-intel
+      CACHE_KIND: test
+      CACHE_ROLE: desktop
+      RELEASE_VERSION: '0.3.13'
     steps:
-      - name: Check out the exact dispatch commit
+      - name: Check out the validated commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
+          fetch-depth: 0
           persist-credentials: false
       - name: Set up Node.js
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '24.13.0'
+          cache: npm
+      - name: Record runner identity and native architecture
+        run: |
+          sw_vers
+          test "$(uname -m)" = x86_64
+          sysctl hw.ncpu hw.memsize
       - name: Set up Python
+        if: true
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.13.9'
       - name: Set up Rust
+        if: true
         uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: '1.98.1'
-      - name: Verify A/B measurement policy
-        run: node --test scripts/test-profile-ab.node-test.mjs
-      - name: Prepare the same QPDF runtime used by native tests
-        run: node scripts/prepare-qpdf.mjs
-      # Selected profiles run on the same VM in a rotated order. Each gets a
-      # fresh target, warms its own matching dependencies, then cleans ONLY core.
-      # No dependency cache or release checkpoint is written by this workflow.
-      - name: Measure compilation and execute all core tests for every profile
-        run: node scripts/test-profile-ab.mjs run
-      - name: Upload timing reports and named-test inventories
-        if: always()
+          targets: ${{ matrix.target }}
+      # Cache dependency libraries/build metadata, not app or integration-test binaries.
+      # Stable keys avoid a multi-GiB snapshot for every main commit.
+      - name: Restore Rust debug cache
+        if: matrix.kind == 'test'
+        id: rust-debug
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: &native_debug_cache_paths |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target/debug/.fingerprint/*
+            src-tauri/target/debug/build/*
+            src-tauri/target/debug/deps/*.rlib
+            src-tauri/target/debug/deps/*.rmeta
+            src-tauri/target/debug/deps/*.d
+            src-tauri/target/debug/deps/*.a
+            src-tauri/target/debug/deps/*.lib
+            src-tauri/target/debug/deps/*.so
+            src-tauri/target/debug/deps/*.dylib
+            src-tauri/target/debug/deps/*.dll
+            !src-tauri/target/debug/.fingerprint/sag-*
+            !src-tauri/target/debug/build/sag-*
+            !src-tauri/target/debug/deps/libsag_*
+            !src-tauri/target/debug/deps/sag_*
+          key: &native_debug_cache_key rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
+      - name: Restore compatible trusted tag dependencies
+        if: matrix.kind == 'test' && steps.rust-debug.outputs.cache-hit != 'true'
+        id: tag-debug
+        timeout-minutes: 6
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/rust-dependency-cache.mjs restore
+      - name: Restore older Rust cache if no compatible archive was found
+        if: matrix.kind == 'test' && steps.rust-debug.outputs.cache-hit != 'true' && steps.tag-debug.outputs.hit != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: *native_debug_cache_paths
+          key: *native_debug_cache_key
+          restore-keys: |
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug1-
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-${{ matrix.target }}-1.98.1-debug-
+      - name: Install locked JavaScript dependencies
+        if: matrix.kind == 'test'
+        run: npm ci
+      - name: Prepare and verify QPDF for native tests
+        if: matrix.kind == 'test'
+        run: |
+          node scripts/prepare-qpdf.mjs
+          node --test scripts/qpdf-packaging.node-test.mjs
+      - name: 'Run native Rust suite: protocol'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: matrix.kind == 'test'
+        run: |
+          cargo test --locked --timings --manifest-path protocol/Cargo.toml
+      - name: 'Run native Rust suite: client'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: matrix.kind == 'test'
+        run: |
+          cargo test --locked --timings --manifest-path client/Cargo.toml
+      - name: 'Run native Rust suite: core'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+          SAG_CORE_TEST_PROFILE: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.debug=0' || '' }}
+          SAG_CORE_TEST_CODEGEN: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.codegen-units=32' || '' }}
+        if: matrix.kind == 'test'
+        run: |
+          core_profile=()
+          if [[ -n "$SAG_CORE_TEST_PROFILE" ]]; then
+            core_profile=(--config "$SAG_CORE_TEST_PROFILE" --config "$SAG_CORE_TEST_CODEGEN")
+          fi
+          cargo test "${core_profile[@]}" --locked --timings --manifest-path core/Cargo.toml --lib --tests
+      - name: 'Run native Rust suite: cli'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+          SAG_CORE_TEST_PROFILE: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.debug=0' || '' }}
+          SAG_CORE_TEST_CODEGEN: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.codegen-units=32' || '' }}
+        if: matrix.kind == 'test'
+        run: |
+          core_profile=()
+          if [[ -n "$SAG_CORE_TEST_PROFILE" ]]; then
+            core_profile=(--config "$SAG_CORE_TEST_PROFILE" --config "$SAG_CORE_TEST_CODEGEN")
+          fi
+          # Run the pipe leak probe first, then exclude its duplicate invocation.
+          cargo test "${core_profile[@]}" --locked --timings --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture
+          cargo test "${core_profile[@]}" --locked --timings --manifest-path cli/Cargo.toml --bins --tests -- --nocapture --skip background_service_releases_both_foreground_capture_pipes_while_still_running
+      - name: 'Run native Rust suite: desktop'
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '1'
+        if: matrix.kind == 'test'
+        run: |
+          if [[ "$RUNNER_OS" == Windows ]]; then
+            pwsh -NoProfile -File scripts/test-windows-desktop.ps1
+          else
+            cargo test --locked --timings --manifest-path src-tauri/Cargo.toml
+          fi
+      - name: Upload native compilation timings
+        if: always() && matrix.kind == 'test'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: profile-ab-${{ matrix.platform }}-round-${{ matrix.round }}-${{ github.sha }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/profile-ab-results/
+          name: native-timings-${{ matrix.runner }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: src-tauri/target/cargo-timings/
           if-no-files-found: warn
           retention-days: 7
 
-  intel-release-cli:
-    name: Intel production CLI on Apple Silicon
-    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/heads/') && inputs.comparison == 'intel-release-cli'
-    runs-on: macos-15
-    timeout-minutes: 90
-    env:
-      TAURI_ENV_TARGET_TRIPLE: x86_64-apple-darwin
-      CARGO_INCREMENTAL: '0'
-      SAG_CARGO_TIMINGS: '1'
-      SAG_WEB_DIST: ${{ github.workspace }}/dist-web
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.sha }}
-          persist-credentials: false
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24.13.0'
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
-        with:
-          toolchain: '1.98.1'
-          targets: x86_64-apple-darwin
-      - name: Verify the x86_64 runtime is available
-        run: |
-          test "$(uname -m)" = arm64
-          /usr/bin/arch -x86_64 /usr/bin/true
-      - name: Build the same embedded web resources for both profiles
-        run: |
-          npm ci
-          npx --no-install vite build --outDir dist-web
-          mv node_modules "$RUNNER_TEMP/web-build-dependencies"
-      - name: Compile and smoke test both x86_64 release profiles
-        run: |
-          set -euo pipefail
-          results="$RUNNER_TEMP/intel-cli-results"
-          mkdir -p "$results"
-          printf 'profile,wall_seconds,binary_bytes\n' > "$results/times.csv"
-          for profile in fat thin; do
-            export CARGO_TARGET_DIR="$RUNNER_TEMP/intel-cli-$profile"
-            if [[ "$profile" == thin ]]; then
-              export CARGO_PROFILE_RELEASE_LTO=thin
-            fi
-            started=$(date +%s)
-            node scripts/build-cli.mjs 2>&1 | tee "$results/$profile-build.log"
-            elapsed=$(( $(date +%s) - started ))
-            binary=src-tauri/bin/sag
-            test "$(lipo -archs "$binary")" = x86_64
-            test "$(lipo -archs src-tauri/bin/qpdf/bin/qpdf)" = x86_64
-            "$binary" --build-info > "$results/$profile-build-info.json"
-            src-tauri/bin/qpdf/bin/qpdf --version
-            python3 tests/local-jev-e2e.py --binary "$binary" --smoke | tee "$results/$profile-smoke.log"
-            printf '%s,%s,%s\n' "$profile" "$elapsed" "$(stat -f %z "$binary")" >> "$results/times.csv"
-            cp "$CARGO_TARGET_DIR/cargo-timings/cargo-timing.html" "$results/$profile-timing.html"
-          done
-          cat "$results/times.csv"
-      - name: Upload isolated production CLI experiment
-        if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: intel-cli-production-${{ github.sha }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/intel-cli-results
-          if-no-files-found: warn
-          retention-days: 7
