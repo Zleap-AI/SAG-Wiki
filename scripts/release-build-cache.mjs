@@ -286,6 +286,20 @@ export function releaseComponents(platform) {
   return platform === 'all' ? components : [`build-${platform}`];
 }
 
+export function releaseJobTimings(jobs) {
+  const names = ['Validate release source', ...Object.values(jobNames),
+    'Compile CLI macos', 'Compile CLI macos-intel', 'Compile CLI windows', 'Sign macos', 'Sign macos-intel'];
+  return names.flatMap(name => {
+    const job = latestJob(jobs,name);
+    if (!job) return [];
+    const difference = (end,start) => {
+      const milliseconds = Date.parse(end) - Date.parse(start);
+      return Number.isFinite(milliseconds) && milliseconds >= 0 ? (milliseconds/1000).toFixed(0) : '—';
+    };
+    return [`| ${name} | ${job.run_attempt} | ${difference(job.started_at,job.created_at)} | ${difference(job.completed_at,job.started_at)} |`];
+  });
+}
+
 async function waitForRelease(platform) {
   const requested = releaseComponents(platform);
   const ctx = context();
@@ -296,14 +310,31 @@ async function waitForRelease(platform) {
   assert.ok(existsSync(deadlinePath), 'Missing macOS release checkpoint deadline');
   const deadline = Number(readFileSync(deadlinePath, 'utf8'));
   assert.ok(Number.isSafeInteger(deadline), 'Invalid release checkpoint deadline');
+  const waitStartedAt = Date.now();
   const results = await awaitComponents(ctx, requested, {gate:true,
     timeoutMs: Math.max(0, Math.min(budget, deadline - Date.now())),
     pollMs: Number(process.env.RELEASE_WAIT_POLL_MS ?? 20000)});
+  const checkpointsReadyAt = Date.now();
   const artifacts = results.flatMap(result => result.artifact ? [result.artifact] : []);
   // Signing and assembly run in separate jobs, each with fresh artifact inputs.
   downloadArtifacts(artifacts, 'release-artifacts');
   validateStagedArtifacts(resolve('release-artifacts'), validateVersions(), ctx.commit, platform === 'all' ? ['macos', 'macos-intel', 'windows'] : [platform]);
   console.log(`Verified ${requested.join(', ')}`);
+  if (platform === 'all' && process.env.GITHUB_STEP_SUMMARY) {
+    try {
+      const rows = releaseJobTimings(pages(`actions/runs/${ctx.currentRunId}/jobs?filter=latest`,'jobs'));
+      const seconds = milliseconds => (milliseconds/1000).toFixed(1);
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+        '## Desktop release timings', '',
+        `- Checkpoint wait and verification: ${seconds(checkpointsReadyAt-waitStartedAt)} s`,
+        `- Artifact download and validation: ${seconds(Date.now()-checkpointsReadyAt)} s`, '',
+        '| Job | Attempt | Queue (s) | Execution (s) |', '| --- | ---: | ---: | ---: |',
+        ...rows, '',
+      ].join('\n'));
+    } catch (error) {
+      console.log(`Release telemetry unavailable: ${error.message}`);
+    }
+  }
 }
 
 export function downloadArtifacts(artifacts, destination) {
