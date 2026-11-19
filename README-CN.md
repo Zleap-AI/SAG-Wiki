@@ -5,7 +5,7 @@
 <h1 align="center">SAG-Wiki</h1>
 
 <p align="center">
-  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="CHANGELOG.md">更新日志</a>
+  <a href="README.md">English</a> · <strong>简体中文</strong> · <a href="README-JA.md">日本語</a> · <a href="CHANGELOG.md">更新日志</a>
 </p>
 
 <p align="center">
@@ -164,7 +164,7 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 npm install -g @zleap-ai/sag
 ```
 
-[npm 已发布包](https://www.npmjs.com/package/@zleap-ai/sag)包含 **macOS Apple Silicon、Windows x64 和 Linux ARM64 / x86_64** 程序（Linux 已在 Ubuntu 24.04、Debian 12 验证），无需 Rust 工具链或源码编译。安装 CLI 不会安装桌面端。
+[npm 已发布包](https://www.npmjs.com/package/@zleap-ai/sag)包含 **macOS Apple Silicon 和 Intel（Intel 自 `0.3.11` 起支持）、Windows x64 和 Linux ARM64 / x86_64** 程序（Linux 已在 Ubuntu 24.04、Debian 12 验证），无需 Rust 工具链或源码编译。安装 CLI 不会安装桌面端。
 
 <details>
 <summary>手动安装与使用</summary>

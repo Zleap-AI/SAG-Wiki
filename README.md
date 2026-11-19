@@ -5,7 +5,7 @@
 <h1 align="center">SAG-Wiki</h1>
 
 <p align="center">
-  <strong>English</strong> · <a href="README-CN.md">简体中文</a> · <a href="CHANGELOG.md">Changelog</a>
+  <strong>English</strong> · <a href="README-CN.md">简体中文</a> · <a href="README-JA.md">日本語</a> · <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
@@ -164,7 +164,7 @@ With Node.js 18 or later installed:
 npm install -g @zleap-ai/sag
 ```
 
-The [published npm package](https://www.npmjs.com/package/@zleap-ai/sag) includes **macOS Apple Silicon, Windows x64 and Linux ARM64 / x86_64** binaries (Linux verified on Ubuntu 24.04 and Debian 12). It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
+The [published npm package](https://www.npmjs.com/package/@zleap-ai/sag) includes **macOS Apple Silicon and Intel (Intel since `0.3.11`), Windows x64 and Linux ARM64 / x86_64** binaries (Linux verified on Ubuntu 24.04 and Debian 12). It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
 
 <details>
 <summary>Manual installation and usage</summary>
