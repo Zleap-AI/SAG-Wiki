@@ -154,9 +154,20 @@ fn connect_on_startup(state: Arc<AppState>, fresh_library: bool) {
         }
     });
 }
-fn apply_interface_language<R: tauri::Runtime>(app: &tauri::AppHandle<R>, language: &str) {
+fn apply_interface_language<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
+    applied_language: &Mutex<String>,
+    language: String,
+) {
+    {
+        let mut applied = applied_language.lock().unwrap();
+        if *applied == language {
+            return;
+        }
+        applied.clone_from(&language);
+    }
     if let Some(tray) = app.tray_by_id("main") {
-        let result = tray_menu(app, language).and_then(|menu| tray.set_menu(Some(menu)));
+        let result = tray_menu(app, &language).and_then(|menu| tray.set_menu(Some(menu)));
         if let Err(error) = result {
             eprintln!("Could not update the tray menu: {error}");
         }
@@ -167,7 +178,7 @@ fn apply_interface_language<R: tauri::Runtime>(app: &tauri::AppHandle<R>, langua
 async fn refresh_interface_language<R: tauri::Runtime>(
     app: tauri::AppHandle<R>,
     client: Client,
-    mut language: String,
+    applied_language: Arc<Mutex<String>>,
     mut changes: tokio::sync::watch::Receiver<()>,
 ) {
     while changes.changed().await.is_ok() {
@@ -179,10 +190,7 @@ async fn refresh_interface_language<R: tauri::Runtime>(
         }
         match response {
             Ok(Output::Settings(settings)) => {
-                if settings.language != language {
-                    language = settings.language;
-                    apply_interface_language(&app, &language);
-                }
+                apply_interface_language(&app, &applied_language, settings.language);
             }
             Ok(_) => eprintln!("Unexpected settings response while refreshing the interface language"),
             Err(error) => eprintln!("Could not load the interface language: {error}"),
@@ -193,6 +201,9 @@ async fn refresh_interface_language<R: tauri::Runtime>(
 fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_runtime::JoinHandle<()> {
     tauri::async_runtime::spawn(async move {
         let mut reported: Option<String> = None;
+        let applied_language = Arc::new(Mutex::new(
+            protocol::locales::default_interface_language().to_owned(),
+        ));
         loop {
             if state.quitting.load(Ordering::Relaxed) {
                 tokio::time::sleep(Duration::from_millis(250)).await;
@@ -247,13 +258,13 @@ fn forward_events<R: tauri::Runtime>(state: Arc<AppState<R>>) -> tauri::async_ru
                     continue;
                 }
             };
-            apply_interface_language(&state.app, &language);
+            apply_interface_language(&state.app, &applied_language, language);
             let (language_refresh, changes) = tokio::sync::watch::channel(());
             let mut language_worker = tokio::task::JoinSet::new();
             language_worker.spawn(refresh_interface_language(
                 state.app.clone(),
                 client.clone(),
-                language,
+                applied_language.clone(),
                 changes,
             ));
             emit(&state.app, "data-changed", ());

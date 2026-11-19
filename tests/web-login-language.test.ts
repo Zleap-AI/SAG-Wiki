@@ -39,6 +39,18 @@ it.each([
  await vi.waitFor(()=>expect(document.querySelector('[role=alert]')?.textContent).toBe(error));
 });
 
+it.each([
+ ['ja-JP','Web サービスに接続できませんでした'],
+ ['zh-CN','无法连接网页服务'],
+])('localizes network failures for a %s browser',async(browserLocale,error)=>{
+ vi.spyOn(navigator,'language','get').mockReturnValue(browserLocale);
+ vi.stubGlobal('fetch',vi.fn().mockRejectedValue(new TypeError('Failed to fetch')));
+ app=mount(WebApp,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('#web-code')).not.toBeNull());
+ submitAccessCode('access-code');
+ await vi.waitFor(()=>expect(document.querySelector('[role=alert]')?.textContent).toBe(error));
+});
+
 it('returns to a localized sign-in form after the workspace session expires',async()=>{
  vi.spyOn(navigator,'language','get').mockReturnValue('en-US');
  vi.stubGlobal('fetch',vi.fn(async(path:string)=>new Response(null,{status:path==='/web/session'?200:401})));

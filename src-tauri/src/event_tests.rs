@@ -177,7 +177,14 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
                         Operation::Snapshot => Output::Snapshot(Snapshot {
                             roots: vec![],
                             files: vec![],
-                            settings: Settings::default(),
+                            settings: Settings {
+                                language: if first_snapshot.load(Ordering::SeqCst) {
+                                    protocol::locales::default_interface_language().into()
+                                } else {
+                                    "ja".into()
+                                },
+                                ..Settings::default()
+                            },
                             conversations: vec![],
                             drafts: vec![],
                         }),
@@ -287,6 +294,10 @@ async fn streaming_recovers_after_a_failed_reconnect_and_successful_request() {
     refuse.store(false, Ordering::SeqCst);
     rpc(&state, Operation::Info).await.unwrap();
     let restored = tokio::time::timeout(Duration::from_secs(3), progress.recv()).await;
+    assert!(
+        language.try_recv().is_err(),
+        "reconnecting with the same language should not reapply it"
+    );
     forwarding.abort();
     server.abort();
     assert!(
