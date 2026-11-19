@@ -102,7 +102,7 @@ Defaults to 10, minimum 1, with no fixed maximum. It limits how many results are
 | Expansion seeds | 10 / 1–20 | How many ranked, not-yet-expanded passages become search starting points. More seeds add context and terms. |
 | Expansion term limit | 20 / 1–500 | Caps terms and full-name phrases extracted from seeds. More terms widen retrieval and may add irrelevant candidates. |
 | Expansion rounds | 1 / 0–2 | Rounds after initial retrieval. 0 means initial retrieval only; 1 allows up to 2 rounds total; 2 allows up to 3. Stops early without new candidates. |
-| Returned passages | 10 / 1–100 | Final passage count for Q&A retrieval tools, separate from per-round candidate count. Desktop deep search shows at most 100 files; CLI `-m` controls its output limit. |
+| Returned passages | 10 / 1–100 | Final passage count for Q&A retrieval tools, separate from per-round candidate count. Desktop deep search shows at most 100 files; In CLI semantic search, `-m` caps the number of retrieved candidates used to assemble the output. |
 | Target chunk characters | 512 / 400–12000 | Indexing chunk target. Preserves sentences and neighboring context; long sentences may exceed it. Changing this rebuilds indexes. |
 
 ### Adjusting parameters

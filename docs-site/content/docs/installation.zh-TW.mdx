@@ -1,0 +1,39 @@
+---
+title: "安裝"
+description: "在 macOS 或 Windows 安裝 SAG Wiki，並完成初次設定與更新。"
+---
+
+## 桌面應用程式
+
+<ReleaseDownloads language="zh-TW" />
+
+macOS 使用者可透過「關於這台 Mac」確認晶片或處理器。M 系列請選擇 Apple Silicon（`arm64`），Intel 處理器請選擇 Intel（`x86_64`）。開啟 DMG 後，將 SAG Wiki 拖曳到「應用程式」資料夾。
+
+Windows 使用者請執行 x64 安裝程式，並依畫面指示操作。Windows 安裝程式可選擇簡體中文、繁體中文和英文。
+
+[查看最新穩定版與版本說明](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
+
+## 設定介面語言
+
+繁體中文介面自 0.3.13 起提供。開啟 SAG Wiki，前往 **設定 → 一般 → 介面語言**，選擇 **繁體中文**，再選擇 **儲存設定**。請參閱[設定指南](/zh-TW/docs/preferences)。
+
+安裝完成後，可以依照[快速入門](/zh-TW/docs/quick-start)加入第一個資料夾。
+
+## 只安裝 CLI
+
+需要 Node.js 18 或更新版本。CLI 支援 Apple Silicon Mac、Intel Mac（`0.3.11` 或更新版本）、Windows x64，以及 Linux ARM64／x86_64（Ubuntu 24.04 和 Debian 12）。
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+CLI 可以獨立於桌面應用程式使用。請參閱 [Agent 整合（英文）](/en/docs/agents)與 [CLI 參考（英文）](/en/docs/cli)。
+
+## 更新應用程式
+
+前往 **設定 → 關於** 檢查更新。有較新的版本時，可以下載安裝包並等待驗證，接著重新啟動應用程式。若有尚未儲存的文件，請依畫面提示先儲存。
+
+從 0.3.13 起，桌面應用程式會依已儲存的介面語言選擇官方更新來源。簡體中文使用 Zleap 官網，其他介面語言使用 GitHub。自訂更新來源保持不變。
+
+如果更新失敗，可以重試，或前往 GitHub 下載最新穩定版安裝程式。透過 npm 安裝的 CLI 可以使用 `npm install -g @zleap-ai/sag` 更新。

@@ -3,18 +3,21 @@
  import {Button} from 'bits-ui';
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
- import {checkUpdates,defaultUpdateSettings,updateKey,updateState} from '../lib/updates';
+ import {checkUpdates,defaultUpdateSettings,updateDownload,updateKey,updateState} from '../lib/updates';
  import type {UpdateSettings} from '../lib/types';
  export let config:UpdateSettings=defaultUpdateSettings;
  export let onOpen:()=>void;
  let mounted=false,dismissed='',checkedKey='';
  onMount(()=>{
   mounted=true;
-  const timer=setInterval(()=>{void checkUpdates(config)},8*60*60*1000);
+  const timer=setInterval(()=>{void checkUpdates(config,{automatic:true})},8*60*60*1000);
   return()=>clearInterval(timer);
  });
  $: key=updateKey(config);
- $: if(mounted&&checkedKey!==key){checkedKey=key;void checkUpdates(config)}
+ $: if(mounted&&checkedKey!==key&&$updateDownload.stage==='idle'){
+  checkedKey=key;
+  void checkUpdates(config,{automatic:true});
+ }
  $: info=$updateState.key===key?$updateState.info:null;
 </script>
 

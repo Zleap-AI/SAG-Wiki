@@ -25,6 +25,7 @@ Authorization: Bearer <API_KEY>
   <ApiParameter name="query" type="string" required="必填">搜索内容，长度为 1–2000 个字符。</ApiParameter>
   <ApiParameter name="mode" type="string" defaultValue="默认 deep">可选 deep（深入检索）或 fast（快速搜索）。</ApiParameter>
   <ApiParameter name="paths" type="string[]">服务端完整目录路径。可传入多个目录，省略或空数组时搜索当前 Key 允许的全部文件夹。全库 Key 继续搜索全部知识库。</ApiParameter>
+  <ApiParameter name="exclude" type="string[]">快速与深入检索均支持的排除通配符，例如 `archive/**`。按各搜索目录下的相对路径匹配，无斜杠的模式按文件名匹配。</ApiParameter>
   <ApiParameter name="limit" type="integer" defaultValue="默认 10">最多返回的原文片段数，范围 1–100。</ApiParameter>
 </ApiParameters>
 
@@ -93,14 +94,14 @@ curl http://127.0.0.1:24681/v1/search \
 | `request_id` | 本次请求标识 |
 | `mode` | 实际使用的检索模式 |
 | `elapsed_ms` | 服务端耗时，包含排队 |
-| `results` | 按相关性返回的原文片段数组，同一文件可以有多条记录 |
+| `results` | 按文件路径和标题归组的原文片段。各组按候选首次出现的顺序返回，组内按原文位置合并重叠或相接的范围。 |
 | `path` | 服务端完整文件路径 |
 | `heading` | 片段对应标题 |
 | `start_line`、`end_line` | 原文起止行号；转换文档沿用可检索正文的定位语义 |
 | `content` | 原文片段内容 |
 | `truncated` | 因响应大小边界减少返回结果时为真，正常按 `limit` 选取结果不算截断 |
 
-没有匹配时返回 `200` 和空数组。索引仍在进行时，可以返回已有内容，搜索响应不增加索引进行标记。接口按指定数量返回原文片段，不分页、不生成回答或总结。
+没有匹配时返回 `200` 和空数组。索引仍在进行时，可以返回已有内容，搜索响应不增加索引进行标记。接口最多返回 `limit` 个原文片段。深入检索用于组装响应的候选数还受每轮候选数量设置限制。接口不分页、不生成回答或总结。
 
 ## 文件夹
 

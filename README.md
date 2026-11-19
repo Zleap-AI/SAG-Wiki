@@ -5,7 +5,7 @@
 <h1 align="center">SAG-Wiki</h1>
 
 <p align="center">
-  <strong>English</strong> · <a href="README-CN.md">简体中文</a> · <a href="CHANGELOG.md">Changelog</a>
+  <strong>English</strong> · <a href="README-CN.md">简体中文</a> · <a href="README-ZH-TW.md">繁體中文</a> · <a href="README-JA.md">日本語</a> · <a href="README-KO.md">한국어</a> · <a href="README-ES.md">Español</a> · <a href="CHANGELOG.md">Changelog</a>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 
 https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
-PDF basic text can become searchable before background OCR and table enhancement finish. Independent basic indexing keeps supported local Office/RTF documents moving, while PDF segments reuse loaded models. See the [changelog](CHANGELOG.md) for release-specific changes and the [bilingual documentation](docs-site/README.md) for usage. The download link below points to the latest published stable Release.
+PDF basic text can become searchable before background OCR and table enhancement finish. Independent basic indexing keeps supported local Office/RTF documents moving, while PDF segments reuse loaded models. See the [changelog](CHANGELOG.md) for release-specific changes and the [documentation site](docs-site/README.md) for usage. The download link below points to the latest published stable Release.
 
 ## Contents
 
@@ -164,7 +164,7 @@ With Node.js 18 or later installed:
 npm install -g @zleap-ai/sag
 ```
 
-The [published npm package](https://www.npmjs.com/package/@zleap-ai/sag) includes **macOS Apple Silicon, Windows x64 and Linux ARM64 / x86_64** binaries (Linux verified on Ubuntu 24.04 and Debian 12). It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
+The [published npm package](https://www.npmjs.com/package/@zleap-ai/sag) includes **macOS Apple Silicon and Intel (Intel since `0.3.11`), Windows x64 and Linux ARM64 / x86_64** binaries (Linux verified on Ubuntu 24.04 and Debian 12). It requires no Rust toolchain or source compilation. Installing the CLI does not install the desktop app.
 
 <details>
 <summary>Manual installation and usage</summary>

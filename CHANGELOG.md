@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.3.13
+
+- **桌面更新源**：官方更新源随已保存的界面语言切换。简体中文使用 Zleap 官网，其余界面语言使用 GitHub。升级时迁移默认官方更新设置，并保留自定义更新源。
+- **多语言支持**：在通用设置中可选择新增的日语、繁体中文、韩语和西班牙语，适用于桌面主界面、网页界面、快捷搜索和托盘。文档站提供这四种语言的安装、入门、文件、搜索和问答指南。
+- **问答滚动**：修复流式回答偶尔停止自动跟随的问题，滚回底部后可继续跟随新内容。
+
+### English
+
+- **Desktop update source**: Select the official update source using the saved interface language. Simplified Chinese uses the Zleap website, and the other interface languages use GitHub. Migrate default official update settings once and preserve custom sources.
+- **Multilingual support**: Choose Japanese, Traditional Chinese, Korean, or Spanish in General settings for the desktop app, browser workspace, Quick Search, and tray. The documentation site offers installation, getting started, files, search, and Q&A guides in all four languages.
+- **Chat scrolling**: Keep following streamed answers at the bottom, including after scrolling back down.
+
 ## 0.3.12
 
 - **大文档解析提速**：长 PDF 分段并发调用 MinerU，并行数跟随文档解析设置，默认 2，所有文档共享总并发上限；显示已完成和正在处理的分段，失败重试复用成功段，结果按原页顺序合并。([PR #165](https://github.com/Zleap-AI/SAG-Wiki/pull/165))

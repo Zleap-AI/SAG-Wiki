@@ -1,0 +1,19 @@
+{
+  "title": "SAG Wiki",
+  "pages": [
+    "---시작하기---",
+    "index",
+    "installation",
+    "quick-start",
+    "---기본 기능---",
+    "folders",
+    "files",
+    "search",
+    "chat",
+    "---설정과 참고 자료---",
+    "preferences",
+    "[업데이트 내역 (영어)](/en/docs/updates)",
+    "[에이전트 연동 (영어)](/en/docs/agents)",
+    "[CLI 레퍼런스 (영어)](/en/docs/cli)"
+  ]
+}

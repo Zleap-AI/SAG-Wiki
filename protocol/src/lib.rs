@@ -2,6 +2,7 @@ pub mod about_links;
 pub mod chat_import;
 pub use chat_import::*;
 pub mod runtime;
+pub mod locales;
 pub mod mineru;
 mod build;
 mod cli;

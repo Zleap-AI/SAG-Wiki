@@ -36,9 +36,19 @@ Keep restricted key files outside the repository and maintain an independent enc
 5. macOS/Windows native Rust tests and production builds run in parallel. Frontend, documentation, real installer, and bundled CLI/Jev checks remain required. macOS signing and notarization start after its verified installer build, while Rust tests and Windows work continue.
 6. After all required checks and provenance/digest validation, assemble and sign updates, attest the artifacts, and publish automatically. Final publication serializes version ordering so an older run finishing late cannot take the Latest mark.
 
+When several product changes belong in one desktop version, collect them in one integration pull request with one bilingual release notes section. Run the checks on the combined changes, then merge the integration pull request once. The merge authorizes automatic publication after the release checks pass.
+
 The version in main may lag behind the latest generated release because release metadata is committed in a child rather than written back to main. Downloads and updates follow published releases. Routine changes no longer require manually editing every version file; both platforms and update manifests must still agree.
 
 For each platform, compile the CLI and desktop on independent workers, then join verified inputs before producing the real installer. Desktop compilation temporarily suppresses resource copying while retaining the original embedded configuration. Final packaging includes the actual CLI/QPDF resources and retains installer and CLI/Jev checks. macOS waits only for its own CLI producer. A packaged-build checkpoint binds its CLI producer and latest attempt, so a failed or superseded CLI retry cannot authorize stale output. CLI and desktop dependency archives are separated by role.
+
+## Website update source migration
+
+Before merging the desktop release changes into main, verify the current website update feed and exercise download, signature verification, installation, restart and data preservation on Apple Silicon, Intel Mac and Windows x64. Deploy the localized documentation and verify the help links before desktop users receive the update.
+
+Starting in 0.3.13, the desktop app selects the official update source using the saved interface language. Simplified Chinese uses the Zleap website. English, Traditional Chinese, Japanese, Korean and Spanish use GitHub. Custom sources are preserved. Keep the release on GitHub so existing clients on the modern signing channel can upgrade.
+
+After GitHub publishes the release, mirror the same signed packages to the website. Verify all published downloads and their digests before updating `https://zleap.com/update/latest-v2.json`. Change only the platform download URLs in the mirrored modern manifest. Keep the GitHub release assets and the frozen `latest.json` (`0.1.8`). Users on the legacy signing channel can install the current stable version manually.
 
 ## Failure recovery and artifact reuse
 

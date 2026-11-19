@@ -1,0 +1,19 @@
+{
+  "title": "SAG Wiki",
+  "pages": [
+    "---Primeros pasos---",
+    "index",
+    "installation",
+    "quick-start",
+    "---Funciones básicas---",
+    "folders",
+    "files",
+    "search",
+    "chat",
+    "---Configuración y recursos---",
+    "preferences",
+    "[Historial de cambios (en inglés)](/en/docs/updates)",
+    "[Integración con agentes (en inglés)](/en/docs/agents)",
+    "[Referencia de la CLI (en inglés)](/en/docs/cli)"
+  ]
+}

@@ -1,0 +1,39 @@
+---
+title: "Instalación"
+description: "Instala SAG Wiki en macOS o Windows, elige el idioma y aprende a actualizar."
+---
+
+## Aplicación de escritorio
+
+<ReleaseDownloads language="es" />
+
+En macOS, abre **Acerca de este Mac** para comprobar el chip o procesador. Si es de la serie M, elige Apple Silicon (`arm64`). Si es Intel, elige Intel (`x86_64`). Abre el DMG y arrastra SAG Wiki a **Aplicaciones**.
+
+En Windows, ejecuta el instalador x64 y sigue las instrucciones. El asistente de instalación ofrece chino simplificado, chino tradicional e inglés.
+
+[Consultar la última versión estable y sus notas](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
+
+## Idioma de la aplicación
+
+La interfaz en español está disponible a partir de la versión 0.3.13. Abre **Configuración → General**. En **Idioma de la interfaz**, selecciona **Español** y pulsa **Guardar configuración**. Consulta la [guía de configuración](/es/docs/preferences) para ver todas las opciones.
+
+Continúa con el [inicio rápido](/es/docs/quick-start) para añadir tu primera carpeta.
+
+## Usar solo la CLI
+
+Necesitas Node.js 18 o posterior. La CLI admite Mac con Apple Silicon, Mac con Intel desde la versión 0.3.11, Windows x64 y Linux en ARM64 y x86_64 en Ubuntu 24.04 y Debian 12.
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+La CLI puede usarse de forma independiente. Consulta la [integración con agentes](/en/docs/agents) y la [referencia de la CLI](/en/docs/cli), ambas en inglés.
+
+## Actualizar la aplicación
+
+Busca actualizaciones en **Configuración → Acerca de**. Si hay una versión nueva, descárgala, espera a que la aplicación la verifique y reinicia para instalarla. Antes de reiniciar, guarda los documentos pendientes cuando la aplicación te lo indique.
+
+Desde la versión 0.3.13, la aplicación de escritorio selecciona la fuente oficial de actualizaciones según el idioma de la interfaz que hayas guardado. El chino simplificado usa el sitio web de Zleap y los demás idiomas usan GitHub. Se conservan las fuentes de actualización personalizadas.
+
+Si la actualización falla, comprueba de nuevo si hay una versión disponible o descarga el instalador estable desde GitHub. Para actualizar la CLI instalada con npm, ejecuta `npm install -g @zleap-ai/sag`.

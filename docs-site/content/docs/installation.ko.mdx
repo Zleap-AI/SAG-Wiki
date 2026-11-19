@@ -1,0 +1,39 @@
+---
+title: "설치"
+description: "macOS 또는 Windows에 SAG Wiki를 설치하고 설정하거나 업데이트합니다."
+---
+
+## 데스크톱 앱
+
+<ReleaseDownloads language="ko" />
+
+macOS에서는 **이 Mac에 관하여**에서 칩이나 프로세서를 확인합니다. M 시리즈는 Apple Silicon(`arm64`), Intel 프로세서는 Intel(`x86_64`)용 설치 파일을 선택하세요. DMG 파일을 열고 SAG Wiki를 **응용 프로그램** 폴더로 드래그합니다.
+
+Windows에서는 x64 설치 프로그램을 실행한 뒤 안내를 따릅니다. 설치 프로그램은 중국어 간체, 중국어 번체, 영어로 표시할 수 있습니다.
+
+[최신 정식 릴리스와 업데이트 내역](https://github.com/Zleap-AI/SAG-Wiki/releases/latest)
+
+## 앱의 표시 언어 설정
+
+한국어 인터페이스는 0.3.13부터 사용할 수 있습니다. 앱을 열고 **설정 → 일반 → 표시 언어**에서 **한국어**를 선택한 다음 **설정 저장**을 누릅니다. Windows 설치 프로그램의 언어는 설치할 때 별도로 선택합니다. 자세한 내용은 [설정 가이드](/ko/docs/preferences)를 참고하세요.
+
+설치가 끝났으면 [빠른 시작](/ko/docs/quick-start)에서 첫 폴더를 추가해 보세요.
+
+## CLI만 사용하기
+
+Node.js 18 이상이 필요합니다. CLI는 Apple Silicon Mac, Intel Mac(`0.3.11` 이상), Windows x64, Linux ARM64 및 x86_64(Ubuntu 24.04, Debian 12)에서 사용할 수 있습니다.
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+CLI는 데스크톱 앱과 별도로 사용할 수 있습니다. [에이전트 연동 (영어)](/en/docs/agents)과 [CLI 레퍼런스 (영어)](/en/docs/cli)를 참고하세요.
+
+## 앱 업데이트
+
+**설정 → 앱 정보**에서 업데이트를 확인합니다. 새 버전이 있으면 다운로드하고, 검증이 끝난 뒤 앱을 다시 시작해 업데이트를 적용합니다. 저장하지 않은 문서가 있으면 안내에 따라 저장하세요.
+
+0.3.13부터 데스크톱 앱은 저장된 표시 언어에 따라 공식 업데이트 소스를 선택합니다. 중국어 간체는 Zleap 공식 웹사이트를 사용하며, 그 외 표시 언어는 GitHub를 사용합니다. 사용자 지정 업데이트 소스는 그대로 유지됩니다.
+
+업데이트가 실패하면 다시 확인하거나 GitHub에서 최신 정식 버전의 설치 프로그램을 내려받으세요. npm으로 설치한 CLI는 `npm install -g @zleap-ai/sag`로 업데이트합니다.

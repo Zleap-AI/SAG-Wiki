@@ -25,6 +25,7 @@ Each key can access the entire knowledge base or only its selected folders and t
   <ApiParameter name="query" type="string" required="Required">Search text. Must contain 1–2000 characters.</ApiParameter>
   <ApiParameter name="mode" type="string" defaultValue="Default: deep">Either deep (deep retrieval) or fast (full-text search).</ApiParameter>
   <ApiParameter name="paths" type="string[]">Absolute server directory paths. Accepts multiple directories; omitted or empty searches all folders allowed by the current key. Full-library keys continue to search the entire knowledge base.</ApiParameter>
+  <ApiParameter name="exclude" type="string[]">Glob patterns for both fast and deep search, such as `archive/**`. Patterns match paths relative to each search directory. Patterns without a slash match file names.</ApiParameter>
   <ApiParameter name="limit" type="integer" defaultValue="Default: 10">Maximum source passages returned. Range: 1–100.</ApiParameter>
 </ApiParameters>
 
@@ -93,14 +94,14 @@ curl http://127.0.0.1:24681/v1/search \
 | `request_id` | Request identifier |
 | `mode` | Retrieval mode actually used |
 | `elapsed_ms` | Server duration, including queueing |
-| `results` | Ranked source passages; a file can produce multiple records |
+| `results` | Source passages grouped by file path and heading. Groups follow the first matching candidate’s position in the retrieval order. Within a group, overlapping or adjacent ranges are merged in source order. |
 | `path` | Absolute server file path |
 | `heading` | Passage heading |
 | `start_line`, `end_line` | Source line range; converted documents retain the searchable text's location semantics |
 | `content` | Source passage text |
 | `truncated` | True when a response-size boundary reduces results; selecting the top `limit` results is not truncation |
 
-No matches returns `200` with an empty array. Already indexed content can be searched while indexing continues, with no indexing-in-progress marker in search responses. The endpoint returns up to the requested number of source passages without pagination, generated answers or summaries.
+No matches returns `200` with an empty array. Already indexed content can be searched while indexing continues, with no indexing-in-progress marker in search responses. The endpoint returns up to `limit` source passages. For deep search, the per-round candidate setting also caps the number of candidates used to assemble the response. The endpoint provides no pagination, generated answers or summaries.
 
 ## Folders
 
