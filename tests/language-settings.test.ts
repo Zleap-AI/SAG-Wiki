@@ -7,7 +7,7 @@ import {version} from '../package.json';
 import SettingsPanel from '../src/components/Settings.svelte';
 import RichEditor from '../src/components/RichEditor.svelte';
 import ToolCall from '../src/components/ToolCall.svelte';
-import {language,setLanguage} from '../src/lib/i18n';
+import {language,setLanguage,translate,type Language} from '../src/lib/i18n';
 import type {Settings} from '../src/lib/types';
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn(async (_command:string,_args?:Record<string,unknown>):Promise<any>=>({directory:'/Documents/sag-wiki/share',clipboard:false}))}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
@@ -18,7 +18,7 @@ const settings:Settings={language:'zh-CN',answer:{url:'https://example.com/v1',m
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 const click=(label:string)=>{const element=[...document.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent?.trim()===label||node.getAttribute('aria-label')===label);expect(element,label).toBeDefined();element!.click()};
-async function chooseLanguage(locale:'en'|'ja'){
+async function chooseLanguage(locale:Language){
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="界面语言"]')).not.toBeNull());
  const control=document.querySelector<HTMLButtonElement>('[aria-label="界面语言"]')!;
  control.focus();control.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
@@ -41,10 +41,10 @@ it('shows project and company links in About and opens them outside the app',asy
  }
 });
 
-it.each([
- ['en','General','Save settings'],
- ['ja','一般','設定を保存'],
-] as const)('previews %s immediately, persists it on save, and restores Chinese on cancel',async(locale,heading,saveLabel)=>{
+it.each(['en','ja','zh-TW','ko','es'] as const)('previews %s immediately, persists it on save, and restores Chinese on cancel',async(locale)=>{
+ const heading=translate('通用',locale),saveLabel=translate('保存设置',locale);
+ expect(heading).not.toBe('通用');
+ expect(saveLabel).not.toBe('保存设置');
  const onSave=vi.fn(),onClose=vi.fn();
  const original={...settings,answer:{...settings.answer,models:['another-model','test']}};
  app=mount(SettingsPanel,{target:document.body,props:{value:original,onSave,onClose}});

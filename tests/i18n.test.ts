@@ -1,9 +1,12 @@
 // @vitest-environment happy-dom
 import {describe,expect,it} from 'vitest';
 import {get} from 'svelte/store';
-import {language,setLanguage,t,translate} from '../src/lib/i18n';
+import {language,resolveBrowserLanguage,setLanguage,t,translate} from '../src/lib/i18n';
 import english from '../src/lib/locales/en.json';
 import japanese from '../src/lib/locales/ja.json';
+import traditionalChinese from '../src/lib/locales/zh-TW.json';
+import korean from '../src/lib/locales/ko.json';
+import spanish from '../src/lib/locales/es.json';
 import {sourceLocation} from '../src/lib/domain';
 import type {Candidate} from '../src/lib/types';
 
@@ -16,12 +19,13 @@ describe('interface translations',()=>{
    if(source!=='简体中文')expect(target,source).not.toMatch(/[\u3400-\u9fff]/);
   }
  });
- it('covers the English catalog in Japanese with matching placeholders',()=>{
-  expect(Object.keys(japanese)).toEqual(Object.keys(english));
+ it.each([['Japanese',japanese],['Traditional Chinese',traditionalChinese],['Korean',korean],['Spanish',spanish]] as const)
+ ('covers the English catalog in %s with matching placeholders',(_language,catalog)=>{
+  expect(Object.keys(catalog)).toEqual(Object.keys(english));
   for(const key of Object.keys(english) as (keyof typeof english)[]){
    const placeholders=(text:string)=>[...text.matchAll(/\{value\d+\}/g)].map(match=>match[0]).sort();
-   expect(japanese[key].trim(),key).not.toBe('');
-   expect(placeholders(japanese[key]),key).toEqual(placeholders(english[key]));
+   expect(catalog[key].trim(),key).not.toBe('');
+   expect(placeholders(catalog[key]),key).toEqual(placeholders(english[key]));
   }
  });
  it('translates dynamic backend errors and preserves path values',()=>{
@@ -46,6 +50,21 @@ describe('interface translations',()=>{
   expect(translate(source,locale)).toBe(message);
   expect(translate(source+': HTTP 503 from https://example.com/latest-v2.json',locale))
    .toBe(message+' HTTP 503 from https://example.com/latest-v2.json');
+ });
+ it.each([
+  ['zh-TW','zh-TW'], ['zh-Hant-HK','zh-TW'], ['zh-MO','zh-TW'],
+  ['zh-Hans-TW','zh-CN'], ['zh-CN','zh-CN'], ['ko-KR','ko'],
+  ['es-MX','es'], ['ja-JP','ja'], ['en-GB','en'], ['fr-FR','en'], ['','en'],
+ ])('resolves browser language %s as %s', (browserLocale, expected)=>{
+  expect(resolveBrowserLanguage(browserLocale)).toBe(expected);
+ });
+ it.each(['zh-TW','ko','es'])('keeps saved %s and translates dynamic errors without changing paths',locale=>{
+  setLanguage(locale);
+  expect(get(language)).toBe(locale);
+  expect(document.documentElement.lang).toBe(locale);
+  expect(get(t)('路径不可用：/資料/회의.md')).toContain('/資料/회의.md');
+  expect(get(t)('路径不可用：/資料/회의.md')).not.toContain('路径不可用');
+  setLanguage('zh-CN');
  });
  it('applies the saved Japanese language to the document and translator',()=>{
   setLanguage('ja');

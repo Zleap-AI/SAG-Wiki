@@ -27,6 +27,9 @@ function submitAccessCode(code:string){
 it.each([
  ['ja-JP','ja','Web アクセスコード','アクセスコードが正しくありません'],
  ['en-US','en','Web access code','Incorrect access code'],
+ ['zh-Hant-HK','zh-TW','網頁存取碼','存取碼不正確'],
+ ['ko-KR','ko','웹 접속 코드','접속 코드가 올바르지 않습니다'],
+ ['es-MX','es','Código de acceso web','Código de acceso incorrecto'],
  ['zh-CN','zh-CN','网页访问码','访问码不正确'],
  ['fr-FR','en','Web access code','Incorrect access code'],
 ])('uses %s for the web entry and invalid access code error',async(browserLocale,language,label,error)=>{

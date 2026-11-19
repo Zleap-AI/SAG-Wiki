@@ -26,12 +26,13 @@ function type(text:string){const input=document.querySelector('input')!;input.va
 function key(key:string,target:EventTarget=document.querySelector('input')!,options:KeyboardEventInit={}){target.dispatchEvent(new KeyboardEvent('keydown',{key,bubbles:true,cancelable:true,...options}));}
 async function search(text='测试'){const input=type(text);key('Enter',input);await vi.waitFor(()=>expect(document.querySelectorAll('[role=option]')).toHaveLength(2));}
 describe('快捷搜索',()=>{
- it('updates an open shortcut search window after the saved language changes',async()=>{
+ it.each([['ja','ショートカット検索'],['zh-TW','快捷搜尋'],['ko','단축키 검색'],['es','Búsqueda rápida']])
+ ('updates an open shortcut search window after the saved language changes to %s',async(locale,label)=>{
   await setup();
-  events.get('interface-language-changed')!({payload:'ja'});
+  events.get('interface-language-changed')!({payload:locale});
   await tick();
-  expect(document.documentElement.lang).toBe('ja');
-  expect(document.querySelector('main')?.getAttribute('aria-label')).toBe('ショートカット検索');
+  expect(document.documentElement.lang).toBe(locale);
+  expect(document.querySelector('main')?.getAttribute('aria-label')).toBe(label);
  });
 
  it('keeps a saved language change received while the initial roots are loading',async()=>{

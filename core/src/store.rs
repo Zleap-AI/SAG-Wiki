@@ -4093,12 +4093,14 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         settings.language = "en".into();
         store.save_settings(&settings).unwrap();
         assert_eq!(store.settings().unwrap().language, "en");
-        settings.language = "ja".into();
-        store.save_settings(&settings).unwrap();
-        assert_eq!(store.settings().unwrap().language, "ja");
+        for language in ["ja", "zh-TW", "ko", "es"] {
+            settings.language = language.into();
+            store.save_settings(&settings).unwrap();
+            assert_eq!(store.settings().unwrap().language, language);
+        }
         settings.language = "unsupported".into();
         assert!(store.save_settings(&settings).is_err());
-        assert_eq!(store.settings().unwrap().language, "ja");
+        assert_eq!(store.settings().unwrap().language, "es");
         let mut legacy = serde_json::to_value(Settings::default()).unwrap();
         legacy.as_object_mut().unwrap().remove("language");
         let restored: Settings = serde_json::from_value(legacy).unwrap();

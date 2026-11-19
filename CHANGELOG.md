@@ -3,10 +3,12 @@
 ## 0.3.13
 
 - **日语界面与文档**：在通用设置中选择日本語，主界面、网页界面、快捷搜索和托盘可使用日语，文档站提供日语安装、入门、文件、搜索与问答指南。
+- **繁体中文、韩语和西班牙语支持**：新增三种应用界面语言及对应的核心使用指南。
 
 ### English
 
 - **Japanese interface and documentation**: Select Japanese in General settings for the desktop app, browser workspace, Quick Search and tray. Japanese guides cover installation, getting started, files, search and Q&A.
+- **Traditional Chinese, Korean, and Spanish support**: Add three interface languages and corresponding core guides.
 
 ## 0.3.12
 

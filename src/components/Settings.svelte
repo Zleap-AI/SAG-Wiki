@@ -157,7 +157,7 @@
     {#if page!=='api'}<header class="settings-page-heading"><h2>{pages.find(p=>p[0]===page)?.[1]}</h2>{#if descriptions[page]}<p>{descriptions[page]}</p>{/if}</header>{/if}
     {#if page==='general'}
      <section class="settings-group">
-      <div class="setting-row"><div><strong>{$t("启动页面")}</strong><p>{$t("打开应用时首先显示的页面")}</p></div><Select label={$t("启动页面")} bind:value={settings.start_page} items={[{value:"ask",label:$t("问答")},{value:"search",label:$t("搜索")}]}/></div>
+      <div class="setting-row"><div><strong>{$t("启动页面")}</strong><p>{$t("打开应用时首先显示的页面")}</p></div><Select label={$t("启动页面")} class="start-page-select" bind:value={settings.start_page} items={[{value:"ask",label:$t("问答")},{value:"search",label:$t("搜索")}]}/></div>
       <div class="setting-row"><div><strong>{$t("settings.interfaceLanguage")}</strong></div><Select label={$t("settings.interfaceLanguage")} value={settings.language} onValueChange={next=>{settings.language=resolveLanguage(next);setLanguage(settings.language)}} items={languageOptions}/></div>
       <div class="setting-row"><div><strong>{$t("关闭窗口后")}</strong><p>{$t("从托盘或菜单栏重新打开，也可在那里退出。")}</p></div><span class="setting-value">{$t("后台继续运行")}</span></div>
      </section>

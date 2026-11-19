@@ -73,18 +73,23 @@ it('首次保存可以直接编辑名称，并自动补充 Markdown 后缀',asyn
  expect(invoke).toHaveBeenCalledWith('save_document',{path:'/notes/项目说明.md',body:'使用保存时输入的名称',expectedHash:null});
  expect(document.querySelector<HTMLInputElement>('.editor-head [aria-label="文件名"]')?.value).toBe('项目说明.md');
 });
-it('asks for a name when first saving a Japanese draft from the overview',async()=>{
+it.each([
+ ['ja','無題.md','会議メモ'],
+ ['zh-TW','未命名.md','會議記錄'],
+ ['ko','제목 없음.md','회의 메모'],
+ ['es','Sin título.md','Notas de la reunión'],
+])('asks for a name when first saving a %s draft from the overview',async(locale,defaultName,filename)=>{
  const original=invoke.getMockImplementation()!;
  invoke.mockImplementation(async(command,args)=>command==='get_settings'
-  ? {...await original(command,args),language:'ja'}
+  ? {...await original(command,args),language:locale}
   : original(command,args));
  await start();await newDocument();save();
  const input=()=>document.querySelector<HTMLInputElement>('.new-document-dialog .save-document-name input');
- await vi.waitFor(()=>expect(input()?.value).toBe('無題.md'));
- input()!.value='会議メモ';
+ await vi.waitFor(()=>expect(input()?.value).toBe(defaultName));
+ input()!.value=filename;
  input()!.dispatchEvent(new Event('input',{bubbles:true}));
  await tick();await confirmSave();
- expect(invoke).toHaveBeenCalledWith('save_document',{path:'/notes/会議メモ.md',body:'',expectedHash:null});
+ expect(invoke).toHaveBeenCalledWith('save_document',{path:`/notes/${filename}.md`,body:'',expectedHash:null});
 });
 it('空名称不能保存，无效名称在保存弹窗中提示并允许修正',async()=>{
  await start();await newDocument();save();await tick();await nameBeforeSave('  ');

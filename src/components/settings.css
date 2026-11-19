@@ -6,7 +6,7 @@
 .settings-window>.dialog-head .icon{width:15px;height:15px}
 .settings-window .settings-form{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
 .settings-window .settings-nav{padding:16px 10px;gap:3px;background:var(--color-sidebar);overflow:auto}
-.settings-window .settings-nav button{min-height:38px;height:auto;padding:8px 11px;gap:10px;border-radius:7px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
+.settings-window .settings-nav button{min-height:38px;height:auto;flex-shrink:0;padding:8px 11px;gap:10px;border-radius:7px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
 .settings-window .settings-nav button span{min-width:0;white-space:normal;overflow-wrap:anywhere}
 .settings-window .settings-nav button .icon{width:17px;height:17px;flex-shrink:0}
 .settings-window .settings-nav button.active{background:var(--color-selected);color:var(--color-ink);font-weight:550}
@@ -24,6 +24,7 @@
 .settings-window .setting-row strong{font-size:var(--text-ui);font-weight:500;line-height:1.5}
 .settings-window .setting-row p{font-size:var(--text-caption);line-height:1.6;margin:3px 0 0;color:var(--color-secondary)}
 .settings-window .setting-row .ui-select,.settings-window .setting-row input[type=number]{width:112px;min-width:112px;min-height:31px;padding:5px 9px;border-radius:6px;font-size:var(--text-ui);background:var(--color-panel);border:1px solid var(--color-rule);font-variant-numeric:tabular-nums}
+.settings-window .setting-row .start-page-select{width:max-content;max-width:50%}
 .settings-window .setting-row .summary-model-select{width:min(52%,240px);min-width:0}
 .settings-window .summary-model-select span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .settings-window .setting-value{flex-shrink:0;font-size:var(--text-ui);color:var(--color-secondary)}

@@ -2,7 +2,7 @@
  import {onMount} from 'svelte';
  import {connectWeb,disconnectWeb,onWebSignOut,savedWebCode} from './lib/web-connection';
  import {logo} from './lib/icons';
- import {t,setLanguage,interfaceLocales,defaultLanguage} from './lib/i18n';
+ import {t,setLanguage,resolveBrowserLanguage} from './lib/i18n';
  import App from './App.svelte';
  let connected=false,busy=false,code='',error='';
  async function signIn(accessCode:string){
@@ -13,8 +13,7 @@
  }
  function signOut(){disconnectWeb();connected=false;}
  onMount(()=>{
-  const browserLanguage=navigator.language.toLowerCase().split('-')[0];
-  setLanguage(browserLanguage==='zh'?defaultLanguage:Object.hasOwn(interfaceLocales,browserLanguage)?browserLanguage:'en');
+  setLanguage(resolveBrowserLanguage(navigator.language));
   const saved=savedWebCode();if(saved)void signIn(saved);
   return onWebSignOut(()=>{connected=false;error='请重新输入网页访问码。';});
  });
