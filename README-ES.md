@@ -27,14 +27,6 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 El texto básico de un PDF puede consultarse antes de que terminen el OCR y el reconocimiento avanzado de tablas en segundo plano. La indexación básica de los documentos locales compatibles de Office y RTF avanza de forma independiente. Los segmentos de un PDF reutilizan los modelos ya cargados. Consulta el [historial de cambios](CHANGELOG.md) para ver las novedades de cada versión y el [sitio de documentación](docs-site/README.md) para aprender a usar la aplicación. El enlace de descarga lleva a la última versión estable publicada.
 
-El sitio de documentación incluye guías en chino tradicional, coreano y español.
-
-| Idioma | Instalación | Primeros pasos | Archivos | Búsqueda | Preguntas y respuestas |
-| --- | --- | --- | --- | --- | --- |
-| 繁體中文 | [Instalación](docs-site/content/docs/installation.zh-TW.mdx) | [Primeros pasos](docs-site/content/docs/quick-start.zh-TW.mdx) | [Archivos](docs-site/content/docs/files.zh-TW.mdx) | [Búsqueda](docs-site/content/docs/search.zh-TW.mdx) | [Preguntas y respuestas](docs-site/content/docs/chat.zh-TW.mdx) |
-| 한국어 | [Instalación](docs-site/content/docs/installation.ko.mdx) | [Primeros pasos](docs-site/content/docs/quick-start.ko.mdx) | [Archivos](docs-site/content/docs/files.ko.mdx) | [Búsqueda](docs-site/content/docs/search.ko.mdx) | [Preguntas y respuestas](docs-site/content/docs/chat.ko.mdx) |
-| Español | [Instalación](docs-site/content/docs/installation.es.mdx) | [Primeros pasos](docs-site/content/docs/quick-start.es.mdx) | [Archivos](docs-site/content/docs/files.es.mdx) | [Búsqueda](docs-site/content/docs/search.es.mdx) | [Preguntas y respuestas](docs-site/content/docs/chat.es.mdx) |
-
 ## Índice
 
 <p align="center">

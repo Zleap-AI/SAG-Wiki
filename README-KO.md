@@ -27,14 +27,6 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 PDF에서 추출한 기본 텍스트는 백그라운드 OCR과 표 보강 작업이 끝나기 전부터 검색할 수 있습니다. 지원되는 로컬 Office 및 RTF 문서는 기본 인덱싱이 독립적으로 진행됩니다. PDF를 나누어 처리할 때는 이미 로드된 모델을 재사용합니다. 버전별 변경 사항은 [변경 이력](CHANGELOG.md), 사용 방법은 [문서 사이트](docs-site/README.md)를 참고하세요. 아래 다운로드 링크는 이미 공개된 최신 정식 릴리스로 연결됩니다.
 
-문서 사이트는 중국어 번체, 한국어, 스페인어로 다음 가이드를 제공합니다.
-
-| 언어 | 설치 | 빠른 시작 | 파일 | 검색 | 질의응답 |
-| --- | --- | --- | --- | --- | --- |
-| 繁體中文 | [설치](docs-site/content/docs/installation.zh-TW.mdx) | [빠른 시작](docs-site/content/docs/quick-start.zh-TW.mdx) | [파일](docs-site/content/docs/files.zh-TW.mdx) | [검색](docs-site/content/docs/search.zh-TW.mdx) | [질의응답](docs-site/content/docs/chat.zh-TW.mdx) |
-| 한국어 | [설치](docs-site/content/docs/installation.ko.mdx) | [빠른 시작](docs-site/content/docs/quick-start.ko.mdx) | [파일](docs-site/content/docs/files.ko.mdx) | [검색](docs-site/content/docs/search.ko.mdx) | [질의응답](docs-site/content/docs/chat.ko.mdx) |
-| Español | [설치](docs-site/content/docs/installation.es.mdx) | [빠른 시작](docs-site/content/docs/quick-start.es.mdx) | [파일](docs-site/content/docs/files.es.mdx) | [검색](docs-site/content/docs/search.es.mdx) | [질의응답](docs-site/content/docs/chat.es.mdx) |
-
 ## 목차
 
 <p align="center">

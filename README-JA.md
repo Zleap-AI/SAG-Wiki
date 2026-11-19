@@ -27,14 +27,6 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 PDF の基本テキストは、バックグラウンドでの OCR と表の強化処理が終わる前に検索可能になります。独立した基本インデックス作成により、対応するローカルの Office/RTF ドキュメントの処理が滞らず、PDF のセグメントは読み込み済みのモデルを再利用します。リリースごとの変更点は[変更履歴](CHANGELOG.md)を、使い方は[ドキュメントサイト](docs-site/README.md)を参照してください。下のダウンロードリンクは、公開済みの最新の安定版 Release を指しています。
 
-ドキュメントサイトでは、繁体字中国語、韓国語、スペイン語のガイドも利用できます。
-
-| 言語 | インストール | クイックスタート | ファイル | 検索 | 質問と回答 |
-| --- | --- | --- | --- | --- | --- |
-| 繁體中文 | [インストール](docs-site/content/docs/installation.zh-TW.mdx) | [クイックスタート](docs-site/content/docs/quick-start.zh-TW.mdx) | [ファイル](docs-site/content/docs/files.zh-TW.mdx) | [検索](docs-site/content/docs/search.zh-TW.mdx) | [質問と回答](docs-site/content/docs/chat.zh-TW.mdx) |
-| 한국어 | [インストール](docs-site/content/docs/installation.ko.mdx) | [クイックスタート](docs-site/content/docs/quick-start.ko.mdx) | [ファイル](docs-site/content/docs/files.ko.mdx) | [検索](docs-site/content/docs/search.ko.mdx) | [質問と回答](docs-site/content/docs/chat.ko.mdx) |
-| Español | [インストール](docs-site/content/docs/installation.es.mdx) | [クイックスタート](docs-site/content/docs/quick-start.es.mdx) | [ファイル](docs-site/content/docs/files.es.mdx) | [検索](docs-site/content/docs/search.es.mdx) | [質問と回答](docs-site/content/docs/chat.es.mdx) |
-
 ## 目次
 
 <p align="center">

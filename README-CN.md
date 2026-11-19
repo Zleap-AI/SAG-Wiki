@@ -27,14 +27,6 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 PDF 基础文字入库后即可搜索，OCR 与表格增强在后台继续。本地 Office、RTF 等文档可独立建立基础索引，PDF 分段复用已加载的模型。各版本改动见[更新日志](CHANGELOG.md)，使用方法见[文档站](docs-site/README.md)。下方下载入口指向已发布的最新正式版。
 
-文档站新增繁体中文、韩语和西班牙语指南，涵盖安装、入门、文件、搜索和问答。
-
-| 语言 | 安装 | 入门 | 文件 | 搜索 | 问答 |
-| --- | --- | --- | --- | --- | --- |
-| 繁體中文 | [安装](docs-site/content/docs/installation.zh-TW.mdx) | [入门](docs-site/content/docs/quick-start.zh-TW.mdx) | [文件](docs-site/content/docs/files.zh-TW.mdx) | [搜索](docs-site/content/docs/search.zh-TW.mdx) | [问答](docs-site/content/docs/chat.zh-TW.mdx) |
-| 한국어 | [安装](docs-site/content/docs/installation.ko.mdx) | [入门](docs-site/content/docs/quick-start.ko.mdx) | [文件](docs-site/content/docs/files.ko.mdx) | [搜索](docs-site/content/docs/search.ko.mdx) | [问答](docs-site/content/docs/chat.ko.mdx) |
-| Español | [安装](docs-site/content/docs/installation.es.mdx) | [入门](docs-site/content/docs/quick-start.es.mdx) | [文件](docs-site/content/docs/files.es.mdx) | [搜索](docs-site/content/docs/search.es.mdx) | [问答](docs-site/content/docs/chat.es.mdx) |
-
 ## 目录
 
 <p align="center">

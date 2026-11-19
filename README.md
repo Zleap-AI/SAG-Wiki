@@ -27,14 +27,6 @@ https://github.com/user-attachments/assets/e9c5499d-6057-4add-ac7e-f57eae381a2f
 
 PDF basic text can become searchable before background OCR and table enhancement finish. Independent basic indexing keeps supported local Office/RTF documents moving, while PDF segments reuse loaded models. See the [changelog](CHANGELOG.md) for release-specific changes and the [documentation site](docs-site/README.md) for usage. The download link below points to the latest published stable Release.
 
-The documentation site now offers these guides in Traditional Chinese, Korean, and Spanish.
-
-| Language | Installation | Quick start | Files | Search | Q&A |
-| --- | --- | --- | --- | --- | --- |
-| 繁體中文 | [Installation](docs-site/content/docs/installation.zh-TW.mdx) | [Quick start](docs-site/content/docs/quick-start.zh-TW.mdx) | [Files](docs-site/content/docs/files.zh-TW.mdx) | [Search](docs-site/content/docs/search.zh-TW.mdx) | [Q&A](docs-site/content/docs/chat.zh-TW.mdx) |
-| 한국어 | [Installation](docs-site/content/docs/installation.ko.mdx) | [Quick start](docs-site/content/docs/quick-start.ko.mdx) | [Files](docs-site/content/docs/files.ko.mdx) | [Search](docs-site/content/docs/search.ko.mdx) | [Q&A](docs-site/content/docs/chat.ko.mdx) |
-| Español | [Installation](docs-site/content/docs/installation.es.mdx) | [Quick start](docs-site/content/docs/quick-start.es.mdx) | [Files](docs-site/content/docs/files.es.mdx) | [Search](docs-site/content/docs/search.es.mdx) | [Q&A](docs-site/content/docs/chat.es.mdx) |
-
 ## Contents
 
 <p align="center">

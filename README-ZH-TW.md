@@ -27,14 +27,6 @@ https://github.com/user-attachments/assets/082b64d1-a9d1-4697-a0e4-3ba24397da94
 
 PDF 基礎文字建立索引後即可搜尋，OCR 與表格辨識仍會在背景執行。本機 Office、RTF 等文件可獨立建立基礎索引，PDF 分段沿用已載入的模型。各版本變更見[更新記錄](CHANGELOG.md)，使用方法見[文件網站](docs-site/README.md)。下方下載入口指向已發布的最新正式版。
 
-文件網站新增繁體中文、韓文與西班牙文指南，涵蓋安裝、入門、檔案、搜尋和問答。
-
-| 語言 | 安裝 | 入門 | 檔案 | 搜尋 | 問答 |
-| --- | --- | --- | --- | --- | --- |
-| 繁體中文 | [安裝](docs-site/content/docs/installation.zh-TW.mdx) | [入門](docs-site/content/docs/quick-start.zh-TW.mdx) | [檔案](docs-site/content/docs/files.zh-TW.mdx) | [搜尋](docs-site/content/docs/search.zh-TW.mdx) | [問答](docs-site/content/docs/chat.zh-TW.mdx) |
-| 한국어 | [安裝](docs-site/content/docs/installation.ko.mdx) | [入門](docs-site/content/docs/quick-start.ko.mdx) | [檔案](docs-site/content/docs/files.ko.mdx) | [搜尋](docs-site/content/docs/search.ko.mdx) | [問答](docs-site/content/docs/chat.ko.mdx) |
-| Español | [安裝](docs-site/content/docs/installation.es.mdx) | [入門](docs-site/content/docs/quick-start.es.mdx) | [檔案](docs-site/content/docs/files.es.mdx) | [搜尋](docs-site/content/docs/search.es.mdx) | [問答](docs-site/content/docs/chat.es.mdx) |
-
 ## 目錄
 
 <p align="center">
