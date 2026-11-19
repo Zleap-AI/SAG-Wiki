@@ -1,0 +1,19 @@
+{
+  "title": "SAG Wiki",
+  "pages": [
+    "---開始使用---",
+    "index",
+    "installation",
+    "quick-start",
+    "---基本操作---",
+    "folders",
+    "files",
+    "search",
+    "chat",
+    "---設定與相關資訊---",
+    "preferences",
+    "[更新記錄（英文）](/en/docs/updates)",
+    "[Agent 整合（英文）](/en/docs/agents)",
+    "[CLI 參考（英文）](/en/docs/cli)"
+  ]
+}

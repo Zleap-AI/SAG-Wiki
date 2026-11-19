@@ -5,7 +5,7 @@
  import {icon} from '../lib/icons';
  export let onError:(message:string)=>void;
  async function openHelp(){
-  const locale=$language==='en'?'en':'zh';
+  const locale=$language==='zh-CN'?'zh':'en';
   try{await api('open_external_link',{url:`http://sag-wiki.zleap.com/${locale}/docs/file-sharing`})}
   catch(error){onError(String(error))}
  }

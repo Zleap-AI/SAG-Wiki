@@ -27,7 +27,7 @@
       stageHost.dataset.theme = document.documentElement.dataset.theme;
       const hint = document.getElementById('hint'), help = document.createElement('button');
       help.type = 'button'; help.className = 'fold-help'; help.textContent = '?';
-      help.setAttribute('aria-label', data.ui === 'zh' ? '阅读操作说明' : 'Reading controls');
+      help.setAttribute('aria-label', data.controlsLabel ?? (data.ui === 'zh' ? '阅读操作说明' : 'Reading controls'));
       help.setAttribute('aria-controls', 'hint'); help.setAttribute('aria-expanded', 'false');
       const showHelp = visible => {
         if (visible) {

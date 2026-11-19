@@ -2100,5 +2100,19 @@
   "选择 API Key": "Select API key",
   "选择此项目使用的 Key，复制的 MCP 配置只使用该 Key 的访问范围。": "Select the key for this project. The copied MCP configuration uses that key’s access scope.",
   "使用 {value0} 复制 MCP 配置": "Copy MCP configuration using {value0}",
-  "访问范围": "Access scope"
+  "访问范围": "Access scope",
+  "reader.controls": "Reading controls",
+  "部署步骤": "Deployment steps",
+  "settings.interfaceLanguage": "Language",
+  "无法连接网页服务": "Could not connect to the web service",
+  "查看更多": "Show more",
+  "关于 SAG Wiki": "About SAG Wiki",
+  "下载完成": "Download complete",
+  "返回": "Back",
+  "访问码不正确": "Incorrect access code",
+  "请重新输入网页访问码。": "Enter the web access code again.",
+  "请重新连接网页服务": "Reconnect to the web service",
+  "进入知识库": "Open knowledge base",
+  "无法获取已签名的更新，请确认更新清单和签名已发布": "Could not retrieve a signed update. Make sure the update manifest and signatures are published.",
+  "无法获取已签名的更新，请确认更新清单和签名已发布: {value0}": "Could not retrieve a signed update. Make sure the update manifest and signatures are published. {value0}"
 }

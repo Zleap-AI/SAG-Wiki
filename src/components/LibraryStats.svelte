@@ -3,7 +3,7 @@
  import {onMount} from 'svelte';
  import {Button} from 'bits-ui';
  import {api} from '../lib/api';
- import {t,language} from '../lib/i18n';
+ import {t,language,interfaceLocales} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import type {FileInfo,Root,IndexStatus,IndexHistory} from '../lib/types';
  export let files:FileInfo[]=[];
@@ -37,7 +37,7 @@
  $:updatedAt=history.reduce((latest,record)=>Math.max(latest,record.finished_at),0);
  $:elapsed=Math.max(0,now-updatedAt);
  $:unit=elapsed>=86400000?'day':elapsed>=3600000?'hour':'minute';
- $:age=new Intl.RelativeTimeFormat($language==='en'?'en':'zh-CN',{numeric:'auto'}).format(-Math.floor(elapsed/(unit==='day'?86400000:unit==='hour'?3600000:60000)),unit);
+ $:age=new Intl.RelativeTimeFormat(interfaceLocales[$language].format,{numeric:'auto'}).format(-Math.floor(elapsed/(unit==='day'?86400000:unit==='hour'?3600000:60000)),unit);
  $:processed=status.tasks.reduce((sum,task)=>sum+task.completed,0);
  $:total=status.tasks.reduce((sum,task)=>sum+task.total,0);
 
@@ -77,18 +77,18 @@
     <span class="index-state" aria-live="polite">{@html icon(glyph)}<strong>{$t(label)}</strong></span>
     {#if error}<span class="index-updated" role="alert">{$t('暂时无法更新，点击查看详情')}</span>
     {:else if working&&total>0}<span class="index-updated">{$t('已处理 {value0} / {value1} 个文件',{value0:processed,value1:total})}</span>
-    {:else if updatedAt}<span class="index-updated"><time datetime={new Date(updatedAt).toISOString()} title={new Date(updatedAt).toLocaleString($language==='en'?'en-US':'zh-CN')}>{$t('最近更新 {value0}',{value0:age})}</time></span>{/if}
+    {:else if updatedAt}<span class="index-updated"><time datetime={new Date(updatedAt).toISOString()} title={new Date(updatedAt).toLocaleString(interfaceLocales[$language].format)}>{$t('最近更新 {value0}',{value0:age})}</time></span>{/if}
    </span>
    <span class="index-chevron" aria-hidden="true">{@html icon('chevron')}</span>
   </Button.Root>
   {#if !loading&&(working||status.paused)}<Button.Root class="library-index-pause" aria-label={$t(status.paused?'继续索引':'暂停索引')} title={$t(status.paused?'继续索引':'暂停索引')} disabled={changing} onclick={togglePause}>{@html icon(status.paused?'play':'pause')}</Button.Root>{/if}
  </section>
  <section class="library-file-stats" aria-label={$t('文件类型统计')}>
-  <div class="file-stats-heading"><span><strong>{files.length.toLocaleString($language==='en'?'en-US':'zh-CN')}</strong>{$t('个文件')}</span></div>
+  <div class="file-stats-heading"><span><strong>{files.length.toLocaleString(interfaceLocales[$language].format)}</strong>{$t('个文件')}</span></div>
   <div class="file-type-bar" role="img" aria-label={types.length?types.map(type=>`${$t(type.name)} ${type.count}`).join('，'):$t('暂无已索引文件')}>
    {#each types as type}<span style:width={`${type.count/files.length*100}%`} style:background={type.color} title={`${$t(type.name)} · ${type.count} · ${(type.count/files.length*100).toFixed(1)}%`}></span>{/each}
   </div>
-  <ul class="file-type-legend">{#each types as type}<li><i style:background={type.color}></i><span>{$t(type.name)}</span><span>{type.count.toLocaleString($language==='en'?'en-US':'zh-CN')}</span></li>{:else}<li>{$t('暂无已索引文件')}</li>{/each}</ul>
+  <ul class="file-type-legend">{#each types as type}<li><i style:background={type.color}></i><span>{$t(type.name)}</span><span>{type.count.toLocaleString(interfaceLocales[$language].format)}</span></li>{:else}<li>{$t('暂无已索引文件')}</li>{/each}</ul>
  </section>
 </div>
 

@@ -21,7 +21,8 @@ function forgetWebCode(accessCode:string){
 }
 
 export async function connectWeb(accessCode:string){
-  const result=await fetch('/web/session',{headers:{Authorization:`Bearer ${accessCode}`},cache:'no-store'});
+  const result=await fetch('/web/session',{headers:{Authorization:`Bearer ${accessCode}`},cache:'no-store'})
+    .catch(cause=>{throw new Error('无法连接网页服务',{cause});});
   if(result.status===401)forgetWebCode(accessCode);
   if(!result.ok)throw new Error(result.status===401?'访问码不正确':'无法连接网页服务');
   code=accessCode;tab=requestId();localStorage.setItem(codeKey,code);sessionStorage.removeItem(codeKey);

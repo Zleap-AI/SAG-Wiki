@@ -18,9 +18,11 @@ Location: **Settings → General**.
 | Setting | Purpose | Default or choices |
 | --- | --- | --- |
 | Start page | The first page shown when the app opens | Q&A by default; Q&A or Search |
-| Interface language | Language of menus, controls and messages | Simplified Chinese by default; Simplified Chinese or English |
+| Interface language | Language of menus, controls and messages | Simplified Chinese by default. Also available in Traditional Chinese, English, Japanese, Korean, and Spanish. |
 | After closing the window | Shows the window-close behavior | Continue running in the background |
 | Quick start | Reopen the folder, search and Q&A tutorial | Select View tutorial |
+
+The saved interface language also applies to the web workspace, Quick Search, and the desktop tray menu. Core guides are available in [Traditional Chinese](/zh-TW/docs), [Japanese](/ja/docs), [Korean](/ko/docs), and [Spanish](/es/docs).
 
 Reopen the app from the system tray or menu bar. On Windows, launching the desktop shortcut again restores the existing window instead of starting a second desktop instance. On macOS, pressing **⌘Q** or choosing **Quit SAG Wiki** exits only the desktop client; the service keeps running and CLI and MCP remain available. On Windows, choosing **Quit SAG Wiki** stops the standalone service and waits for cleanup before exiting the client. CLI and MCP connections close; reopening the desktop or running a CLI command that needs the service starts it on demand. If stopping fails, the client stays open and reports the error.
 

@@ -3,10 +3,16 @@
 ## 0.3.13
 
 - **桌面更新源**：官方更新源随已保存的界面语言切换，简体中文使用 Zleap 官网，英文使用 GitHub。升级时迁移已有的默认官方更新设置，并保留自定义更新源。
+- **日语界面与文档**：在通用设置中选择日本語，主界面、网页界面、快捷搜索和托盘可使用日语，文档站提供日语安装、入门、文件、搜索与问答指南。
+- **问答滚动**：修复流式回答偶尔停止自动跟随的问题，滚回底部后可继续跟随新内容。
+- **繁体中文、韩语和西班牙语支持**：新增三种应用界面语言及对应的核心使用指南。
 
 ### English
 
 - **Desktop update source**: Follow the saved interface language for official updates. Simplified Chinese uses the Zleap website and English uses GitHub. Upgrade existing default settings once and preserve custom sources.
+- **Japanese interface and documentation**: Select Japanese in General settings for the desktop app, browser workspace, Quick Search and tray. Japanese guides cover installation, getting started, files, search and Q&A.
+- **Chat scrolling**: Keep following streamed answers at the bottom, including after scrolling back down.
+- **Traditional Chinese, Korean, and Spanish support**: Add three interface languages and corresponding core guides.
 
 ## 0.3.12
 

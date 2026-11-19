@@ -3,7 +3,7 @@
  import {Button} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
  import {api} from '../lib/api';
- import {t,language} from '../lib/i18n';
+ import {t,language,interfaceLocales} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import {basename,displayPath} from '../lib/domain';
  import {indexErrorHint} from '../lib/index-stages';
@@ -11,7 +11,7 @@
  export let record:IndexHistory;
  let expanded=false,loading=false,loaded=false,showLog=false,disposed=false,error='',openError='';
  let raw:string|null=null,rows:{raw:string;file:IndexFileLog}[]=[];
- const date=(time:number)=>new Date(time).toLocaleString($language==='en'?'en-US':'zh-CN');
+ $: dateFormatter=new Intl.DateTimeFormat(interfaceLocales[$language].format,{year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric'});
  $:files=[...new Map(rows.map(row=>[row.file.path,row.file])).values()];
  $:failedFiles=files.filter(file=>file.status==='failed');
  $:label=$t(record.status==='ready'?'已完成':record.status==='partial'?'部分失败':record.status==='stopped'?'已停止':'读取失败');
@@ -53,7 +53,7 @@
   {#if record.summary}<span class="index-outcomes">{$t('已检查 {value0} · 已复用 {value1} · 已更新 {value2} · 失败 {value3}',{value0:record.summary.checked,value1:record.summary.reused,value2:record.summary.updated,value3:record.summary.failed})}</span>{/if}
   <span class="index-entry-meta">{#if !record.summary}<span class="index-count">{$t('已处理 {value0} / {value1} 个文件',{value0:record.completed,value1:record.total})}</span>{/if}<span class="index-root-path" title={displayPath(record.path)}>{displayPath(record.path)}</span></span>
  </span>
- <span class="index-entry-side"><time datetime={new Date(record.started_at).toISOString()} title={date(record.started_at)}>{when(record.started_at)}</time><span class="index-entry-chevron" class:open={expanded}>{@html icon('chevron')}</span></span>
+ <span class="index-entry-side"><time datetime={new Date(record.started_at).toISOString()} title={dateFormatter.format(record.started_at)}>{when(record.started_at)}</time><span class="index-entry-chevron" class:open={expanded}>{@html icon('chevron')}</span></span>
 </Button.Root>
 {#if notice}<div class="index-entry-notice">
  <p>{notice}</p>
@@ -90,7 +90,7 @@
 {#if showLog}
  <Modal label={$t('原始索引日志')} class="index-log-dialog" onClose={()=>showLog=false}>
   <div class="dialog-head"><h2>{$t('原始索引日志')}</h2><Button.Root class="icon-button" aria-label={$t('关闭索引日志')} onclick={()=>showLog=false}>{@html icon('close')}</Button.Root></div>
-  <div class="index-log-meta"><strong>{record.name}</strong><span>{date(record.started_at)} · {label}</span><p>{displayPath(record.path)}</p></div>
+  <div class="index-log-meta"><strong>{record.name}</strong><span>{dateFormatter.format(record.started_at)} · {label}</span><p>{displayPath(record.path)}</p></div>
   <div class="index-log-body">
    {#if rows.length}<pre aria-label={$t('原始索引日志内容')}>{#each rows as row}{@const path=JSON.stringify(row.file.path)}{@const start=row.raw.indexOf(path)}<span>{row.raw.slice(0,start)}<Button.Root class="index-log-path" title={$t('用系统默认应用打开原文件')} onclick={()=>openFile(row.file.path)}>{path}</Button.Root>{row.raw.slice(start+path.length)}</span>{'\n'}{/each}</pre>
    {:else}<p class="index-note">{$t('本次没有文件处理记录')}</p>{/if}
