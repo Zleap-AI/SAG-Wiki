@@ -1,4 +1,5 @@
 mod cli_commands;
+mod data_directory;
 mod share;
 mod note_import;
 mod folder_picker;
@@ -379,7 +380,6 @@ async fn quit_application(app: tauri::AppHandle, state: State<'_, Arc<AppState>>
     Ok(())
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
 async fn stop_background<R: tauri::Runtime>(state: &AppState<R>) -> CommandResult<()> {
     // Block automatic startup/reconnect before requesting shutdown. Reuse the
     // reconnect lock so an already-starting service is stopped as well.
@@ -668,7 +668,14 @@ pub fn run() {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             });
-            let data = protocol::data_dir()?;
+            let data = match protocol::data_dir() {
+                Ok(data) => data,
+                Err(failure) => {
+                    app.get_webview_window("main").unwrap().hide()?;
+                    data_directory::recover_at_startup(app.handle(), error(failure));
+                    return Ok(());
+                }
+            };
             quick_search::initialize(app.handle(), &data)?;
             let fresh_library = !data.join("sag.sqlite").try_exists()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
@@ -867,6 +874,8 @@ pub fn run() {
             open_source_file,
             reveal_docling_log,
             open_data_directory,
+            data_directory::get_data_directory,
+            data_directory::migrate_data_directory,
             open_about_link,
             open_external_link,
             updates::check_app_update,

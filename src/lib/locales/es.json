@@ -2118,5 +2118,16 @@
   "无法获取已签名的更新，请确认更新清单和签名已发布: {value0}": "No se pudo obtener una actualización firmada. Comprueba que se hayan publicado el manifiesto de actualización y las firmas. {value0}",
   "模型请求超过总时间限制": "La solicitud al modelo superó el tiempo límite.",
   "已有证据超过上下文预算。请减少扩展起点或调整切分；原文未截断。": "La evidencia existente supera el límite de contexto. Reduce los puntos de partida para la expansión o ajusta la división del texto. Se conservó el texto original.",
-  "模型生成失败": "El modelo no pudo generar una respuesta."
+  "模型生成失败": "El modelo no pudo generar una respuesta.",
+  "正在读取数据位置…": "Cargando ubicación de los datos…",
+  "选择新的应用数据目录（空文件夹）": "Elegir nueva carpeta de datos de la aplicación (vacía)",
+  "更改位置": "Cambiar ubicación",
+  "迁移应用数据": "Mover datos de la aplicación",
+  "当前位置": "Ubicación actual",
+  "新位置": "Nueva ubicación",
+  "迁移并重启": "Mover y reiniciar",
+  "正在迁移，请稍候…": "Moviendo datos, espera…",
+  "将索引、配置、密钥、问答历史和应用内转换结果复制到新位置，完成后自动重启。原始资料文件不移动，旧数据目录保留为备份。": "Copia los índices, ajustes, claves, conversaciones y resultados de conversión de la carpeta de la aplicación a la nueva ubicación y reinicia automáticamente. Los documentos originales permanecen en su sitio. La carpeta anterior se conserva como copia de seguridad.",
+  "请选择空文件夹，并预留足够空间。迁移期间请勿退出应用。本页未保存的设置不会保留。": "Elige una carpeta vacía con espacio suficiente. Mantén la aplicación abierta durante la migración. Los ajustes sin guardar de esta página no se conservarán.",
+  "数据位置由环境变量指定，请移除 SAG_DATA_DIR / SAG_DESKTOP_DATA_DIR 后重启再调整": "La ubicación está definida por una variable de entorno. Elimina SAG_DATA_DIR / SAG_DESKTOP_DATA_DIR y reinicia antes de cambiarla."
 }
