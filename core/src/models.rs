@@ -156,6 +156,12 @@ pub(crate) fn context_limit_error(error: &anyhow::Error) -> bool {
     })
 }
 
+/// The server rejected the request itself, not its size: a shape it does not accept.
+pub(crate) fn request_rejected(error: &anyhow::Error) -> bool {
+    !context_limit_error(error)
+        && error.downcast_ref::<RequestError>().is_some_and(|error| matches!(error.status, 400 | 422))
+}
+
 /// A batch the server rejected for carrying more items than one request may
 /// hold can be retried as smaller batches, exactly like an oversized context.
 pub(crate) fn batch_limit_error(error: &anyhow::Error) -> bool {

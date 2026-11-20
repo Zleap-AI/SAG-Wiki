@@ -1362,8 +1362,6 @@
   "{value0}秒": "{value0}s",
   "{value0}分钟{value1}秒": "{value0}m {value1}s",
   "正在压缩上下文": "Summarizing conversation context",
-  "上下文压缩失败，原始记录已保留": "Context summarization failed. The original records have been preserved.",
-  "上下文压缩失败，原始记录已保留：{value0}": "Context summarization failed. The original records have been preserved: {value0}",
   "模型生成的上下文摘要仍超过预算，原始记录已保留": "The generated summary still exceeds the context budget. The original records have been preserved.",
   "系统提示词、工具定义或查询范围超过上下文预算，请调整配置": "The system prompt, tool definitions, or query scope exceed the context budget. Adjust the configuration.",
   "每轮工具调用上限应为 0–100，0 表示不限制": "Tool calls per turn must be between 0 and 100; 0 means unlimited",

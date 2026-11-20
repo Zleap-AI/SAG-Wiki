@@ -110,6 +110,17 @@ pub(super) fn fallback(
     messages: &[Value], recent: &[Value], question: &Value, definitions: &[Value], budget: usize,
 ) -> Result<Compacted> {
     let Fitted { mut next, retained_history, .. } = fit(messages, recent, question, definitions, budget)?;
+    // A summary already in place (from an earlier turn or earlier in this turn) still
+    // holds the user's constraints; keep it with the notice when it fits.
+    let carried = messages.get(1).and_then(|item| item["content"].as_str())
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .and_then(|value| value.get("context_summary")?.as_str().map(str::to_owned));
+    if let Some(text) = carried {
+        next[1] = summary_message(&format!("{FALLBACK_NOTICE}\n此前生成的摘要仍然有效：\n{text}"), false);
+        if tokens(&next, definitions) <= budget {
+            return Ok(Compacted { messages: next, summary: None, retained_history, input_tokens: None, output_tokens: None });
+        }
+    }
     next[1] = summary_message(FALLBACK_NOTICE, false);
     ensure!(tokens(&next, definitions) <= budget, "系统提示词、工具定义或查询范围超过上下文预算，请调整配置");
     Ok(Compacted { messages: next, summary: None, retained_history, input_tokens: None, output_tokens: None })
