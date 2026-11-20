@@ -6,6 +6,7 @@ import App from '../src/App.svelte';
 import type {Settings} from '../src/lib/types';
 
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
+const dataLocation={directory:'/sag-data',environment_override:false};
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
@@ -14,7 +15,7 @@ const value:Settings={answer:{url:'http://localhost',model:'test',models:['test'
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.resetAllMocks()});
 async function setup(){
- invoke.mockResolvedValue([]);
+ invoke.mockImplementation(async command=>command==='get_data_directory'?dataLocation:[]);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'privacy',onClose:()=>{},onSave:async()=>{}}});
  await tick();
 }
@@ -47,6 +48,7 @@ it('成功后文件夹列表立即清空，会话记录保留',async()=>{
  localStorage.setItem('sag.onboarding.seen','1');
  let roots=[{path:'/notes',name:'测试文件夹',status:'ready',count:1,error:null}];
  invoke.mockImplementation(async command=>{
+  if(command==='get_data_directory')return dataLocation;
   if(command==='get_settings')return value;
   if(command==='list_roots')return roots;
   if(command==='list_conversations')return[{id:'kept',title:'保留的会话',updated:1,deleted:false,messages:[]}];

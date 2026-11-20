@@ -39,6 +39,20 @@ fn forbidden() -> ApiError {
 }
 
 impl KeyScope {
+    pub(super) fn relocate(&mut self, relocate: &impl Fn(&Path) -> Option<std::path::PathBuf>) -> Result<()> {
+        if let Self::Folders { directories } = self {
+            for grant in directories {
+                if let Some(path) = relocate(Path::new(&grant.path)) {
+                    grant.path = crate::store::path_text(&path)?;
+                }
+                if let Some(path) = relocate(Path::new(&grant.canonical)) {
+                    grant.canonical = crate::store::path_text(&path)?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     pub(super) fn create(store: &Store, scope: ApiScope) -> Result<Self> {
         match scope {
             ApiScope::All => Ok(Self::All),

@@ -1,9 +1,51 @@
 use crate::{error, stop_background, AppState, CommandResult};
 use std::{path::PathBuf, sync::{atomic::Ordering, Arc}};
-use tauri::State;
+use tauri::{AppHandle, State};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 fn environment_override() -> bool {
     std::env::var_os("SAG_DATA_DIR").is_some() || std::env::var_os("SAG_DESKTOP_DATA_DIR").is_some()
+}
+
+pub(crate) fn recover_at_startup(app: &AppHandle, cause: String) {
+    let chinese = sag_protocol::locales::default_interface_language() == "zh-CN";
+    let (title, message, choose, quit) = if chinese {
+        ("应用数据目录不可用", "请重新连接原磁盘，或选择包含现有 SAG 数据库的文件夹，例如迁移时保留的旧目录。选用旧目录会恢复到备份时的状态。", "选择数据目录", "退出")
+    } else {
+        ("Application data folder unavailable", "Reconnect the original drive, or choose a folder containing an existing SAG database, such as the retained backup. Choosing the backup restores its earlier state.", "Choose data folder", "Quit")
+    };
+    let handle = app.clone();
+    app.dialog().message(format!("{message}\n\n{cause}"))
+        .title(title)
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(choose.into(), quit.into()))
+        .show(move |select| {
+            if !select {
+                handle.exit(0);
+                return;
+            }
+            let app = handle.clone();
+            handle.dialog().file().set_title(choose).pick_folder(move |folder| {
+                let Some(folder) = folder else {
+                    app.exit(0);
+                    return;
+                };
+                tauri::async_runtime::spawn_blocking(move || {
+                    let result = (|| -> anyhow::Result<()> {
+                        let directory = folder.into_path()?;
+                        let binary = crate::cli_commands::cli_source(&app).map_err(anyhow::Error::msg)?;
+                        let output = sag_client::run_captured(std::process::Command::new(binary)
+                            .args(["service", "recover", "--directory"]).arg(directory))?;
+                        anyhow::ensure!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr).trim());
+                        Ok(())
+                    })();
+                    match result {
+                        Ok(()) => app.request_restart(),
+                        Err(err) => recover_at_startup(&app, error(err)),
+                    }
+                });
+            });
+        });
 }
 
 #[derive(serde::Serialize)]

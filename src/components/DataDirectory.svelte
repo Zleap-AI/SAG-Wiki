@@ -7,6 +7,7 @@
  import {displayPath} from '../lib/domain';
  import Modal from './ui/Modal.svelte';
  export let pending=false;
+ export let disabled=false;
  export let onBeforeRestart:(()=>Promise<boolean>)|undefined=undefined;
  let location:{directory:string;environment_override:boolean}|undefined;
  let loading=true,error='',selected='';
@@ -38,8 +39,8 @@
  {:else if location}
   <p class="data-directory-path" title={location.directory}>{displayPath(location.directory)}</p>
   <div class="data-directory-actions">
-   <Button.Root type="button" class="outline" disabled={pending} onclick={()=>api('open_data_directory').catch(e=>error=String(e))}>{$t('打开目录')}</Button.Root>
-   <Button.Root type="button" class="outline" disabled={pending||location.environment_override} onclick={choose}>{$t('更改位置')}</Button.Root>
+   <Button.Root type="button" class="outline" disabled={pending||disabled} onclick={()=>api('open_data_directory').catch(e=>error=String(e))}>{$t('打开目录')}</Button.Root>
+   <Button.Root type="button" class="outline" disabled={pending||disabled||location.environment_override} onclick={choose}>{$t('更改位置')}</Button.Root>
   </div>
   {#if location.environment_override}<p>{$t('数据位置由环境变量指定，请移除 SAG_DATA_DIR / SAG_DESKTOP_DATA_DIR 后重启再调整')}</p>{/if}
  {:else}<Button.Root type="button" class="outline" onclick={load}>{$t('重试')}</Button.Root>{/if}

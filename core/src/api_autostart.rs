@@ -32,7 +32,10 @@ pub fn enabled(data: &Path) -> Result<bool> {
         return Ok(false);
     }
     let canonical = data.canonicalize()?;
-    let data = canonical.as_path();
+    registered(&canonical)
+}
+
+fn registered(data: &Path) -> Result<bool> {
     #[cfg(target_os = "windows")]
     {
         let output = sag_client::run_captured(Command::new("reg.exe").args([
@@ -85,7 +88,11 @@ fn xml(value: &str) -> String {
 
 pub fn configure(data: &Path, executable: &Path, enable: bool) -> Result<bool> {
     let data = data.canonicalize()?;
-    let path = registration(&data)?;
+    configure_canonical(&data, executable, enable)
+}
+
+fn configure_canonical(data: &Path, executable: &Path, enable: bool) -> Result<bool> {
+    let path = registration(data)?;
     #[cfg(target_os = "macos")]
     {
         if enable {
@@ -120,7 +127,7 @@ pub fn configure(data: &Path, executable: &Path, enable: bool) -> Result<bool> {
                 "/f",
             ]);
         } else {
-            if !enabled(&data)? {
+            if !registered(data)? {
                 return Ok(false);
             }
             command.args([
@@ -197,5 +204,35 @@ pub fn configure(data: &Path, executable: &Path, enable: bool) -> Result<bool> {
             admin(&[OsStr::new("systemctl"), OsStr::new("daemon-reload")])?;
         }
     }
-    enabled(&data)
+    registered(data)
+}
+
+#[cfg(any(target_os = "windows", target_os = "macos"))]
+pub(crate) fn move_registration(
+    source: &Path,
+    destination: &Path,
+    executable: &Path,
+    save_location: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    if !registered(source)? {
+        return save_location();
+    }
+    let destination_registered = registered(destination)?;
+    if !destination_registered {
+        configure_canonical(destination, executable, true)?;
+    }
+    let result = configure_canonical(source, executable, false).and_then(|_| save_location());
+    if let Err(error) = result {
+        let restored = configure_canonical(source, executable, true);
+        let removed = if destination_registered {
+            Ok(false)
+        } else {
+            configure_canonical(destination, executable, false)
+        };
+        if let Err(rollback) = restored.and(removed) {
+            return Err(error.context(format!("恢复远程服务自动启动设置失败：{rollback:#}")));
+        }
+        return Err(error);
+    }
+    Ok(())
 }

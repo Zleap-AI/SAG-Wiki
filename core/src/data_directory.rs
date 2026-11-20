@@ -7,6 +7,7 @@ pub fn migrate(source: &Path, destination: &Path, location_file: &Path) -> Resul
     ensure!(destination.is_absolute(), "请选择绝对路径");
     let source_real = source.canonicalize().context("无法读取原数据目录")?;
     let destination = destination.canonicalize().context("请选择已存在的空文件夹")?;
+    ensure!(!location_file.starts_with(&source_real), "保存位置的配置不能位于待迁移目录内");
     ensure!(!destination.starts_with(&source_real) && !source_real.starts_with(&destination), "新旧数据目录不能相同或互相包含");
     ensure!(fs::read_dir(&destination)?.next().is_none(), "请选择空文件夹，目标目录已有内容");
     let _instance = crate::cli_service::lock_instance(&source_real)?;
@@ -20,14 +21,30 @@ pub fn migrate(source: &Path, destination: &Path, location_file: &Path) -> Resul
             continue;
         }
         let target = staged.path().join(relative);
+        if relative == Path::new("http-api.json") {
+            ensure!(entry.file_type().is_file(), "远程服务配置必须是普通文件");
+            crate::http_api::copy_relocated_config(
+                entry.path(), &target, |path| relocate(path, &sources, &destination),
+            )?;
+            continue;
+        }
+        if relative == Path::new("credentials.json") {
+            ensure!(entry.file_type().is_file(), "密钥配置必须是普通文件");
+            crate::http_api::write_private(&target, &fs::read(entry.path())?)?;
+            continue;
+        }
         if entry.file_type().is_dir() {
             fs::create_dir(&target)?;
         } else if entry.file_type().is_symlink() {
-            let link = fs::read_link(entry.path())?;
-            // Resolve relative links against their old parent before relocating;
-            // a link outside the data directory must keep pointing outside it.
-            let link = crate::notes::normalize(&entry.path().parent().unwrap().join(link));
-            let link = relocate(&link, &sources, &destination).unwrap_or(link);
+            let original = fs::read_link(entry.path())?;
+            let resolved = crate::notes::normalize(&entry.path().parent().unwrap().join(&original));
+            let link = match relocate(&resolved, &sources, &destination) {
+                Some(link) if original.is_relative() && crate::notes::normalize(
+                    &destination.join(relative).parent().unwrap().join(&original),
+                ) == link => original,
+                Some(link) => link,
+                None => resolved,
+            };
             #[cfg(unix)]
             std::os::unix::fs::symlink(&link, &target)?;
             #[cfg(windows)]
@@ -41,41 +58,109 @@ pub fn migrate(source: &Path, destination: &Path, location_file: &Path) -> Resul
             fs::copy(entry.path(), &target).with_context(|| format!("无法复制 {}", entry.path().display()))?;
         }
     }
-    rewrite_database(&staged.path().join("sag.sqlite"), &sources, &destination)?;
-    // Prepare the locator before publishing anything. The original stays usable on every error.
-    fs::create_dir_all(location_file.parent().context("无效的位置配置路径")?)?;
-    let mut locator = tempfile::NamedTempFile::new_in(location_file.parent().unwrap())?;
-    locator.write_all(&serde_json::to_vec(&destination)?)?;
-    locator.as_file().sync_all()?;
+    let database = staged.path().join("sag.sqlite");
+    ensure!(database.symlink_metadata()?.is_file(), "应用数据库必须是普通文件");
+    let mut conversion_paths = Vec::new();
+    let db = Connection::open_with_flags(&database, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let settings: String = db.query_row("SELECT value FROM preferences WHERE id=1", [], |row| row.get(0))?;
+    let settings: sag_protocol::types::Settings = serde_json::from_str(&settings)?;
+    let output_base = match settings.conversion_storage {
+        sag_protocol::types::ConversionStorage::AppData => Some(source_real.clone()),
+        sag_protocol::types::ConversionStorage::Custom { directory } => Some(PathBuf::from(directory)),
+        sag_protocol::types::ConversionStorage::Library => None,
+    };
+    if let Some(base) = output_base {
+        let output = base.join(crate::docling::OUTPUT_DIRECTORY);
+        if let (Some(staged_output), Some(new_output)) = (
+            relocate(&output, &sources, staged.path()),
+            relocate(&output, &sources, &destination),
+        ) {
+            let mut query = db.prepare("SELECT path FROM roots")?;
+            let paths = query.query_map([], |row| row.get::<_, String>(0))?;
+            for path in paths {
+                let path = PathBuf::from(path?);
+                let Some(relocated) = relocate(&path, &sources, &destination) else { continue };
+                let hash = crate::store::hash(path.as_os_str().as_encoded_bytes());
+                let new_hash = crate::store::hash(relocated.as_os_str().as_encoded_bytes());
+                let old = staged_output.join(&hash);
+                if old.try_exists()? {
+                    let new = staged_output.join(&new_hash);
+                    ensure!(!new.try_exists()?, "目标转换目录已有内容：{}", new.display());
+                    fs::rename(&old, new)?;
+                }
+                conversion_paths.push((output.join(hash), new_output.join(new_hash)));
+            }
+        }
+    }
+    drop(db);
+    rewrite_database(&database, &sources, &destination, &conversion_paths)?;
     // remove_dir only succeeds if the folder is still empty.
     fs::remove_dir(&destination).context("目标目录已被修改，请重新选择空文件夹")?;
     fs::rename(staged.path(), &destination).context("无法发布迁移后的数据目录；原数据仍保留")?;
-    locator.persist(location_file).map_err(|e| e.error)
-        .context("无法保存新位置；原数据仍在使用，新目录保留已复制的数据，请重新选择空文件夹")?;
-    Ok(())
+    switch_location(Some(&source_real), &destination, location_file)
+        .context("无法启用新位置；原数据仍保留，新目录保留已复制的数据")
+}
+
+pub fn recover(destination: &Path, location_file: &Path) -> Result<()> {
+    let previous = match sag_protocol::read_data_directory_location(location_file) {
+        Ok(previous) => previous.filter(|path| path.is_absolute()),
+        Err(error) if error.downcast_ref::<serde_json::Error>().is_some() => None,
+        Err(error) => return Err(error),
+    };
+    let destination = destination.canonicalize().context("无法打开所选数据目录")?;
+    let database = destination.join("sag.sqlite");
+    let db = Connection::open_with_flags(&database, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .context("请选择包含现有 SAG 数据库的文件夹")?;
+    let recognized: bool = db.query_row(
+        "SELECT COUNT(*)=2 FROM sqlite_master WHERE type='table' AND name IN ('roots','metadata')",
+        [], |row| row.get(0),
+    )?;
+    ensure!(recognized, "请选择包含现有 SAG 数据库的文件夹");
+    let check: String = db.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+    ensure!(check == "ok", "所选数据目录的数据库校验失败：{check}");
+    switch_location(previous.as_deref(), &destination, location_file)
+}
+
+fn switch_location(source: Option<&Path>, destination: &Path, location_file: &Path) -> Result<()> {
+    let parent = location_file.parent().context("无效的位置配置路径")?;
+    fs::create_dir_all(parent)?;
+    let mut locator = tempfile::NamedTempFile::new_in(parent)?;
+    locator.write_all(&serde_json::to_vec(destination)?)?;
+    locator.as_file().sync_all()?;
+    let save = || locator.persist(location_file).map(|_| ()).map_err(|e| e.error.into());
+    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    if let Some(source) = source.filter(|source| *source != destination) {
+        return crate::api_autostart::move_registration(source, destination, &std::env::current_exe()?, save);
+    }
+    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+    let _ = source;
+    save()
 }
 
 fn relocate(path: &Path, sources: &[PathBuf], destination: &Path) -> Option<PathBuf> {
     sources.iter().find_map(|source| path.strip_prefix(source).ok().map(|suffix| destination.join(suffix)))
 }
 
-fn rewrite_json(value: &mut serde_json::Value, sources: &[PathBuf], destination: &Path) {
+fn rewrite_paths(value: &mut serde_json::Value, relocate: &impl Fn(&Path) -> Option<PathBuf>) {
     match value {
         serde_json::Value::String(text) => {
-            if let Some(path) = relocate(Path::new(text), sources, destination) {
+            if let Some(path) = relocate(Path::new(text)) {
                 *text = path.to_string_lossy().into_owned();
             }
         }
-        serde_json::Value::Array(items) => for item in items { rewrite_json(item, sources, destination); },
-        serde_json::Value::Object(items) => for item in items.values_mut() { rewrite_json(item, sources, destination); },
+        serde_json::Value::Array(items) => for item in items { rewrite_paths(item, relocate); },
         _ => {}
     }
 }
 
-fn rewrite_database(path: &Path, sources: &[PathBuf], destination: &Path) -> Result<()> {
-    // Do not create an empty database if the original is missing or corrupt.
+fn rewrite_database(path: &Path, sources: &[PathBuf], destination: &Path, outputs: &[(PathBuf, PathBuf)]) -> Result<()> {
+    let remap = |path: &Path| {
+        outputs.iter().find_map(|(from, to)| path.strip_prefix(from).ok().map(|suffix| to.join(suffix)))
+            .or_else(|| relocate(path, sources, destination))
+    };
     let mut db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     let tx = db.transaction()?;
+    tx.execute_batch("PRAGMA defer_foreign_keys=ON")?;
     for (table, column) in [
         ("roots", "path"), ("root_watch_errors", "root"),
         ("root_exclusions", "path"), ("root_exclusions", "root"),
@@ -90,7 +175,7 @@ fn rewrite_database(path: &Path, sources: &[PathBuf], destination: &Path) -> Res
         let rows = query.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (id, text) in rows {
-            if let Some(path) = relocate(Path::new(&text), sources, destination) {
+            if let Some(path) = remap(Path::new(&text)) {
                 tx.execute(&format!("UPDATE {table} SET {column}=?1 WHERE rowid=?2"), params![path.to_str().context("目录路径不是有效 UTF-8")?, id])?;
             }
         }
@@ -100,8 +185,35 @@ fn rewrite_database(path: &Path, sources: &[PathBuf], destination: &Path) -> Res
         let rows = query.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         for (id, text) in rows {
-            let mut value = serde_json::from_str(&text).with_context(|| format!("{table}.{column} 中的 JSON 无效"))?;
-            rewrite_json(&mut value, sources, destination);
+            let mut value: serde_json::Value = serde_json::from_str(&text).with_context(|| format!("{table}.{column} 中的 JSON 无效"))?;
+            match table {
+                "preferences" => {
+                    for field in ["chat_import_folder", "excluded"] {
+                        if let Some(path) = value.get_mut(field) { rewrite_paths(path, &remap); }
+                    }
+                    for (container, field) in [("notes", "folder"), ("conversion_storage", "directory")] {
+                        if let Some(path) = value.get_mut(container).and_then(|value| value.get_mut(field)) {
+                            rewrite_paths(path, &remap);
+                        }
+                    }
+                }
+                "conversations" => if let Some(messages) = value.as_array_mut() {
+                    for message in messages {
+                        for field in ["scope", "references", "note_path"] {
+                            if let Some(path) = message.get_mut(field) { rewrite_paths(path, &remap); }
+                        }
+                        if let Some(evidence) = message.get_mut("evidence").and_then(serde_json::Value::as_array_mut) {
+                            for item in evidence {
+                                for field in ["path", "source_path"] {
+                                    if let Some(path) = item.get_mut(field) { rewrite_paths(path, &remap); }
+                                }
+                            }
+                        }
+                    }
+                },
+                "drafts" => if let Some(path) = value.get_mut("path") { rewrite_paths(path, &remap); },
+                _ => rewrite_paths(&mut value, &remap),
+            }
             let updated = serde_json::to_string(&value)?;
             if updated != text {
                 tx.execute(&format!("UPDATE {table} SET {column}=?1 WHERE rowid=?2"), params![updated, id])?;
@@ -137,17 +249,42 @@ mod tests {
         let converted = source.join("converted/report.md");
         let internal = converted.to_str().unwrap();
         fs::create_dir(source.join("converted")).unwrap();
+        fs::create_dir(source.join("docs")).unwrap();
+        let internal_root = source.join("docs").canonicalize().unwrap();
+        let internal_pdf = internal_root.join("book.pdf");
+        let cache_name = crate::store::hash(internal_root.as_os_str().as_encoded_bytes());
+        let cached = source.canonicalize().unwrap().join(crate::docling::OUTPUT_DIRECTORY).join(cache_name).join("book.pdf.md");
+        fs::create_dir_all(cached.parent().unwrap()).unwrap();
+        fs::write(&cached, "# 已转换").unwrap();
+        fs::create_dir(&root).unwrap();
+        fs::write(&internal_pdf, "PDF fixture").unwrap();
+        let external_root = Path::new(&root).canonicalize().unwrap();
         fs::write(&converted, "# 转换正文").unwrap();
         fs::write(source.join("credentials.json"), br#"{"answer":"keep-secret"}"#).unwrap();
+        let api = serde_json::json!({"enabled":false,"host":"127.0.0.1","port":24681,"keys":[
+            {"id":"scoped","name":"Project","prefix":"fixture","created_at":0,"digest":[1,2,3],
+                "scope":{"type":"folders","directories":[
+                    {"path":internal_root,"canonical":internal_root},
+                    {"path":external_root,"canonical":external_root}
+                ]}},
+            {"id":"global","name":"Existing","prefix":"fixture","created_at":0,"digest":[4,5,6],"scope":{"type":"all"}}
+        ]});
+        let api_bytes = serde_json::to_vec(&api).unwrap();
+        fs::write(source.join("http-api.json"), &api_bytes).unwrap();
         fs::write(source.join("sag-service.json"), "stale endpoint").unwrap();
         let db = store.connection();
         db.execute("INSERT INTO roots(path,name) VALUES(?1,'docs')", [&root]).unwrap();
+        db.execute("INSERT INTO roots(path,name) VALUES(?1,'archive')", [internal_root.to_str().unwrap()]).unwrap();
+        db.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?1,?2,'hash',?3,'out')",
+            params![internal_pdf.to_str().unwrap(), internal_root.to_str().unwrap(), cached.to_str().unwrap()]).unwrap();
         db.execute("INSERT INTO conversions(source,root,source_hash,output,output_hash) VALUES(?1,?2,'hash',?3,'out')", params![external, root, internal]).unwrap();
         db.execute("INSERT INTO documents(root,path,name,hash,mtime) VALUES(?1,?2,'report','hash',0)", params![root, internal]).unwrap();
-        let messages = serde_json::json!([{"text":"history", "citations":[{"path":internal},{"path":external}]}]);
+        let messages = serde_json::json!([{"answer":internal, "evidence":[{"path":internal},{"path":external}]}]);
         db.execute("INSERT INTO conversations(id,title,messages,updated) VALUES('chat','history',?1,0)", [messages.to_string()]).unwrap();
         db.execute("INSERT INTO drafts(path,value) VALUES(?1,?2)", params![internal, serde_json::json!({"path":internal,"text":"unsaved draft"}).to_string()]).unwrap();
-        db.execute("INSERT OR REPLACE INTO preferences(id,value) VALUES(1,?1)", [serde_json::json!({"notes_folder":source.join("notes"),"external":root}).to_string()]).unwrap();
+        db.execute("INSERT OR REPLACE INTO preferences(id,value) VALUES(1,?1)", [serde_json::json!({
+            "notes":{"folder":source.join("notes")},"external":root,"conversion_storage":{"mode":"app_data"}
+        }).to_string()]).unwrap();
         drop(db);
         drop(store);
         let original = fs::read(source.join("sag.sqlite")).unwrap();
@@ -155,26 +292,44 @@ mod tests {
         let destination = destination.canonicalize().unwrap();
         assert_eq!(serde_json::from_slice::<PathBuf>(&fs::read(location).unwrap()).unwrap(), destination);
         assert_eq!(fs::read(source.join("sag.sqlite")).unwrap(), original);
+        assert_eq!(fs::read(source.join("http-api.json")).unwrap(), api_bytes);
         assert_eq!(fs::read_to_string(destination.join("credentials.json")).unwrap(), r#"{"answer":"keep-secret"}"#);
         assert_eq!(fs::read_to_string(destination.join("converted/report.md")).unwrap(), "# 转换正文");
         assert!(!destination.join("sag-service.json").exists());
         assert!(!destination.join("cli-instance.lock").exists());
         let db = Connection::open(destination.join("sag.sqlite")).unwrap();
-        let (output, original_source): (String, String) = db.query_row("SELECT output,source FROM conversions", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+        let (output, original_source): (String, String) = db.query_row("SELECT output,source FROM conversions WHERE source=?1", [&external], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
         assert_eq!(Path::new(&output), destination.join("converted/report.md"));
         assert_eq!(original_source, external);
         let text: String = db.query_row("SELECT messages FROM conversations", [], |r| r.get(0)).unwrap();
         let messages: serde_json::Value = serde_json::from_str(&text).unwrap();
-        assert_eq!(messages[0]["text"], "history");
-        assert_eq!(messages[0]["citations"][0]["path"], output);
-        assert_eq!(messages[0]["citations"][1]["path"], external);
+        assert_eq!(messages[0]["answer"], internal);
+        assert_eq!(messages[0]["evidence"][0]["path"], output);
+        assert_eq!(messages[0]["evidence"][1]["path"], external);
         let (path, draft): (String, String) = db.query_row("SELECT path,value FROM drafts", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
         assert_eq!(path, output);
         assert_eq!(serde_json::from_str::<serde_json::Value>(&draft).unwrap()["path"], output);
         let settings: String = db.query_row("SELECT value FROM preferences", [], |r| r.get(0)).unwrap();
         let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
-        assert_eq!(settings["notes_folder"], destination.join("notes").to_str().unwrap());
+        assert_eq!(settings["notes"]["folder"], destination.join("notes").to_str().unwrap());
         assert_eq!(settings["external"], root);
+        let relocated_root = destination.join("docs");
+        let migrated_api: serde_json::Value = serde_json::from_slice(&fs::read(destination.join("http-api.json")).unwrap()).unwrap();
+        let mut expected_api = api;
+        expected_api["keys"][0]["scope"]["directories"][0] = serde_json::json!({
+            "path":relocated_root, "canonical":relocated_root,
+        });
+        assert_eq!(migrated_api, expected_api);
+        let (stored, output): (String, String) = db.query_row(
+            "SELECT root,output FROM conversions WHERE source=?1",
+            [relocated_root.join("book.pdf").to_str().unwrap()], |row| Ok((row.get(0)?, row.get(1)?)),
+        ).unwrap();
+        assert_eq!(Path::new(&stored), relocated_root);
+        let new_hash = crate::store::hash(relocated_root.as_os_str().as_encoded_bytes());
+        let relocated_output = destination.join(crate::docling::OUTPUT_DIRECTORY).join(new_hash).join("book.pdf.md");
+        assert_eq!(Path::new(&output), relocated_output);
+        assert_eq!(fs::read_to_string(relocated_output).unwrap(), "# 已转换");
+        assert_eq!(fs::read_to_string(relocated_root.join("book.pdf")).unwrap(), "PDF fixture");
     }
 
     #[test]
@@ -230,7 +385,7 @@ mod tests {
         // macOS temporary paths may also have /var and /private/var aliases.
         let db = Connection::open(source.join("sag.sqlite")).unwrap();
         db.execute("INSERT OR REPLACE INTO preferences(id,value) VALUES(1,?1)",
-            [serde_json::json!({"notes_folder":alias.join("notes")}).to_string()]).unwrap();
+            [serde_json::json!({"notes":{"folder":alias.join("notes")}}).to_string()]).unwrap();
         drop(db);
         migrate(&alias, &destination, &location).unwrap();
         for directory in [&destination, &final_destination] {
@@ -239,7 +394,7 @@ mod tests {
             }
             let directory = directory.canonicalize().unwrap();
             let executable = directory.join("tools/python3");
-            assert_eq!(fs::read_link(&executable).unwrap(), directory.join("tools/python"));
+            assert_eq!(fs::read_link(&executable).unwrap(), PathBuf::from("python"));
             assert_eq!(fs::metadata(&executable).unwrap().permissions().mode() & 0o777, 0o755);
             let output = std::process::Command::new(&executable).output().unwrap();
             assert!(output.status.success());
@@ -248,10 +403,27 @@ mod tests {
             let db = Connection::open(directory.join("sag.sqlite")).unwrap();
             let settings: String = db.query_row("SELECT value FROM preferences", [], |r| r.get(0)).unwrap();
             let settings: serde_json::Value = serde_json::from_str(&settings).unwrap();
-            assert_eq!(settings["notes_folder"], directory.join("notes").to_str().unwrap());
+            assert_eq!(settings["notes"]["folder"], directory.join("notes").to_str().unwrap());
             assert_eq!(serde_json::from_slice::<PathBuf>(&fs::read(&location).unwrap()).unwrap(), directory);
         }
         assert_eq!(fs::read_link(tools.join("python3")).unwrap(), PathBuf::from("python"));
         assert_eq!(fs::read_to_string(tools.join("external")).unwrap(), "external document");
+    }
+
+    #[test]
+    fn recovery_requires_an_existing_sag_database_and_preserves_the_unavailable_location_on_error() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing drive");
+        let location = temp.path().join("location.json");
+        fs::write(&location, serde_json::to_vec(&missing).unwrap()).unwrap();
+        assert!(recover(temp.path(), &location).is_err());
+        assert_eq!(sag_protocol::read_data_directory_location(&location).unwrap(), Some(missing));
+        let backup = temp.path().join("backup");
+        drop(Store::open(&backup.join("sag.sqlite")).unwrap());
+        recover(&backup, &location).unwrap();
+        assert_eq!(sag_protocol::read_data_directory_location(&location).unwrap(), Some(backup.canonicalize().unwrap()));
+        fs::write(&location, "invalid JSON").unwrap();
+        recover(&backup, &location).unwrap();
+        assert_eq!(sag_protocol::read_data_directory_location(&location).unwrap(), Some(backup.canonicalize().unwrap()));
     }
 }

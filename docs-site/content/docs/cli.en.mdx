@@ -212,7 +212,7 @@ Windows uses a separate console `sag.exe`, bundled with the application installe
 - File changed: wait for the watcher to update, then query again.
 - Installation conflict: retain existing files and establish their origin before resolving it manually.
 
-After migrating data in the desktop app under [Settings → Data and privacy → Application data location](/en/docs/privacy), the CLI automatically uses the same new directory. For development and testing, `SAG_DATA_DIR` selects an isolated data directory. CLI and desktop must use the same value to share it; the environment variable takes precedence over the saved location.
+After migrating data in the desktop app under [Settings → Data and privacy → Application data location](/en/docs/privacy), CLI versions that support this feature automatically use the same directory. For development and testing, `SAG_DATA_DIR` selects an isolated data directory. CLI and desktop must use the same value to share it; the environment variable takes precedence over the saved location.
 
 ## Automatic terminal configuration
 

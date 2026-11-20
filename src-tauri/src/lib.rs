@@ -668,7 +668,14 @@ pub fn run() {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             });
-            let data = protocol::data_dir()?;
+            let data = match protocol::data_dir() {
+                Ok(data) => data,
+                Err(failure) => {
+                    app.get_webview_window("main").unwrap().hide()?;
+                    data_directory::recover_at_startup(app.handle(), error(failure));
+                    return Ok(());
+                }
+            };
             quick_search::initialize(app.handle(), &data)?;
             let fresh_library = !data.join("sag.sqlite").try_exists()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();

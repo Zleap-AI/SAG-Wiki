@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.14
+
+- **应用数据位置**：桌面端可迁移索引、配置、问答记录和应用内转换结果，并保留旧目录作为备份。桌面端与 CLI 共用新位置；远程服务自启和文件夹授权随迁移更新，数据目录不可用时可在启动时选择已有数据目录。([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
+
+### English
+
+- **Application data location**: Move indexes, settings, conversations, and in-app conversion results from the desktop app while keeping the previous folder as a backup. Desktop and CLI share the new location, remote service autostart and folder permissions move with it, and startup recovery lets you choose an existing data folder if the saved location is unavailable. ([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
+
 ## 0.3.13
 
 - **桌面更新源**：官方更新源随已保存的界面语言切换。简体中文使用 Zleap 官网，其余界面语言使用 GitHub。升级时迁移默认官方更新设置，并保留自定义更新源。
