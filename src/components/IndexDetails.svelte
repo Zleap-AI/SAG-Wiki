@@ -10,7 +10,7 @@
  import {indexTaskKey,sameIndexStatus,stableRows} from '../lib/stable-snapshot';
  import {t} from '../lib/i18n';
  import {icon} from '../lib/icons';
- import {conversionParsers,conversionSegment,indexErrorHint,indexPipeline,indexStage,isConversionStage} from '../lib/index-stages';
+ import {conversionParsers,conversionSegment,indexErrorHint,indexPipeline,indexStage,isConversionStage,watchLimitHint} from '../lib/index-stages';
  import type {Root,IndexTask,IndexStatus,IndexHistory} from '../lib/types';
  export let roots:Root[]=[];
  export let onClose:()=>void;
@@ -21,7 +21,11 @@
  let running:Promise<void>|null=null,requested=false,historyDirty=true,generation=0,lastPaused:boolean|undefined;
  const taskStage=(task:IndexTask)=>indexStage(task.stage,conversionParsers([task]).length>0||!!conversionSegment([task]));
  const stageLabel=(task:IndexTask)=>$t(taskStage(task)?.progress??(task.stage==='indexing'?'正在索引文件':'正在扫描文件'));
- const humanError=(message:string|null|undefined)=>{const hint=indexErrorHint(message);return hint?$t('{value0}其他文件可正常检索。',{value0:$t(hint)}):$t(message?'部分文件未能处理，其他已索引文件仍可搜索。':'索引未能完成，查看文件记录了解详情。')};
+ const humanError=(message:string|null|undefined)=>{
+  const hint=indexErrorHint(message);
+  if(hint!==watchLimitHint&&message?.includes('文件无法按'))return $t('以下文件未进入索引，其他文件可正常检索。');
+  return hint?$t('{value0}其他文件可正常检索。',{value0:$t(hint)}):$t(message?'部分文件未能处理，其他已索引文件仍可搜索。':'索引未能完成，查看文件记录了解详情。');
+ };
  const newestByFolder=(records:IndexHistory[])=>{
   const newest=new Map<string,IndexHistory>();
   for(const record of records){const old=newest.get(record.path);if(!old||record.started_at>old.started_at)newest.set(record.path,record);}
@@ -142,7 +146,7 @@
      <div class="index-root-title">{@html icon('folder')}<strong>{root.name}</strong><span class:failed={root.status==='error'||root.status==='partial'}>{$t(root.status==='error'?'读取失败':root.status==='partial'?'部分失败':'已完成')}</span></div>
      <p class="index-root-path" title={displayPath(root.path)}>{displayPath(root.path)}</p>
      <p class="small muted">{$t('已索引 {value0} 个文件',{value0:root.count})}</p>
-     {#if root.status==='partial'}<p class="small muted">{root.error?.includes('文件无法按')?$t('以下文件未进入索引，其他文件可正常检索。'):humanError(root.error)}</p>{/if}
+     {#if root.status==='partial'}<p class="small muted">{humanError(root.error)}</p>{/if}
      {#if root.error}<details class="index-failure"><summary>{$t('查看技术详情')}</summary><pre class="index-issue-details">{root.error.split('\n').map(line=>$t(displayPath(line))).join('\n')}</pre></details>{/if}
     </div>
    {/each}
