@@ -43,7 +43,15 @@ Chat titles use the existing name when available, or the first actual question w
 
 Each chat becomes one Markdown file. Importing again skips unchanged content and updates the same file with new content. If you have edited the imported file, a conflict is reported and your changes are preserved. Embedded images are saved in the adjacent `chat-assets/` folder. External image links are retained and follow the reader's policy of not loading external images automatically.
 
-Supported inputs include Claude Code JSONL transcripts and cross-file continuations, plus plain and `.jsonl.zst` compressed Codex transcripts. Multiple files for the same Codex session are merged. Damaged, incomplete or missing continuation records show an error; correct the source or wait for the chat to finish, then reload. Original transcripts stay unchanged. Import does not call a model. This feature is currently desktop-only and does not continuously sync chats.
+Supported inputs include Claude Code JSONL transcripts and cross-file continuations, plus plain and `.jsonl.zst` compressed Codex transcripts. Multiple files for the same Codex session are merged. Damaged, incomplete or missing continuation records show an error; correct the source or wait for the chat to finish, then reload. Original transcripts stay unchanged. Import does not call a model. Chat import is available on desktop.
+
+### Scheduled imports
+
+Select **Import chat history** beside **Claude Code** or **Codex**. With **Scheduled sync** off, chats are imported manually. Turn it on at the bottom of the dialog to choose **Every 30 minutes**, **Hourly**, **Every 6 hours**, **Every 12 hours**, or **Daily**. Choose **Daily** to set a specific time. Each source has its own schedule, and changes are saved automatically. Scheduled imports use the transcript folder and **Show tool calls and results** setting in the same dialog. To change the source folder, enter a new path and select **Load**.
+
+![Set the daily import time for Codex](/images/product-chat-import-schedule-en.png)
+
+Intervals are measured from when the schedule was enabled, its frequency changed, or it last ran. **Daily** uses the local time of the computer running SAG. When the background service resumes, an overdue interval schedule runs once and a daily schedule can catch up on the same day. Each run processes sessions in that source folder and uses the same destination and subfolders as manual imports. Unchanged sessions are skipped, new content updates the original Markdown file, and manually edited files are kept. Hover over the schedule controls to see the last run result.
 
 ## Receive a share
 

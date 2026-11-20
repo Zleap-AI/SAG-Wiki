@@ -62,6 +62,7 @@ pub struct Service {
     conversation_access: tokio::sync::RwLock<()>,
     approvals: Mutex<HashMap<(String, String), tokio::sync::oneshot::Sender<bool>>>,
     scan: mpsc::Sender<IndexRequest>,
+    chat_import_access: Arc<Mutex<()>>,
     pub data_dir: PathBuf,
     pub events: broadcast::Sender<(Option<String>, EventEnvelope)>,
     pub stop: CancellationToken,
@@ -1322,6 +1323,7 @@ impl Service {
             conversation_access: tokio::sync::RwLock::new(()),
             approvals: Mutex::new(HashMap::new()),
             scan: tx,
+            chat_import_access: Arc::new(Mutex::new(())),
             data_dir: data,
             events,
             stop,
@@ -1361,6 +1363,20 @@ impl Service {
         })
     }
     pub(crate) fn model_http(&self) -> Arc<crate::model_http::ModelHttp> { self.model_http.clone() }
+    pub(crate) fn run_chat_import_schedules(&self) {
+        use crate::chat_import::{label, schedule::run_due};
+        use sag_protocol::ChatSource;
+        let app = EventSink { owner: String::new(), request_id: None, cancel: self.stop.clone(), bus: self.events.clone() };
+        for source in [ChatSource::Claude, ChatSource::Codex] {
+            if self.stop.is_cancelled() { break; }
+            let _access = self.chat_import_access.lock().unwrap();
+            match run_due(&self.store, &self.scan, source, chrono::Local::now(), &self.stop) {
+                Ok(Some(run)) if run.changed > 0 => emit(&app, "data-changed", ()),
+                Ok(_) => {},
+                Err(error) => emit(&app, "app-error", format!("{}：{error}", label(source))),
+            }
+        }
+    }
     pub async fn handle(
         self: &Arc<Self>,
         operation: sag_protocol::Operation,
@@ -1435,16 +1451,31 @@ impl Service {
                 Out::Text(crate::chat_import::destination_path(&documents, &self.store.settings().map_err(error)?).to_string_lossy().into_owned())
             }
             Op::SetChatImportFolder { path } => {
-                let path = crate::chat_import::set_destination(&self.store, Path::new(&path)).map_err(error)?;
+                let state = self.clone();
+                let path = tokio::task::spawn_blocking(move || {
+                    let _access = state.chat_import_access.lock().unwrap();
+                    crate::chat_import::set_destination(&state.store, Path::new(&path)).map_err(error)
+                }).await.map_err(error)??;
                 emit(&app, "settings-changed", ());
                 Out::Text(path)
+            }
+            Op::GetChatImportSchedule { source } => Out::ChatImportSchedule(crate::chat_import::schedule::status(&self.store, source).map_err(error)?),
+            Op::SaveChatImportSchedule { source, schedule } => {
+                let state = self.clone();
+                tokio::task::spawn_blocking(move || {
+                    let _access = state.chat_import_access.lock().unwrap();
+                    crate::chat_import::schedule::save(&state.store, source, schedule).map_err(error)
+                }).await.map_err(error)??;
+                Out::Unit
             }
             Op::ListChatSessions { source, source_root, query } => Out::ChatCatalog(tokio::task::spawn_blocking(move || crate::chat_import::list_page(source, source_root.as_deref(), &query)).await.map_err(error)?.map_err(error)?),
             Op::PreviewChatImport { source, source_root, paths, include_tools } => Out::ChatPreview(tokio::task::spawn_blocking(move || crate::chat_import::preview(source, &source_root, &paths, include_tools)).await.map_err(error)?.map_err(error)?),
             Op::ImportChatSessions { source, source_root, sessions, include_tools } => {
                 let store = self.store.clone();
                 let scan = self.scan.clone();
+                let access = self.chat_import_access.clone();
                 Out::ChatImports(tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<sag_protocol::ChatImportItem>> {
+                    let _access = access.lock().unwrap();
                     let documents = dirs::document_dir().context("无法获取文稿目录")?;
                     let folder = crate::chat_import::destination(&store, &scan, &documents, &store.settings()?)?;
                     Ok(sessions.iter().map(|session| {
@@ -1622,7 +1653,11 @@ impl Service {
                 let _access = self.conversation_access.try_write()
                     .map_err(|_| "请先停止正在进行的问答，再清除所有数据".to_string())?;
                 let store = self.store.clone();
-                tokio::task::spawn_blocking(move || store.clear_all_data().map_err(error))
+                let access = self.chat_import_access.clone();
+                tokio::task::spawn_blocking(move || {
+                    let _access = access.lock().unwrap();
+                    store.clear_all_data().map_err(error)
+                })
                     .await.map_err(error)??;
                 self.scan.send(IndexRequest::SyncWatches).map_err(error)?;
                 match std::fs::remove_dir_all(self.data_dir.join("document-folds")) {

@@ -381,6 +381,7 @@ impl Store {
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
  CREATE TABLE IF NOT EXISTS chat_imports(identity TEXT PRIMARY KEY,path TEXT NOT NULL,output_hash TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS chat_import_schedules(source TEXT PRIMARY KEY,enabled INTEGER NOT NULL,time TEXT NOT NULL,source_root TEXT,include_tools INTEGER NOT NULL,configured_at INTEGER NOT NULL,last_run_at INTEGER,last_run TEXT,interval_minutes INTEGER);
  CREATE TABLE IF NOT EXISTS root_watch_errors(root TEXT PRIMARY KEY REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS root_exclusions(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
@@ -493,6 +494,13 @@ impl Store {
         }
         let storage = if schema_version == 0 { ConversionStorage::AppData } else { ConversionStorage::Library };
         let transaction = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let has_import_interval: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('chat_import_schedules') WHERE name='interval_minutes')",
+            [], |row| row.get(0),
+        )?;
+        if !has_import_interval {
+            transaction.execute("ALTER TABLE chat_import_schedules ADD COLUMN interval_minutes INTEGER", [])?;
+        }
         transaction.execute("INSERT OR IGNORE INTO preferences VALUES(1,?)", [serde_json::json!({"conversion_storage":storage,"update_source_migrated":true}).to_string()])?;
         let mut saved: String = transaction.query_row("SELECT value FROM preferences WHERE id=1", [], |row| row.get(0))?;
         let mut preferences: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&saved)?;
@@ -816,6 +824,7 @@ impl Store {
             DELETE FROM drafts;
             DELETE FROM preferences;
             DELETE FROM chat_imports;
+            DELETE FROM chat_import_schedules;
             INSERT INTO preferences VALUES(1,'{\"conversion_storage\":{\"mode\":\"app_data\"},\"update_source_migrated\":true}');
             DELETE FROM chunk_fts;
             DELETE FROM documents;

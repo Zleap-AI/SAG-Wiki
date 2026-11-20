@@ -49,6 +49,7 @@ fn output_value(output: Output) -> CommandResult<serde_json::Value> {
     use Output::*;
     let value = match output {
         ChatCatalog(value) => serde_json::to_value(value).map_err(error)?,
+        ChatImportSchedule(value) => serde_json::to_value(value).map_err(error)?,
         ChatPreview(value) => serde_json::to_value(value).map_err(error)?,
         ChatImports(value) => serde_json::to_value(value).map_err(error)?,
         Api(value) => value,
@@ -427,6 +428,8 @@ remote!(set_index_paused(paused:bool) => SetIndexPaused);
 remote!(remove_all_roots() => RemoveAllRoots);
 remote!(save_document(path:String,body:String,expected_hash:Option<String>) => SaveDocument);
 remote!(get_chat_import_folder() => GetChatImportFolder);
+remote!(get_chat_import_schedule(source:sag_protocol::ChatSource) => GetChatImportSchedule);
+remote!(save_chat_import_schedule(source:sag_protocol::ChatSource,schedule:sag_protocol::ChatImportSchedule) => SaveChatImportSchedule);
 #[tauri::command]
 async fn choose_chat_import_folder(state: State<'_, Arc<AppState>>) -> CommandResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
@@ -825,6 +828,8 @@ pub fn run() {
             remove_all_roots,
             save_document,
             get_chat_import_folder,
+            get_chat_import_schedule,
+            save_chat_import_schedule,
             choose_chat_import_folder,
             list_chat_sessions,
             preview_chat_import,

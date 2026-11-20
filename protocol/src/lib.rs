@@ -319,6 +319,8 @@ pub enum Operation {
     },
     GetChatImportFolder,
     SetChatImportFolder { path: String },
+    GetChatImportSchedule { source: ChatSource },
+    SaveChatImportSchedule { source: ChatSource, schedule: ChatImportSchedule },
     ListChatSessions { source: ChatSource, source_root: Option<String>, #[serde(default)] query: ChatListQuery },
     PreviewChatImport { source: ChatSource, source_root: String, paths: Vec<String>, include_tools: bool },
     ImportChatSessions { source: ChatSource, source_root: String, sessions: Vec<ChatSession>, include_tools: bool },
@@ -487,6 +489,7 @@ pub enum Operation {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Output {
     ChatCatalog(ChatCatalog),
+    ChatImportSchedule(ChatImportScheduleStatus),
     ChatPreview(ChatPreview),
     ChatImports(Vec<ChatImportItem>),
     Api(serde_json::Value),
