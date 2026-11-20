@@ -6,8 +6,17 @@ import {pathToFileURL} from 'node:url';
 import {performance} from 'node:perf_hooks';
 
 export const profiles = ['baseline', 'line-tables', 'line-tables-cgu64'];
+const intelCoreProfiles = ['baseline-core-debug0','baseline-core-cgu32-debug0','baseline-core-cgu64-debug0'];
+export function profileCargoConfig(profile) {
+  if (!intelCoreProfiles.includes(profile)) return [];
+  const args = ['--config', 'profile.test.package.sag-core.debug=0'];
+  const units = profile.match(/-cgu(32|64)-/);
+  if (units) args.push('--config', 'profile.test.package.sag-core.codegen-units=' + units[1]);
+  return args;
+}
 export function comparisonProfiles(comparison = 'debug-and-cgu') {
-  assert.ok(['debug-and-cgu','cgu-only','core-debug-only'].includes(comparison), 'Unknown profile comparison');
+  assert.ok(['debug-and-cgu','cgu-only','core-debug-only','intel-core-cgu'].includes(comparison), 'Unknown profile comparison');
+  if (comparison === 'intel-core-cgu') return intelCoreProfiles;
   if (comparison === 'core-debug-only') return ['baseline', 'baseline-core-debug0'];
   return comparison === 'cgu-only' ? ['baseline','baseline-cgu64'] : [...profiles];
 }
@@ -18,12 +27,14 @@ export function profileOrder(round, comparison = 'debug-and-cgu') {
   return [...selected.slice(offset), ...selected.slice(0, offset)];
 }
 
-export function profileEnvironment(profile, inherited = {}) {
-  assert.ok([...profiles,'baseline-cgu64','baseline-core-debug0'].includes(profile), 'Unknown test profile');
-  return {...inherited, CARGO_INCREMENTAL:'0', RUST_TEST_THREADS:'2',
+export function profileEnvironment(profile, inherited = {}, comparison) {
+  assert.ok([...profiles,'baseline-cgu64',...intelCoreProfiles].includes(profile), 'Unknown test profile');
+  const environment = {...inherited, CARGO_INCREMENTAL:'0', RUST_TEST_THREADS:'2',
     CARGO_PROFILE_TEST_DEBUG:profile.startsWith('baseline') ? '1' : 'line-tables-only',
     CARGO_PROFILE_TEST_CODEGEN_UNITS:profile.endsWith('cgu64') ? '64' : '16',
     CARGO_PROFILE_TEST_DEBUG_ASSERTIONS:'true', CARGO_PROFILE_TEST_OVERFLOW_CHECKS:'true'};
+  if (comparison === 'intel-core-cgu') delete environment.CARGO_PROFILE_TEST_CODEGEN_UNITS;
+  return environment;
 }
 
 export function timingMetrics(html) {
@@ -88,7 +99,7 @@ export function summarize(reports) {
   }
   const pairs = comparison === 'debug-and-cgu'
     ? [['baseline', 'line-tables'], ['line-tables', 'line-tables-cgu64']]
-    : [selected];
+    : selected.slice(1).map(profile => [selected[0], profile]);
   for (const [before,after] of pairs) {
     const saved = reports.map(report => report.results.find(result => result.profile === before).metrics.unit_test_seconds - report.results.find(result => result.profile === after).metrics.unit_test_seconds);
     result.paired[after] = {compared_with:before, saved_seconds:saved, median_saved_seconds:median(saved)};
@@ -98,6 +109,15 @@ export function summarize(reports) {
       return baseline.build_wall_seconds + baseline.execution_seconds
         - candidate.build_wall_seconds - candidate.execution_seconds;
     });
+    if (comparison === 'intel-core-cgu') {
+      const fullSuite = endToEnd.map((saved,index) => {
+        const results = reports[index].results;
+        return saved + results.find(r => r.profile === before).cli_seconds - results.find(r => r.profile === after).cli_seconds;
+      });
+      assert.ok(fullSuite.every(Number.isFinite), 'Missing Intel CLI measurements');
+      result.paired[after].core_and_cli_saved_seconds = fullSuite;
+      result.paired[after].median_core_and_cli_saved_seconds = median(fullSuite);
+    }
     if (endToEnd.every(Number.isFinite)) {
       result.paired[after].median_build_and_test_saved_seconds = median(endToEnd);
     }
@@ -126,6 +146,7 @@ function runComparison() {
   assert.ok(process.env.RUNNER_TEMP, 'Missing dedicated runner temporary directory');
   const round = Number(process.env.AB_ROUND);
   const comparison = process.env.AB_COMPARISON || 'debug-and-cgu';
+  assert.ok(comparison !== 'intel-core-cgu' || platform === 'macos-intel', 'Intel codegen comparison requires macos-intel');
   const order = profileOrder(round,comparison);
   const directory = join(process.env.RUNNER_TEMP, 'profile-ab-results');
   mkdirSync(directory, {recursive:true});
@@ -138,12 +159,10 @@ function runComparison() {
   let expected;
   for (const profile of order) {
     const target = mkdtempSync(join(process.env.RUNNER_TEMP, 'sag-profile-ab-'));
-    const env = profileEnvironment(profile, {...process.env, CARGO_TARGET_DIR:target, CARGO_TERM_COLOR:'never'});
+    const env = profileEnvironment(profile, {...process.env, CARGO_TARGET_DIR:target, CARGO_TERM_COLOR:'never'}, comparison);
     assert.ok(!env.RUSTFLAGS && !env.CARGO_ENCODED_RUSTFLAGS, 'Ambient Rust flags make the comparison ambiguous');
     // Keep the dependency profile identical. Only sag-core loses debug metadata.
-    const cargoConfig = profile === 'baseline-core-debug0'
-      ? ['--config', 'profile.test.package.sag-core.debug=0']
-      : [];
+    const cargoConfig = profileCargoConfig(profile);
     const output = join(directory, profile); mkdirSync(output);
     console.log(`${new Date().toISOString()} ${platform} round ${round}: warm dependencies for ${profile}`);
     try {
@@ -168,6 +187,12 @@ function runComparison() {
       assert.equal(counts.reduce((sum,count) => sum+count.passed+count.ignored,0),inventory.length,'Executed test count differs from named inventory');
       const result = {profile, cargoConfig, environment:Object.fromEntries(Object.entries(env).filter(([key]) => key.startsWith('CARGO_PROFILE_TEST_') || ['CARGO_INCREMENTAL','RUST_TEST_THREADS'].includes(key))),
         warmup_seconds:warmup.seconds, build_wall_seconds:build.seconds, execution_seconds:execution.seconds, metrics, inventory, outcomes:counts};
+      if (comparison === 'intel-core-cgu') {
+        const args = [...cargoConfig,'--locked','--manifest-path','cli/Cargo.toml'];
+        const probe = execute('cargo',['test',...args,'--test','service_spawn','--','--nocapture'],env,join(output,'cli-probe.log'));
+        const cli = execute('cargo',['test',...args,'--bins','--tests','--','--nocapture','--skip','background_service_releases_both_foreground_capture_pipes_while_still_running'],env,join(output,'cli-tests.log'));
+        result.cli_seconds = probe.seconds + cli.seconds;
+      }
       report.results.push(result);
       writeFileSync(join(directory,'report.json'), JSON.stringify(report,null,2)+'\n');
       console.log(`${new Date().toISOString()} ${profile}: test target ${metrics.unit_test_seconds}s, build ${build.seconds.toFixed(1)}s, test execution ${execution.seconds.toFixed(1)}s; ${inventory.length} named tests unchanged`);

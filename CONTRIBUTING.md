@@ -149,6 +149,23 @@ reduces source detail in core test backtraces. It applies only to the test
 profile and keeps assertions and overflow checks enabled. Production release
 LTO, codegen units and optimization settings remain unchanged.
 
+Run `Rust test profile A/B` on a branch with `platform=macos-intel` and
+`comparison=intel-core-cgu` to compare the current package-scoped debug=0
+baseline with `sag-core` CGU32 and CGU64. The experiment rotates the profiles
+over three paired rounds, runs the same named Core tests and then the two
+release CLI test commands. Compare the paired Core-plus-CLI wall times from
+`scripts/test-profile-ab.mjs summarize`. In [run 44503310286](https://github.com/Zleap-AI/SAG-Wiki/actions/runs/44503310286),
+CGU32 improved all three paired Core-plus-CLI times by 80, 93, and 251 seconds.
+CGU64 regressed one round by 176 seconds. Intel Core and CLI now use CGU32
+only for `sag-core` in the test profile. The baseline remains CGU16 for future
+comparisons. Benchmark runs create neither releases nor trusted checkpoints.
+
+The draft release job reports per-job GitHub queue and execution time, and
+reports checkpoint waiting separately from artifact download and validation.
+Publication uses the verified checksum asset ID and the exact draft release ID.
+A transient failure may be retried within the same publication lock after checking
+the draft state. Source, checksum, signing and platform checks still gate publication.
+
 For an internal/build-only PR that does not need its own release, maintainers may add `release:skip` before merging. PR checks remain required. Automatic preparation checks merged PR associations for every product commit in the captured main push (merge, squash or rebase); all must have this label to skip tag creation and publication. Mixed pushes containing an ordinary feature PR still release. API errors stop preparation without creating a tag. This is a per-push decision: a later feature release includes the accumulated changes. Labels are read when the workflow runs; adding one after preparation has started does not cancel an existing release.
 
 If GitHub has not yet indexed the merged PR, or a product push has no uniquely verifiable merged PR (for example a direct push), preparation stops without creating a tag. Retry after indexing; explicit manual releases remain available.

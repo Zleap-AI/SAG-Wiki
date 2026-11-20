@@ -5,7 +5,7 @@ import {chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync}
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {validateRun, latestJob, componentState, selectArtifact, selectComponent, validateReceipt, verifyArchive, awaitComponents, components, releaseComponents} from './release-build-cache.mjs';
+import {validateRun, latestJob, componentState, selectArtifact, selectComponent, validateReceipt, verifyArchive, awaitComponents, components, releaseComponents, releaseJobTimings} from './release-build-cache.mjs';
 const commit = 'a'.repeat(40);
 const ctx = {commit, workflowId:4, currentRunId:20};
 const names = {'rust-macos-intel':'Test Rust macos-intel','build-macos-intel':'Build macos-intel', documentation:'Build bilingual documentation', frontend:'Test frontend', 'rust-macos':'Test Rust macos', 'rust-windows':'Test Rust windows', 'build-macos':'Build macos', 'build-windows':'Build windows'};
@@ -20,6 +20,16 @@ function source(id=10, patch={}) {
 }
 const receiptReader=(s,c)=>s.receipts[c];
 const choose=(sources,c,options={})=>selectComponent(sources,c,{...ctx,receiptReader,...options});
+
+test('release timing summary separates queue time and execution and uses the latest job attempt', () => {
+ const first=job('Test Rust macos-intel',1,{created_at:'2025-12-31T23:55:00Z'});
+ const retry=job('Test Rust macos-intel',2,{run_attempt:2,created_at:'2025-12-31T23:59:57Z'});
+ const noQueue=job('Build windows',3);
+ assert.deepEqual(releaseJobTimings([first,retry,noQueue]),[
+  '| Test Rust macos-intel | 2 | 3 | 600 |',
+  '| Build windows | 1 | — | 600 |',
+ ]);
+});
 
 test('signing can start after the verified macOS build while native tests remain pending',async()=>{
  const s=source(20,{status:'in_progress',conclusion:null});
