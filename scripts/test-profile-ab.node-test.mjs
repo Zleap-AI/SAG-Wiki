@@ -4,7 +4,7 @@ import {chmodSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync
 import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {profileEnvironment, profileOrder, timingMetrics, inventoryFromListings, assertSameCoverage, summarize} from './test-profile-ab.mjs';
+import {profileCargoConfig, profileEnvironment, profileOrder, timingMetrics, inventoryFromListings, assertSameCoverage, summarize} from './test-profile-ab.mjs';
 
 test('single-variable profiles retain assertions, overflow checks and nonincremental compilation', () => {
   const baseline=profileEnvironment('baseline', {CARGO_PROFILE_RELEASE_LTO:'true'});
@@ -32,6 +32,18 @@ test('CGU-only comparison changes exactly one setting and rotates two profiles',
   assert.deepEqual(profileOrder(2,'cgu-only'),['baseline-cgu64','baseline']);
   assert.deepEqual(profileOrder(3,'cgu-only'),['baseline','baseline-cgu64']);
   assert.throws(()=>profileOrder(1,'unknown'));
+});
+
+test('Intel core comparison only changes the sag-core package codegen units', () => {
+  assert.deepEqual(profileOrder(1,'intel-core-cgu'),['baseline-core-debug0','baseline-core-cgu32-debug0','baseline-core-cgu64-debug0']);
+  assert.deepEqual(profileOrder(2,'intel-core-cgu'),['baseline-core-cgu32-debug0','baseline-core-cgu64-debug0','baseline-core-debug0']);
+  assert.equal(profileEnvironment('baseline-core-debug0', {CARGO_PROFILE_TEST_CODEGEN_UNITS:'64'}, 'intel-core-cgu').CARGO_PROFILE_TEST_CODEGEN_UNITS, undefined);
+  assert.deepEqual(profileCargoConfig('baseline-core-debug0'),['--config','profile.test.package.sag-core.debug=0']);
+  for (const units of [32,64]) {
+    const profile='baseline-core-cgu'+units+'-debug0';
+    assert.deepEqual(profileEnvironment(profile),profileEnvironment('baseline-core-debug0'));
+    assert.deepEqual(profileCargoConfig(profile),['--config','profile.test.package.sag-core.debug=0','--config','profile.test.package.sag-core.codegen-units='+units]);
+  }
 });
 
 test('Cargo metrics select the slow unit-test target rather than summing parallel units', () => {

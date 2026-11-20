@@ -234,14 +234,17 @@ export function selectComponent(sources, component, {currentRunId, gate = false,
 }
 
 const sleep = milliseconds => new Promise(done => setTimeout(done, milliseconds));
-export async function awaitComponents(ctx, requested, {gate, timeoutMs = 95 * 60 * 1000, pollMs = 60000, snapshot = snapshots, pause = sleep, receiptReader = readReceipt} = {}) {
+export async function awaitComponents(ctx, requested, {gate, timeoutMs = 95 * 60 * 1000, pollMs = 60000, snapshot = snapshots, pause = sleep, receiptReader = readReceipt, onReady} = {}) {
   assert.ok(Number.isSafeInteger(timeoutMs) && timeoutMs >= 0 && timeoutMs <= 210 * 60 * 1000, 'Invalid wait timeout');
   assert.ok(Number.isSafeInteger(pollMs) && pollMs > 0 && pollMs <= 60000, 'Invalid poll interval');
   const deadline = Date.now() + timeoutMs;
   while (true) {
     const sources = snapshot(ctx, gate);
     const results = requested.map(component => ({component, ...selectComponent(sources, component, {...ctx, gate, receiptReader})}));
-    if (results.every(result => result.state === 'success')) return results;
+    if (results.every(result => result.state === 'success')) {
+      onReady?.(sources);
+      return results;
+    }
     if (!gate && results.some(result => result.state === 'failure')) return results;
     assert.ok(!results.some(result => result.state === 'failure'), `No verified source for: ${results.filter(r => r.state === 'failure').map(r => r.component).join(', ')}`);
     assert.ok(Date.now() < deadline, `Timed out waiting for: ${results.filter(r => r.state === 'pending').map(r => r.component).join(', ')}`);
@@ -286,6 +289,20 @@ export function releaseComponents(platform) {
   return platform === 'all' ? components : [`build-${platform}`];
 }
 
+export function releaseJobTimings(jobs) {
+  const names = ['Validate release source', ...Object.values(jobNames),
+    'Compile CLI macos', 'Compile CLI macos-intel', 'Compile CLI windows', 'Sign macos', 'Sign macos-intel'];
+  return names.flatMap(name => {
+    const job = latestJob(jobs,name);
+    if (!job) return [];
+    const difference = (end,start) => {
+      const milliseconds = Date.parse(end) - Date.parse(start);
+      return Number.isFinite(milliseconds) && milliseconds >= 0 ? (milliseconds/1000).toFixed(0) : '—';
+    };
+    return [`| ${name} | ${job.run_attempt} | ${difference(job.started_at,job.created_at)} | ${difference(job.completed_at,job.started_at)} |`];
+  });
+}
+
 async function waitForRelease(platform) {
   const requested = releaseComponents(platform);
   const ctx = context();
@@ -296,14 +313,33 @@ async function waitForRelease(platform) {
   assert.ok(existsSync(deadlinePath), 'Missing macOS release checkpoint deadline');
   const deadline = Number(readFileSync(deadlinePath, 'utf8'));
   assert.ok(Number.isSafeInteger(deadline), 'Invalid release checkpoint deadline');
+  let currentJobs = [];
+  const waitStartedAt = Date.now();
   const results = await awaitComponents(ctx, requested, {gate:true,
     timeoutMs: Math.max(0, Math.min(budget, deadline - Date.now())),
-    pollMs: Number(process.env.RELEASE_WAIT_POLL_MS ?? 20000)});
+    pollMs: Number(process.env.RELEASE_WAIT_POLL_MS ?? 20000),
+    onReady: sources => { currentJobs = sources.find(source => source.run.id === ctx.currentRunId)?.jobs ?? []; }});
+  const checkpointsReadyAt = Date.now();
   const artifacts = results.flatMap(result => result.artifact ? [result.artifact] : []);
   // Signing and assembly run in separate jobs, each with fresh artifact inputs.
   downloadArtifacts(artifacts, 'release-artifacts');
   validateStagedArtifacts(resolve('release-artifacts'), validateVersions(), ctx.commit, platform === 'all' ? ['macos', 'macos-intel', 'windows'] : [platform]);
   console.log(`Verified ${requested.join(', ')}`);
+  if (platform === 'all' && process.env.GITHUB_STEP_SUMMARY) {
+    try {
+      const rows = releaseJobTimings(currentJobs);
+      const seconds = milliseconds => (milliseconds/1000).toFixed(1);
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, [
+        '## Desktop release timings', '',
+        `- Checkpoint wait and verification: ${seconds(checkpointsReadyAt-waitStartedAt)} s`,
+        `- Artifact download and validation: ${seconds(Date.now()-checkpointsReadyAt)} s`, '',
+        '| Job | Attempt | Queue (s) | Execution (s) |', '| --- | ---: | ---: | ---: |',
+        ...rows, '',
+      ].join('\n'));
+    } catch (error) {
+      console.log(`Release telemetry unavailable: ${error.message}`);
+    }
+  }
 }
 
 export function downloadArtifacts(artifacts, destination) {
