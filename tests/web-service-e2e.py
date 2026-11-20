@@ -58,8 +58,25 @@ with tempfile.TemporaryDirectory(prefix='sag-web-demo-') as td, ThreadingHTTPSer
    s['answer'].update(url=f'http://127.0.0.1:{model.server_port}/v1',model='demo-model',models=['demo-model'],auth_mode='bearer')
    s['model_profiles']['demo-model']={'sag2_enabled':False}
    wire.call('save_settings',{'settings':s,'answer_key':'local-fixture-only','jev_key':'','mcp_credentials':None})
+  external='http://203.0.113.10:8080'
+  cli('api','web','external-url',external)
+  status=json.loads(cli('api','status','--json'))
+  assert not status['web_enabled'] and not status['enabled']
+  assert status['web_external_url']==external
   cli('api','web','start','--host','0.0.0.0','--port',str(port))
   code=cli('api','web','code')
+  external_headers={'Host':'203.0.113.10:8080','Origin':external}
+  http('/web/operation',code,{'operation':'list_roots'},extra=external_headers)
+  http('/web/session',expected=401,extra=external_headers)
+  http('/web/session',code,expected=403,extra={**external_headers,'Origin':'https://203.0.113.10:8080'})
+  http('/web/session',code,expected=403,extra={**external_headers,'Host':'203.0.113.10:8081'})
+  http('/web/operation',code,{'operation':'api','args':{'action':{'action':'web_set_external_url','url':None}}},expected=400,extra=external_headers)
+  cli('api','web','external-url','https://wiki.example.test')
+  http('/web/operation',code,{'operation':'list_roots'},extra={'Host':'wiki.example.test','Origin':'https://wiki.example.test'})
+  cli('api','web','external-url','--clear')
+  assert cli('api','web','code')==code
+  http('/web/session',code,expected=403,extra={'Host':'wiki.example.test'})
+  http('/web/session',code)
   api_key=json.loads(cli('api','key','create','--name','fixture','--json'))['key']
   assert b'data-sag-web' in http('/')
   http('/web/operation',body={'operation':'list_roots'},expected=401)

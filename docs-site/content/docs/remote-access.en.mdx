@@ -38,3 +38,17 @@ The standalone CLI with `sag api web` can run the web service on **Windows x64, 
 In a terminal on the computer running the CLI, run `sag add` with the local folder path to add and index it. Use `sag list` to check indexing status, or run `sag remove` with the folder path to remove it from the knowledge base while keeping the original files. See [CLI commands](/en/docs/cli#commands) for details.
 
 Run `sag api web start` to start the web service, `sag api web code` to view the access code, and `sag api status` to check addresses. If LAN access is enabled, open the displayed address on another device on the same network and enter the code. Run `sag api web stop` to turn off the web service.
+
+## Access via a public IP address or domain
+
+If a public IP is mapped to a private IP, save the full address your browser opens with `sag api web external-url` on the host.
+
+```sh
+sag api web external-url http://203.0.113.10:24681
+```
+
+Replace the example IP with your own. Use `sag api status` to see the saved address. Saving it leaves the web service, access code, and firewall settings unchanged. When you are ready, start the service with `sag api web start --host 0.0.0.0` and allow the port only from the clients that need access.
+
+Include `http://` or `https://` and any non-default port. For an HTTPS reverse proxy, enter the browser-facing HTTPS address. The proxy handles HTTPS and must preserve the original request's host and port. Other external addresses are rejected; local and LAN addresses continue to work.
+
+Clear the address with `sag api web external-url --clear`.

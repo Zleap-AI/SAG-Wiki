@@ -55,6 +55,8 @@ struct Config {
     enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     web_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    web_external_url: Option<String>,
     #[serde(skip)]
     api_cancel: CancellationToken,
     #[serde(skip)]
@@ -68,6 +70,7 @@ impl Default for Config {
         Self {
             enabled: false,
             web_code: None,
+            web_external_url: None,
             api_cancel: CancellationToken::new(),
             web_cancel: CancellationToken::new(),
             host: "0.0.0.0".into(),
@@ -167,7 +170,7 @@ fn status_value(
     lan.sort();
     lan.dedup();
     Ok(
-        json!({"enabled":c.enabled,"running":c.enabled&&running,"web_enabled":c.web_code.is_some(),"web_running":c.web_code.is_some()&&running,"host":c.host,"port":c.port,"local_url":format!("http://{local}:{}",c.port),"lan_urls":lan,"key_count":c.keys.len(),"autostart":autostart,"last_error":last_error}),
+        json!({"enabled":c.enabled,"running":c.enabled&&running,"web_enabled":c.web_code.is_some(),"web_running":c.web_code.is_some()&&running,"web_external_url":c.web_external_url,"host":c.host,"port":c.port,"local_url":format!("http://{local}:{}",c.port),"lan_urls":lan,"key_count":c.keys.len(),"autostart":autostart,"last_error":last_error}),
     )
 }
 impl ApiService {
@@ -338,6 +341,13 @@ impl ApiService {
                 let cancel = std::mem::take(&mut c.web_cancel);
                 self.save(c)?;
                 cancel.cancel();
+                self.status()
+            }
+            ApiAction::WebSetExternalUrl { url } => {
+                let url = url.as_deref().map(web::external_origin).transpose()?;
+                let mut config = self.config.lock().unwrap().clone();
+                config.web_external_url = url;
+                self.save(config)?;
                 self.status()
             }
             ApiAction::Configure { host, port } => {

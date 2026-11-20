@@ -38,3 +38,17 @@ description: "在本机或局域网的浏览器中使用 SAG Wiki。"
 在运行 CLI 的电脑上打开终端，运行 `sag add` 并指定本机文件夹路径，将目录加入知识库并建立索引。用 `sag list` 查看索引状态；用 `sag remove` 并指定目录路径可取消接入，原文件会保留。完整用法见 [CLI 命令](/zh/docs/cli#命令)。
 
 运行 `sag api web start` 开启网页服务，运行 `sag api web code` 查看访问码。用 `sag api status` 查看地址。选择局域网访问时，在同一局域网的另一台设备上打开显示的地址，然后输入访问码。运行 `sag api web stop` 关闭网页服务。
+
+## 通过公网 IP 或域名访问
+
+如果公网 IP 映射到内网 IP，请在主机上用 `sag api web external-url` 保存浏览器实际打开的完整地址。
+
+```sh
+sag api web external-url http://203.0.113.10:24681
+```
+
+把示例 IP 换成实际地址。保存后可用 `sag api status` 查看。保存地址不会开启网页服务，也不会更改访问码开关或放行防火墙端口。需要网页服务时再运行 `sag api web start --host 0.0.0.0`，并在防火墙和云安全组中仅对需要访问的来源放行端口。
+
+地址必须包含 `http://` 或 `https://`；非默认端口要写明。通过 HTTPS 反向代理访问时，填入浏览器使用的 HTTPS 地址；代理负责 HTTPS，并须保留原始请求的主机名和端口。其他外部地址仍会被拒绝，本机和局域网地址仍可使用。
+
+运行 `sag api web external-url --clear` 可清除外部地址。

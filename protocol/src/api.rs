@@ -22,6 +22,9 @@ pub enum ApiAction {
     WebStop,
     WebCode,
     WebRotateCode,
+    WebSetExternalUrl {
+        url: Option<String>,
+    },
     Start {
         host: Option<String>,
         port: Option<u16>,

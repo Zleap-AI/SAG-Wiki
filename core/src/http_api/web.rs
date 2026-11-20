@@ -22,6 +22,22 @@ pub(super) fn available() -> bool {
     !ASSETS.is_empty()
 }
 
+pub(super) fn external_origin(value: &str) -> anyhow::Result<String> {
+    let invalid = || anyhow::anyhow!("请输入完整的 HTTP 或 HTTPS 地址，且不包含路径、查询或账号");
+    let (scheme, authority) = value.trim().split_once("://").ok_or_else(invalid)?;
+    let authority = authority.strip_suffix('/').unwrap_or(authority);
+    if !matches!(scheme, "http" | "https") || authority.contains('@')
+        || authority.parse::<hyper::http::uri::Authority>().is_err()
+    {
+        return Err(invalid());
+    }
+    let url = reqwest::Url::parse(value.trim()).map_err(|_| invalid())?;
+    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() || url.host().is_none() {
+        return Err(invalid());
+    }
+    Ok(url.origin().ascii_serialization())
+}
+
 pub(super) fn owns(path: &str) -> bool {
     matches!(
         path,
@@ -60,7 +76,7 @@ async fn route(
             "网页服务未开启或页面不存在",
         )
     };
-    let (authorized, closed) = {
+    let (authorized, external_url, closed) = {
         let config = api.config.lock().unwrap();
         let code = config.web_code.as_deref().ok_or_else(missing)?;
         let value = request
@@ -70,7 +86,7 @@ async fn route(
         let authorized = value
             .and_then(|v| v.strip_prefix("Bearer "))
             .is_some_and(|token| bool::from(token.as_bytes().ct_eq(code.as_bytes())));
-        (authorized, config.web_cancel.clone())
+        (authorized, config.web_external_url.clone(), config.web_cancel.clone())
     };
     // A remote site cannot rebind its own domain to this listener and inherit its origin.
     let host = request
@@ -82,7 +98,12 @@ async fn route(
     let hostname = authority.host().trim_matches(['[', ']']);
     let host_matches = hostname.parse::<IpAddr>().is_ok_and(|ip| ip == local.ip())
         || (hostname.eq_ignore_ascii_case("localhost") && local.ip().is_loopback());
-    if !host_matches || authority.port_u16().unwrap_or(80) != local.port() {
+    let external = external_url.filter(|url| {
+        let (scheme, _) = url.split_once("://").expect("stored web origin is canonical");
+        external_origin(&format!("{scheme}://{host}")).is_ok_and(|origin| origin == *url)
+    });
+    let local_matches = host_matches && authority.port_u16().unwrap_or(80) == local.port();
+    if !local_matches && external.is_none() {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "invalid_host",
@@ -90,7 +111,8 @@ async fn route(
         ));
     }
     if let Some(origin) = request.headers().get(header::ORIGIN) {
-        if origin.as_bytes() != format!("http://{host}").as_bytes() {
+        let local_origin_matches = local_matches && origin.as_bytes() == format!("http://{host}").as_bytes();
+        if !local_origin_matches && Some(origin.as_bytes()) != external.as_deref().map(str::as_bytes) {
             return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
                 "invalid_origin",
