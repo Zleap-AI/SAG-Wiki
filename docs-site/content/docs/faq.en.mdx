@@ -28,6 +28,12 @@ The background service checks files against existing indexes at startup. The fil
 
 Changed content, settings that affect parsed text, or a required parsing or index migration can still update affected documents. Keep indexes and the conversion output folder to retain reusable data.
 
+## What if Linux reaches the file monitoring limit?
+
+When Linux runs out of inotify watches, affected folders may stop updating automatically. Indexed content remains searchable. Check the current limit with `sysctl fs.inotify.max_user_watches` and raise it as needed. For example, if the value is below 524288, run `sudo sysctl fs.inotify.max_user_watches=524288`. On systems using systemd, save `fs.inotify.max_user_watches = 524288` in `/etc/sysctl.d/90-sag-inotify.conf` to keep the setting after reboot.
+
+Then [restart the SAG background service](/en/docs/cli) with `sag service restart`. It sets up monitoring again and checks files on startup, so no manual index rebuild is needed.
+
 ## What if the database was created by a newer version?
 
 Keep the data directory and continue using the newer application that created it, or install a compatible newer version. Applications with the version guard reject a newer database schema before running migrations. Previously shipped older binaries do not gain this protection. Do not downgrade the application or delete indexes and conversion caches to resolve the message.

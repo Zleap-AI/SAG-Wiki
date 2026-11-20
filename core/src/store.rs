@@ -27,6 +27,7 @@ use std::{
 const TEXT_PREPARATION_BUDGET: usize = 512 * 1024 * 1024;
 // Persisted by walk_entry so file-only recovery can distinguish directory errors.
 const DIRECTORY_READ_ERROR_PREFIX: &str = "无法读取目录：";
+const WATCH_LIMIT_ERROR: &str = "max_files_watch";
 const MIN_TEXT_PREPARATION_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(test)]
 const MAX_TEXT_INPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -1177,12 +1178,23 @@ impl Store {
         )?;
         Ok(())
     }
-    pub(crate) fn set_watch_error(&self, root: &str, error: Option<&str>) -> Result<()> {
+    pub(crate) fn set_watch_error(&self, root: &str, error: Option<&notify::Error>) -> Result<()> {
         let db = self.connection();
         match error {
-            Some(error) => { db.execute("INSERT INTO root_watch_errors(root,error) SELECT path,?2 FROM roots WHERE path=?1 ON CONFLICT(root) DO UPDATE SET error=excluded.error", params![root,error])?; },
+            Some(error) => {
+                let detail = if matches!(error.kind, notify::ErrorKind::MaxFilesWatch) { WATCH_LIMIT_ERROR.into() } else { error.to_string() };
+                db.execute("INSERT INTO root_watch_errors(root,error) SELECT path,?2 FROM roots WHERE path=?1 ON CONFLICT(root) DO UPDATE SET error=excluded.error", params![root,detail])?;
+            },
             None => { db.execute("DELETE FROM root_watch_errors WHERE root=?", [root])?; },
         }
+        Ok(())
+    }
+    pub(crate) fn record_watch_limit(&self, root: &str) -> Result<()> {
+        self.set_watch_error(root, Some(&notify::Error::new(notify::ErrorKind::MaxFilesWatch)))?;
+        let settled: bool = self.connection().query_row(
+            "SELECT EXISTS(SELECT 1 FROM roots WHERE path=? AND status IN ('ready','partial'))", [root], |row| row.get(0),
+        )?;
+        if settled { self.reconcile_finished_root(root)?; }
         Ok(())
     }
     fn finish_indexing(&self, root: &str) -> Result<()> {
@@ -1213,7 +1225,12 @@ impl Store {
                 .map(|(path, error)| format!("{path}\n{error}")).collect::<Vec<_>>().join("\n\n")) };
             if let Some(error) = watch_error {
                 if !details.is_empty() { details.push_str("\n\n"); }
-                details.push_str(&format!("文件监听失败，自动更新受限；请在索引设置中重建索引以重试。\n{error}"));
+                if error == WATCH_LIMIT_ERROR || error == "OS file watch limit reached."
+                    || (error.starts_with("OS file watch limit reached. about [") && error.ends_with(']')) {
+                    details.push_str(crate::indexer::WATCH_LIMIT_HINT);
+                } else {
+                    details.push_str(&format!("文件监听失败，自动更新受限；请在索引设置中重建索引以重试。\n{error}"));
+                }
             }
             self.root_status(root, "partial", Some(&details))
         }

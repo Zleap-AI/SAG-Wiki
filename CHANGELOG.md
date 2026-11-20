@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.3.14
+
+- **Linux 文件监听**：达到监听上限时，CLI 和索引详情提示调高 inotify 配额并重启后台服务；已索引内容仍可搜索。([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
+
+### English
+
+- **Linux file monitoring**: When the watch limit is reached, CLI and indexing details explain how to raise the inotify quota and restart the background service. Indexed content remains searchable. ([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
+
 ## 0.3.13
 
 - **桌面更新源**：官方更新源随已保存的界面语言切换。简体中文使用 Zleap 官网，其余界面语言使用 GitHub。升级时迁移默认官方更新设置，并保留自定义更新源。
