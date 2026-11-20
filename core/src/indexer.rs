@@ -11,9 +11,12 @@ use std::{
     time::{Duration, Instant},
 };
 
+pub(crate) const WATCH_LIMIT_HINT: &str = "文件监听失败：已达到 Linux inotify 监听上限，自动更新受限。请调大 fs.inotify.max_user_watches（例如 sudo sysctl fs.inotify.max_user_watches=524288），然后重启 SAG 后台服务。";
+
 #[derive(Debug)]
 pub enum IndexRequest {
     SyncWatches,
+    WatchLimit { root: String },
     Enhance { root: String },
     ResetWatch { root: String },
     Scan { root: String, verify: bool },
@@ -92,12 +95,14 @@ pub fn event_requests(event: &Event, roots: &[Root], settings: &Settings) -> Vec
 pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRequest> {
     let mut roots = BTreeMap::<String, (Option<bool>, BTreeSet<PathBuf>)>::new();
     let mut sync_watches = false;
+    let mut watch_limits = BTreeSet::new();
     let mut resets = BTreeSet::new();
     let mut retries = BTreeMap::<String, BTreeSet<PathBuf>>::new();
     let mut enhancements = BTreeSet::new();
     for request in requests {
         match request {
             IndexRequest::SyncWatches => sync_watches = true,
+            IndexRequest::WatchLimit { root } => { watch_limits.insert(root); },
             IndexRequest::Enhance { root } => { enhancements.insert(root); },
             IndexRequest::ResetWatch { root } => { resets.insert(root); },
             IndexRequest::RetryFailed { root, paths } => { retries.entry(root).or_default().extend(paths); },
@@ -133,6 +138,7 @@ pub fn coalesce(requests: impl IntoIterator<Item = IndexRequest>) -> Vec<IndexRe
         })
         .collect();
     batch.splice(0..0, resets.into_iter().map(|root| IndexRequest::ResetWatch { root }));
+    batch.splice(0..0, watch_limits.into_iter().map(|root| IndexRequest::WatchLimit { root }));
     if sync_watches { batch.insert(0, IndexRequest::SyncWatches); }
     // Explicit recovery must survive coalescing with watcher events or scans.
     batch.extend(retries.into_iter().map(|(root, paths)| IndexRequest::RetryFailed { root, paths: paths.into_iter().collect() }));
@@ -177,7 +183,7 @@ pub fn apply_request(
 ) -> Result<usize> {
     let root = match &request {
         IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => return Ok(0),
-        IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } | IndexRequest::RetryFailed { root, .. } | IndexRequest::Enhance { root } => root,
+        IndexRequest::WatchLimit { root } | IndexRequest::Scan { root, .. } | IndexRequest::Paths { root, .. } | IndexRequest::RetryFailed { root, .. } | IndexRequest::Enhance { root } => root,
     };
     if !store
         .roots()?
@@ -188,6 +194,10 @@ pub fn apply_request(
     }
     match request {
         IndexRequest::SyncWatches | IndexRequest::ResetWatch { .. } => Ok(0),
+        IndexRequest::WatchLimit { root } => {
+            store.record_watch_limit(&root)?;
+            Ok(0)
+        }
         IndexRequest::Scan { root, verify } => {
             if verify {
                 store.verify_root(&root)?;
@@ -237,7 +247,7 @@ impl<W: notify::Watcher> RootWatcher<W> {
         progress();
         let result = self.watcher.watch(std::path::Path::new(root), notify::RecursiveMode::Recursive);
         store.indexing.finish(root);
-        store.set_watch_error(root, result.as_ref().err().map(ToString::to_string).as_deref())?;
+        store.set_watch_error(root, result.as_ref().err())?;
         result?;
         self.roots.insert(root.into());
         Ok(())
@@ -276,7 +286,7 @@ mod tests {
     struct CountingWatcher {
         mounts: usize,
         removals: usize,
-        fail: bool,
+        error: Option<notify::Error>,
         inspect: Option<Box<dyn Fn()>>,
     }
     impl Watcher for CountingWatcher {
@@ -284,7 +294,7 @@ mod tests {
         fn watch(&mut self, _: &std::path::Path, _: RecursiveMode) -> notify::Result<()> {
             self.mounts += 1;
             if let Some(inspect) = &self.inspect { inspect(); }
-            if self.fail { Err(notify::Error::generic("mount failed")) } else { Ok(()) }
+            self.error.take().map_or(Ok(()), Err)
         }
         fn unwatch(&mut self, _: &std::path::Path) -> notify::Result<()> { self.removals += 1; Ok(()) }
         fn kind() -> notify::WatcherKind { notify::WatcherKind::NullWatcher }
@@ -312,10 +322,9 @@ mod tests {
         watcher.prepare(&store, &root, || panic!("removed root")).unwrap();
         assert_eq!(watcher.watcher.mounts, 1);
         store.add_root(dir.path()).unwrap();
-        watcher.watcher.fail = true;
+        watcher.watcher.error = Some(notify::Error::generic("mount failed"));
         assert!(watcher.prepare(&store, &root, || {}).is_err());
         assert!(store.indexing.status().tasks.is_empty());
-        watcher.watcher.fail = false;
         watcher.prepare(&store, &root, || {}).unwrap();
         watcher.prepare(&store, &root, || panic!("already watched")).unwrap();
         assert_eq!(watcher.watcher.mounts, 3);
@@ -368,7 +377,7 @@ mod tests {
         let db = dir.path().join("index.sqlite");
         let store = Store::open(&db).unwrap();
         let root = store.add_root(&folder).unwrap();
-        let mut watcher = RootWatcher::new(CountingWatcher { fail: true, ..Default::default() });
+        let mut watcher = RootWatcher::new(CountingWatcher { error: Some(notify::Error::generic("mount failed")), ..Default::default() });
         assert!(watcher.prepare(&store, &root, || {}).is_err());
         store.scan(&root, |_| {}).unwrap();
         store.update_paths(&root, &[file], |_| {}).unwrap();
@@ -376,13 +385,44 @@ mod tests {
         let reopened = Store::open(&db).unwrap();
         let status = reopened.roots().unwrap().remove(0);
         assert_eq!(status.status, "partial");
-        assert!(status.error.unwrap().contains("自动更新受限"));
+        assert!(status.error.unwrap().contains("重建索引以重试。\nmount failed"));
         assert_eq!(reopened.index_history().unwrap()[0].status, "partial");
         drop(reopened);
-        watcher.watcher.fail = false;
         watcher.prepare(&store, &root, || {}).unwrap();
         store.scan(&root, |_| {}).unwrap();
         assert_eq!(store.roots().unwrap()[0].status, "ready");
+    }
+
+    #[test]
+    fn watch_quota_reports_the_remedy_on_mount_and_runtime_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let folder = dir.path().join("notes");
+        fs::create_dir(&folder).unwrap();
+        fs::write(folder.join("one.md"), "indexed content").unwrap();
+        let store = Store::open(&dir.path().join("index.sqlite")).unwrap();
+        let root = store.add_root(&folder).unwrap();
+        let mut watcher = RootWatcher::new(CountingWatcher {
+            error: Some(notify::Error::new(notify::ErrorKind::MaxFilesWatch)),
+            ..Default::default()
+        });
+        assert!(watcher.prepare(&store, &root, || {}).is_err());
+        store.scan_basic(&root, |_| {}).unwrap();
+        let check_limit = || {
+            let status = store.roots().unwrap().remove(0);
+            assert_eq!(status.status, "partial");
+            assert_eq!(status.count, 1);
+            let message = status.error.unwrap();
+            assert!(message.contains("sysctl fs.inotify.max_user_watches"));
+            assert!(!message.contains("重建索引"));
+        };
+        check_limit();
+        watcher.prepare(&store, &root, || {}).unwrap();
+        store.scan_basic(&root, |_| {}).unwrap();
+        assert_eq!(store.roots().unwrap()[0].status, "ready");
+        for request in coalesce([IndexRequest::WatchLimit { root: root.clone() }]) {
+            apply_foreground_request(&store, request, |_| {}).unwrap();
+        }
+        check_limit();
     }
 
     #[test]

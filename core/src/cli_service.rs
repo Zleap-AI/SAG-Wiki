@@ -273,7 +273,10 @@ impl CliService {
     }
     fn index_ready(&self, requested: &Path) -> Result<bool> {
         let (_, roots) = self.indexed_scope(requested)?;
-        Ok(!roots.is_empty() && roots.iter().all(|root| root.status == "ready"))
+        Ok(!roots.is_empty() && roots.iter().all(Self::search_ready))
+    }
+    fn search_ready(root: &crate::types::Root) -> bool {
+        root.status == "ready" || (root.status == "partial" && root.error.as_deref() == Some(crate::indexer::WATCH_LIMIT_HINT))
     }
     fn local_files_ready(&self, requested: &Path) -> Result<bool> {
         let (_, roots) = self.indexed_scope(requested)?;
@@ -312,7 +315,7 @@ impl CliService {
             extensions,
             path: store::path_text(&path)?,
             coverage,
-            index_ready: !excluded && !roots.is_empty() && roots.iter().all(|root| root.status == "ready"),
+            index_ready: !excluded && !roots.is_empty() && roots.iter().all(Self::search_ready),
             enabled: self.access().enabled,
             indexed_files: if excluded { 0 } else { self.store.indexed_file_count(&path)? },
             roots,
