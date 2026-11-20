@@ -34,6 +34,7 @@ PDF 基础文字入库后即可搜索，OCR 与表格增强在后台继续。本
   <a href="#technology">技术原理</a> ·
   <a href="#user-guide">用户指南</a> ·
   <a href="#agent-guide">Agent 指南</a> ·
+  <a href="#linux-guide">Linux 指南</a> ·
   <a href="#developer-guide">开发者指南</a> ·
   <a href="#community">社区交流</a>
 </p>
@@ -197,6 +198,39 @@ sag "权限在哪里检查？" . -m 5
 完整的 Agent 安装流程见 Skill 的 [setup 指南](cli/skills/sag/references/setup.md#first-use-setup)，其他命令见 [CLI 使用说明](docs/zh-CN/CLI与Harness使用说明.md)。
 
 </details>
+
+---
+
+<a id="linux-guide"></a>
+
+## Linux 指南
+
+在 Linux 电脑或服务器上安装 CLI，即可通过浏览器使用 SAG Wiki，无需安装桌面端。npm CLI 已在 Ubuntu 24.04 和 Debian 12（ARM64、x86_64）上验证。
+
+**1. 安装 CLI。** 安装 Node.js 18 或更高版本和 npm 后，运行：
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+如果使用 Ubuntu 或 Debian 的精简系统，缺少系统证书时先运行 `sudo apt install ca-certificates`。
+
+**2. 开启网页服务。** 在 Linux 主机上运行以下命令。`0.0.0.0` 表示监听所有 IPv4 网卡，访问范围由网络和防火墙决定：
+
+```sh
+sag api web start --host 0.0.0.0
+sag api web code
+sag api status
+```
+
+仅在本机访问时，使用 `--host 127.0.0.1`。默认端口为 `24681`；若改过端口，省略 `--port` 会沿用已保存的设置。
+
+**3. 用浏览器打开。** 在本机打开 `sag api status` 显示的本机地址，或在同一局域网内的其他设备上打开局域网地址。在登录页输入 `sag api web code` 显示的访问码。请保持 Linux 主机和后台服务运行；网页使用 HTTP，请在可信局域网内使用。
+
+云服务器的公网 IP 若直接配置在网卡上，可在防火墙和云安全组对你的来源 IP 放行相应端口，然后打开 `http://公网IP:端口`。使用 `--port 80` 时可省略 `:80`，运行账号需有权限监听该端口。若公网 IP 映射到内网 IP，当前 SAG 的地址校验会拒绝直连，返回 `403`。
+
+在 Linux 主机上运行 `sag add /你的/文件夹路径` 可添加文件夹。快速搜索无需配置模型。运行 `sag api web stop` 可关闭网页访问。详见[网页服务指南](docs-site/content/docs/remote-access.mdx#通过-cli-开启)。
 
 ---
 
