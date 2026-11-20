@@ -44,7 +44,7 @@ sag 命令 → sag-client ─────────┘      └→ SQLite / �
 
 ## 数据存储
 
-默认数据目录由操作系统的用户数据目录和应用标识 `com.sag.desktop` 确定。`SAG_DATA_DIR` 可以指定独立的数据目录。
+默认数据目录由操作系统的用户数据目录和应用标识 `com.sag.desktop` 确定。桌面端可在[设置 → 数据与隐私](/zh/docs/privacy)中迁移应用数据。新位置保存在操作系统用户配置目录下的 `com.sag.desktop-location.json`，独立于被迁移的数据目录，桌面端与 CLI 共用。`SAG_DATA_DIR`（兼容 `SAG_DESKTOP_DATA_DIR`）优先于该配置，可指定独立的数据目录；没有覆盖配置时使用默认位置。已保存的位置不可用或配置损坏时明确报错，不会创建空知识库。
 
 | 数据 | 保存方式 |
 | --- | --- |

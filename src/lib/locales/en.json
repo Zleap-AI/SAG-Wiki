@@ -2117,5 +2117,16 @@
   "无法获取已签名的更新，请确认更新清单和签名已发布: {value0}": "Could not retrieve a signed update. Make sure the update manifest and signatures are published. {value0}",
   "模型请求超过总时间限制": "The model request exceeded its time limit.",
   "已有证据超过上下文预算。请减少扩展起点或调整切分；原文未截断。": "The existing evidence exceeds the context budget. Reduce the number of expansion seeds or adjust chunking. Source text was preserved.",
-  "模型生成失败": "The model failed to generate a response."
+  "模型生成失败": "The model failed to generate a response.",
+  "正在读取数据位置…": "Loading data location…",
+  "选择新的应用数据目录（空文件夹）": "Choose a new application data directory (empty folder)",
+  "更改位置": "Change location",
+  "迁移应用数据": "Move application data",
+  "当前位置": "Current location",
+  "新位置": "New location",
+  "迁移并重启": "Move and restart",
+  "正在迁移，请稍候…": "Moving data, please wait…",
+  "将索引、配置、密钥、问答历史和应用内转换结果复制到新位置，完成后自动重启。原始资料文件不移动，旧数据目录保留为备份。": "Copy indexes, settings, keys, conversations and conversion results stored in the application directory to the new location, then restart automatically. Original documents stay in place. The old data directory is kept as a backup.",
+  "请选择空文件夹，并预留足够空间。迁移期间请勿退出应用。本页未保存的设置不会保留。": "Choose an empty folder with enough free space. Keep the app open during migration. Unsaved settings on this page will not be retained.",
+  "数据位置由环境变量指定，请移除 SAG_DATA_DIR / SAG_DESKTOP_DATA_DIR 后重启再调整": "The location is set by an environment variable. Remove SAG_DATA_DIR / SAG_DESKTOP_DATA_DIR and restart before changing it."
 }

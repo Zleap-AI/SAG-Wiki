@@ -44,7 +44,7 @@ The local service listens only on `127.0.0.1`, using a random port and token. Co
 
 ## Storage
 
-The default data directory is determined by the operating system's user data location and the application identifier `com.sag.desktop`. `SAG_DATA_DIR` selects an isolated data directory.
+The default data directory is determined by the operating system's user data location and the application identifier `com.sag.desktop`. The desktop app can migrate application data in [Settings → Data and privacy](/en/docs/privacy). The selected location is stored in `com.sag.desktop-location.json` in the OS user configuration directory, outside the movable data directory, and is shared by desktop and CLI. `SAG_DATA_DIR` (or the legacy `SAG_DESKTOP_DATA_DIR`) overrides this setting for isolated data directories. With no override, the default location is used. An unavailable saved location or invalid configuration produces an error rather than creating an empty knowledge base.
 
 | Data | Storage |
 | --- | --- |

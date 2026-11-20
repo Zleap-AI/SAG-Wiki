@@ -25,6 +25,7 @@
  import ApiSettings from './ApiSettings.svelte';
  import WebClipper from './WebClipper.svelte';
  import DataImport from './DataImport.svelte';
+ import DataDirectory from './DataDirectory.svelte';
  import AppUpdates from './AppUpdates.svelte';
  import QuickSearchSettings from './QuickSearchSettings.svelte';
  import {defaultUpdateSettings,updateSettingsForLanguage} from '../lib/updates';
@@ -142,15 +143,15 @@
    <Button.Root class="icon-button settings-close" aria-label={$t("关闭设置")} disabled={apiBusy||busy} onclick={onClose}>{@html icon('close')}</Button.Root>
    <Button.Root class="icon-button settings-back" aria-label={$t("返回上一层")} disabled={apiBusy||busy} onclick={onClose}>{@html icon('back')}</Button.Root>
   </div>
-  <form on:submit|preventDefault={()=>{if(page!=='api')void save();}} class="settings-form">
+  <form on:submit|preventDefault={()=>{if(page!=='api'&&!busy)void save();}} class="settings-form">
    <nav class="settings-nav" aria-label={$t("设置分类")}>
     {#each pages as [id,label,glyph]}
-     <Button.Root type="button" disabled={cliBusy||apiBusy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
+     <Button.Root type="button" disabled={cliBusy||apiBusy||busy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
     {/each}
    </nav>
    {#if narrowLayout&&!web}
     <div class="settings-category-picker">
-     <Select label={$t("设置分类")} value={page} items={pages.map(([value,label])=>({value,label}))} disabled={cliBusy||apiBusy} onValueChange={next=>{page=next;status='';error=''}}/>
+     <Select label={$t("设置分类")} value={page} items={pages.map(([value,label])=>({value,label}))} disabled={cliBusy||apiBusy||busy} onValueChange={next=>{page=next;status='';error=''}}/>
     </div>
    {/if}
    <div class="settings-content">
@@ -285,7 +286,7 @@
     {:else if page==='cli'}
      <CliSettings bind:access={cliAccess} bind:pending={cliBusy} bind:connection={cliConnection} bind:connectionOpen={cliConnectionOpen} bind:connectionSuccessUntil={cliConnectionSuccessUntil} saving={busy}/>
     {:else if page==='privacy'}
-     <section class="settings-group"><div class="setting-row"><div><strong>{$t("应用数据位置")}</strong><p>{$t("SQLite 索引、配置与问答历史")}</p></div><Button.Root type="button" class="outline" onclick={()=>api('open_data_directory').catch(e=>error=$t(String(e)))}>{$t("打开目录")}</Button.Root></div></section>
+     {#if !web}<DataDirectory bind:pending={busy} onBeforeRestart={onBeforeUpdate}/>{/if}
      <section class="settings-group data-cleanup-settings">
       <div class="setting-row clear-conversations-settings"><div><strong>{$t("清空所有对话")}</strong><p>{$t("永久删除全部对话、思考过程和工具调用日志，包括此前删除的对话。文件与索引保留。")}</p></div><Button.Root type="button" class="clear-conversations-button" onclick={()=>{clearError='';confirmClear=true}}>{$t("清空所有对话")}</Button.Root></div>
      <div class="setting-row remove-roots-settings"><div><strong>{$t("移除所有文件夹")}</strong><p>{$t("移除全部已添加的文件夹，同时删除索引。本地文件和会话会保留。")}</p></div><Button.Root type="button" class="remove-roots-button" onclick={()=>{removeRootsError='';confirmRemoveRoots=true}}>{$t("移除所有文件夹")}</Button.Root></div>

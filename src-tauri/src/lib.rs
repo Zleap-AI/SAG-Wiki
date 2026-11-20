@@ -1,4 +1,5 @@
 mod cli_commands;
+mod data_directory;
 mod share;
 mod note_import;
 mod folder_picker;
@@ -379,7 +380,6 @@ async fn quit_application(app: tauri::AppHandle, state: State<'_, Arc<AppState>>
     Ok(())
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
 async fn stop_background<R: tauri::Runtime>(state: &AppState<R>) -> CommandResult<()> {
     // Block automatic startup/reconnect before requesting shutdown. Reuse the
     // reconnect lock so an already-starting service is stopped as well.
@@ -867,6 +867,8 @@ pub fn run() {
             open_source_file,
             reveal_docling_log,
             open_data_directory,
+            data_directory::get_data_directory,
+            data_directory::migrate_data_directory,
             open_about_link,
             open_external_link,
             updates::check_app_update,
