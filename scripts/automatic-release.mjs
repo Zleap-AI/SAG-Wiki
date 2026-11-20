@@ -553,7 +553,7 @@ async function retryReleaseRequest(request, pause) {
   }
 }
 
-export async function publishDraftById(release, tag, validate, shouldMakeLatest, {
+export async function publishDraftById(release, tag, validate, listReleases, {
   download, read, update, pause=releaseRetryPause,
 }) {
   assert.ok(Number.isSafeInteger(release.id) && release.id > 0, 'Invalid release ID');
@@ -563,7 +563,10 @@ export async function publishDraftById(release, tag, validate, shouldMakeLatest,
   const checksums = await retryReleaseRequest(() => download(assets[0].id), pause);
   validate(checksums);
   for (let attempt=0; ; attempt++) {
-    const makeLatest = await retryReleaseRequest(shouldMakeLatest, pause);
+    const releases = await retryReleaseRequest(listReleases, pause);
+    if (releases.some(current => current.id === release.id && current.draft === false)) return;
+    const latest = latestPublished(releases);
+    const makeLatest = !latest || compareVersions(tag, latest.tag_name) > 0;
     try { return await update(release.id, makeLatest); }
     catch (error) {
       if (!transientReleaseError(error)) throw error;
@@ -596,10 +599,7 @@ async function publish() {
   const startedAt = Date.now();
   await publishDraftById(release, tag,
     checksums => validatePublicationAssets(release, checksums, process.env.RELEASE_CHECKSUMS, version),
-    () => {
-      const latest = latestPublished(pages('releases'));
-      return !latest || compareVersions(version, latest.tag_name) > 0;
-    }, {
+    () => pages('releases'), {
       download: id => execute('gh', ['api', '-H', 'Accept: application/octet-stream', `repos/${repository}/releases/assets/${id}`], {trim:false,timeout:20000}),
       read: id => JSON.parse(execute('gh', ['api', `repos/${repository}/releases/${id}`], {timeout:20000})),
       update: (id, makeLatest) => {

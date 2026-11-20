@@ -437,19 +437,38 @@ test('publishing uses numeric asset and release IDs and reconciles an uncertain 
     throw new Error('spawnSync gh ETIMEDOUT');
   };
   const read = id => { calls.push(['read', id]); return {draft: false, id}; };
-  await publishDraftById(release, 'v0.3.13', validate, () => false, {download, update, read, pause:async()=>{}});
+  await publishDraftById(release, 'v0.3.13', validate, () => [{tag_name: 'v0.3.14', draft: false, prerelease: false}], {download, update, read, pause:async()=>{}});
   assert.deepEqual(calls, [['download',730],['download',730],['update',42,false],['read',42]]);
   let writes = 0;
-  await assert.rejects(publishDraftById(release,'v0.3.13',validate,()=>true,{
+  await assert.rejects(publishDraftById(release,'v0.3.13',validate,()=>[],{
     download: () => 'verified bytes', update: () => { writes++; throw new Error('spawnSync gh ETIMEDOUT'); },
     read: () => { throw new Error('HTTP 503'); }, pause:async()=>{},
   }), /503/);
   assert.equal(writes,1,'a failed state check must not result in another PATCH');
-  await assert.rejects(publishDraftById(release,'v0.3.13',()=>{throw new Error('bad SHA256');}, ()=>true, {
+  await assert.rejects(publishDraftById(release,'v0.3.13',()=>{throw new Error('bad SHA256');}, ()=>[], {
     download: () => 'different bytes', update: () => assert.fail('cannot publish unverified assets'), read,
   }), /bad SHA256/);
-  await assert.rejects(publishDraftById({...release,assets:[...release.assets,...release.assets]},'v0.3.13',validate,()=>true,
+  await assert.rejects(publishDraftById({...release,assets:[...release.assets,...release.assets]},'v0.3.13',validate,()=>[],
     {download, update, read}), /unique checksum/);
+});
+
+test('does not rewrite a published release when the by-ID read still reports draft', async () => {
+  const tag = 'v0.3.13';
+  const release = {id: 42, draft: true, tag_name: tag, assets: [{id: 730, name: `${tag}-SHA256SUMS.txt`}]};
+  let lists = 0;
+  const writes = [];
+  await publishDraftById(release, tag, bytes => assert.equal(bytes, 'verified bytes'),
+    () => ++lists === 1 ? [] : [{...release, draft: false, prerelease: false}], {
+      download: () => 'verified bytes',
+      update: (id, makeLatest) => {
+        writes.push([id, makeLatest]);
+        throw new Error('spawnSync gh ETIMEDOUT');
+      },
+      read: () => release,
+      pause: async () => {},
+    });
+  assert.equal(lists, 2);
+  assert.deepEqual(writes, [[42, true]]);
 });
 
 test('stable latest selection never rolls back or uses drafts and prereleases', () => {
