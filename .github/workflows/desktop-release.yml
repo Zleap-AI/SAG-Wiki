@@ -387,7 +387,7 @@ jobs:
             kind: test
             component: rust-macos-intel
             job_name: Test Rust macos-intel
-            runner: macos-15-intel
+            runner: macos-15-large
             target: x86_64-apple-darwin
           - platform: windows
             kind: test
@@ -499,22 +499,24 @@ jobs:
         env:
           CARGO_PROFILE_TEST_DEBUG: '1'
           SAG_CORE_TEST_PROFILE: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.debug=0' || '' }}
+          SAG_CORE_TEST_CODEGEN: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.codegen-units=32' || '' }}
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_core != 'false'
         run: |
           core_profile=()
           if [[ -n "$SAG_CORE_TEST_PROFILE" ]]; then
-            core_profile=(--config "$SAG_CORE_TEST_PROFILE")
+            core_profile=(--config "$SAG_CORE_TEST_PROFILE" --config "$SAG_CORE_TEST_CODEGEN")
           fi
           cargo test "${core_profile[@]}" --locked --timings --manifest-path core/Cargo.toml --lib --tests
       - name: 'Run native Rust suite: cli'
         env:
           CARGO_PROFILE_TEST_DEBUG: '1'
           SAG_CORE_TEST_PROFILE: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.debug=0' || '' }}
+          SAG_CORE_TEST_CODEGEN: ${{ matrix.platform == 'macos-intel' && 'profile.test.package.sag-core.codegen-units=32' || '' }}
         if: steps.reuse.outputs.reuse != 'true' && matrix.kind == 'test' && needs.validate.outputs.native_tests != 'reuse' && needs.validate.outputs.test_cli != 'false'
         run: |
           core_profile=()
           if [[ -n "$SAG_CORE_TEST_PROFILE" ]]; then
-            core_profile=(--config "$SAG_CORE_TEST_PROFILE")
+            core_profile=(--config "$SAG_CORE_TEST_PROFILE" --config "$SAG_CORE_TEST_CODEGEN")
           fi
           # Run the pipe leak probe first, then exclude its duplicate invocation.
           cargo test "${core_profile[@]}" --locked --timings --manifest-path cli/Cargo.toml --test service_spawn -- --nocapture

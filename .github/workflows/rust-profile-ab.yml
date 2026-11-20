@@ -6,7 +6,7 @@ on:
       comparison:
         description: Single-variable comparisons to execute
         type: choice
-        options: ['debug-and-cgu', 'cgu-only', 'core-debug-only', 'intel-release-cli']
+        options: ['debug-and-cgu', 'cgu-only', 'core-debug-only', 'intel-core-cgu', 'intel-release-cli']
         default: 'debug-and-cgu'
       platform:
         description: Platforms to measure
@@ -33,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        platform: ${{ fromJSON(inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'macos-intel' && '["macos-intel"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
+        platform: ${{ fromJSON(inputs.comparison == 'intel-core-cgu' && '["macos-intel"]' || inputs.platform == 'macos' && '["macos"]' || inputs.platform == 'macos-intel' && '["macos-intel"]' || inputs.platform == 'windows' && '["windows"]' || '["macos","windows"]') }}
         round: ${{ fromJSON(inputs.rounds == '3' && '[1,2,3]' || '[1]') }}
     runs-on: ${{ matrix.platform == 'macos' && 'macos-15' || matrix.platform == 'macos-intel' && 'macos-15-intel' || 'windows-2025' }}
     timeout-minutes: ${{ matrix.platform == 'macos-intel' && 180 || 90 }}
