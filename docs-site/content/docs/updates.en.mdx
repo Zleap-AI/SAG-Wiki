@@ -7,7 +7,13 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="fb35514c0e6e80423c12535bb16e46d5a333eef0183ed8e481d08abc3f53d490" aria-hidden="true" />
+<span data-docs-changelog-sha="7c3399bbfc32ede72e502490b8ce08b7041e3f8027d5413fe0430b08464f9925" aria-hidden="true" />
+
+## 0.3.14
+
+- **Multi-turn reply format**: Replay earlier tool use as native tool-call and tool-result messages and keep final answers as plain text, so follow-up answers no longer imitate the internal record and come back as `{"answer":…}` JSON. Replies that are still wrapped are unwrapped before citation checks.
+- **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the provider's output tokens, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange and this turn's records, with the reason shown above the answer.
+- **Empty answers and repeated calls**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action. Identical SAG tool calls within one turn run once, repeats are marked "Skipped" without counting toward the limit, and a second repeat ends tool use for the turn. A call to a tool that is no longer bound returns "tool not enabled" to the model instead of ending the turn. The default tool-call limit is now 20; a saved 0 stays unlimited.
 
 ## 0.3.13
 

@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.3.14
+
+- **多轮问答回复格式**：历史工具调用改为按模型接口原生的工具调用与结果消息回放，最终回答保持纯文本，修复追问时模型模仿内部记录、输出 `{"answer":…}` JSON 的问题；仍被包装的回复会自动解包正文后再校验引用。
+- **上下文压缩**：摘要分块上限提高到 32,768 tokens，默认预算下通常一到两批完成；进度显示“第 N/M 块”；摘要长度以服务返回的输出 token 为准，并修正中文分词估算偏高的问题。摘要失败时不再整轮失败，改为只保留最近一轮和本轮记录继续回答，并在回答上方说明原因。
+- **空回答与重复调用**：模型只返回空白时自动重答一次，仍为空则显示错误而不是空白的“完成”；历史中的空回答显示占位和重新生成入口；同一轮内参数完全相同的 SAG 工具调用只执行一次，重复调用标为“已跳过”且不计入次数，再次重复后停止调用并作答；调用当前未绑定的工具时把“工具未启用”返回给模型并继续，不再终止本轮。每轮工具调用上限默认改为 20，已保存为 0 的设置保持不限制。
+
+### English
+
+- **Multi-turn reply format**: Replay earlier tool use as native tool-call and tool-result messages and keep final answers as plain text, so follow-up answers no longer imitate the internal record and come back as `{"answer":…}` JSON. Replies that are still wrapped are unwrapped before citation checks.
+- **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the provider's output tokens, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange and this turn's records, with the reason shown above the answer.
+- **Empty answers and repeated calls**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action. Identical SAG tool calls within one turn run once, repeats are marked "Skipped" without counting toward the limit, and a second repeat ends tool use for the turn. A call to a tool that is no longer bound returns "tool not enabled" to the model instead of ending the turn. The default tool-call limit is now 20; a saved 0 stays unlimited.
+
 ## 0.3.13
 
 - **桌面更新源**：官方更新源随已保存的界面语言切换。简体中文使用 Zleap 官网，其余界面语言使用 GitHub。升级时迁移默认官方更新设置，并保留自定义更新源。

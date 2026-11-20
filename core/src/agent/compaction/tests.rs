@@ -101,17 +101,27 @@ async fn run(
     runtime: &sag_protocol::runtime::RuntimeSettings,
     cancel: &CancellationToken,
 ) -> Result<(String, Option<usize>, Option<usize>)> {
+    run_with_budget(config, messages, 32000, runtime, cancel, |_| {}).await
+}
+async fn run_with_budget(
+    config: &ModelConfig,
+    messages: &[Value],
+    budget: usize,
+    runtime: &sag_protocol::runtime::RuntimeSettings,
+    cancel: &CancellationToken,
+    progress: impl FnMut(&str),
+) -> Result<(String, Option<usize>, Option<usize>)> {
     summarize(
         &reqwest::Client::new(),
         config,
         "test-only",
         messages,
-        32000,
+        budget,
         2048,
         1,
         runtime,
         cancel,
-        |_| {},
+        progress,
     )
     .await
 }
@@ -180,9 +190,13 @@ async fn summary_bounds_work_and_resumes_the_failed_chunk() {
     ])
     .await;
     let messages = vec![json!({"role":"user","content":"保留全部证据和Unicode🦀。".repeat(1000)})];
-    run(&config, &messages, &runtime(2), &CancellationToken::new())
+    // A small budget keeps several parts in play; each part reports its place in the total.
+    let mut stages = vec![];
+    run_with_budget(&config, &messages, 8192, &runtime(2), &CancellationToken::new(), |stage| stages.push(stage.to_owned()))
         .await
         .unwrap();
+    assert!(stages[0].starts_with("正在压缩上下文：第 1/"), "{stages:?}");
+    assert!(stages.iter().any(|stage| stage.starts_with("正在重试上下文压缩：第 2/")), "{stages:?}");
     let requests = requests.lock().unwrap();
     assert!(requests.len() >= 4);
     for request in requests.iter() {

@@ -240,9 +240,14 @@ async fn request_with_runtime(
     }
 }
 // Estimate all request budgets without serializing or fully tokenizing them.
+// tokenx counts one token per CJK character; common tokenizers need about
+// 0.6–0.8 for Chinese. Keep a margin above that so the budget never runs out.
+fn cjk_chars(text: &str) -> usize {
+    text.chars().filter(|c| matches!(c, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}' | '\u{3000}'..='\u{303F}' | '\u{FF00}'..='\u{FFEF}')).count()
+}
 pub(crate) fn estimate(value: &Value) -> usize {
     match value {
-        Value::String(text) => tokenx_rs::estimate_token_count(text),
+        Value::String(text) => tokenx_rs::estimate_token_count(text).saturating_sub(cjk_chars(text) / 4),
         Value::Array(items) => 2 + items.iter().map(estimate).sum::<usize>(),
         Value::Object(fields) => 2 + fields.iter().map(|(key, value)| tokenx_rs::estimate_token_count(key) + estimate(value) + 4).sum::<usize>(),
         Value::Number(number) => number.to_string().len().div_ceil(3),
@@ -595,7 +600,7 @@ pub fn prepare_answer(
         output_tokens: None,
         elapsed_ms: None,
         generation_ms: None,
-        summary: None,
+        summary: None, summary_error: None,
     };
     Ok(AnswerPlan {
         payload: payload(config, messages, true)?,
@@ -650,7 +655,7 @@ pub fn prepare_search_summary(
             limit, reserved_output: output, estimated_input: message_tokens(&messages),
             omitted_sources: evidence.len() - selected.len(), omitted_history: 0,
             input_tokens: None, output_tokens: None, elapsed_ms: None, generation_ms: None,
-            summary: None,
+            summary: None, summary_error: None,
         },
         payload: payload(config, messages, true)?,
         evidence: selected,
