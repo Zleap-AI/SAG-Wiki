@@ -2,10 +2,12 @@
 
 ## 0.3.14
 
+- **Linux 文件监听**：达到监听上限时，CLI 和索引详情提示调高 inotify 配额并重启后台服务；已索引内容仍可搜索。([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
 - **应用数据位置**：桌面端可迁移索引、配置、问答记录和应用内转换结果，并保留旧目录作为备份。桌面端与 CLI 共用新位置；远程服务自启和文件夹授权随迁移更新，数据目录不可用时可在启动时选择已有数据目录。([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
 
 ### English
 
+- **Linux file monitoring**: When the watch limit is reached, CLI and indexing details explain how to raise the inotify quota and restart the background service. Indexed content remains searchable. ([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
 - **Application data location**: Move indexes, settings, conversations, and in-app conversion results from the desktop app while keeping the previous folder as a backup. Desktop and CLI share the new location, remote service autostart and folder permissions move with it, and startup recovery lets you choose an existing data folder if the saved location is unavailable. ([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
 
 ## 0.3.13

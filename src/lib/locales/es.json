@@ -1658,6 +1658,7 @@
   "正在准备文件监听": "Preparación de monitoreo de archivos",
   "正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。": "Preparación de monitorización de archivos. Grandes carpetas pueden tardar unos minutos; el contenido indexado sigue siendo buscado.",
   "文件监听失败，自动更新受限；请在索引设置中重建索引以重试。": "El monitoreo de archivos falló; las actualizaciones automáticas son limitadas. Recompilado el índice en la configuración de indexación para vuelve a intentarlo.",
+  "文件监听失败：已达到 Linux inotify 监听上限，自动更新受限。请调大 fs.inotify.max_user_watches（例如 sudo sysctl fs.inotify.max_user_watches=524288），然后重启 SAG 后台服务。": "Falló la supervisión de archivos: se alcanzó el límite de inotify en Linux y las actualizaciones automáticas están limitadas. Aumenta fs.inotify.max_user_watches (por ejemplo, sudo sysctl fs.inotify.max_user_watches=524288) y reinicia el servicio de SAG.",
   "选择解压后的文档识别组件或 uv 目录": "Elija el componente de documento extraído o la carpeta uv",
   "自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可选择解压后的 uv 目录，其余部分仍在线下载。": "Si la descarga automática falla o esta computadora está fuera de línea, importa un componente de documento completo. Extraiga el paquete y seleccione la carpeta que contiene manifest.json. Debe coincidir con su sistema y la versión de componente e incluir el tiempo de ejecución, dependencias y modelos. Si sólo el gestor de tiempo de ejecución uv no se descargó, puede seleccionar la carpeta extraída uv; las partes restantes todavía se descargan en línea.",
   "导入离线组件": "Importar componente sin conexión",

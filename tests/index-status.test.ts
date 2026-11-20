@@ -360,6 +360,19 @@ it('行内只显示文件夹路径，失败文件在失败详情中单独显示�
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('reveal_path',{path:file}));
 });
 
+it('文件编码异常与监听配额不足同时发生时，索引详情仍显示配额指引',async()=>{
+ const error='未能索引 1 个文件\n\n/notes/old.md\n文件无法按 UTF-8 编码读取\n\n文件监听失败：已达到 Linux inotify 监听上限，自动更新受限。请调大 fs.inotify.max_user_watches（例如 sudo sysctl fs.inotify.max_user_watches=524288），然后重启 SAG 后台服务。';
+ invoke.mockImplementation(async command=>{
+  if(command==='get_index_status')return {paused:false,tasks:[]};
+  if(command==='get_index_history')return [];
+  throw Error(command);
+ });
+ app=mount(IndexDetails,{target:document.body,props:{roots:[{path:'/notes',name:'Notes',status:'partial',count:1,error}],onClose:vi.fn(),onPauseChange:vi.fn()}});
+ const summary=()=>document.querySelector('.index-root .small.muted:nth-of-type(3)')?.textContent;
+ await vi.waitFor(()=>expect(summary()).toContain('重启 SAG 后台服务'));
+ expect(summary()).not.toContain('重建索引');
+});
+
 it('Windows 索引路径显示常规格式，打开历史文件仍使用原始路径',async()=>{
  const path=String.raw`\\?\D:\Documents\大模型算法备案`,file=path+String.raw`\报告.pdf`;
  const root={path,name:'大模型算法备案',status:'indexing',count:1,error:null};
