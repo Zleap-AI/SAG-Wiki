@@ -1658,7 +1658,7 @@
   "正在准备文件监听": "Preparing file monitoring",
   "正在准备文件监听，大文件夹可能耗时数分钟；已索引内容仍可搜索。": "Preparing file monitoring. Large folders may take a few minutes; indexed content remains searchable.",
   "文件监听失败，自动更新受限；请在索引设置中重建索引以重试。": "File monitoring failed; automatic updates are limited. Rebuild the index in indexing settings to retry.",
-  "文件监听失败：系统监视数量已达上限（Linux inotify）。请先调大上限并重启应用：sudo sysctl fs.inotify.max_user_watches=524288（写入 /etc/sysctl.conf 可持久化）；在此之前重建索引仍会失败。": "File monitoring failed: the system watch limit (Linux inotify) is exhausted. Raise the limit and restart the app first: sudo sysctl fs.inotify.max_user_watches=524288 (persist it in /etc/sysctl.conf); rebuilding the index keeps failing until then.",
+  "文件监听失败：已达到 Linux inotify 监听上限，自动更新受限。请调大 fs.inotify.max_user_watches（例如 sudo sysctl fs.inotify.max_user_watches=524288），然后重启 SAG 后台服务。": "File monitoring failed: the Linux inotify watch limit was reached, limiting automatic updates. Increase fs.inotify.max_user_watches (for example, sudo sysctl fs.inotify.max_user_watches=524288), then restart the SAG background service.",
   "选择解压后的文档识别组件或 uv 目录": "Choose the extracted document component or uv folder",
   "自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可选择解压后的 uv 目录，其余部分仍在线下载。": "If automatic download fails or this computer is offline, import a complete document component. Extract the package and select the folder containing manifest.json. It must match your system and component version and include the runtime, dependencies and models. If only the uv runtime manager failed to download, you can select the extracted uv folder instead; the remaining parts still download online.",
   "导入离线组件": "Import offline component",

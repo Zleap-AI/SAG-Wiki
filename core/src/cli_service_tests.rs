@@ -99,6 +99,40 @@ async fn check_and_list_report_pending_indexes_and_disabled_access_without_model
 }
 
 #[tokio::test]
+async fn cli_add_reports_watch_quota_without_suggesting_a_rebuild() {
+    let dir = tempfile::tempdir().unwrap();
+    let folder = dir.path().join("notes");
+    fs::create_dir(&folder).unwrap();
+    fs::write(folder.join("one.md"), "searchable watch quota fixture").unwrap();
+    let folder = folder.canonicalize().unwrap();
+    let store = Arc::new(Store::open(&dir.path().join("sag.sqlite")).unwrap());
+    let add_store = store.clone();
+    let remove_store = store.clone();
+    let service = CliService::shared(
+        store, Arc::new(ModelHttp::default()), dir.path().into(),
+        Arc::new(move |path| {
+            let root = add_store.add_root(path)?;
+            add_store.set_watch_error(&root, Some(&notify::Error::new(notify::ErrorKind::MaxFilesWatch)))?;
+            add_store.scan_basic(&root, |_| {})?;
+            Ok(root)
+        }),
+        Arc::new(move |path| remove_store.remove_path(path)),
+    ).unwrap();
+    let cancel = CancellationToken::new();
+    let message = service.handle(folder.clone(), Command::Add, cancel.clone()).await.unwrap_err().to_string();
+    assert!(message.contains("sysctl fs.inotify.max_user_watches"));
+    assert!(!message.contains("重建索引"));
+    let search_error = service.handle(folder.clone(), search(false), cancel.clone()).await.unwrap_err().to_string();
+    assert!(search_error.contains("JEV 未配置"), "{search_error}");
+    let Response::Checked(status) = service.handle(folder, Command::Check, cancel).await.unwrap() else {
+        panic!("expected CLI check status");
+    };
+    assert_eq!(status.indexed_files, 1);
+    assert!(status.index_ready);
+    assert!(status.roots[0].error.as_ref().unwrap().contains("重启 SAG 后台服务"));
+}
+
+#[tokio::test]
 async fn status_contains_only_service_configuration_and_does_not_require_a_directory() {
     let (_dir, service, root) = fixture();
     let expected = json!({

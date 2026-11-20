@@ -1126,6 +1126,16 @@ impl Service {
                         }
                     }
                 }
+                Err(err) if matches!(err.kind, notify::ErrorKind::MaxFilesWatch) => {
+                    emit(&watcher_app, "app-error", indexer::WATCH_LIMIT_HINT);
+                    let recorded = watcher_store.roots().and_then(|roots| {
+                        for root in roots.into_iter().filter(|root| err.paths.iter().any(|path| path.starts_with(&root.path))) {
+                            watcher_tx.send(IndexRequest::WatchLimit { root: root.path })?;
+                        }
+                        Ok(())
+                    });
+                    if let Err(error) = recorded { emit(&watcher_app, "app-error", error.to_string()); }
+                }
                 Err(err) => emit(&watcher_app, "app-error", format!("文件监听失败：{err}")),
             })?;
         for root in store.roots()? {
@@ -1159,6 +1169,13 @@ impl Service {
                 }
                 let root = match &request {
                     IndexRequest::SyncWatches | IndexRequest::Enhance { .. } => continue,
+                    IndexRequest::WatchLimit { .. } => {
+                        match indexer::apply_foreground_request(&worker_store, request, |_| {}) {
+                            Ok(_) => emit(&handle, "data-changed", ()),
+                            Err(error) => emit(&handle, "app-error", error.to_string()),
+                        }
+                        continue;
+                    },
                     IndexRequest::ResetWatch { root } => {
                         if let Err(err) = worker_watcher.reset(root) {
                             emit(&handle, "app-error", format!("文件监听重置失败：{root}：{err}"));
@@ -1176,8 +1193,11 @@ impl Service {
                             "path":root,"count":0,"total":0,"stage":"preparing_watch",
                         }));
                     }) {
-                        let detail = err.downcast_ref::<notify::Error>().map(indexer::describe_watch_error).unwrap_or_else(|| err.to_string());
-                        emit(&handle, "app-error", format!("文件监听失败：{root}：{detail}"));
+                        if err.downcast_ref::<notify::Error>().is_some_and(|error| matches!(error.kind, notify::ErrorKind::MaxFilesWatch)) {
+                            emit(&handle, "app-error", indexer::WATCH_LIMIT_HINT);
+                        } else {
+                            emit(&handle, "app-error", format!("文件监听失败：{root}：{err}"));
+                        }
                     }
                 }
                 // Only a full recovery scan that starts after the background
