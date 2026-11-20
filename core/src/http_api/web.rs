@@ -287,9 +287,14 @@ async fn route(
                 ));
                 Ok(Output::Unit)
             }
-            WebOperation::Service(operation) => {
+            WebOperation::Service(mut operation) => {
                 if !allowed(&operation) {
                     return Err("此操作需在桌面端完成".into());
+                }
+                if let Op::OnlineImport { action: sag_protocol::online_import::Action::Save { source, .. } } = &mut operation {
+                    if source.id.is_empty() {
+                        source.directory.clear();
+                    }
                 }
                 if let Op::ReadDocument { path } = &operation {
                     let path = service
@@ -363,6 +368,15 @@ enum WebOperation {
 }
 
 fn allowed(op: &Op) -> bool {
+    use sag_protocol::online_import::Action;
+    if let Op::OnlineImport { action } = op {
+        return match action {
+            Action::AccountLogin { .. } | Action::AccountLoginStatus { .. } | Action::CancelAccountLogin { .. } => false,
+            Action::Browse { connection, auth_session, .. } => !connection.user_access && auth_session.is_none(),
+            Action::Save { source, auth_session, .. } => !source.connection.user_access && auth_session.is_none(),
+            _ => true,
+        };
+    }
     matches!(
         op,
         Op::ListRoots

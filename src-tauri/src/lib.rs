@@ -428,6 +428,7 @@ remote!(set_index_paused(paused:bool) => SetIndexPaused);
 remote!(remove_all_roots() => RemoveAllRoots);
 remote!(save_document(path:String,body:String,expected_hash:Option<String>) => SaveDocument);
 remote!(get_chat_import_folder() => GetChatImportFolder);
+remote!(online_import(action:sag_protocol::online_import::Action) => OnlineImport);
 remote!(get_chat_import_schedule(source:sag_protocol::ChatSource) => GetChatImportSchedule);
 remote!(save_chat_import_schedule(source:sag_protocol::ChatSource,schedule:sag_protocol::ChatImportSchedule) => SaveChatImportSchedule);
 #[tauri::command]
@@ -834,6 +835,7 @@ pub fn run() {
             list_chat_sessions,
             preview_chat_import,
             import_chat_sessions,
+            online_import,
             save_note,
             list_notes,
             get_note,

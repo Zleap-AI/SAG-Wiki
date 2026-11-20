@@ -1,5 +1,6 @@
 pub mod about_links;
 pub mod chat_import;
+pub mod online_import;
 pub use chat_import::*;
 pub mod runtime;
 pub mod locales;
@@ -281,6 +282,7 @@ pub struct EventEnvelope {
 #[serde(tag = "operation", content = "args", rename_all = "snake_case")]
 pub enum Operation {
     Api { action: ApiAction },
+    OnlineImport { action: online_import::Action },
     DoclingStatus,
     InstallDocling,
     ImportDoclingComponent {

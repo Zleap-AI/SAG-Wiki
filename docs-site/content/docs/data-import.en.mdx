@@ -1,15 +1,15 @@
 ---
 title: "Import data"
-description: "Convert chat histories and notes to Markdown for your local knowledge base."
+description: "Import chat histories, notes and online sources into your local knowledge base."
 ---
 
-On desktop, click **+** in the sidebar, switch from **Add folder** to **Import data**, then choose a chat or note source. You can also right-click an empty area of the **Indexed files** overview and choose **Import data**, or open **Settings → Data import → Third-party apps**.
+On desktop, click **+** in the sidebar, switch from **Add folder** to **Import data**, then choose a source. You can also right-click an empty area of the **Indexed files** overview and choose **Import data**, or open **Settings → Data import**.
 
 ![Import data in the Add folder dialog](/images/product-add-data-en.png)
 
 ## Import notes
 
-Click **Import notes** next to the source.
+Click **Import notes** next to the source. To import a Notion ZIP, use **Notion → Configure → Import from an export file**.
 
 | Source | Input |
 | --- | --- |
@@ -55,4 +55,127 @@ Intervals are measured from when the schedule was enabled, its frequency changed
 
 ## Receive a share
 
-The Add folder window has a separate **Receive share** tab with the code input and save location directly on the page. The **Import data** tab lists only third-party applications. **Settings → Data import → Share** still provides the default folder and clipboard preferences. Clipboard code detection is enabled by default. You can turn it off or change the download folder here. The default folder is `sag-wiki/share` inside your system Documents folder. Folder and detection changes are saved immediately. See [sharing and receiving](/en/docs/file-sharing).
+The Add folder window has a separate **Receive share** tab where you can enter a share code and choose the save location. **Settings → Data import → Share** provides the default folder and clipboard preferences. Clipboard code detection is enabled by default. You can turn it off or change the download folder here. The default folder is `sag-wiki/share` inside your system Documents folder. Folder and detection changes are saved immediately. See [sharing and receiving](/en/docs/file-sharing).
+
+## Connect online sources
+
+On desktop, open **Settings → Data import** and find **Online sources** above **Share**. Click the clock next to the source name or choose **Configure**. Click **Setup guide** next to the dialog title for instructions for the current source. Go back to continue where you left off. Check each connection to see whether scheduled sync is enabled.
+
+![Online sources and scheduled sync in Data import](/images/product-online-import-en.png)
+
+### Feishu [#feishu]
+
+1. Create or open a **Custom App** in the [Feishu Developer Console](https://open.feishu.cn/app). Copy the permissions JSON below for Knowledge base or Drive.
+2. Go to **Development Configuration → Permissions & Scopes**. Open **Batch import/export scopes** from the menu next to **Add scopes** (批量处理), paste the JSON in the **Import** tab, and confirm the permissions appear under **User scopes**.
+3. In **Security Settings → Redirect URLs**, add `http://127.0.0.1:24682/feishu/oauth/callback`. Make the app available to the account that will sign in, then publish it under **Version Management & Release** and wait for any required approval.
+4. Copy the App ID and App Secret from **Credentials & Basic Info**. In **Settings → Data import → Feishu**, choose the import type, enter the credentials, and select **Authorize with Feishu**. After authorizing, return to SAG, select what to import, and click **Save and import**.
+
+If scheduled sync pauses because the monthly quota is exhausted, click **Sync now** once the quota is available again.
+
+#### Knowledge base [#feishu-wiki]
+
+Selecting a page also imports its subpages that you can read.
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "wiki:space:retrieve",
+      "wiki:node:retrieve",
+      "wiki:node:read",
+      "docx:document:readonly",
+      "drive:drive:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+#### Drive [#feishu-drive]
+
+If a shared folder is missing from the list, paste its link and click **Browse Drive folders**.
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+### Lark [#lark]
+
+1. Create or open a **Custom App** in the [Lark Developer Console](https://open.larksuite.com/app). Copy the permissions JSON below for your import type.
+2. In **Permissions & Scopes → Batch import/export → Import**, paste the JSON and confirm the permissions appear under **User scopes**.
+3. In **Security Settings → Redirect URLs**, add `http://127.0.0.1:24682/lark/oauth/callback`. Enable user token refresh if the option appears. Make the app available to the account that will sign in, then publish it.
+4. In **SAG → Data import → Lark**, choose the import type, enter the App ID and App Secret, and select **Authorize with Lark**. After authorizing, choose what to import and how often to sync, then select **Save and import**.
+
+#### Knowledge base [#lark-wiki]
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "wiki:wiki:readonly",
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+#### Drive [#lark-drive]
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+### Notion [#notion]
+
+1. In [Notion integrations](https://www.notion.so/my-integrations), create an **internal integration** for the target workspace. Enable **Read content** and copy the integration's API token. [Notion connection guide](https://www.notion.com/en-gb/help/create-integrations-with-the-notion-api)
+2. On the Notion page to import, open **⋯ → Connections** and add the integration. In **SAG → Notion → Configure → Add connection**, enter the connection name and token and click **Test connection**.
+3. Select the authorized pages and click **Save and import**. SAG saves supported Markdown and attachments. If the page is incomplete, the error appears in sync history and the last complete copy is preserved. Use **Import from an export file** for a Notion ZIP.
+
+### Yuque [#yuque]
+
+1. Create an API token in [Yuque token settings](https://www.yuque.com/settings/tokens) using an account with read access to the target personal or team book. If the option is unavailable, check the account's API access.
+2. In **SAG → Yuque → Configure**, enter the connection name and token. Click **Test connection** and choose the book. For a team book, expand the relevant team first.
+3. Click **Save and import**. Check the documents and folder structure at the save location and review any failures in **Sync history**.
+
+### RSS / Atom [#rss]
+
+1. When you add a connection in **SAG → RSS / Atom → Configure**, the address defaults to the [Chinese Zleap Blog feed](https://zleap.com/blog/rss.xml) in Chinese interfaces and the [English feed](https://zleap.com/en/blog/rss.xml) in other languages. You can replace the address with any public RSS or Atom feed, then click **Test connection**.
+2. Check the feed name and destination and click **Save and import**. Files include the original link and the body or a labeled summary from the feed.
+
+### Scheduled sync [#scheduled-sync]
+
+Set a frequency for each connection. Choose **Manual only**, **Every 30 minutes**, **Hourly**, **Every 6 hours**, **Every 12 hours**, or **Daily**. For daily sync, choose the time in your local time zone.
+
+1. Finish an initial import with **Manual only**. Add an item to the test source or edit a document that was already imported.
+2. Open the connection's **Configure → Sync schedule**, select **Daily**, and set a time a few minutes ahead in your local time zone. Save and check **Next sync** on the connection.
+3. Keep the computer and the background service running. After the scheduled time, open **Sync history** to check for a new run and confirm the new or updated file at its save location. You can close the window while the background service continues to run.
+
+You can pause the schedule per connection and still use **Sync now**. Each connection runs at most once to catch up after the service resumes.
+
+Files go into `sag-wiki/data-sources/<platform>/<connection>/` in the system Documents folder by default. Change the destination when adding the connection. Saved files are indexed. Sync skips unchanged items and preserves local edits when there is a conflict; failed items can be retried. Removing a connection or deleting content at the source leaves local copies intact. SAG does not write changes back to the provider.

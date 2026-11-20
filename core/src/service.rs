@@ -61,7 +61,7 @@ pub struct Service {
     sessions: Mutex<HashMap<String, std::sync::Weak<tokio::sync::Mutex<()>>>>,
     conversation_access: tokio::sync::RwLock<()>,
     approvals: Mutex<HashMap<(String, String), tokio::sync::oneshot::Sender<bool>>>,
-    scan: mpsc::Sender<IndexRequest>,
+    pub(crate) scan: mpsc::Sender<IndexRequest>,
     chat_import_access: Arc<Mutex<()>>,
     pub data_dir: PathBuf,
     pub events: broadcast::Sender<(Option<String>, EventEnvelope)>,
@@ -69,6 +69,7 @@ pub struct Service {
     worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     enhancement_worker: Mutex<Option<std::thread::JoinHandle<()>>>,
     pub cli: Arc<cli_service::CliService>,
+    pub(crate) online_import: crate::online_import::Jobs,
 }
 impl Service {
     fn session_lock(&self, id: &str) -> Arc<tokio::sync::Mutex<()>> {
@@ -1328,12 +1329,14 @@ impl Service {
             events,
             stop,
             cli,
+            online_import: crate::online_import::Jobs::default(),
             worker: Mutex::new(Some(worker)),
             enhancement_worker: Mutex::new(Some(enhancement_worker)),
         }))
     }
     pub async fn finish(&self) -> anyhow::Result<()> {
         self.stop.cancel();
+        self.online_import.wait().await;
         self.store.indexing.stop();
         self.store.docling.cancel();
         let api_result = self.api.shutdown().await;
@@ -1468,6 +1471,7 @@ impl Service {
                 }).await.map_err(error)??;
                 Out::Unit
             }
+            Op::OnlineImport { action } => Out::Api(crate::online_import::handle(self, action).await.map_err(error)?),
             Op::ListChatSessions { source, source_root, query } => Out::ChatCatalog(tokio::task::spawn_blocking(move || crate::chat_import::list_page(source, source_root.as_deref(), &query)).await.map_err(error)?.map_err(error)?),
             Op::PreviewChatImport { source, source_root, paths, include_tools } => Out::ChatPreview(tokio::task::spawn_blocking(move || crate::chat_import::preview(source, &source_root, &paths, include_tools)).await.map_err(error)?.map_err(error)?),
             Op::ImportChatSessions { source, source_root, sessions, include_tools } => {
@@ -1650,6 +1654,7 @@ impl Service {
                 Out::Unit
             }
             Op::ClearAllData => {
+                let _online = self.online_import.exclusive().map_err(error)?;
                 let _access = self.conversation_access.try_write()
                     .map_err(|_| "请先停止正在进行的问答，再清除所有数据".to_string())?;
                 let store = self.store.clone();

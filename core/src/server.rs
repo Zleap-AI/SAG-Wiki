@@ -62,6 +62,7 @@ pub async fn run_until(data: PathBuf, shutdown: CancellationToken) -> Result<()>
         ));
     }
     let requests = service.requests.clone();
+    let online_scheduler = tokio::spawn(crate::online_import::schedule(service.clone()));
     let connections = Arc::new(Semaphore::new(64));
     let mut clients = JoinSet::new();
     let scheduler_service = service.clone();
@@ -100,6 +101,7 @@ pub async fn run_until(data: PathBuf, shutdown: CancellationToken) -> Result<()>
     while let Some(result) = clients.join_next().await {
         result.context("停止 SAG 客户端连接失败")?;
     }
+    online_scheduler.await.context("停止在线数据源调度失败")?;
     let scheduler_result = scheduler.await;
     service.finish().await?;
     scheduler_result.context("定时导入任务退出失败")??;

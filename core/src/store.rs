@@ -382,6 +382,9 @@ impl Store {
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
  CREATE TABLE IF NOT EXISTS chat_imports(identity TEXT PRIMARY KEY,path TEXT NOT NULL,output_hash TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS chat_import_schedules(source TEXT PRIMARY KEY,enabled INTEGER NOT NULL,time TEXT NOT NULL,source_root TEXT,include_tools INTEGER NOT NULL,configured_at INTEGER NOT NULL,last_run_at INTEGER,last_run TEXT,interval_minutes INTEGER);
+ CREATE TABLE IF NOT EXISTS online_sources(id TEXT PRIMARY KEY, config TEXT NOT NULL, next_at INTEGER);
+ CREATE TABLE IF NOT EXISTS online_items(source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, id TEXT NOT NULL, version TEXT NOT NULL, files TEXT NOT NULL, PRIMARY KEY(source,id));
+ CREATE TABLE IF NOT EXISTS online_runs(id INTEGER PRIMARY KEY, source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, started INTEGER NOT NULL, finished INTEGER, result TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS root_watch_errors(root TEXT PRIMARY KEY REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS root_exclusions(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
@@ -824,6 +827,7 @@ impl Store {
             DELETE FROM drafts;
             DELETE FROM preferences;
             DELETE FROM chat_imports;
+            DELETE FROM online_sources;
             DELETE FROM chat_import_schedules;
             INSERT INTO preferences VALUES(1,'{\"conversion_storage\":{\"mode\":\"app_data\"},\"update_source_migrated\":true}');
             DELETE FROM chunk_fts;

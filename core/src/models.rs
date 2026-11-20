@@ -27,6 +27,8 @@ fn credentials(dir: &std::path::Path) -> Result<std::collections::BTreeMap<Strin
         Err(e) => Err(e.into()),
     }
 }
+static CREDENTIALS_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn write_credentials(
     dir: &std::path::Path,
     values: &std::collections::BTreeMap<String, String>,
@@ -63,6 +65,7 @@ pub fn jev_secret(dir: &std::path::Path, config: &ModelConfig) -> Result<String>
     }
 }
 pub fn clear_secrets(dir: &std::path::Path) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     write_credentials(dir, &Default::default())
 }
 pub fn mcp_credentials(dir: &std::path::Path, id: &str) -> Result<crate::types::McpCredentials> {
@@ -76,6 +79,7 @@ pub fn save_mcp_credentials(
     id: &str,
     secret: &crate::types::McpCredentials,
 ) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     let mut values = credentials(dir)?;
     if secret.env.is_empty() && secret.headers.is_empty() {
         values.remove(&format!("mcp:{id}"));
@@ -91,14 +95,32 @@ pub fn save_secret(dir: &std::path::Path, kind: &str, key: &str) -> Result<()> {
     if !matches!(kind, "answer" | "jev" | "mineru:302" | "mineru:official") {
         bail!("模型类型不正确")
     }
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     let mut values = credentials(dir)?;
     values.insert(kind.into(), key.trim().into());
+    write_credentials(dir, &values)
+}
+
+pub(crate) fn online_secret(dir: &std::path::Path, id: &str) -> Result<Option<String>> {
+    Ok(credentials(dir)?.remove(&format!("online:{id}")))
+}
+
+pub(crate) fn save_online_secret(dir: &std::path::Path, id: &str, secret: Option<&str>) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
+    let mut values = credentials(dir)?;
+    let key = format!("online:{id}");
+    if let Some(secret) = secret {
+        values.insert(key, secret.into());
+    } else {
+        values.remove(&key);
+    }
     write_credentials(dir, &values)
 }
 pub fn clear_secret(dir: &std::path::Path, kind: &str) -> Result<()> {
     if !matches!(kind, "answer" | "jev" | "mineru:302" | "mineru:official") {
         bail!("模型类型不正确")
     }
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     let mut values = credentials(dir)?;
     values.remove(kind);
     write_credentials(dir, &values)
