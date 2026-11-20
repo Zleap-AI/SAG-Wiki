@@ -11,6 +11,7 @@ struct Reply {
     complete: bool,
     truncated: bool,
     finish_reason: &'static str,
+    output_tokens: usize,
 }
 fn ok(text: &'static str) -> Reply {
     Reply {
@@ -20,6 +21,7 @@ fn ok(text: &'static str) -> Reply {
         complete: true,
         truncated: false,
         finish_reason: "stop",
+        output_tokens: 0,
     }
 }
 async fn server(replies: Vec<Reply>) -> (ModelConfig, Arc<Mutex<Vec<Value>>>) {
@@ -64,10 +66,9 @@ async fn server(replies: Vec<Reply>) -> (ModelConfig, Arc<Mutex<Vec<Value>>>) {
             captured.lock().unwrap().push(request);
             tokio::spawn(async move {
                 let partial = "data: {\"choices\":[{\"delta\":{\"content\":\"partial-\"}}]}\n\n";
-                let rest = format!(
-                    "data: {}\n\ndata: [DONE]\n\n",
-                    json!({"choices":[{"delta":{"content":reply.text},"finish_reason":reply.finish_reason}]})
-                );
+                let mut chunk = json!({"choices":[{"delta":{"content":reply.text},"finish_reason":reply.finish_reason}]});
+                if reply.output_tokens > 0 { chunk["usage"] = json!({"prompt_tokens":1,"completion_tokens":reply.output_tokens}); }
+                let rest = format!("data: {}\n\ndata: [DONE]\n\n", chunk);
                 let length = if reply.truncated {
                     partial.len() + 1024
                 } else if reply.complete {
@@ -521,4 +522,17 @@ fn summary_proactive_compaction_keeps_room_for_the_complete_question() {
         should_compact(&messages, &question, &[], used / 2),
         "actual overflow still requires compaction"
     );
+}
+
+#[tokio::test]
+async fn summary_length_uses_the_smaller_of_provider_count_and_estimate() {
+    // A reasoning model reports thousands of output tokens for a short summary.
+    let (config, requests) = server(vec![Reply { output_tokens: 6000, ..ok("短摘要") }]).await;
+    let messages = vec![json!({"role":"user","content":"历史内容".repeat(200)})];
+    let (summary, _, output) = run(&config, &messages, &runtime(0), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(summary, "partial-短摘要");
+    assert_eq!(output, Some(6000));
+    assert_eq!(requests.lock().unwrap().len(), 1, "不因推理 token 触发精简");
 }

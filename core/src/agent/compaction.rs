@@ -8,6 +8,7 @@ use tokio_util::sync::CancellationToken;
 // sequential round trips for a long transcript.
 const MAX_SUMMARY_INPUT: usize = 32_768;
 const FALLBACK_NOTICE: &str = "本次未能生成模型摘要。较早的对话内容已省略，仅保留最近一轮对话和本轮记录；不要假设被省略内容的细节，需要时向用户确认。";
+const CARRIED_SUMMARY: &str = "\n此前生成的摘要仍然有效：\n";
 
 // Start before exhaustion and leave room for the next tool exchange.
 pub(super) fn trigger_budget(budget: usize) -> usize { budget - budget / 10 }
@@ -114,9 +115,14 @@ pub(super) fn fallback(
     // holds the user's constraints; keep it with the notice when it fits.
     let carried = messages.get(1).and_then(|item| item["content"].as_str())
         .and_then(|text| serde_json::from_str::<Value>(text).ok())
-        .and_then(|value| value.get("context_summary")?.as_str().map(str::to_owned));
+        .and_then(|value| value.get("context_summary")?.as_str().map(str::to_owned))
+        // An earlier fallback notice is not a summary; keep only the summary it carried.
+        .and_then(|text| match text.strip_prefix(FALLBACK_NOTICE) {
+            Some(rest) => rest.strip_prefix(CARRIED_SUMMARY).map(str::to_owned),
+            None => Some(text),
+        });
     if let Some(text) = carried {
-        next[1] = summary_message(&format!("{FALLBACK_NOTICE}\n此前生成的摘要仍然有效：\n{text}"), false);
+        next[1] = summary_message(&format!("{FALLBACK_NOTICE}{CARRIED_SUMMARY}{text}"), false);
         if tokens(&next, definitions) <= budget {
             return Ok(Compacted { messages: next, summary: None, retained_history, input_tokens: None, output_tokens: None });
         }
@@ -214,8 +220,10 @@ async fn summarize(
             if let Some(n) = turn.output_tokens { output_tokens = Some(output_tokens.unwrap_or(0) + n); }
             ensure!(turn.tool_calls.is_empty(), "摘要请求不能调用工具");
             ensure!(!turn.text.trim().is_empty(), "模型没有返回有效的上下文摘要");
-            // The provider's own count is exact; the local estimate only stands in for it.
-            let produced = turn.output_tokens.filter(|n| *n > 0).unwrap_or_else(|| models::estimate(&json!(turn.text)));
+            // The provider's count can include reasoning tokens and the local estimate can
+            // overcount CJK text; the smaller one describes the summary that was returned.
+            let local = models::estimate(&json!(turn.text));
+            let produced = turn.output_tokens.filter(|n| *n > 0).map_or(local, |n| n.min(local));
             if produced <= allowance {
                 summary = turn.text;
                 break;

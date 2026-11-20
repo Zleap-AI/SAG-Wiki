@@ -98,6 +98,13 @@ const SKIPPED_REPEAT: &str = "该调用与本轮先前的调用完全相同，�
 // Consecutive identical calls within one turn: the third is answered with the note
 // above instead of running again, and the next one ends tool use for the turn.
 const REPEAT_SKIP: usize = 3;
+// Replace the first window equal to `target`; false when it is absent or empty.
+fn replace_slice(messages: &mut Vec<Value>, target: &[Value], replacement: &[Value]) -> bool {
+    if target.is_empty() { return false; }
+    let Some(start) = messages.windows(target.len()).position(|window| window == target) else { return false; };
+    messages.splice(start..start + target.len(), replacement.iter().cloned());
+    true
+}
 struct Repeats { last: Option<(String, String)>, streak: usize }
 impl Repeats {
     fn new() -> Self { Self { last: None, streak: 0 } }
@@ -305,10 +312,13 @@ where
             } else {
                 sources.iter().map(|source| source.content.as_str()).collect::<Vec<_>>().join("\n")
             };
+            // Built-in SAG records store the inner tool name; the model knows them as sag2_*.
             let (name, arguments) = match &call.tool_name {
-                Some(name) => (name.as_str(), serde_json::from_str::<Value>(&call.query)
-                    .map_or_else(|_| json!({"input":call.query}).to_string(), |value| value.to_string())),
-                None => ("sag2_search", json!({"query":call.query}).to_string()),
+                Some(name) => (
+                    if call.server_name.as_deref() == Some("SAG") { format!("sag2_{name}") } else { name.clone() },
+                    serde_json::from_str::<Value>(&call.query).map_or_else(|_| json!({"input":call.query}).to_string(), |value| value.to_string()),
+                ),
+                None => ("sag2_search".to_owned(), json!({"query":call.query}).to_string()),
             };
             let status = if call.skipped { "skipped" } else if call.denied { "denied" } else if call.is_error { "error" } else { "complete" };
             let result = text.chars().take(500).collect::<String>();
@@ -338,8 +348,7 @@ where
         text_history.extend(text_turn);
         messages.extend(turn);
     }
-    let history_end = messages.len();
-    let native_history = messages[history_start..history_end].to_vec();
+    let native_history = messages[history_start..].to_vec();
     // Empty scope and reference lists are omitted: the model has nothing to echo back
     // about "scope" when the user did not narrow anything.
     let mut content = json!({"question":message.question});
@@ -490,12 +499,13 @@ where
             }
             Err(error) if !history_text_fallback && history_has_tools && models::request_rejected(&error)
                 && message.answer.len() == answer_start && !reasoning_started
-                && messages.len() >= history_end && messages[history_start..history_end] == native_history[..] => {
+                && (replace_slice(&mut messages, &native_history, &text_history)
+                    || replace_slice(&mut messages, &recent_history, &recent_text_history)) => {
                 // The provider refused the replayed tool messages; resend that history as text.
+                // After a compaction only the recent turn is still replayed natively.
                 history_text_fallback = true;
                 let context = message.context.as_mut().unwrap();
                 context.generation_ms = Some(context.generation_ms.unwrap_or(0) + generation_started.elapsed().as_millis() as u64);
-                messages.splice(history_start..history_end, text_history.clone());
                 recent_history = recent_text_history.clone();
                 continue;
             }
@@ -585,6 +595,23 @@ where
             return Ok(traces);
         }
         require_tool = false;
+        if repeat_stop && final_only {
+            // The stop request was already sent with tool_choice "none"; a provider that
+            // ignores it must not keep the turn alive with calls that are only skipped.
+            truncate_answer(message, answer_start);
+            progress("正在生成回答", Some(AnswerDelta::Replace(&message.answer)), 0, None);
+            let sources = message.evidence.iter().enumerate()
+                .map(|(index, source)| format!("- {} [{}]", source.title, index + 1))
+                .collect::<Vec<_>>().join("\n");
+            let result = if sources.is_empty() {
+                "模型反复发起相同的工具调用，未能完成最终回答。已完成的工具结果保留在本轮记录中。请调整问题后重试。".to_owned()
+            } else {
+                format!("模型反复发起相同的工具调用，未能完成结论核对。已取得以下资料：\n\n{sources}\n\n尚缺依据：这些资料与问题之间的关系仍需核对。")
+            };
+            message.answer.push_str(&result);
+            progress("正在生成回答", Some(AnswerDelta::Append(&result)), 0, None);
+            return Ok(traces);
+        }
         let remaining = if options.max_tool_calls == 0 { turn.tool_calls.len() } else { options.max_tool_calls.saturating_sub(used_calls) };
         if remaining == 0 {
             truncate_answer(message, answer_start);
@@ -2817,8 +2844,9 @@ mod tests {
 
     #[tokio::test]
     async fn ten_calls_then_finalize_without_more_tools() {
+        // Distinct queries: identical consecutive calls are skipped by design.
         let mut turns = (0..10)
-            .map(|i| call(&format!("call-{i}"), "检索"))
+            .map(|i| call(&format!("call-{i}"), &format!("检索 {i}")))
             .collect::<Vec<_>>();
         turns.push(vec![json!({"content":"未找到相关原文。"})]);
         let (config, requests) = server(turns);
@@ -3272,7 +3300,7 @@ mod tests {
         assert_eq!(sent.iter().map(|m| m["role"].as_str().unwrap()).collect::<Vec<_>>(), vec!["system", "user", "assistant", "tool", "assistant", "user"]);
         assert_eq!(sent[2]["content"], Value::Null);
         assert_eq!(sent[2]["tool_calls"][0]["id"], "call_prev");
-        assert_eq!(sent[2]["tool_calls"][0]["function"]["name"], "search");
+        assert_eq!(sent[2]["tool_calls"][0]["function"]["name"], "sag2_search", "内置工具按模型可调用的名字回放");
         assert_eq!(sent[2]["tool_calls"][0]["function"]["arguments"], json!({"query":"上一轮检索","top_k":5}).to_string());
         assert_eq!(sent[3]["tool_call_id"], "call_prev");
         assert!(sent[3]["content"].as_str().unwrap().contains("上一轮证据"));
@@ -3408,6 +3436,59 @@ mod tests {
         assert!(!record.contains("tool_history"));
     }
 
+    #[tokio::test]
+    async fn model_ignoring_the_stop_request_ends_the_turn_without_looping() {
+        // Six identical calls, no limit, and a server that ignores tool_choice "none".
+        let turns = (0..6).map(|i| call(&format!("c{i}"), "同一查询")).collect::<Vec<_>>();
+        let (config, requests) = server(turns);
+        let mut m = message();
+        let mut executions = 0;
+        answer(&reqwest::Client::new(), &config, "test", &mut m, &[], 16384, 512, 5, &CancellationToken::new(),
+            |_| { executions += 1; async { Ok(SearchOutput { results: vec![candidate(1, "唯一记录")], trace: vec![] }) } },
+            |_, _, _, _| {},
+        ).await.unwrap();
+        assert_eq!(executions, 2);
+        assert_eq!(m.tool_calls.len(), 4, "停止请求之后的调用不再记录");
+        assert!(m.answer.contains("反复发起相同的工具调用"));
+        assert!(m.answer.contains("1.md [1]"));
+        let captured = requests.lock().unwrap();
+        assert_eq!(captured.len(), 5, "停止请求后至多再请求一次");
+        assert_eq!(captured[4]["tool_choice"], "none");
+    }
+
+    #[tokio::test]
+    async fn rejected_tool_history_is_resent_as_text_after_compaction() {
+        // The older turn is summarized before the first request; the recent turn keeps its
+        // native tool replay, which the provider then rejects.
+        let (config, requests) = server_with_summary(vec![
+            vec![json!({"http_status":400,"error":{"message":"messages with role 'tool' must follow tool_calls"}})],
+            vec![json!({"content":"按摘要继续。"})],
+        ], Some("早先的摘要。".into()));
+        let mut older = message(); older.question = "最早".into(); older.answer = "原始历史".repeat(5000);
+        let mut previous = message();
+        previous.question = "上一轮问题".into();
+        previous.answer = "上一轮回答".into();
+        previous.evidence = vec![candidate(1, "上一轮证据")];
+        previous.tool_calls = vec![ToolCallRecord {
+            id: "call_prev".into(), answer_offset: Some(0), query: json!({"query":"上一轮检索"}).to_string(),
+            source_count: 1, elapsed_ms: Some(10), tool_name: Some("search".into()), server_name: Some("SAG".into()),
+            is_error: false, denied: false, skipped: false, result: None, error: None,
+        }];
+        let mut current = message(); current.question = "追问".into();
+        answer(&reqwest::Client::new(), &config, "test", &mut current, &[older, previous], 4096, 512, 5, &CancellationToken::new(),
+            |_| async { panic!("no search") }, |_, _, _, _| {},
+        ).await.unwrap();
+        assert_eq!(current.answer, "按摘要继续。");
+        let captured = requests.lock().unwrap();
+        let chats = captured.iter().filter(|request| request.get("tools").is_some()).collect::<Vec<_>>();
+        assert_eq!(chats.len(), 2);
+        assert!(chats[0]["messages"].as_array().unwrap().iter().any(|m| m["role"] == "tool"));
+        let retry = chats[1]["messages"].as_array().unwrap();
+        assert!(retry.iter().all(|m| m["role"] != "tool"));
+        assert!(chats[1]["messages"].to_string().contains("先前工具记录"));
+        assert!(chats[1]["messages"].to_string().contains("早先的摘要"));
+    }
+
     #[test]
     fn unwrap_answer_keeps_json_the_user_asked_for() {
         assert_eq!(unwrap_answer(r#"{"answer":"正文","sources":[2]}"#).as_deref(), Some("正文 [2]"));
@@ -3472,6 +3553,8 @@ mod tests {
         assert!(stages.iter().filter(|stage| stage.contains("模型摘要失败")).count() >= 2, "{stages:?}");
         assert!(current.context.as_ref().unwrap().summary_error.as_deref().unwrap().contains("summary unavailable"));
         assert_eq!(current.tool_calls.len(), 3);
+        let notice = captured.last().unwrap()["messages"][1]["content"].as_str().unwrap();
+        assert_eq!(notice.matches("未能生成模型摘要").count(), 1, "退化通知不会层层嵌套");
     }
 
 
