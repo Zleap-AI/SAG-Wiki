@@ -35,6 +35,18 @@ description: "在本机或局域网的浏览器中使用 SAG Wiki。"
 
 支持 `sag api web` 的独立 CLI 可在 **Windows x64、macOS Apple Silicon 和 Linux** 上运行网页服务。Linux 支持 Ubuntu 24.04 和 Debian 12（x86_64 / ARM64）。
 
+在 Linux 上安装 Node.js 18 或更高版本和 npm 后，运行 `npm install -g @zleap-ai/sag` 安装，再用 `sag --version` 检查。如果使用 Ubuntu 或 Debian 的精简系统且缺少系统证书，请安装 `ca-certificates`。详见 [CLI 安装说明](/zh/docs/installation#只安装-cli)。
+
 在运行 CLI 的电脑上打开终端，运行 `sag add` 并指定本机文件夹路径，将目录加入知识库并建立索引。用 `sag list` 查看索引状态；用 `sag remove` 并指定目录路径可取消接入，原文件会保留。完整用法见 [CLI 命令](/zh/docs/cli#命令)。
 
-运行 `sag api web start` 开启网页服务，运行 `sag api web code` 查看访问码。用 `sag api status` 查看地址。选择局域网访问时，在同一局域网的另一台设备上打开显示的地址，然后输入访问码。运行 `sag api web stop` 关闭网页服务。
+```sh
+sag api web start --host 0.0.0.0
+sag api web code
+sag api status
+```
+
+`0.0.0.0` 表示监听所有 IPv4 网卡，访问范围由网络和防火墙决定。仅在本机访问时，使用 `--host 127.0.0.1`。默认端口为 `24681`；若改过端口，省略 `--port` 会沿用已保存的设置。
+
+在本机打开 `sag api status` 显示的本机地址，或在同一局域网内的其他设备上打开局域网地址，再在登录页输入访问码。运行 `sag api web stop` 可关闭网页服务。
+
+云服务器的公网 IP 若直接配置在网卡上，可在防火墙和云安全组对你的来源 IP 放行相应端口，然后打开 `http://公网IP:端口`。使用 `--port 80` 时可省略 `:80`，运行账号需有权限监听该端口。若公网 IP 映射到内网 IP，当前 SAG 的地址校验会拒绝直连，返回 `403`。
