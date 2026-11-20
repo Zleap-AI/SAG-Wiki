@@ -4,6 +4,7 @@ mod mineru;
 pub mod agent;
 pub mod anydoc;
 pub mod cli_service;
+pub mod data_directory;
 mod cli_match;
 pub mod document_text;
 pub mod docling;

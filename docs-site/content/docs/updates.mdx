@@ -7,11 +7,12 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="e644482867d591d4b98137e55d6cfce7e3fa65c9097103df1ada4c1b681c1934" aria-hidden="true" />
+<span data-docs-changelog-sha="773e0abf88f5ccae444061124724661a23c37b28e1e7b7ae752fd63393d2f5aa" aria-hidden="true" />
 
 ## 0.3.14
 
 - **Linux 文件监听**：达到监听上限时，CLI 和索引详情提示调高 inotify 配额并重启后台服务；已索引内容仍可搜索。([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
+- **应用数据位置**：桌面端可迁移索引、配置、问答记录和应用内转换结果，并保留旧目录作为备份。桌面端与 CLI 共用新位置；远程服务自启和文件夹授权随迁移更新，数据目录不可用时可在启动时选择已有数据目录。([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
 
 ## 0.3.13
 

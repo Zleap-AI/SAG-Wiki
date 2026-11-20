@@ -158,7 +158,10 @@ enum CliCommand {
     },
 }
 #[derive(Subcommand)]
-enum ServiceCommand { Status, Stop, Restart, #[command(hide=true)] Serve { #[arg(long)] data_dir: Option<PathBuf> } }
+enum ServiceCommand { Status, Stop, Restart,
+    #[command(hide=true)] Migrate { #[arg(long)] source: PathBuf, #[arg(long)] destination: PathBuf },
+    #[command(hide=true)] Recover { #[arg(long)] directory: PathBuf },
+    #[command(hide=true)] Serve { #[arg(long)] data_dir: Option<PathBuf> } }
 #[derive(clap::Args, Default)]
 struct ConfigOptions {
     /// 重新启用曾关闭的 CLI 接入。
@@ -665,8 +668,24 @@ fn request(command: Command, path: PathBuf, timeout: u64, interrupted: Arc<Inter
     result
 }
 fn run_service(action:&ServiceCommand)->Result<()> {
+    if let ServiceCommand::Migrate { source, destination } = action {
+        return sag_core::data_directory::migrate(source, destination, &sag_protocol::data_directory_config()?);
+    }
+    if let ServiceCommand::Recover { directory } = action {
+        return sag_core::data_directory::recover(directory, &sag_protocol::data_directory_config()?);
+    }
     let runtime=tokio::runtime::Runtime::new()?;
-    let data=match action { ServiceCommand::Serve{data_dir:Some(data)}=>data.clone(),_=>data_dir()? };
+    let data=match action {
+        ServiceCommand::Serve{data_dir:Some(data)}=>{
+            if !data.join("sag.sqlite").is_file()
+                && sag_protocol::read_data_directory_location(&sag_protocol::data_directory_config()?)?.as_deref() == Some(data.as_path())
+            {
+                bail!("应用数据目录不可用：{}", data.display());
+            }
+            data.clone()
+        }
+        _=>data_dir()?
+    };
     if matches!(action,ServiceCommand::Serve{..}) {
         let stop=tokio_util::sync::CancellationToken::new();
         let signal=stop.clone();

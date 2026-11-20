@@ -111,6 +111,18 @@ fn load(data: &Path) -> Result<Config> {
         Err(e) => Err(e.into()),
     }
 }
+
+pub(crate) fn copy_relocated_config(
+    source: &Path,
+    target: &Path,
+    relocate: impl Fn(&Path) -> Option<std::path::PathBuf>,
+) -> Result<()> {
+    let mut config: Config = serde_json::from_slice(&std::fs::read(source)?).context("API 配置无效")?;
+    for key in &mut config.keys {
+        key.scope.relocate(&relocate)?;
+    }
+    write_private(target, &serde_json::to_vec_pretty(&config)?)
+}
 pub fn offline_status(data: &Path) -> Result<Value> {
     let config = load(data)?;
     validate_address(&config.host, config.port)?;
