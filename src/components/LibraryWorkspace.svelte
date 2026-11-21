@@ -5,6 +5,7 @@
  import {Button} from 'bits-ui';
  import ExploreView from './ExploreView.svelte';
  import LibraryStats from './LibraryStats.svelte';
+ import WebLibraryActions from './WebLibraryActions.svelte';
  import Modal from './ui/Modal.svelte';
  import {indexTaskKey} from '../lib/stable-snapshot';
  import {t} from '../lib/i18n';import {icon} from '../lib/icons';import {basename,indexedSourcePath} from '../lib/domain';
@@ -29,6 +30,10 @@
  export let oncreate:(()=>void)|undefined=undefined;
  export let onBlankMenu:((event:MouseEvent)=>void)|undefined=undefined;
  export let onadd:(()=>void)|undefined=undefined;
+ export let webFolder:{path:string;canUpload:boolean}|undefined=undefined;
+ export let creatingWebFolder=false;
+ export let onWebFolderCreated:((path:string)=>Promise<void>)|undefined=undefined;
+ export let onWebUploaded:(()=>Promise<void>)|undefined=undefined;
  export let onModeChange:(()=>void)|undefined=undefined;
  export let onSettings:(()=>void)|undefined=undefined;
  let conversionPrompt=false,fileFilter='all',promptPath='';
@@ -65,7 +70,7 @@
 <div class="library-workspace">
  {#if session.mode==='explore'}<div class="library-explore-heading"><Button.Root class="library-mode-back" onclick={()=>{session.mode='files';onModeChange?.()}}>{@html icon('back')}{$t('返回文件树模式')}</Button.Root><h1>{basename(scope)}</h1>{#if oncreate}<Button.Root class="outline library-folder-action" onclick={oncreate}>{@html icon('plus')}{$t('新建文档')}</Button.Root>{/if}</div><ExploreView {scope} {session} {revision} {onopen}/>{:else}
  <div class="page-wrap folder-browser library-files" role="region" aria-label={$t('文件列表')} tabindex="-1" oncontextmenu={blankMenu} use:restoreScroll onscroll={(e)=>{session.fileScroll=e.currentTarget.scrollTop}}>
-  <div class="page-heading"><div class="library-folder-heading"><div class="library-folder-title"><h1>{scope?basename(scope):$t('已索引文件')}</h1>{#if scope}<Button.Root type="button" class="library-explore" onclick={()=>{session.mode='explore';onModeChange?.()}}>{$t('探索模式')}</Button.Root>{/if}<div class="library-folder-actions">{#if oncreate}<Button.Root class="outline library-folder-action" onclick={oncreate}>{@html icon('plus')}{$t('新建文档')}</Button.Root>{/if}{#if !scope&&onadd}<Button.Root class="outline library-folder-action" onclick={onadd}>{@html icon('plus')}{$t('添加文件夹')}</Button.Root>{/if}</div></div><div class="library-folder-meta"><p class="folder-count">{!scope&&totalFiles!==undefined?$t('{value0} 个文件夹 · {value1} 个已索引文件',{value0:entries.length,value1:totalFiles}):$t('{value0} 个文件夹 · {value1} 个文件',{value0:entries.filter(e=>e.directory).length,value1:visibleEntries.filter(e=>!e.directory).length})}</p>{#if scope}<Button.Root type="button" class="library-file-filter" aria-label={$t('按索引状态筛选')} onclick={()=>fileFilter=fileFilter==='all'?'indexed':fileFilter==='indexed'?'unindexed':fileFilter==='unindexed'&&scopeAttention?'notes':'all'}><span>{$t(fileFilter==='all'?'全部':fileFilter==='indexed'?'已索引':fileFilter==='unindexed'?'未索引':'待核对笔记')}</span>{@html icon('switch')}</Button.Root>{/if}</div></div></div>
+  <div class="page-heading"><div class="library-folder-heading"><div class="library-folder-title" class:web-library-title={!!webFolder}><h1>{scope?basename(scope):$t('已索引文件')}</h1>{#if scope}<Button.Root type="button" class="library-explore" onclick={()=>{session.mode='explore';onModeChange?.()}}>{$t('探索模式')}</Button.Root>{/if}<div class="library-folder-actions" class:web-library-actions={!!webFolder}>{#if webFolder&&onWebFolderCreated&&onWebUploaded}<WebLibraryActions folder={webFolder.path} canUpload={webFolder.canUpload} bind:creating={creatingWebFolder} onCreated={onWebFolderCreated} onUploaded={onWebUploaded} onCreateDocument={oncreate}/>{:else if oncreate}<Button.Root class="outline library-folder-action" onclick={oncreate}>{@html icon('plus')}{$t('新建文档')}</Button.Root>{/if}{#if !scope&&onadd}<Button.Root class="outline library-folder-action" onclick={onadd}>{@html icon('plus')}{$t('添加文件夹')}</Button.Root>{/if}</div></div><div class="library-folder-meta"><p class="folder-count">{!scope&&totalFiles!==undefined?$t('{value0} 个文件夹 · {value1} 个已索引文件',{value0:entries.length,value1:totalFiles}):$t('{value0} 个文件夹 · {value1} 个文件',{value0:entries.filter(e=>e.directory).length,value1:visibleEntries.filter(e=>!e.directory).length})}</p>{#if scope}<Button.Root type="button" class="library-file-filter" aria-label={$t('按索引状态筛选')} onclick={()=>fileFilter=fileFilter==='all'?'indexed':fileFilter==='indexed'?'unindexed':fileFilter==='unindexed'&&scopeAttention?'notes':'all'}><span>{$t(fileFilter==='all'?'全部':fileFilter==='indexed'?'已索引':fileFilter==='unindexed'?'未索引':'待核对笔记')}</span>{@html icon('switch')}</Button.Root>{/if}</div></div></div>
   {#if !scope}<LibraryStats files={indexedFiles} {roots} {revision} onDetails={onIndexDetails} {onPauseChange}/>{/if}
   {#if showIndexDetails&&scopeRoot}<div class="folder-index-status" role="status" aria-live="polite">
    <div><strong>{$t(scopeState)}</strong>{#if scopeTask&&scopeTask.total>0}<span class="folder-index-count">{scopeTask.completed} / {scopeTask.total}</span>{/if}
@@ -80,7 +85,7 @@
    {#if scope}<Button.Root class="simple-file-row library-parent" aria-label={$t('返回上层')} onclick={()=>onbrowse(parent)}>{@html icon('back')}<span>{$t('返回上层')}</span></Button.Root>{/if}
    {#each visibleEntries as entry}{@const fileState=entry.directory?undefined:fileIndexState(conversionByPath.get(entry.path)??indexedByPath.get(entry.path))}{@const unindexed=!!scope&&!entry.directory&&!indexedPaths.has(entry.path)}<div class="simple-file-entry" class:unindexed role="presentation" oncontextmenu={(e:MouseEvent)=>{e.preventDefault();onmenu(e,entry.path,!scope,!entry.directory)}}><Button.Root class="simple-file-row" title={unindexed?undefined:displayPath(entry.path)} onclick={()=>{if(unindexed){promptPath=entry.path;conversionPrompt=true}else onbrowse(entry.path)}}>{@html icon(entry.directory?'folder':'file')}<span>{entry.name}</span>{#if fileState}<span class="file-index-state" data-state={indexedByPath.get(entry.path)?.index_status} title={$t(fileState.description)+((conversionByPath.get(entry.path)??indexedByPath.get(entry.path))?.index_error?`\n${(conversionByPath.get(entry.path)??indexedByPath.get(entry.path))?.index_error}`:'')}>{$t(fileState.label)}</span>{/if}{#if !entry.directory&&noteByPath.get(entry.path)}{@const note=noteByPath.get(entry.path)!}<span class="note-badge" data-state={note.state} title={$t(note.state==='intact'?'笔记引用一致':note.state==='moved'?'笔记引用位置已更新':note.state==='changed'?'笔记引用的原文已改':note.state==='missing'?'笔记引用的来源缺失':'笔记未核对')}></span>{:else if entry.directory}{@const count=folderAttention(entry.path)}{#if count}<span class="note-badge-count" title={$t('{value0} 篇笔记需要关注',{value0:count})}>{count}</span>{/if}{/if}{#if entry.directory}{@html icon('chevron')}{/if}</Button.Root></div>{/each}
   </div>
-  {#if reading}<div class="empty" role="status">{$t('正在读取文件夹…')}</div>{:else if !entries.length}<div class="empty">{scope?$t('文件夹是空的'):$t('添加文件夹并完成索引后，文件会显示在这里。')}</div>{:else if !visibleEntries.length}<div class="empty">{$t('没有符合条件的文件')}</div>{/if}
+  {#if reading}<div class="empty" role="status">{$t('正在读取文件夹…')}</div>{:else if !entries.length}<div class="empty">{scope?$t('文件夹是空的'):$t(webFolder?'先创建文件夹，再上传文件或文件夹。':'添加文件夹并完成索引后，文件会显示在这里。')}</div>{:else if !visibleEntries.length}<div class="empty">{$t('没有符合条件的文件')}</div>{/if}
  </div>{/if}
 </div>
 
@@ -91,6 +96,8 @@
 </Modal>{/if}
 
 <style>
+ .web-library-actions{flex-wrap:wrap;justify-content:flex-end;gap:8px 20px}
+ @media(max-width:680px){.web-library-title{flex-wrap:wrap}.web-library-actions{flex-basis:100%;justify-content:flex-start;margin-left:0}}
  .file-index-state{flex:0 1 auto;font-size:11px;padding:2px 7px;border-radius:5px;background:var(--color-panel);color:var(--color-muted)}
  .file-index-state[data-state="enhancement_failed"]{color:var(--color-ink);border:1px solid var(--color-rule)}
  .folder-index-status{display:flex;align-items:center;gap:20px;border:1px solid var(--color-rule);background:var(--color-panel);border-radius:10px;padding:14px 16px;margin:0 0 20px;font-size:12px}

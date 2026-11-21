@@ -167,6 +167,10 @@ input,select,textarea{font-size:var(--text-ui)}
 .real-client .composer-options{min-width:0;gap:6px;flex-wrap:nowrap}
 .real-client .scope-button{height:30px;min-height:30px;font-size:var(--text-ui);line-height:1.4;padding:5px 7px;gap:7px;border-radius:7px;max-width:100%}
 .real-client .scope-button>.icon{width:15px;height:15px}
+.real-client .help-scope{display:inline-flex;align-items:center;color:var(--color-secondary);white-space:nowrap}
+.help-entry{margin-top:10px}
+.help-entry .outline{display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:4px 9px;font-size:var(--text-ui)}
+.help-entry .icon{width:15px;height:15px}
 .real-client .model-button{font-size:var(--text-ui);line-height:1.4;max-width:210px;height:30px;padding:4px 24px 4px 7px;border-radius:7px;cursor:pointer;color:var(--color-secondary)}
 .real-client .model-button:hover{background:var(--color-hover)}
 .real-client .send{width:32px;height:32px;flex-shrink:0;margin-left:auto}

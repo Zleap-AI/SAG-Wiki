@@ -101,6 +101,24 @@ pub enum WebCommand {
     },
     Stop,
     Code,
+    /// 设置网页访问码：off 允许能连接网页地址的任何人直接进入。
+    AccessCode {
+        #[arg(value_enum)]
+        mode: WebAccessCode,
+    },
+    /// 保存网页外部访问地址；使用 --clear 清除。
+    ExternalUrl {
+        #[arg(required_unless_present = "clear", conflicts_with = "clear")]
+        url: Option<String>,
+        #[arg(long)]
+        clear: bool,
+    },
+}
+
+#[derive(Clone, clap::ValueEnum)]
+pub enum WebAccessCode {
+    On,
+    Off,
 }
 
 async fn call(client: &sag_client::Client, action: ApiAction) -> Result<Value> {
@@ -153,6 +171,8 @@ pub fn run(command: &ApiCommand) -> Result<()> {
         ApiCommand::Web { action: WebCommand::Start { host, port } } => ApiAction::WebStart { host: host.clone(), port: *port },
         ApiCommand::Web { action: WebCommand::Stop } => ApiAction::WebStop,
         ApiCommand::Web { action: WebCommand::Code } => ApiAction::WebCode,
+        ApiCommand::Web { action: WebCommand::AccessCode { mode } } => ApiAction::WebSetAccessCode { required: matches!(mode, WebAccessCode::On) },
+        ApiCommand::Web { action: WebCommand::ExternalUrl { url, .. } } => ApiAction::WebSetExternalUrl { url: url.clone() },
         ApiCommand::Status { .. } => ApiAction::Status,
         ApiCommand::Key {
             action: KeyCommand::Create { name, paths, .. },
@@ -277,6 +297,10 @@ pub fn run(command: &ApiCommand) -> Result<()> {
             }
             if matches!(command, ApiCommand::Status { .. } | ApiCommand::Web { .. }) {
                 println!("网页服务：{}", if value["web_running"] == true {"运行中"} else {"未运行"});
+                println!("网页访问码：{}", if value["web_access_code_required"] == false {"已关闭（可直接进入）"} else {"已开启"});
+                if let Some(url) = value["web_external_url"].as_str() {
+                    println!("外部访问地址：{url}");
+                }
             }
             if matches!(command, ApiCommand::Status { .. }) {
                 println!("本机 MCP：{}", value["mcp_local_url"].as_str().unwrap());

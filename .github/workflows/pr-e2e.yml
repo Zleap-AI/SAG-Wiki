@@ -243,7 +243,7 @@ jobs:
           import {execFileSync} from 'node:child_process';
           const paths = execFileSync('git', ['diff', '--name-only', '-z', process.env.BASE_SHA, 'HEAD', '--'], {encoding: 'utf8'}).split('\0').filter(Boolean);
           const relevant = paths.some(path => /^(?:\.github\/workflows\/|config\/|src-tauri\/src\/update-fixtures\/)/.test(path) ||
-            /^scripts\/(?:automatic-release|release|configure-release|migrate-release-environment|sign-macos-release|build-cli|package-updates|verify-update|rust-dependency-cache|parallel-cli|test-profile-ab|prepare-qpdf)[^/]*\.mjs$/.test(path) ||
+            /^scripts\/(?:automatic-release|release|configure-release|migrate-release-environment|sign-macos-release|build-cli|package-updates|verify-update|rust-dependency-cache|parallel-cli|test-profile-ab|prepare-qpdf|prepare-pdfium)[^/]*\.mjs$/.test(path) ||
             path === 'scripts/rust-dependency-archive.py' ||
             /^(?:src-tauri\/build(?:-resource-config)?|protocol\/build)\.rs$/.test(path) ||
             /^(?:package(?:-lock)?\.json|(?:cli|src-tauri)\/Cargo\.(?:toml|lock)|src-tauri\/tauri[^/]*\.json|docs-site\/lib\/release-downloads\.ts)$/.test(path));

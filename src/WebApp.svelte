@@ -1,26 +1,30 @@
 <script lang="ts">
  import {onMount} from 'svelte';
- import {connectWeb,disconnectWeb,onWebSignOut,savedWebCode} from './lib/web-connection';
+ import {connectWeb,disconnectWeb,onWebAccessCodeRequired,onWebSignOut,savedWebCode} from './lib/web-connection';
  import {logo} from './lib/icons';
  import {t,setLanguage,resolveBrowserLanguage} from './lib/i18n';
  import App from './App.svelte';
- let connected=false,busy=false,code='',error='';
+ let connected=false,checking=true,busy=false,requiresCode=true,code='',error='';
  async function signIn(accessCode:string){
   busy=true;error='';
-  try{await connectWeb(accessCode.trim());connected=true;code='';}
+  try{const session=await connectWeb(accessCode.trim());if(session){requiresCode=session.accessCodeRequired;connected=true;code='';}}
   catch(e){error=e instanceof Error?e.message:String(e);}
   finally{busy=false;}
  }
  function signOut(){disconnectWeb();connected=false;}
  onMount(()=>{
   setLanguage(resolveBrowserLanguage(navigator.language));
-  const saved=savedWebCode();if(saved)void signIn(saved);
-  return onWebSignOut(()=>{connected=false;error='请重新输入网页访问码。';});
+  void signIn(savedWebCode()).finally(()=>{checking=false;});
+  const stopSignOut=onWebSignOut(()=>{connected=false;error='请重新输入网页访问码。';});
+  const stopAccessCode=onWebAccessCodeRequired(required=>requiresCode=required);
+  return ()=>{stopSignOut();stopAccessCode();};
  });
 </script>
 
 {#if connected}
- <App onWebSignOut={signOut}/>
+ <App onWebSignOut={requiresCode?signOut:undefined}/>
+{:else if checking}
+ <main class="web-login" role="status">{$t('正在连接…')}</main>
 {:else}
  <main class="web-login">
   <form on:submit|preventDefault={()=>signIn(code)}>

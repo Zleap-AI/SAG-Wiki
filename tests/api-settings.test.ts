@@ -23,6 +23,7 @@ beforeEach(()=>{
   if(action.action==='stop'){status.enabled=false;status.running=false;}
   if(action.action==='web_start'){status.web_enabled=true;status.web_running=true;}
   if(action.action==='web_stop'){status.web_enabled=false;status.web_running=false;}
+  if(action.action==='web_set_access_code')status.web_access_code_required=action.required;
   if(action.action==='create_key'||action.action==='create_scoped_key'){keys=[{id:'key-1',name:action.name,prefix:'sag_demo…0001',created_at:new Date(2026,10,14,12).getTime(),copyable:true}];status.key_count=1;return {...keys[0],key:'test-api-secret'};}
   if(action.action==='copy_key')return {key:'test-api-secret'};
   if(action.action==='revoke_key'){keys=[];status.key_count=0;}
@@ -36,13 +37,16 @@ function click(text:string){const buttons=[...document.querySelectorAll<HTMLButt
 it('网页可在 API 关闭时独立启用，并提供浏览器地址和访问码',async()=>{
  app=mount(ApiSettings,{target:document.body});await ready();
  const toggle=document.querySelector<HTMLButtonElement>('[aria-label="网页服务"]')!;
+ expect(document.querySelector('[aria-label="网页访问码"]')).toBeNull();
  toggle.click();
  await vi.waitFor(()=>expect(document.querySelector('.web-service-settings [aria-label="打开网页"]')).not.toBeNull());
  expect(document.querySelector('[aria-label="API 和 MCP"]')?.getAttribute('aria-checked')).toBe('false');
  expect(document.querySelector('.api-endpoints .api-address')).toBeNull();
  expect(document.querySelector('.web-service-settings')?.textContent).toContain('复制访问码');
+ expect(document.querySelector('[aria-label="网页访问码"]')).not.toBeNull();
  toggle.click();
  await vi.waitFor(()=>expect(document.querySelector('.web-service-settings [aria-label="打开网页"]')).toBeNull());
+ expect(document.querySelector('[aria-label="网页访问码"]')).toBeNull();
 });
 it('启用无 Key 的 API，并即时保存自启状态',async()=>{
  app=mount(ApiSettings,{target:document.body});await ready();
@@ -63,6 +67,21 @@ it('确认后更换网页访问码，不关闭网页服务',async()=>{
  await vi.waitFor(()=>expect(document.body.textContent).toContain('访问码已更换'));
  expect(invoke).toHaveBeenCalledWith('manage_api',{action:{action:'web_rotate_code'}});
  expect(document.querySelector('.web-service-settings [aria-label="打开网页"]')).not.toBeNull();
+});
+it('网页访问码开关独立于网页服务和 API',async()=>{
+ status.web_enabled=status.web_running=true;
+ app=mount(ApiSettings,{target:document.body});await ready();
+ const toggle=document.querySelector<HTMLButtonElement>('[aria-label="网页访问码"]')!;
+ expect(toggle.getAttribute('aria-checked')).toBe('true');
+ toggle.click();
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('任何能打开网页地址的人都可以修改设置、管理 API Key 和清除应用数据。'));
+ expect(invoke).toHaveBeenCalledWith('manage_api',{action:{action:'web_set_access_code',required:false}});
+ expect(document.body.textContent).not.toContain('复制访问码');
+ expect(document.querySelector('[aria-label="网页服务"]')?.getAttribute('aria-checked')).toBe('true');
+ expect(document.querySelector('[aria-label="API 和 MCP"]')?.getAttribute('aria-checked')).toBe('false');
+ toggle.click();
+ await vi.waitFor(()=>expect(document.body.textContent).toContain('复制访问码'));
+ expect(invoke).toHaveBeenCalledWith('manage_api',{action:{action:'web_set_access_code',required:true}});
 });
 it('保存连接范围后，API 和 MCP 地址随下一次启动更新',async()=>{
  app=mount(ApiSettings,{target:document.body});await ready();

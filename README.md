@@ -220,15 +220,14 @@ On a minimal Ubuntu or Debian installation, install the system certificates if t
 
 ```sh
 sag api web start --host 0.0.0.0
-sag api web code
 sag api status
 ```
 
 For access from the Linux host only, use `--host 127.0.0.1`. The default port is `24681`; if you changed it, omitting `--port` reuses the saved port.
 
-**3. Open SAG Wiki in your browser.** Use the local address shown by `sag api status` on the host, or the LAN address from another device on the same network. Enter the code from `sag api web code` on the sign-in page. Keep the Linux host and background service running. Use a trusted local network, as the web service uses HTTP.
+**3. Open SAG Wiki in your browser.** Use the local address shown by `sag api status` on the host, or the LAN address from another device on the same network. The access code is off by default for fresh Linux configurations. To require it, run `sag api web access-code on`, then use `sag api web code` to view the code. Keep the Linux host and background service running. Use a trusted local network, as the web service uses HTTP.
 
-If a cloud server's public IP is assigned directly to its network interface, allow the port from your source IP in the firewall and cloud security group, then open `http://PUBLIC_IP:PORT`. With `--port 80` you can omit `:80` if the SAG user has permission to bind to that port. If the public IP is mapped to a private IP, SAG's address check rejects direct access with `403`.
+If your cloud server maps a public IP to a private IP, use `sag api web external-url http://PUBLIC_IP:PORT` to save the browser-facing address. This command leaves the web service and access code settings unchanged. See [public access](docs-site/content/docs/remote-access.en.mdx#access-via-a-public-ip-address-or-domain).
 
 To add files, run `sag add /path/to/your/folder` on the Linux host. Quick search works without a model. To stop browser access, run `sag api web stop`. See the [web service guide](docs-site/content/docs/remote-access.en.mdx#start-from-the-cli) for more details.
 

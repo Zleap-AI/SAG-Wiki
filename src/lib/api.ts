@@ -15,11 +15,7 @@ async function callWeb<T>(command:string,args?:Record<string,unknown>):Promise<T
     if(!['http:','https:','mailto:'].includes(url.protocol))throw new Error('不支持此链接地址');
     window.open(url.href,'_blank','noopener,noreferrer');return undefined as T;
   }
-  if(command==='save_settings'){
-    const {theme,language,start_page,editor_size,model_profiles}=args!.settings as import('./types').Settings;
-    return webRequest<T>({theme,language,start_page,editor_size,model_profiles});
-  }
-  const operation=command==='list_removed_directories'?'removed_directories':command;
+  const operation=({list_removed_directories:'removed_directories',get_docling_status:'docling_status',get_service_info:'info',save_cli_settings:'set_access',manage_api:'api'} as Record<string,string>)[command]??command;
   const named=Object.fromEntries(Object.entries(args??{}).map(([key,value])=>[key.replace(/[A-Z]/g,c=>'_'+c.toLowerCase()),value]));
   return webRequest<T>({operation,...(args?{args:named}:{})});
 }

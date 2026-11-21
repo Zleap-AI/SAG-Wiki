@@ -1,5 +1,7 @@
 //! Local transcript import. Event names and Codex compressed-twin discovery
 //! adapted from claude-code-history-viewer 67979b4 (MIT); see third-party notice.
+pub(crate) mod schedule;
+
 use crate::{
     indexer::IndexRequest,
     store::{hash, Store},
@@ -22,7 +24,7 @@ use std::{
 fn field<'a>(value: &'a Value, key: &str) -> &'a str {
     value[key].as_str().unwrap_or("")
 }
-fn label(source: ChatSource) -> &'static str {
+pub(crate) fn label(source: ChatSource) -> &'static str {
     match source {
         ChatSource::Claude => "Claude Code",
         ChatSource::Codex => "Codex",
@@ -299,6 +301,10 @@ fn codex_catalog(root: &Path, session_id: Option<&str>) -> Result<Option<Vec<Cha
 }
 
 pub fn list_page(source: ChatSource, supplied: Option<&str>, query: &ChatListQuery) -> Result<ChatCatalog> {
+    Ok(paginate(catalog(source, supplied)?, query))
+}
+
+fn catalog(source: ChatSource, supplied: Option<&str>) -> Result<ChatCatalog> {
     let root = root(source, supplied)?;
     let mut catalog = ChatCatalog {
         source_root: root.to_string_lossy().into(),
@@ -315,7 +321,7 @@ pub fn list_page(source: ChatSource, supplied: Option<&str>, query: &ChatListQue
     if source == ChatSource::Codex {
         if let Some(sessions) = codex_catalog(&root, None)? {
             catalog.sessions = sessions;
-            return Ok(paginate(catalog, query));
+            return Ok(catalog);
         }
     }
     let mut groups: BTreeMap<String, ChatSession> = BTreeMap::new();
@@ -427,7 +433,7 @@ pub fn list_page(source: ChatSource, supplied: Option<&str>, query: &ChatListQue
         catalog.sessions.push(session);
     }
     catalog.sessions.sort_by(|a, b| b.updated.cmp(&a.updated));
-    Ok(paginate(catalog, query))
+    Ok(catalog)
 }
 
 #[derive(Clone)]
@@ -986,6 +992,76 @@ mod tests {
     }
     fn codex(role: &str, id: &str, body: &str) -> Value {
         json!({"type":"response_item","timestamp":"2026-11-15T01:00:00Z","payload":{"type":"message","id":id,"role":role,"content":[{"type":"input_text","text":body}]}})
+    }
+
+    #[test]
+    fn scheduled_imports_use_separate_times_and_preserve_edited_markdown() {
+        use chrono::{Local, TimeZone};
+        use sag_protocol::ChatImportSchedule;
+        use tokio_util::sync::CancellationToken;
+
+        let dir = tempfile::tempdir().unwrap();
+        let claude_root = dir.path().join("claude");
+        let codex_root = dir.path().join("codex");
+        let claude_path = claude_root.join("session.jsonl");
+        let codex_path = codex_root.join("rollout-demo.jsonl");
+        let folder = dir.path().join("library");
+        fs::create_dir(&folder).unwrap();
+        let question = claude("scheduled-claude", "first", "user", json!("Claude question"));
+        let answer = claude("scheduled-claude", "second", "assistant", json!([
+            {"type":"text","text":"Claude response"},
+            {"type":"tool_use","name":"Read","input":{"path":"claude-tool-marker"}}
+        ]));
+        write(&claude_path, &[question.clone(), answer.clone()]);
+        write(&codex_path, &[codex_meta(), codex("user", "first", "Codex question"),
+            json!({"type":"response_item","payload":{"type":"function_call","name":"Read","arguments":"codex-tool-marker"}})]);
+        let database = dir.path().join("data/db.sqlite");
+        let store = Store::open(&database).unwrap();
+        set_destination(&store, &folder).unwrap();
+        let (scan, _requests) = mpsc::channel();
+        let stop = CancellationToken::new();
+        let today = Local::now().date_naive().succ_opt().unwrap();
+        let at = |day: chrono::NaiveDate, hour| Local.from_local_datetime(&day.and_hms_opt(hour, 0, 0).unwrap()).unwrap();
+        let configure = |source, enabled, time: &str, root: &Path, include_tools| {
+            schedule::save(&store, source, ChatImportSchedule {
+                enabled, time: time.into(), interval_minutes: None, source_root: Some(root.display().to_string()), include_tools,
+            })
+        };
+        assert!(!schedule::status(&store, ChatSource::Claude).unwrap().schedule.enabled);
+        assert!(configure(ChatSource::Claude, true, "25:00", &claude_root, false).is_err());
+        configure(ChatSource::Claude, true, "09:00", &claude_root, false).unwrap();
+        configure(ChatSource::Codex, true, "10:00", &codex_root, true).unwrap();
+        assert!(schedule::run_due(&store, &scan, ChatSource::Claude, at(today, 8), &stop).unwrap().is_none());
+        assert!(schedule::run_due(&store, &scan, ChatSource::Codex, at(today, 9), &stop).unwrap().is_none());
+        assert!(!folder.join("codex").exists());
+        for (source, hour, subfolder, tool_marker, expected) in [
+            (ChatSource::Claude, 9, "claude code", "claude-tool-marker", false),
+            (ChatSource::Codex, 10, "codex", "codex-tool-marker", true),
+        ] {
+            let result = schedule::run_due(&store, &scan, source, at(today, hour), &stop).unwrap().unwrap();
+            assert_eq!((result.changed, result.failed), (1, 0), "{:?}", result.error);
+            let mut files = fs::read_dir(folder.join(subfolder)).unwrap();
+            assert_eq!(fs::read_to_string(files.next().unwrap().unwrap().path()).unwrap().contains(tool_marker), expected);
+            assert!(files.next().is_none());
+        }
+        let saved = schedule::status(&store, ChatSource::Claude).unwrap();
+        assert_eq!(saved.last_run_at, Some(at(today, 9).timestamp_millis()));
+        assert_eq!(saved.last_run.unwrap().changed, 1);
+        drop(store);
+        let store = Store::open(&database).unwrap();
+        assert!(schedule::run_due(&store, &scan, ChatSource::Claude, at(today, 11), &stop).unwrap().is_none());
+        let next = today.succ_opt().unwrap();
+        let result = schedule::run_due(&store, &scan, ChatSource::Claude, at(next, 11), &stop).unwrap().unwrap();
+        assert_eq!((result.changed, result.failed), (0, 0));
+        let file = fs::read_dir(folder.join("claude code")).unwrap().next().unwrap().unwrap().path();
+        write(&claude_path, &[question, answer, claude("scheduled-claude", "third", "assistant", json!("Later response"))]);
+        let result = schedule::run_due(&store, &scan, ChatSource::Claude, at(next.succ_opt().unwrap(), 11), &stop).unwrap().unwrap();
+        assert_eq!((result.changed, result.failed), (1, 0));
+        assert!(fs::read_to_string(&file).unwrap().contains("Later response"));
+        fs::write(&file, "My edits").unwrap();
+        let result = schedule::run_due(&store, &scan, ChatSource::Claude, at(next.succ_opt().unwrap().succ_opt().unwrap(), 11), &stop).unwrap().unwrap();
+        assert_eq!((result.changed, result.failed), (0, 1));
+        assert_eq!(fs::read_to_string(file).unwrap(), "My edits");
     }
 
     #[test]

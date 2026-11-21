@@ -361,9 +361,11 @@ fn install_binary(
         }
         Ok(())
     }
-    let helper = source.parent().unwrap().join("qpdf");
-    let installed_helper = target.parent().unwrap().join("qpdf");
-    if helper.is_dir() && helper != installed_helper { install_helper(&helper, &installed_helper)?; }
+    for name in ["qpdf", "pdfium"] {
+        let helper = source.parent().unwrap().join(name);
+        let installed_helper = target.parent().unwrap().join(name);
+        if helper.is_dir() && helper != installed_helper { install_helper(&helper, &installed_helper)?; }
+    }
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

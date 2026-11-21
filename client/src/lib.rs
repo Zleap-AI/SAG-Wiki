@@ -1,5 +1,6 @@
 pub mod wire;
 pub mod share;
+pub mod network_proxy;
 use anyhow::{bail, Context, Result};
 use sag_protocol::*;
 use std::{

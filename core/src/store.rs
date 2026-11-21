@@ -381,6 +381,10 @@ impl Store {
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
  CREATE TABLE IF NOT EXISTS chat_imports(identity TEXT PRIMARY KEY,path TEXT NOT NULL,output_hash TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS online_sources(id TEXT PRIMARY KEY, config TEXT NOT NULL, next_at INTEGER);
+ CREATE TABLE IF NOT EXISTS online_items(source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, id TEXT NOT NULL, version TEXT NOT NULL, files TEXT NOT NULL, PRIMARY KEY(source,id));
+ CREATE TABLE IF NOT EXISTS online_runs(id INTEGER PRIMARY KEY, source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, started INTEGER NOT NULL, finished INTEGER, result TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS chat_import_schedules(source TEXT PRIMARY KEY,enabled INTEGER NOT NULL,time TEXT NOT NULL,source_root TEXT,include_tools INTEGER NOT NULL,configured_at INTEGER NOT NULL,last_run_at INTEGER,last_run TEXT,interval_minutes INTEGER);
  CREATE TABLE IF NOT EXISTS root_watch_errors(root TEXT PRIMARY KEY REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS root_exclusions(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
@@ -493,6 +497,13 @@ impl Store {
         }
         let storage = if schema_version == 0 { ConversionStorage::AppData } else { ConversionStorage::Library };
         let transaction = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let has_import_interval: bool = transaction.query_row(
+            "SELECT EXISTS(SELECT 1 FROM pragma_table_info('chat_import_schedules') WHERE name='interval_minutes')",
+            [], |row| row.get(0),
+        )?;
+        if !has_import_interval {
+            transaction.execute("ALTER TABLE chat_import_schedules ADD COLUMN interval_minutes INTEGER", [])?;
+        }
         transaction.execute("INSERT OR IGNORE INTO preferences VALUES(1,?)", [serde_json::json!({"conversion_storage":storage,"update_source_migrated":true}).to_string()])?;
         let mut saved: String = transaction.query_row("SELECT value FROM preferences WHERE id=1", [], |row| row.get(0))?;
         let mut preferences: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&saved)?;
@@ -603,17 +614,20 @@ impl Store {
         if follows_official_update_language(&settings.updates) {
             settings.updates.source = UpdateSource::Website;
         }
-        settings.mineru.enabled = settings.document_parser != Some(DocumentParser::Docling)
+        settings.mineru.enabled = matches!(settings.document_parser, None | Some(DocumentParser::Mineru))
             && crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
         Ok(settings)
     }
     pub fn validate_settings(s: &Settings) -> Result<()> {
         s.runtime.validate().map_err(anyhow::Error::msg)?;
+        crate::model_http::validate_proxy(&s.model_proxy)?;
         if s.answer.auth_mode != ModelAuthMode::Bearer {
             bail!("问答模型需要 API Key 鉴权；无需鉴权选项仅适用于 Jev")
         }
         anyhow::ensure!(s.search_summary_sources > 0, "自动问答参考数量必须大于 0");
         anyhow::ensure!(s.search_summary_model.is_empty() || s.answer.models.contains(&s.search_summary_model), "总结模型必须从可选问答模型中选择");
+        anyhow::ensure!(s.document_parser != Some(DocumentParser::Vision)
+            || (!s.document_parser_model.is_empty() && s.answer.models.contains(&s.document_parser_model)), "解析模型必须从可选问答模型中选择");
         if !sag_protocol::locales::supports_interface_language(&s.language) {
             bail!("不支持的界面语言")
         }
@@ -739,7 +753,7 @@ impl Store {
         if options.convert_other_formats
             && (!previous.convert_other_formats || previous.conversion_formats != options.conversion_formats)
         {
-            self.docling.require_formats(&crate::conversion::local_formats(&options.conversion_formats,&self.settings()?.mineru))?;
+            self.docling.require_formats(&crate::conversion::local_formats(&options.conversion_formats,&self.settings()?))?;
         }
         let root = self.roots()?.into_iter().find(|root| path.starts_with(&root.path)).unwrap().path;
         let mut db = self.connection();
@@ -816,6 +830,8 @@ impl Store {
             DELETE FROM drafts;
             DELETE FROM preferences;
             DELETE FROM chat_imports;
+            DELETE FROM online_sources;
+            DELETE FROM chat_import_schedules;
             INSERT INTO preferences VALUES(1,'{\"conversion_storage\":{\"mode\":\"app_data\"},\"update_source_migrated\":true}');
             DELETE FROM chunk_fts;
             DELETE FROM documents;
@@ -4409,6 +4425,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn delete_and_restore_message_keeps_the_rest_of_the_conversation() {
         let (_dir, store, _) = setup();
         let message = Message {
+            help: false,
             created_at: Some(1_792_368_300_000),
             question: "第一问".into(),
             answer: "第一答".into(),

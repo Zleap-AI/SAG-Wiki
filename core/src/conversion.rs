@@ -9,6 +9,7 @@ use sag_protocol::types::Settings;
 use std::{fs, path::Path, time::Instant};
 
 mod pdf_segments;
+pub(crate) mod vision;
 
 pub struct Attempt {
     /// Aggregate snapshot and lowest unfinished segment. The event's own segment
@@ -103,8 +104,11 @@ fn run_engines(
 pub(crate) fn cloud_supports(source:&Path, config:&sag_protocol::mineru::MineruConfig)->bool {
     config.enabled && crate::mineru::supports(source) && (config.provider != sag_protocol::mineru::MineruProvider::Ai302 || source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")))
 }
-pub(crate) fn local_formats(formats:&Option<Vec<String>>,config:&sag_protocol::mineru::MineruConfig)->Option<Vec<String>> {
-    formats.as_ref().map(|formats|formats.iter().filter(|extension|!cloud_supports(Path::new(&format!("file.{extension}")),config)).cloned().collect())
+pub(crate) fn local_formats(formats:&Option<Vec<String>>,settings:&Settings)->Option<Vec<String>> {
+    formats.as_ref().map(|formats|formats.iter().filter(|extension| {
+        let path = std::path::PathBuf::from(format!("file.{extension}"));
+        !vision::selected(&path, settings) && !cloud_supports(&path, &settings.mineru)
+    }).cloned().collect())
 }
 
 /// Remembered conversion failures survive routine scans. This key changes only
@@ -114,6 +118,14 @@ pub(crate) fn local_formats(formats:&Option<Vec<String>>,config:&sag_protocol::m
 /// settings change, but a known bad file is not parsed again on every scan.
 pub fn failure_identity(source: &Path, settings: &Settings, tools: &str) -> String {
     let runtime = &settings.runtime;
+    if vision::selected(source, settings) {
+        let pdfium = if source.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("pdf")) {
+            vision::library_path().is_ok_and(|path| path.is_file())
+        } else { false };
+        return format!("{}:pdfium={pdfium}:timeout={}:input={}:output={}:pages={}",
+            identity(source, settings), settings.timeout_secs, runtime.conversion_input_mib,
+            runtime.conversion_output_mib, runtime.max_document_pages);
+    }
     format!(
         "{}:{tools}:timeout={}:input={}:output={}:threads={}:ocr_batch={}:layout_batch={}:table_batch={}:queue={}",
         identity(source, settings),
@@ -129,6 +141,9 @@ pub fn failure_identity(source: &Path, settings: &Settings, tools: &str) -> Stri
 }
 
 pub fn identity(source: &Path, settings: &Settings) -> String {
+    if vision::selected(source, settings) {
+        return vision::identity(source, settings);
+    }
     let base = engine_identity(source, settings);
     // Scope invalidation to DOCX/PPTX; changing this switch must not rebuild PDF caches.
     if anydoc::office_text_only(source, &settings.runtime) {
@@ -261,6 +276,16 @@ fn convert_mode(
     if fs::metadata(source)?.len() > settings.runtime.conversion_input_mib as u64 * 1024 * 1024 {
         return Err(Failure::new(FailureKind::Memory, "文档超过配置的转换输入大小限制").into());
     }
+    if vision::selected(source, settings) {
+        let report = std::cell::RefCell::new(report);
+        let engine = &settings.document_parser_model;
+        return run_engines(&[engine], &cancel, |_| {
+            vision::convert(source, output, docling.data_directory(), settings, &cancel, |segment| {
+                report.borrow_mut()(Attempt { segment_status: None, segment: Some(segment), phase: Some("parsing".into()),
+                    engine: engine.clone(), elapsed_ms: 0, error: None });
+            })
+        }, |attempt| report.borrow_mut()(attempt)).map(|_| ());
+    }
     if source
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
@@ -378,6 +403,7 @@ fn convert_using<'a>(
                             &progress,
                             start,
                             match engines_to_run { Engines::Cloud(paused) => Some(paused), _ => None },
+                            &settings.model_proxy,
                         )?;
                     } else {
                         crate::mineru::convert_with_runtime(
@@ -388,6 +414,7 @@ fn convert_using<'a>(
                             &settings.runtime,
                             &cancel,
                             &progress,
+                            &settings.model_proxy,
                         )?;
                     }
                 }
@@ -498,6 +525,128 @@ mod tests {
         let mut bytes = Vec::new();
         pdf.save_to(&mut bytes).unwrap();
         bytes
+    }
+
+    #[test]
+    fn vision_prompt_changes_only_invalidate_the_matching_format() {
+        let mut settings = Settings::default();
+        settings.document_parser = Some(sag_protocol::types::DocumentParser::Vision);
+        let pdf = Path::new("test.pdf");
+        let image = Path::new("test.png");
+        let default_identity = identity(pdf, &settings);
+        assert_eq!(identity(image, &settings), default_identity);
+        settings.document_parser_pdf_prompt = "Custom PDF prompt".into();
+        assert_ne!(identity(pdf, &settings), default_identity);
+        assert_eq!(identity(image, &settings), default_identity);
+        settings.document_parser_pdf_prompt = " \n ".into();
+        settings.document_parser_image_prompt = "Custom image prompt".into();
+        assert_eq!(identity(pdf, &settings), default_identity);
+        assert_ne!(identity(image, &settings), default_identity);
+        settings.document_parser_image_prompt = include_str!("../../protocol/src/image-recognition-prompt.txt").into();
+        assert_eq!(identity(image, &settings), default_identity);
+    }
+
+    #[test]
+    fn vision_converts_and_indexes_without_docling() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        use std::net::TcpListener;
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        use sag_protocol::types::DocumentParser;
+        use serde_json::{json, Value};
+
+        let temp = tempfile::tempdir().unwrap();
+        let data = temp.path().join("data");
+        let root = temp.path().join("library");
+        fs::create_dir(&root).unwrap();
+        let store = crate::store::Store::open(&data.join("index.sqlite")).unwrap();
+        assert!(!store.docling.installed());
+        let root_id = store.add_root(&root).unwrap();
+        let picture = include_bytes!("../assets/image-probe.png");
+        fs::write(root.join("picture.png"), picture).unwrap();
+        let truncated_picture = root.join("truncated.png");
+        let mut truncated = picture.to_vec();
+        truncated.extend_from_slice(b"fixture-truncated-reply");
+        fs::write(&truncated_picture, &truncated).unwrap();
+        let test_pdf = std::env::var_os("SAG_TEST_PDFIUM").is_some();
+        if test_pdf { fs::write(root.join("pages.pdf"), text_pdf(2)).unwrap(); }
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut settings = store.settings().unwrap();
+        settings.document_parser = Some(DocumentParser::Vision);
+        settings.document_parser_model = "visual-fixture".into();
+        let pdf_prompt = "Transcribe the page using the custom PDF prompt";
+        let image_prompt = "Read this picture using the custom image prompt";
+        settings.document_parser_pdf_prompt = pdf_prompt.into();
+        settings.document_parser_image_prompt = image_prompt.into();
+        settings.answer.models.push(settings.document_parser_model.clone());
+        settings.answer.url = format!("http://{}/v1", listener.local_addr().unwrap());
+        settings.convert_other_formats = true;
+        settings.conversion_formats = Some(vec!["png".into(), "pdf".into()]);
+        settings.conversion_workers = 1;
+        settings.timeout_secs = 10;
+        settings.runtime.retry_count = 0;
+        store.save_settings(&settings).unwrap();
+        crate::models::save_secret(&data, "answer", "synthetic-key").unwrap();
+        let server = std::thread::spawn(move || {
+            listener.set_nonblocking(true).unwrap();
+            let deadline = Instant::now() + std::time::Duration::from_secs(15);
+            let mut pdf_pages = 0;
+            for _ in 0..if test_pdf { 4 } else { 2 } {
+                let mut stream = loop {
+                    match listener.accept() {
+                        Ok((stream, _)) => break stream,
+                        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock && Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(10)),
+                        Err(error) => panic!("model request missing: {error}"),
+                    }
+                };
+                stream.set_nonblocking(false).unwrap();
+                stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                let mut reader = BufReader::new(&mut stream);
+                let mut header = String::new();
+                while !header.ends_with("\r\n\r\n") && reader.read_line(&mut header).unwrap() > 0 {}
+                assert!(header.starts_with("POST /v1/chat/completions "));
+                assert!(header.to_ascii_lowercase().contains("authorization: bearer synthetic-key"));
+                let length = header.to_ascii_lowercase().lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().parse().unwrap();
+                let mut body = vec![0; length];
+                reader.read_exact(&mut body).unwrap();
+                let body: Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(body["model"], "visual-fixture");
+                let content = &body["messages"][0]["content"];
+                let prompt = content[0]["text"].as_str().unwrap();
+                let image = STANDARD.decode(content[1]["image_url"]["url"].as_str().unwrap().strip_prefix("data:image/png;base64,").unwrap()).unwrap();
+                let (finish_reason, reply) = if prompt == pdf_prompt {
+                    pdf_pages += 1;
+                    let png = png::Decoder::new(std::io::Cursor::new(image)).read_info().unwrap();
+                    assert_eq!(png.info().width, 556);
+                    ("stop", format!("Rendered evidence {pdf_pages}"))
+                } else {
+                    assert_eq!(prompt, image_prompt);
+                    if image == truncated {
+                        ("length", "Incomplete result must never be indexed".into())
+                    } else {
+                        assert_eq!(image, picture);
+                        ("stop", "Recognized picture evidence".into())
+                    }
+                };
+                let reply = json!({"choices":[{"finish_reason":finish_reason,"message":{"content":reply}}]}).to_string();
+                write!(stream,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{reply}", reply.len()).unwrap();
+            }
+        });
+        store.scan(&root_id, |_| {}).unwrap();
+        server.join().unwrap();
+        assert!(!store.search_files("Recognized picture evidence", &[], 10).unwrap().is_empty());
+        assert!(store.search_files("Incomplete result must never be indexed", &[], 10).unwrap().is_empty());
+        if test_pdf {
+            assert!(!store.search_files("Rendered evidence", &[], 10).unwrap().is_empty());
+            let result = store.document(&root.join("pages.pdf")).unwrap();
+            assert!(result.body.find("Rendered evidence 1").unwrap() < result.body.find("Rendered evidence 2").unwrap());
+        }
+        let cancelled_output = temp.path().join("cancelled.md");
+        assert!(vision::convert(&root.join("picture.png"), &cancelled_output, &data, &settings, &|| true, |_| {})
+            .unwrap_err().to_string().contains("已停止转换"));
+        assert!(!cancelled_output.exists());
+        let first_count = store.indexed_file_count(&root).unwrap();
+        store.scan(&root_id, |_| {}).unwrap();
+        assert_eq!(store.indexed_file_count(&root).unwrap(), first_count);
     }
 
     #[test]
@@ -730,7 +879,8 @@ printf '# recovered by alternate parser\n' > "$output"
         store.save_folder_index_options(&root,&options,false).unwrap();
         assert_eq!(store.folder_index_options(&root).unwrap().conversion_formats,Some(vec!["pdf".into()]));
         let open=sag_protocol::mineru::MineruConfig{enabled:true,..Default::default()};
-        assert_eq!(local_formats(&Some(vec!["pdf".into(),"png".into()]),&open),Some(vec!["png".into()]));
+        let settings = Settings { mineru: open, ..Settings::default() };
+        assert_eq!(local_formats(&Some(vec!["pdf".into(),"png".into()]),&settings),Some(vec!["png".into()]));
         options.conversion_formats=Some(vec!["wav".into()]);assert!(store.save_folder_index_options(&root,&options,false).is_err());
         crate::mineru::clear_key(&dir.path().join("data"), &settings.mineru).unwrap();
         assert!(!store.settings().unwrap().mineru.enabled);

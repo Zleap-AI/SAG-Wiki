@@ -165,12 +165,15 @@ fn rewrite_database(path: &Path, sources: &[PathBuf], destination: &Path, output
         ("roots", "path"), ("root_watch_errors", "root"),
         ("root_exclusions", "path"), ("root_exclusions", "root"),
         ("index_issues", "path"), ("index_issues", "root"), ("index_history", "path"),
-        ("chat_imports", "path"), ("conversions", "source"), ("conversions", "root"), ("conversions", "output"),
+        ("chat_imports", "path"), ("chat_import_schedules", "source_root"), ("conversions", "source"), ("conversions", "root"), ("conversions", "output"),
         ("conversion_states", "source"), ("conversion_states", "root"),
         ("conversion_failures", "source"), ("conversion_failures", "root"),
         ("documents", "path"), ("documents", "root"), ("notes", "path"),
         ("note_sources", "path"), ("note_sources", "display_path"), ("drafts", "path"),
     ] {
+        if table == "chat_import_schedules" && !tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='chat_import_schedules')", [], |row| row.get::<_, bool>(0),
+        )? { continue; }
         let mut query = tx.prepare(&format!("SELECT rowid,{column} FROM {table} WHERE {column} IS NOT NULL"))?;
         let rows = query.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -180,7 +183,10 @@ fn rewrite_database(path: &Path, sources: &[PathBuf], destination: &Path, output
             }
         }
     }
-    for (table, column) in [("preferences", "value"), ("conversations", "messages"), ("drafts", "value"), ("notes", "scope")] {
+    for (table, column) in [("preferences", "value"), ("conversations", "messages"), ("drafts", "value"), ("notes", "scope"), ("online_sources", "config"), ("online_items", "files")] {
+        if matches!(table, "online_sources" | "online_items") && !tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name=?1)", [table], |row| row.get::<_, bool>(0),
+        )? { continue; }
         let mut query = tx.prepare(&format!("SELECT rowid,{column} FROM {table}"))?;
         let rows = query.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
@@ -212,6 +218,12 @@ fn rewrite_database(path: &Path, sources: &[PathBuf], destination: &Path, output
                     }
                 },
                 "drafts" => if let Some(path) = value.get_mut("path") { rewrite_paths(path, &remap); },
+                "online_sources" => if let Some(path) = value.get_mut("directory") { rewrite_paths(path, &remap); },
+                "online_items" => if let Some(files) = value.as_array_mut() {
+                    for file in files {
+                        if let Some(path) = file.get_mut("path") { rewrite_paths(path, &remap); }
+                    }
+                },
                 _ => rewrite_paths(&mut value, &remap),
             }
             let updated = serde_json::to_string(&value)?;
@@ -285,6 +297,13 @@ mod tests {
         db.execute("INSERT OR REPLACE INTO preferences(id,value) VALUES(1,?1)", [serde_json::json!({
             "notes":{"folder":source.join("notes")},"external":root,"conversion_storage":{"mode":"app_data"}
         }).to_string()]).unwrap();
+        db.execute("INSERT INTO online_sources(id,config,next_at) VALUES('feed',?1,42)", [serde_json::json!({
+            "directory": internal_root, "name": internal
+        }).to_string()]).unwrap();
+        db.execute("INSERT INTO online_items(source,id,version,files) VALUES('feed','entry','1',?1)", [serde_json::json!([
+            {"path": internal_pdf, "hash": "same-content"},
+            {"path": external, "hash": "external-content"}
+        ]).to_string()]).unwrap();
         drop(db);
         drop(store);
         let original = fs::read(source.join("sag.sqlite")).unwrap();
@@ -314,8 +333,19 @@ mod tests {
         assert_eq!(settings["notes"]["folder"], destination.join("notes").to_str().unwrap());
         assert_eq!(settings["external"], root);
         let relocated_root = destination.join("docs");
+        let (config, next_at): (String, i64) = db.query_row("SELECT config,next_at FROM online_sources WHERE id='feed'", [], |r| Ok((r.get(0)?,r.get(1)?))).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&config).unwrap(), serde_json::json!({
+            "directory": relocated_root, "name": internal
+        }));
+        assert_eq!(next_at, 42);
+        let files: String = db.query_row("SELECT files FROM online_items WHERE source='feed'", [], |r| r.get(0)).unwrap();
+        assert_eq!(serde_json::from_str::<serde_json::Value>(&files).unwrap(), serde_json::json!([
+            {"path": relocated_root.join("book.pdf"), "hash": "same-content"},
+            {"path": external, "hash": "external-content"}
+        ]));
         let migrated_api: serde_json::Value = serde_json::from_slice(&fs::read(destination.join("http-api.json")).unwrap()).unwrap();
         let mut expected_api = api;
+        expected_api["web_allow_anonymous"] = serde_json::json!(false);
         expected_api["keys"][0]["scope"]["directories"][0] = serde_json::json!({
             "path":relocated_root, "canonical":relocated_root,
         });

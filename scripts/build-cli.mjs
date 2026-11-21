@@ -3,6 +3,7 @@ import {copyFileSync, mkdirSync, writeFileSync} from 'node:fs';
 import {join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {prepareQpdf} from './prepare-qpdf.mjs';
+import {preparePdfium} from './prepare-pdfium.mjs';
 import {buildWebAssets} from './build-web-assets.mjs';
 
 // Cargo resolves an explicit target directory relative to the invocation cwd.
@@ -46,5 +47,7 @@ export function buildCli({debug = false, env = process.env, platform = process.p
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   await prepareQpdf(resolve('src-tauri/bin',process.argv.includes('--debug')?'development/qpdf':'qpdf'));
+  await preparePdfium(resolve('src-tauri/bin',process.argv.includes('--debug')?'development/pdfium':'pdfium'),
+    process.argv.includes('--debug') ? `${process.arch}-${process.platform}` : undefined);
   process.exitCode = buildCli({debug: process.argv.includes('--debug'), env: {...process.env,SAG_WEB_DIST:buildWebAssets()}});
 }

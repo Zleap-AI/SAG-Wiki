@@ -220,15 +220,14 @@ sag --version
 
 ```sh
 sag api web start --host 0.0.0.0
-sag api web code
 sag api status
 ```
 
 仅在本机访问时，使用 `--host 127.0.0.1`。默认端口为 `24681`；若改过端口，省略 `--port` 会沿用已保存的设置。
 
-**3. 用浏览器打开。** 在本机打开 `sag api status` 显示的本机地址，或在同一局域网内的其他设备上打开局域网地址。在登录页输入 `sag api web code` 显示的访问码。请保持 Linux 主机和后台服务运行；网页使用 HTTP，请在可信局域网内使用。
+**3. 用浏览器打开。** 在本机打开 `sag api status` 显示的本机地址，或在同一局域网内的其他设备上打开局域网地址。Linux 新配置默认关闭访问码。需要验证时可用 `sag api web access-code on` 开启，再用 `sag api web code` 查看访问码。请保持 Linux 主机和后台服务运行。网页使用 HTTP，请在可信局域网内使用。
 
-云服务器的公网 IP 若直接配置在网卡上，可在防火墙和云安全组对你的来源 IP 放行相应端口，然后打开 `http://公网IP:端口`。使用 `--port 80` 时可省略 `:80`，运行账号需有权限监听该端口。若公网 IP 映射到内网 IP，当前 SAG 的地址校验会拒绝直连，返回 `403`。
+云服务器的公网 IP 若映射到内网 IP，可用 `sag api web external-url http://公网IP:端口` 保存浏览器访问的地址。此命令不启动网页服务，也不改变访问码设置。详见[公网访问说明](docs-site/content/docs/remote-access.mdx#通过公网-ip-或域名访问)。
 
 在 Linux 主机上运行 `sag add /你的/文件夹路径` 可添加文件夹。快速搜索无需配置模型。运行 `sag api web stop` 可关闭网页访问。详见[网页服务指南](docs-site/content/docs/remote-access.mdx#通过-cli-开启)。
 

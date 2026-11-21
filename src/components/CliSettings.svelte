@@ -4,6 +4,7 @@
  import {Button,Collapsible} from 'bits-ui';
  import Switch from './ui/Switch.svelte';
  import {api} from '../lib/api';
+ import {web} from '../lib/web-connection';
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
  import {displayPath} from '../lib/domain';
@@ -41,6 +42,12 @@
  }
 
  async function load(){
+  if(web){
+   savedAccess=await api<CliAccess>('get_access');
+   access=access??savedAccess;
+   loaded=true;
+   return;
+  }
   const config=await api<{access:CliAccess;installations:Installation[];install_error?:string|null;skill_url:string}>('get_cli_settings');
   savedAccess=config.access;
   access=access??config.access;
@@ -83,14 +90,14 @@
   <div class="cli-loading" role="status">{$t('正在读取 CLI 设置…')}</div>
  {:else if access}
   <section class="cli-section" aria-labelledby="cli-access-heading">
-   <header class="cli-section-heading"><h3 id="cli-access-heading">{$t('CLI 服务')}</h3><div class="cli-service-actions"><span>{$t('保存设置后生效')}</span><Button.Root type="button" class="outline cli-action" disabled={disabled||unsaved} onclick={testConnection}>{operation?.kind==='test'?$t('连接中…'):$t('测试连接')}</Button.Root></div></header>
+   <header class="cli-section-heading"><h3 id="cli-access-heading">{$t('CLI 服务')}</h3><div class="cli-service-actions"><span>{$t('保存设置后生效')}</span>{#if !web}<Button.Root type="button" class="outline cli-action" disabled={disabled||unsaved} onclick={testConnection}>{operation?.kind==='test'?$t('连接中…'):$t('测试连接')}</Button.Root>{/if}</div></header>
    <div class="cli-panel">
     <div class="cli-access-row">
-     <div><strong>{$t('启用 CLI')}</strong><p>{$t('首次启动自动安装并启用。搜索当前目录下已加入知识库的内容。')}</p></div>
+     <div><strong>{$t('启用 CLI')}</strong>{#if !web}<p>{$t('首次启动自动安装并启用。搜索当前目录下已加入知识库的内容。')}</p>{/if}</div>
      <Switch checked={access.enabled} onCheckedChange={enabled=>{access={enabled};if(!enabled)clearConnection();}} disabled={disabled} label={$t('启用 CLI')}/>
     </div>
     <p class="cli-auto-scope">{$t('无需选择授权范围。Agent 可运行 sag add，将当前项目加入知识库后搜索。')}</p>
-    {#if unsaved}<p class="cli-auto-scope">{$t('请先保存 CLI 开关，再测试连接。')}</p>{/if}
+    {#if unsaved&&!web}<p class="cli-auto-scope">{$t('请先保存 CLI 开关，再测试连接。')}</p>{/if}
     {#if connection}
      <div class="cli-connection-result">
       <Button.Root type="button" class="cli-disclosure cli-connection-trigger" aria-expanded={connectionOpen} aria-controls="cli-connection-details" data-state={connectionOpen?'open':'closed'} onclick={()=>connectionOpen=!connectionOpen}><span aria-hidden="true">{@html icon('chevron')}</span><strong>{$t('连接状态')}</strong><span class="cli-connection-summary" role="status">{#if connectionSuccessVisible}<span class="cli-connection-badge" out:fade={{duration:connection?successFadeDuration:0}}>{$t('连接成功')}</span>{/if}</span></Button.Root>
@@ -100,7 +107,7 @@
    </div>
   </section>
 
-  <section class="cli-section" aria-labelledby="cli-tools-heading">
+  {#if !web}<section class="cli-section" aria-labelledby="cli-tools-heading">
    <header class="cli-section-heading"><h3 id="cli-tools-heading">{$t('接入Agent')}</h3></header>
    <p class="cli-section-description">{$t('安装 SAG Skill，让 Agent 知道如何通过 CLI 搜索已加入知识库的本地文件。')}</p>
    <div class="cli-panel cli-integrations">
@@ -115,18 +122,18 @@
     </div>
    </div>
   </section>
-  <aside class="cli-note"><span aria-hidden="true">{@html icon('info')}</span><div><p>{$t('CLI 和桌面端共用后台服务，退出桌面后仍可使用。')}</p><p>{$t('检索问题和候选片段会发送到已配置的 JEV 服务。')}</p></div></aside>
+  <aside class="cli-note"><span aria-hidden="true">{@html icon('info')}</span><div><p>{$t('CLI 和桌面端共用后台服务，退出桌面后仍可使用。')}</p><p>{$t('检索问题和候选片段会发送到已配置的 JEV 服务。')}</p></div></aside>{/if}
  {/if}
  {#if error}<div class="cli-feedback cli-error" role="alert"><span aria-hidden="true">{@html icon('info')}</span><div><strong>{$t('操作未完成')}</strong><p>{error}</p></div>{#if !loaded}<Button.Root type="button" class="outline" disabled={pending} onclick={refresh}>{$t('重试')}</Button.Root>{/if}</div>{/if}
  {#if notice}<div class="cli-feedback" role="status"><span aria-hidden="true">{@html icon('check')}</span><p>{notice}</p></div>{/if}
  <div class="cli-panel cli-guides">
-  <Collapsible.Root class="cli-location" open={false}>
+  {#if !web}<Collapsible.Root class="cli-location" open={false}>
    <Collapsible.Trigger type="button" class="cli-disclosure cli-guide-trigger"><span aria-hidden="true">{@html icon('chevron')}</span>{$t('Skill 安装指南')}</Collapsible.Trigger>
    <Collapsible.Content class="cli-location-content">
     <div class="cli-skill-help"><p>{$t('点击上方对应 Agent 的“安装”按钮即可完成安装。')}</p><p>{$t('也可在终端运行对应命令，或让 Agent 执行安装。')}</p><p>{$t('安装完成后，请在对应 Agent 中新开会话以加载 Skill。')}</p></div>
     {#each integrations as item(item.name)}<div class="cli-skill-path"><strong>{names[item.name]}</strong><code>{displayPath(item.path)}</code></div>{/each}
    </Collapsible.Content>
-  </Collapsible.Root>
+  </Collapsible.Root>{/if}
  <Collapsible.Root class="cli-guide" open={false}>
   <Collapsible.Trigger type="button" class="cli-disclosure cli-guide-trigger"><span aria-hidden="true">{@html icon('chevron')}</span>{$t('CLI 使用指南')}</Collapsible.Trigger>
   <Collapsible.Content class="cli-guide-content">

@@ -3,12 +3,13 @@
  import {Button} from 'bits-ui';
  import {t} from '../lib/i18n';
  import {api} from '../lib/api';
- import type {MineruConfig} from '../lib/types';
+ import type {MineruConfig,ModelProxy} from '../lib/types';
  import Input from './ui/Input.svelte';
  import Select from './ui/Select.svelte';
  import Switch from './ui/Switch.svelte';
  export let value:MineruConfig|undefined=undefined;
  export let apiKey='';
+ export let modelProxy:ModelProxy|undefined=undefined;
  let error='',status='',busy=false,revision=0;
  let saved:Record<string,boolean>={};
  let endpoints:Record<string,string>={};
@@ -19,7 +20,7 @@
  });
  function provider(nextValue:string){if(!value||nextValue===value.provider)return;revision++;const next=nextValue as MineruConfig['provider'];apiKey='';value={...value,provider:next,base_url:'',has_key:saved[next]??false};error='';status='';busy=false;}
  async function test(){if(!value)return;error='';status='';if(!apiKey.trim()&&!value.has_key){error=$t('请填写当前服务商的 API Key');return;}const current=++revision;busy=true;
-  try{const result=await api<string>('test_mineru',{config:structuredClone(value),key:apiKey.trim()});if(current===revision)status=$t(result);}
+  try{const result=await api<string>('test_mineru',{config:structuredClone(value),key:apiKey.trim(),...(modelProxy&&{modelProxy:structuredClone(modelProxy)})});if(current===revision)status=$t(result);}
   catch(reason){if(current===revision)error=$t(String(reason));}finally{if(current===revision)busy=false;}
  }
  async function clear(){if(!value)return;const config=structuredClone(value);busy=true;error='';try{await api('clear_mineru_key',{config});saved={...saved,[config.provider]:false};value={...value,has_key:false};apiKey='';status=$t('已移除保存的密钥');}catch(reason){error=String(reason)}finally{busy=false}}

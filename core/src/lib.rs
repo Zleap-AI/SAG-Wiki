@@ -1,5 +1,7 @@
 mod conversion;
+mod help;
 mod chat_import;
+mod online_import;
 mod mineru;
 pub mod agent;
 pub mod anydoc;

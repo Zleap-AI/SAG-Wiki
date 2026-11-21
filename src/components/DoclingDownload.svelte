@@ -5,6 +5,7 @@
  import {Button} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
  import {api} from '../lib/api';
+ import {web} from '../lib/web-connection';
  import {doclingStatus,doclingDownloadOpen,doclingInstallRequest,openDoclingProgress,refreshDoclingStatus,profileInstalled} from '../lib/docling';
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
@@ -27,9 +28,10 @@
   clearTimeout(timer);
   try{await refreshDoclingStatus(fresh);if(!disposed){loading=false;error='';cancelling=false;}}
   catch(e){if(!disposed){loading=false;error=String(e);}}
-  finally{if(!disposed){clearTimeout(timer);timer=setTimeout(refresh,status.running?700:3000);}}
+  finally{if(!disposed&&(!web||get(doclingStatus)?.running)){clearTimeout(timer);timer=setTimeout(refresh,get(doclingStatus)?.running?700:3000);}}
  }
  onMount(()=>{void refresh();return()=>{disposed=true;clearTimeout(timer);};});
+ $:if(web&&$doclingDownloadOpen)void refresh();
  $:if($doclingDownloadOpen&&context?.action&&!loading){
   const action=context.action;
   context.action=undefined;
@@ -43,7 +45,7 @@
   error='';
   try{
    if(!request.profiles.length)throw Error('请先选择要解析的文件格式');
-   if(!commandLine&&documentsPending)await api('install_docling_from_resource',{profiles:[...request.profiles]});
+   if(!web&&!commandLine&&documentsPending)await api('install_docling_from_resource',{profiles:[...request.profiles]});
    else{
     if(!status.profiles?.length&&request.profiles.includes('media'))throw Error('当前服务不支持按需安装音视频组件，请更新后台服务后重试');
     await api(status.profiles?.length?'install_docling_profiles':'install_docling',status.profiles?.length?{profiles:[...request.profiles]}:undefined);
@@ -102,10 +104,10 @@
     {#if status.total}<p>{(status.downloaded/1048576).toFixed(1)} / {(status.total/1048576).toFixed(1)} MB{#if status.packages_total}　{$t('已完成 {value0} / {value1} 个包',{value0:status.packages_done??0,value1:status.packages_total})}{/if}</p>{/if}
     <p class="download-log">{status.running?(steps[Math.min(2,Math.max(0,step))]):complete?$t('文件解析支持已就绪'):$t('安装未完成，可重试。')}</p>
     {#if activity}<p class="download-activity" aria-label={$t('最近活动')}>{$t(activity)}</p>{/if}
-    {#if status.running||status.error}<Button.Root type="button" class="download-log-link" onclick={openLog}>{$t('打开安装日志')}</Button.Root>{/if}
+    {#if !web&&(status.running||status.error)}<Button.Root type="button" class="download-log-link" onclick={openLog}>{$t('打开安装日志')}</Button.Root>{/if}
    </div>
   {/if}
-  {#if !status.running&&documentsPending}
+  {#if !web&&!status.running&&documentsPending}
    <section class="offline-component">
     <p class="settings-help">{$t('自动下载失败或无法联网时，可导入完整文档识别组件：先解压组件包，选择包含 manifest.json 的目录；组件需匹配当前系统和版本，包含运行环境、依赖和模型。如果只是运行环境管理器 uv 下载失败，也可选择解压后的 uv 目录，其余部分仍在线下载。')}</p>
     <Button.Root type="button" disabled={loading||context?.pending} onclick={importComponent}>{$t('导入离线组件')}</Button.Root>
@@ -120,7 +122,7 @@
    <Button.Root type="button" onclick={()=>close()}>{$t('取消')}</Button.Root>
    <div class="install-actions">
     <Button.Root type="button" class="primary" disabled={loading||!targets.length||context?.pending} onclick={()=>install()}>{$t(context?.pending?'正在安装…':status.error||status.stage==='cancelled'||error?'重试安装':'安装')}</Button.Root>
-    {#if documentsPending}<Button.Root type="button" class="install-command" disabled={loading||context?.pending} onclick={()=>install(true)}>{$t('通过命令行安装')}</Button.Root>{/if}
+    {#if !web&&documentsPending}<Button.Root type="button" class="install-command" disabled={loading||context?.pending} onclick={()=>install(true)}>{$t('通过命令行安装')}</Button.Root>{/if}
    </div>
   {/if}
  </div>
