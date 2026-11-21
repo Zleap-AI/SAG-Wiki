@@ -2,6 +2,7 @@
 
 ## 0.4.2
 
+- **探索模式**：修复 PDF、Office 等转换文档未出现在探索视图的问题；现在按原始文件所在文件夹归入探索范围，并保留文件夹、隐藏目录和排除规则。([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
 - **多轮问答回复格式**：历史工具调用改为按模型接口原生的工具调用与结果消息回放，最终回答保持纯文本，修复追问时模型模仿内部记录、输出 `{"answer":…}` JSON 的问题；服务拒绝该回放形式时改为纯文本重发一次。只含 answer、sources、tool_history 字段的包装回复会自动解包正文后再校验引用，用户要求的其他 JSON 结构保持原样。
 - **上下文压缩**：摘要分块上限提高到 32,768 tokens，默认预算下通常一到两批完成；进度显示“第 N/M 块”；摘要长度取服务返回的输出 token 与本地估算中的较小值，并修正中文分词估算偏高的问题。摘要失败时不再整轮失败，改为只保留最近一轮、本轮记录和此前已有的摘要继续回答，并在回答上方说明原因。
 - **空回答**：模型只返回空白时自动重答一次，仍为空则显示错误而不是空白的“完成”；历史中的空回答显示占位和重新生成入口；回答渲染出错时退化为纯文本显示。
@@ -9,6 +10,7 @@
 
 ### English
 
+- **Explore mode**: Show converted PDF and Office documents in the scope of their original source folder while preserving folder, hidden-directory, and exclusion rules. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
 - **Multi-turn reply format**: Replay earlier tool use as native tool-call and tool-result messages and keep final answers as plain text, so follow-up answers no longer imitate the internal record and come back as `{"answer":…}` JSON. A service that rejects that replay shape receives the records once more as plain text. Replies wrapped with only answer, sources and tool_history fields are unwrapped before citation checks; other JSON the user asked for is kept.
 - **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the smaller of the provider's output tokens and the local estimate, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange, this turn's records and any earlier summary, with the reason shown above the answer.
 - **Empty answers**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action, and an answer that fails to render falls back to plain text.
