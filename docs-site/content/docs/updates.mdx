@@ -7,11 +7,17 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="b45d097048ff990469114cca1c8743ada79cdc8c0fb2cd7b617d090c5c4d458a" aria-hidden="true" />
+<span data-docs-changelog-sha="fb4857972edf25d6e950509f7db841f02bb2316eb184da72d81a34342b499efe" aria-hidden="true" />
 
 ## 0.4.2
 
-- **快速配置**：未配置回答模型时，问答首页和快速入门显示「快速配置」。填入一个 302.AI API Key 并通过测试后，自动配置 `qwen3.8-flash` 回答模型、`jev-latest` 决策模型和 302.AI MinerU 解析；已配置的 Jev 或 MinerU 保持不变。新安装的默认回答模型改为 `qwen3.8-flash`。
+- **快速配置**：未配置回答模型时，问答首页和快速入门提供「快速配置」入口。填入一个 302.AI API Key 并测试通过后，自动配好 qwen3.8-flash 回答模型、jev-latest 决策模型和 302.AI MinerU 解析。新安装的默认回答模型改为 qwen3.8-flash。
+- **网络代理**：新增「设置 → 网络代理」页面，可选跟随系统、自定义或不使用代理。自定义代理支持 SOCKS5 和账号密码，密码只保存在本机；测试连接会报告实际走的线路。([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171)、[Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
+- **探索模式**：转换结果存放在应用数据目录时，PDF、Office 文档不再从探索视图中消失。([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
+- **问答回复格式**：多轮追问时不再出现 `{"answer":…}` 形式的 JSON 回答。
+- **上下文压缩**：压缩时显示“第 N/M 块”进度，不再像卡死；摘要失败时继续作答并说明原因，不再整轮失败。
+- **空回答**：模型只返回空白时自动重试一次，仍为空则明确报错，不再显示“已完成”却没有正文。
+- **工具调用**：同一轮内参数完全相同的重复检索自动跳过；每轮调用上限默认改为 20，已设为 0 的继续不限制。
 
 ## 0.4.1
 

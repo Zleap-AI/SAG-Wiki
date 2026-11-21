@@ -12,7 +12,7 @@
  import Switch from "./ui/Switch.svelte";
  import ReasoningControl from "./ReasoningControl.svelte";
  import{Button,Checkbox}from 'bits-ui';
- import type{Settings,ModelConfig,ModelProxy,Retrieval,FileTypes,CliAccess,ConversionStorage}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
+ import type{Settings,ModelConfig,ModelProxy,Retrieval,FileTypes,CliAccess,ConversionStorage}from '../lib/types';import{normalizeModelProxy}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
  import {open} from '@tauri-apps/plugin-dialog';
  import {displayPath} from '../lib/domain';
  import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo}from '../lib/types';
@@ -29,6 +29,7 @@
  import DataDirectory from './DataDirectory.svelte';
  import AppUpdates from './AppUpdates.svelte';
  import QuickSearchSettings from './QuickSearchSettings.svelte';
+ import NetworkSettings from './NetworkSettings.svelte';
  import {defaultUpdateSettings,updateSettingsForLanguage} from '../lib/updates';
  import {providers,providerFor,sameProviderOrigin,type ModelKind} from '../lib/providers';
  import pdfRecognitionPrompt from '../../protocol/src/pdf-recognition-prompt.txt?raw';
@@ -50,7 +51,7 @@
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>,mineruKey?:string)=>Promise<void>;
- let settings={...structuredClone(value),model_proxy:structuredClone(value.model_proxy??{url:'',bypass:''}),show_index_details:value.show_index_details??false,runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:resolveLanguage(value.language),max_tool_calls:value.max_tool_calls??0,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??defaultConversionWorkers,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),model_proxy:normalizeModelProxy(value.model_proxy),show_index_details:value.show_index_details??false,runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:resolveLanguage(value.language),max_tool_calls:value.max_tool_calls??20,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??defaultConversionWorkers,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false,apiBusy=false;
  let dataDirectoryBusy=false;
  let serviceInfo:{data_directory:string;version:string|null}|null=null;
@@ -68,14 +69,21 @@
  };
  let proxyDraft:ModelProxy|null=null;
  let proxyTest:{result:'pending'|'success'|'failure',message:string}|null=null;
+ /** The General dialog edits the shared proxy: an address means a custom proxy, none keeps or restores the system default. */
+ function applyProxyDraft(){
+  if(!proxyDraft)return;
+  const url=proxyDraft.url.trim();
+  settings.model_proxy={...settings.model_proxy,url,bypass:proxyDraft.bypass.trim(),mode:url?'custom':settings.model_proxy.mode==='custom'?'system':settings.model_proxy.mode};
+  proxyDraft=null;
+ }
  async function testProxy(){
   const address=proxyDraft?.url.trim();
-  if(!address||proxyTest?.result==='pending')return;
+  if(!proxyDraft||!address||proxyTest?.result==='pending')return;
   const attempt={result:'pending' as const,message:'正在测试连接…'};
   proxyTest=attempt;
   try{
-   await api<void>('test_proxy_connection',{address});
-   if(proxyTest===attempt)proxyTest={result:'success',message:'连接成功'};
+   const message=await api<string>('test_proxy_connection',{proxy:{...settings.model_proxy,mode:'custom',url:address,bypass:proxyDraft.bypass.trim()}});
+   if(proxyTest===attempt)proxyTest={result:'success',message};
   }catch(e){
    if(proxyTest===attempt)proxyTest={result:'failure',message:String(e)};
   }
@@ -144,8 +152,8 @@
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id===current)return;if(kind==='jev'){settings.jev.model=id==='zleap'?'Zev-1':id==='openai'?'gpt-6-luna':id==='302'||id==='official'?'jev-latest':'';if(id==='openai'&&settings.jev.auth_mode==='none')changeJevAuth('bearer');}if(id==='custom')return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  $:applyTheme(settings.theme);
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language);applyTheme(value.theme)});
- $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['imports',$t('数据导入'),'download'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['api',$t('远程服务'),'network'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']].filter(([id])=>!web||id!=='clipper');
- let descriptions:Record<string,string>; $:descriptions={api:$t('供本机与局域网程序搜索知识库。'),clipper:$t('将网页保存为本地 Markdown 文件。'),general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
+ $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['imports',$t('数据导入'),'download'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['api',$t('远程服务'),'network'],['network',$t('网络代理'),'route'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']].filter(([id])=>!web||id!=='clipper');
+ let descriptions:Record<string,string>; $:descriptions={api:$t('供本机与局域网程序搜索知识库。'),clipper:$t('将网页保存为本地 Markdown 文件。'),general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),network:$t("代理的高级设置：模式、SOCKS5、认证与测试连接。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 1 次；加上首次召回，共 2 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段目标字符数"),$t("默认约 512，保留完整句子及相邻上下文；长句可超过目标长度。修改后自动重建索引"),400,12000]];
  let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与文档"),'.txt · .rtf · .docx · .pptx · .xlsx · .odt · .epub · .pdf'],['code',$t("代码"),'.py · .js · .ts · .rs · .html · .css'],['config',$t("配置文件"),'.json · .yaml · .toml · .xml · .ini']];
  $:indexSettingsChanged=settings.runtime.office_text_only!==(value.runtime?.office_text_only??false)||JSON.stringify(settings.conversion_formats??null)!==JSON.stringify(value.conversion_formats??null)||settings.convert_other_formats!==(value.convert_other_formats??false)||fileTypeOptions.some(([kind])=>settings.file_types[kind]!==({markdown:true,text:true,code:false,config:false,...value.file_types})[kind])||JSON.stringify(settings.excluded)!==JSON.stringify(value.excluded)||settings.retrieval.chunk_chars!==value.retrieval.chunk_chars;
@@ -179,7 +187,7 @@
  async function save(){
   settings.document_parser_pdf_prompt=visionPrompts.pdf===visionPromptFields[0].defaultPrompt?'':visionPrompts.pdf;
   settings.document_parser_image_prompt=visionPrompts.image===visionPromptFields[1].defaultPrompt?'':visionPrompts.image;
-  busy=true;error='';status=storageChanged?$t('正在迁移转换结果…'):'';try{if(storage.mode==='custom'&&!storage.directory)throw new Error($t('请先选择转换结果目录'));settings.conversion_storage=storage;if(page==='files'||mineruKey.trim())settings.document_parser=documentParser;checkProviderKey('answer');checkProviderKey('jev');settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=answerModels;if(!answerModels.includes(settings.search_summary_model))settings.search_summary_model='';if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials,mineruKey);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false;status=''}
+  busy=true;error='';status=storageChanged?$t('正在迁移转换结果…'):'';try{if(storage.mode==='custom'&&!storage.directory)throw new Error($t('请先选择转换结果目录'));settings.conversion_storage=storage;if(page==='files'||mineruKey.trim())settings.document_parser=documentParser;checkProviderKey('answer');checkProviderKey('jev');if(settings.model_proxy.mode==='custom'&&!settings.model_proxy.url.trim())throw new Error($t('请填写代理地址，例如 http://127.0.0.1:7890'));if(settings.model_proxy.mode==='custom'&&settings.model_proxy.password&&!settings.model_proxy.username.trim())throw new Error($t('请填写代理用户名'));settings.model_proxy={...settings.model_proxy,url:settings.model_proxy.url.trim(),username:settings.model_proxy.username.trim(),bypass:settings.model_proxy.bypass.trim()};settings.notes={...settings.notes,folder:settings.notes.folder?.trim()||null};settings.answer.models=answerModels;if(!answerModels.includes(settings.search_summary_model))settings.search_summary_model='';if(!settings.answer.models.includes(settings.answer.model))settings.answer.model=settings.answer.models[0]||'';const credentials:Record<string,McpCredentials>={};for(const server of settings.mcp_servers){const parsed=parseMcpCredentials(server,mcpDrafts[server.id]);if(parsed)credentials[server.id]=parsed;}await onSave(settings,answerKey,settings.jev.auth_mode==='none'?'':jevKey,credentials,mineruKey);languageSaved=true;answerKey='';jevKey='';if(cliAccess){try{await api('save_cli_settings',{access:cliAccess})}catch(e){throw new Error($t('其他设置已保存，但 CLI 权限未保存：{value0}',{value0:String(e)}))}}onSaved?.();onClose()}catch(e){error=$t(String(e))}finally{busy=false;status=''}
  }
  async function clearKey(kind:'answer'|'jev'){try{await api('clear_model_key',{kind});settings[kind].has_key=false;status=$t("已移除保存的密钥")}catch(e){error=$t(String(e))}}
  async function test(kind:'answer'|'jev'){busy=true;error='';status=$t("正在测试连接…");try{checkProviderKey(kind);const config:ModelConfig=structuredClone(settings[kind]);if(kind==='answer')config.model=models.split('\n')[0].trim();status=await api<string>('test_model',{kind,config,key:kind==='answer'?answerKey:settings.jev.auth_mode==='none'?'':jevKey,modelProxy:structuredClone(settings.model_proxy)})}catch(e){error=$t(String(e));status=''}finally{busy=false}}
@@ -317,7 +325,7 @@
      </section>
      <h3 class="settings-section-title">{$t('上下文与请求')}</h3>
      <section class="settings-group model-request-settings">
-      <div class="setting-row"><label for="max-tool-calls"><strong>{$t("每轮工具调用上限")}</strong><p>{$t("默认 0，表示不限制；SAG 和 MCP 合计")}</p></label><Input id="max-tool-calls" aria-label={$t("每轮工具调用上限")} type="number" min="0" max="100" required bind:value={settings.max_tool_calls}/></div>
+      <div class="setting-row"><label for="max-tool-calls"><strong>{$t("每轮工具调用上限")}</strong><p>{$t("默认 20；填 0 表示不限制；SAG 和 MCP 合计")}</p></label><Input id="max-tool-calls" aria-label={$t("每轮工具调用上限")} type="number" min="0" max="100" required bind:value={settings.max_tool_calls}/></div>
       <div class="setting-row"><label for="answer-context"><strong>{$t("回答上下文预算（tokens）")}</strong><p>{$t("控制问题、历史、工具记录和引用的输入规模。默认 64K，无固定最大值，请按模型支持的上下文大小填写。输出长度由模型服务决定。")}</p></label><Input id="answer-context" aria-label={$t("回答上下文预算（tokens）")} type="number" min="4096" step="1" required bind:value={settings.answer_context_tokens}/></div>
       <div class="setting-row"><label for="model-timeout"><strong>{$t("请求超时")}</strong><p>{$t("单位：秒")}</p></label><Input id="model-timeout" aria-label={$t("请求超时")} type="number" min="10" max="600" bind:value={settings.timeout_secs}/></div>
      </section>
@@ -344,6 +352,8 @@
      <WebClipper/>
     {:else if page==='api'}
      <ApiSettings bind:pending={apiBusy}/>
+    {:else if page==='network'}
+     <NetworkSettings bind:value={settings.model_proxy} testUrl={value.answer.url} saving={busy}/>
     {:else if page==='cli'}
      <CliSettings bind:access={cliAccess} bind:pending={cliBusy} bind:connection={cliConnection} bind:connectionOpen={cliConnectionOpen} bind:connectionSuccessUntil={cliConnectionSuccessUntil} saving={busy}/>
     {:else if page==='privacy'}
@@ -405,25 +415,6 @@
  </Modal>
 {/if}
 
-{#if proxyDraft}
- <Modal label={$t('配置代理')} class="proxy-config-dialog" onClose={()=>proxyDraft=null}>
-  <div class="dialog-head"><h2>{$t('配置代理')}</h2></div>
-  <form on:submit|preventDefault={()=>{if(proxyDraft)settings.model_proxy={url:proxyDraft.url.trim(),bypass:proxyDraft.bypass.trim()};proxyDraft=null}}>
-   <div class="dialog-body">
-    <p class="settings-help">{$t('留空时沿用系统代理和环境变量。')}</p>
-    <label class="field-label">{$t('代理地址')}<Input id="model-proxy-url" type="url" bind:value={proxyDraft.url} oninput={()=>proxyTest=null} placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck={false}/></label>
-    <label class="field-label">{$t('直连地址')}<Input id="model-proxy-bypass" aria-describedby="model-proxy-bypass-help" bind:value={proxyDraft.bypass} placeholder=".internal.example, 10.0.0.0/8" autocomplete="off" spellcheck={false}/></label>
-    <p id="model-proxy-bypass-help" class="settings-help">{$t('可选。域名、IP 或网段，用逗号分隔。')}</p>
-    <div role="status">{#if proxyTest}<p class="proxy-test-result" class:form-error={proxyTest.result==='failure'}>{$t(proxyTest.message)}</p>{/if}</div>
-   </div>
-   <div class="dialog-footer">
-    <Button.Root type="button" class="outline proxy-test-button" disabled={!proxyDraft.url.trim()||proxyTest?.result==='pending'} onclick={testProxy}>{$t('测试连接')}</Button.Root>
-    <Button.Root type="button" class="outline" onclick={()=>proxyDraft=null}>{$t('取消')}</Button.Root>
-    <Button.Root type="submit" class="primary">{$t('完成')}</Button.Root>
-   </div>
-  </form>
- </Modal>
-{/if}
 
 
 {#if modelCatalog}<Modal label={$t('模型列表')} onClose={()=>modelCatalog=null} class="model-catalog" overlayClass="model-catalog-backdrop">
@@ -452,10 +443,32 @@
  <div class="dialog-footer"><Button.Root type="button" aria-label={$t("取消清空对话")} disabled={clearing} onclick={()=>confirmClear=false}>{$t("取消")}</Button.Root><Button.Root type="button" class="clear-conversations-button" aria-label={$t("确认清空所有对话")} disabled={clearing} onclick={clearConversations}>{clearing?$t("正在清空…"):$t("确认清空")}</Button.Root></div>
 </Modal>{/if}
 
+{#if proxyDraft}
+ <Modal label={$t('配置代理')} class="proxy-config-dialog" onClose={()=>proxyDraft=null}>
+  <div class="dialog-head"><h2>{$t('配置代理')}</h2></div>
+  <form on:submit|preventDefault={applyProxyDraft}>
+   <div class="dialog-body">
+    <p class="settings-help">{$t('留空时沿用系统代理和环境变量。')}</p>
+    <label class="field-label">{$t('代理地址')}<Input id="model-proxy-url" type="url" bind:value={proxyDraft.url} oninput={()=>proxyTest=null} placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck={false}/></label>
+    <label class="field-label">{$t('直连地址')}<Input id="model-proxy-bypass" aria-describedby="model-proxy-bypass-help" bind:value={proxyDraft.bypass} placeholder=".internal.example, 10.0.0.0/8" autocomplete="off" spellcheck={false}/></label>
+    <p id="model-proxy-bypass-help" class="settings-help">{$t('可选。域名、IP 或网段，用逗号分隔。')}</p>
+    <p class="settings-help"><Button.Root type="button" class="settings-text-button proxy-advanced-link" onclick={()=>{proxyDraft=null;page='network';status='';error=''}}>{$t('需要 SOCKS5、认证或强制直连？前往「网络代理」')}</Button.Root></p>
+    <div role="status">{#if proxyTest}<p class="proxy-test-result" class:form-error={proxyTest.result==='failure'}>{$t(proxyTest.message)}</p>{/if}</div>
+   </div>
+   <div class="dialog-footer">
+    <Button.Root type="button" class="outline proxy-test-button" disabled={!proxyDraft.url.trim()||proxyTest?.result==='pending'} onclick={testProxy}>{$t('测试连接')}</Button.Root>
+    <Button.Root type="button" class="outline" onclick={()=>proxyDraft=null}>{$t('取消')}</Button.Root>
+    <Button.Root type="submit" class="primary">{$t('完成')}</Button.Root>
+   </div>
+  </form>
+ </Modal>
+{/if}
+
 <style>
  :global(.proxy-config-dialog.dialog-panel){max-width:calc(100vw - 32px)}
  :global(.proxy-config-dialog .field-label:last-of-type){margin-bottom:0}
  :global(.proxy-config-dialog .proxy-test-button){margin-inline-end:auto}
+ :global(.proxy-config-dialog .proxy-advanced-link){padding:0;margin-top:10px}
  .proxy-test-result{margin:8px 0 0}
  :global(.model-catalog-backdrop){z-index:45}
  :global(.model-catalog.dialog-panel){display:flex;flex-direction:column;max-height:calc(100dvh - 48px)}

@@ -1,4 +1,4 @@
-use crate::{sag_mcp::SagTools, types::{McpCredentials, McpServer, McpToolInfo}};
+use crate::{sag_mcp::SagTools, types::{McpCredentials, McpServer, McpToolInfo, ModelProxy}};
 use anyhow::{bail, Context, Result};
 use rmcp::{
     model::CallToolRequestParams,
@@ -56,6 +56,7 @@ async fn connect(
     server: &McpServer,
     secrets: &McpCredentials,
     http: &reqwest::Client,
+    proxy: &ModelProxy,
     timeout: u64,
     cancel: &CancellationToken,
 ) -> Result<Client> {
@@ -63,7 +64,15 @@ async fn connect(
     let future = async {
         if server.transport == "stdio" {
             let mut command = tokio::process::Command::new(&server.command);
-            command.args(&server.args).envs(&secrets.env);
+            command.args(&server.args);
+            // A child server only learns the proxy from its environment. A server whose own
+            // variables name a proxy keeps them untouched, including a direct-mode NO_PROXY.
+            let proxy_var = |name: &str| matches!(name.to_ascii_uppercase().as_str(), "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY");
+            if !secrets.env.keys().any(|name| proxy_var(name)) {
+                sag_client::network_proxy::configure_child_proxy_env(command.as_std_mut(), proxy)
+                    .context("无法为 MCP 服务应用代理设置")?;
+            }
+            command.envs(&secrets.env);
             Ok(().serve(TokioChildProcess::new(command)?).await?)
         } else {
             let mut config = StreamableHttpClientTransportConfig::with_uri(server.url.clone());
@@ -87,9 +96,21 @@ async fn connect(
     }
 }
 impl McpSession {
+    #[cfg(test)]
     pub async fn open(
         servers: Vec<(McpServer, McpCredentials)>,
         http: &reqwest::Client,
+        timeout: u64,
+        cancel: &CancellationToken,
+        selections: &BTreeMap<String, Vec<String>>,
+    ) -> Result<Self> {
+        let direct = ModelProxy { mode: crate::types::ProxyMode::None, ..Default::default() };
+        Self::open_with_proxy(servers, http, &direct, timeout, cancel, selections).await
+    }
+    pub async fn open_with_proxy(
+        servers: Vec<(McpServer, McpCredentials)>,
+        http: &reqwest::Client,
+        proxy: &ModelProxy,
         timeout: u64,
         cancel: &CancellationToken,
         selections: &BTreeMap<String, Vec<String>>,
@@ -106,7 +127,7 @@ impl McpSession {
             if allowed.is_some_and(Vec::is_empty) {
                 continue;
             }
-            let client = connect(&server, &secrets, http, timeout, cancel)
+            let client = connect(&server, &secrets, http, proxy, timeout, cancel)
                 .await
                 .with_context(|| format!("无法连接 MCP 服务 {}", server.name))?;
             let tools = tokio::select! {
@@ -179,9 +200,10 @@ pub async fn test(
     server: &McpServer,
     secrets: &McpCredentials,
     http: &reqwest::Client,
+    proxy: &ModelProxy,
     timeout: u64,
 ) -> Result<Vec<McpToolInfo>> {
-    let client = connect(server, secrets, http, timeout, &CancellationToken::new()).await?;
+    let client = connect(server, secrets, http, proxy, timeout, &CancellationToken::new()).await?;
     let tools = tokio::time::timeout(Duration::from_secs(timeout), client.list_all_tools())
         .await
         .context("获取 MCP 工具列表超时")??;

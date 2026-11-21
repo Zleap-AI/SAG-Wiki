@@ -1,5 +1,6 @@
 use super::*;
 use std::time::Duration;
+use sag_protocol::types::ProxyMode;
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::TcpListener,
@@ -116,24 +117,128 @@ fn reads_saved_proxy_without_starting_a_service_or_creating_a_database() {
         r#"{"model_proxy":{"url":"http://proxy.example:8080","bypass":".internal.example"}}"#,
     ]).unwrap();
     let saved = saved_proxy(data.path()).unwrap();
+    // Settings written by 0.4.0 carry no mode; a non-empty address meant a custom proxy.
+    assert_eq!(saved.mode, ProxyMode::Custom);
     assert_eq!(saved.url, "http://proxy.example:8080");
     assert_eq!(saved.bypass, ".internal.example");
+    assert_eq!(saved.password, None);
+    std::fs::write(data.path().join("credentials.json"), r#"{"answer":"key","proxy":"s3cret"}"#).unwrap();
+    let saved = saved_proxy(data.path()).unwrap();
+    assert_eq!(saved.stored_password.as_deref(), Some("s3cret"));
+    assert!(saved.has_password && saved.password.is_none());
+    connection.execute("UPDATE preferences SET value=? WHERE id=1", [
+        r#"{"model_proxy":{"mode":"none","url":"http://proxy.example:8080"}}"#,
+    ]).unwrap();
+    assert_eq!(saved_proxy(data.path()).unwrap().mode, ProxyMode::None);
+}
+
+fn custom(url: &str, bypass: &str) -> ModelProxy {
+    ModelProxy { mode: ProxyMode::Custom, url: url.into(), bypass: bypass.into(), ..Default::default() }
+}
+
+#[test]
+fn validation_accepts_supported_schemes_and_rejects_the_rest() {
+    for url in ["http://127.0.0.1:7890", "https://proxy.example:3128", "socks5://10.0.0.2:1080", "socks5h://proxy.lan", "proxy.lan:8080"] {
+        validate_proxy(&custom(url, "")).unwrap_or_else(|error| panic!("{url}: {error}"));
+    }
+    for url in ["", "ftp://proxy.lan", "socks4://proxy.lan", "http://", "http://user:pw@proxy.lan:8080", "http://proxy.lan:8080/path", "not a url"] {
+        assert!(validate_proxy(&custom(url, "")).is_err(), "{url}");
+    }
+    // Other modes keep whatever was typed, so switching back restores the draft.
+    validate_proxy(&ModelProxy { mode: ProxyMode::None, ..Default::default() }).unwrap();
+    validate_proxy(&ModelProxy { mode: ProxyMode::System, url: "ftp://x".into(), ..Default::default() }).unwrap();
+    assert!(validate_proxy(&ModelProxy { mode: ProxyMode::System, url: "x".repeat(600), ..Default::default() }).is_err());
+    validate_proxy(&custom("http://proxy.lan:8080", ".corp.example, 10.0.0.0/8, *.internal, 192.168.1.9, [fd00::1]")).unwrap();
+    assert!(validate_proxy(&custom("http://proxy.lan:8080", "https://intranet.example")).is_err());
+    assert!(validate_proxy(&custom("http://proxy.lan:8080", "intranet.example/path")).is_err());
+    assert!(validate_proxy(&ModelProxy { mode: ProxyMode::System, bypass: "https://intranet.example".into(), ..Default::default() }).is_err());
+}
+
+#[test]
+fn custom_mode_resolves_credentials_and_bypass_rules() {
+    let proxy = ModelProxy { username: "ali ce".into(), password: Some("p@ss:word".into()), ..custom("proxy.lan:8080", ".corp.example, 10.0.0.0/8") };
+    let resolved = ProxySettings::read(&proxy).unwrap();
+    assert_eq!(resolved.mode, ProxyMode::Custom);
+    // Line breaks and semicolons from the settings textarea become comma-separated rules.
+    let multiline = ProxySettings::read(&custom("proxy.lan:8080", "10.0.0.0/8\n corp.example;*.internal")).unwrap();
+    assert_eq!(multiline.env_bypass, ",10.0.0.0/8,corp.example,*.internal");
+    assert!(Bypass::new(&[], &multiline.env_bypass).unwrap().matches(&Url::parse("https://wiki.corp.example/").unwrap()));
+    assert_eq!(resolved.http.as_deref(), Some("http://ali%20ce:p%40ss%3Aword@proxy.lan:8080/"));
+    assert_eq!(resolved.https, resolved.http);
+    let bypass = Bypass::new(&resolved.system_bypass, &resolved.env_bypass).unwrap();
+    for host in ["localhost", "127.0.0.1", "[::1]", "corp.example", "wiki.corp.example", "10.20.30.40"] {
+        assert!(bypass.matches(&Url::parse(&format!("https://{host}/v1")).unwrap()), "{host}");
+    }
+    for host in ["api.openai.com", "notcorp.example", "11.0.0.1"] {
+        assert!(!bypass.matches(&Url::parse(&format!("https://{host}/v1")).unwrap()), "{host}");
+    }
+    // Without a username the password is ignored and the address stays clean.
+    let anonymous = ProxySettings::read(&ModelProxy { password: Some("secret".into()), ..custom("socks5://proxy.lan", "") }).unwrap();
+    assert_eq!(anonymous.https.as_deref(), Some("socks5://proxy.lan"));
+    // The stored password applies when none was typed, and a typed one replaces it.
+    let stored = ModelProxy { username: "alice".into(), stored_password: Some("old".into()), ..custom("proxy.lan:8080", "") };
+    assert_eq!(ProxySettings::read(&stored).unwrap().https.as_deref(), Some("http://alice:old@proxy.lan:8080/"));
+    let retyped = ModelProxy { password: Some("new".into()), ..stored };
+    assert_eq!(ProxySettings::read(&retyped).unwrap().https.as_deref(), Some("http://alice:new@proxy.lan:8080/"));
+    let direct = ProxySettings::read(&ModelProxy { mode: ProxyMode::None, ..custom("proxy.lan:8080", "") }).unwrap();
+    assert_eq!(direct.mode, ProxyMode::None);
+    assert!(direct.http.is_none() && direct.https.is_none());
+    assert!(direct.transport().unwrap().0.is_none());
+}
+
+#[test]
+fn direct_mode_clears_proxy_variables_for_child_processes() {
+    let mut command = Command::new("uv");
+    command.env("HTTPS_PROXY", "http://stale.example:8080").env("all_proxy", "socks5://stale.example:1080");
+    configure_child_proxy_env(&mut command, &ModelProxy { mode: ProxyMode::None, ..custom("http://proxy.example:8080", "") }).unwrap();
+    for key in ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY", "all_proxy"] {
+        assert!(command.get_envs().any(|(name, value)| name == key && value.is_none()), "{key} must be removed");
+    }
+    let (_, value) = command.get_envs().find(|(name, _)| *name == "NO_PROXY").unwrap();
+    assert_eq!(value.unwrap(), "*");
+    let mut command = Command::new("uv");
+    configure_child_proxy_env(&mut command, &ModelProxy { username: "alice".into(), password: Some("secret".into()), ..custom("socks5h://proxy.example:1080", "") }).unwrap();
+    let (_, value) = command.get_envs().find(|(name, _)| *name == "HTTPS_PROXY").unwrap();
+    assert_eq!(value.unwrap(), "socks5h://alice:secret@proxy.example:1080");
 }
 
 #[tokio::test]
-async fn proxy_test_tunnels_through_the_entered_address_and_reports_failure() {
-    let (address, request) = record_request("502 Bad Gateway").await;
-    let error = test_proxy_connection(&format!("http://{address}")).await.unwrap_err();
-    assert_eq!(error.to_string(), "无法通过代理访问 zleap.com");
-    assert_eq!(request.await.unwrap().trim_end(), "CONNECT zleap.com:443 HTTP/1.1");
+async fn probe_reports_the_route_and_hides_credentials() {
+    timeout(Duration::from_secs(5), async {
+        let (proxy, request) = record_request("407 Proxy Authentication Required").await;
+        let draft = ModelProxy { username: "alice".into(), password: Some("secret".into()), ..custom(&proxy, "") };
+        let message = probe(&draft, "http://192.0.2.10/v1/models").await.unwrap();
+        assert_eq!(message, format!("已通过代理 {proxy} 连接 192.0.2.10（HTTP 407）"));
+        assert!(!message.contains("secret") && !message.contains("alice"));
+        assert_eq!(request.await.unwrap().trim_end(), "GET http://192.0.2.10/v1/models HTTP/1.1");
+
+        let (target, direct) = record_request("200 OK").await;
+        let message = probe(&custom("http://192.0.2.1:9", &target), &format!("http://{target}/")).await.unwrap();
+        assert!(message.contains("属于直连地址"), "{message}");
+        direct.await.unwrap();
+
+        let (target, direct) = record_request("404 Not Found").await;
+        let message = probe(&ModelProxy { mode: ProxyMode::None, ..Default::default() }, &format!("http://{target}/")).await.unwrap();
+        assert!(message.starts_with("已直接连接"), "{message}");
+        direct.await.unwrap();
+
+        let error = probe(&custom("http://127.0.0.1:9", ""), "http://192.0.2.10/").await.unwrap_err().to_string();
+        assert_eq!(error, "无法连接代理 127.0.0.1:9");
+        assert!(probe(&custom("http://127.0.0.1:9", ""), "ftp://x").await.is_err());
+        assert!(probe(&custom("", ""), "http://192.0.2.10/").await.is_err());
+    })
+    .await
+    .unwrap();
 }
 
 #[test]
 fn docling_install_commands_get_the_custom_proxy_and_bypass_addresses() {
     let mut command = Command::new("uv");
-    configure_download_command(&mut command, &ModelProxy {
+    configure_child_proxy_env(&mut command, &ModelProxy {
+        mode: ProxyMode::Custom,
         url: "http://proxy.example:8080".into(),
         bypass: ".internal.example, 192.0.2.5".into(),
+        ..Default::default()
     }).unwrap();
     for key in ["HTTP_PROXY", "HTTPS_PROXY"] {
         assert!(command.get_envs().any(|(name, value)| name.eq_ignore_ascii_case(key) && value.unwrap() == "http://proxy.example:8080/"));
@@ -150,14 +255,18 @@ async fn custom_proxy_can_bypass_intranet_networks() {
     timeout(Duration::from_secs(5), async {
         let (proxy_address, proxied) = record_request("502 Bad Gateway").await;
         let client = ModelHttp::default().client(&ModelProxy {
+            mode: ProxyMode::Custom,
             url: format!("http://{proxy_address}"),
             bypass: "192.0.2.0/24".into(),
+            ..Default::default()
         }).unwrap();
         assert!(client.get("https://198.51.100.10/v1/models").send().await.is_err());
         assert_eq!(proxied.await.unwrap().trim_end(), "CONNECT 198.51.100.10:443 HTTP/1.1");
         let settings = ProxySettings::read(&ModelProxy {
+            mode: ProxyMode::Custom,
             url: format!("http://{proxy_address}"),
             bypass: "192.0.2.0/24".into(),
+            ..Default::default()
         }).unwrap();
         assert!(Bypass::new(&[], &settings.env_bypass).unwrap()
             .matches(&Url::parse("https://192.0.2.10/v1").unwrap()));

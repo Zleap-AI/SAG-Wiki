@@ -31,17 +31,37 @@ Reopen the app from the system tray or menu bar. On Windows, launching the deskt
 
 ### Proxy settings
 
-On the desktop, open **Settings → General → Configure proxy** and enter an HTTP or HTTPS proxy URL, such as `http://proxy.example.com:8080`. The configured address takes precedence over system and environment proxies. Leave it blank to use environment proxy variables and manual Windows or macOS system proxy settings. PAC and automatic proxy discovery are unsupported.
+On the desktop, open **Settings → General → Configure proxy**, enter a proxy URL such as `http://proxy.example.com:8080`, and optionally list domains, IP addresses or networks separated by commas under **Bypass proxy for**. Entering an address uses a custom proxy; leaving it blank follows environment proxy variables and the manual Windows or macOS system proxy. PAC and automatic proxy discovery are unsupported.
 
-Answer models, Jev, MinerU, app updates, Docling component downloads, sharing, and remote HTTP MCP use this setting. CLI sharing reads the saved configuration when it uses the same data directory.
+Answer models, Jev, MinerU, app updates, Docling component downloads, sharing and remote HTTP MCP use this setting, and CLI sharing reads the saved configuration when it uses the same data directory. Online data imports and their account authorization do not use it.
 
-In **Bypass proxy for**, enter domains, IP addresses, or networks separated by commas, such as `.internal.example, 10.0.0.0/8`. Loopback addresses, `localhost`, and matches in `NO_PROXY` also connect directly. When Docling installs online through uv or Python, support for bypassing network ranges depends on the downloader. For internal mirrors, enter the domain or IP address.
-
-After entering a proxy URL, select **Test connection** to reach `zleap.com` through that proxy before saving. The test always uses the entered proxy URL and ignores bypass rules.
+**Test connection** requests the saved answer model address through the entered proxy and reports the route taken, without saving. For a SOCKS5 address, proxy authentication or a forced direct connection, select "Open Network proxy" in the dialog to reach the advanced options on the [Network proxy](#network-proxy) page.
 
 Select **Done**, then **Save settings**. New requests use the new configuration without restarting the app.
 
 ![Dialog for the proxy URL and bypass addresses](/images/product-model-proxy-en.png)
+
+## Network proxy
+
+Location: **Settings → Network proxy**. It edits the same configuration as the Configure proxy dialog on the General page: an address and bypass list entered in the dialog appear here, and the advanced options chosen here apply to the dialog and to every outbound request.
+
+| Proxy mode | Behavior |
+| --- | --- |
+| Follow system proxy (default) | Reads the manual HTTP/HTTPS proxy from Windows **Settings → Network & Internet → Proxy** or macOS **System Settings → Network → Proxies**, plus the `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` variables; environment variables take precedence. PAC scripts and auto-discovery are not supported yet |
+| Custom proxy | Sends every outbound request through the proxy you specify. Entering an address in the General dialog switches to this mode automatically |
+| No proxy | Always connects directly, ignoring system proxies and environment variables. Available only on this page |
+
+With a custom proxy, fill in:
+
+- **Proxy URL**: accepts `http://`, `https://`, `socks5://` and `socks5h://`, for example `http://10.0.0.8:3128`. A bare host and port is treated as an HTTP proxy. Pasting an address such as `http://user:password@host:port` moves the credentials into the authentication fields.
+- **Proxy requires authentication**: enter the username and password, which are sent with Basic authentication. Like API keys, the password stays in the local application data directory and never enters the settings database; leave it blank when reopening settings to keep it, and turning authentication off removes it. A password without a username cannot be saved.
+- **Bypass proxy for**: a list separated by commas, semicolons or line breaks of domains (`corp.example.com` also matches its subdomains), suffixes starting with a dot, IPs, networks (`10.0.0.0/8`) or patterns with `*`. `localhost` and loopback addresses always connect directly, which suits local or LAN model services. The list also applies when following the system proxy, on top of the system bypass rules.
+
+**Test connection** requests the saved answer model address with the settings as entered and reports the route taken, for example "Reached api.302ai.cn through proxy 10.0.0.8:3128 (HTTP 401)". Any HTTP status means the proxy route works; 401 or 404 only means that address needs a key or a different path. In system mode the result also says whether a system proxy was detected. Editing any field clears the previous result, and testing does not save the settings.
+
+Changes apply right after saving, without restarting the desktop app or the background service. Requests in progress keep their connection; the next request uses the new settings. uv, pip and Hugging Face model downloads, as well as MCP servers started over stdio, receive the same proxy through the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` variables. An MCP server whose own environment variables name any proxy variable runs entirely on its own configuration. With no proxy these variables are cleared.
+
+![Proxy mode, custom proxy and test connection](/images/product-network-en.png)
 
 ## Appearance
 

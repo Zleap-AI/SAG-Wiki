@@ -1,6 +1,6 @@
 //! Optional external document conversion. The index only reads its Markdown output.
 use anyhow::{anyhow, bail, Context, Result};
-use sag_client::network_proxy::{apply_proxy, configure_download_command};
+use sag_client::network_proxy::{apply_proxy, configure_child_proxy_env};
 use sag_protocol::types::ModelProxy;
 use sag_protocol::{DoclingProfile, DoclingProfileStatus, DoclingStatus};
 use sha2::{Digest, Sha256};
@@ -561,7 +561,7 @@ impl Docling {
         let packages = staging.path().join("site-packages");
         let models = staging.path().join("models");
         let mut command = self.command(uv);
-        configure_download_command(&mut command, &self.download_proxy)?;
+        configure_child_proxy_env(&mut command, &self.download_proxy)?;
         command.env("UV_PYTHON_INSTALL_DIR", &python_home).args([
             "python",
             "install",
@@ -591,7 +591,7 @@ impl Docling {
             .context("下载的 Python 运行环境缺少解释器")?
             .into_path();
         let mut command = self.command(uv);
-        configure_download_command(&mut command, &self.download_proxy)?;
+        configure_child_proxy_env(&mut command, &self.download_proxy)?;
         command
             .env("UV_PYTHON_INSTALL_DIR", &python_home)
             .args(["pip", "install", "--python"])
@@ -643,7 +643,7 @@ impl Docling {
                 "无法下载组件依赖：{error:#}。如无法访问 PyPI，可设置 UV_DEFAULT_INDEX 环境变量（例如 https://pypi.tuna.tsinghua.edu.cn/simple），重启 SAG 服务后重试。"
             )))?;
         let mut command = self.command(&python);
-        configure_download_command(&mut command, &self.download_proxy)?;
+        configure_child_proxy_env(&mut command, &self.download_proxy)?;
 
         command
             .env("PYTHONPATH", &packages)

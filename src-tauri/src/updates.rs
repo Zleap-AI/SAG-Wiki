@@ -430,8 +430,9 @@ mod tests {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
             let proxy = NetworkProxy::new(&sag_protocol::types::ModelProxy {
+                mode: sag_protocol::types::ProxyMode::Custom,
                 url: format!("http://{address}"),
-                bypass: String::new(),
+                ..Default::default()
             }).unwrap();
             let server = std::thread::spawn(move || {
                 for request in 0..if announced == requested { 2 } else { 1 } {
