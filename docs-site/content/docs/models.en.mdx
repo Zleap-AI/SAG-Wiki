@@ -70,6 +70,18 @@ The answer-model test asks for a short reply; output length follows the model se
 
 ![Separate decision model configuration and connection test](/images/product-jev-en.png)
 
+## Quick setup
+
+While no answer model is configured, the chat home screen shows "No answer model yet" with a **Quick setup** button, and the last page of the quick-start guide offers the same entry. It opens the **Quick setup** dialog, which needs one 302.AI API key:
+
+1. Select **Get an API key** above the field to open the 302.AI console, create a key and paste it in. The eye icon shows or hides the key.
+2. The "Will be configured" list below shows the three items this writes: the answer model, the decision model and document parsing.
+3. Select **Test and save**. The app tests the answer model, the Jev decision model and MinerU in turn and writes the settings only after every test passes. If one fails, the reason appears under the field, the key you entered stays and nothing is saved.
+
+After saving, the answer model is 302.AI `qwen3.8-flash`, the decision model is `jev-latest`, PDFs go to 302.AI MinerU and all three services share the key. A Jev or MinerU that is already configured is left unchanged and listed as "Configured; kept as is". You can still change providers, models and keys later under model settings and file settings. **Set up manually** in the dialog opens model settings directly, and the entry disappears once an answer model is configured.
+
+![Quick setup for answers dialog](/images/product-quick-setup-en.png)
+
 ## Setup sequence
 
 1. Configure the decision model, test it, save and run a deep search.
