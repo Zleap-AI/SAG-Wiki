@@ -191,8 +191,12 @@ fn direct_mode_clears_proxy_variables_for_child_processes() {
     let mut command = Command::new("uv");
     command.env("HTTPS_PROXY", "http://stale.example:8080").env("all_proxy", "socks5://stale.example:1080");
     configure_child_proxy_env(&mut command, &ModelProxy { mode: ProxyMode::None, ..custom("http://proxy.example:8080", "") }).unwrap();
+    // Windows keeps one case-insensitive entry per variable, so the lowercase
+    // removals collapse into the uppercase ones there.
     for key in ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY", "all_proxy"] {
-        assert!(command.get_envs().any(|(name, value)| name == key && value.is_none()), "{key} must be removed");
+        let removed = command.get_envs().any(|(name, value)| value.is_none()
+            && (name == key || cfg!(windows) && name.to_string_lossy().eq_ignore_ascii_case(key)));
+        assert!(removed, "{key} must be removed");
     }
     let (_, value) = command.get_envs().find(|(name, _)| *name == "NO_PROXY").unwrap();
     assert_eq!(value.unwrap(), "*");
