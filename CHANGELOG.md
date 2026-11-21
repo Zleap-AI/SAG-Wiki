@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.4.2
+
+- **快速配置**：未配置回答模型时，问答首页和快速入门显示「快速配置」。填入一个 302.AI API Key 并通过测试后，自动配置 `qwen3.8-flash` 回答模型、`jev-latest` 决策模型和 302.AI MinerU 解析；已配置的 Jev 或 MinerU 保持不变。新安装的默认回答模型改为 `qwen3.8-flash`。
+
+### English
+
+- **Quick setup**: While no answer model is configured, the chat home and the quick-start guide show **Quick setup**. Enter one 302.AI API key; once the tests pass, the app configures the `qwen3.8-flash` answer model, the `jev-latest` decision model and 302.AI MinerU parsing. An existing Jev or MinerU setup is kept. New installs default to `qwen3.8-flash`.
+
 ## 0.4.1
 
 - **SAG Wiki 助手**：内置中英文更新日志。输入完整版本号即可检索该版本的改动，繁体中文、日语、韩语和西班牙语界面也可查阅英文日志。

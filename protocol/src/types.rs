@@ -187,8 +187,8 @@ impl Default for ModelConfig {
     fn default() -> Self {
         Self {
             url: "https://api.302ai.cn/v1".into(),
-            model: "qwen3.6-flash".into(),
-            models: vec!["qwen3.6-flash".into()],
+            model: "qwen3.8-flash".into(),
+            models: vec!["qwen3.8-flash".into()],
             has_key: false,
             auth_mode: ModelAuthMode::Bearer,
             reasoning_effort: None,

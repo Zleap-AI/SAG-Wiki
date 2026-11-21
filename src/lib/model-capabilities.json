@@ -2,7 +2,7 @@
   "version": 1,
   "models": [
     {
-      "ids": ["qwen3.6-flash"],
+      "ids": ["qwen3.6-flash", "qwen3.8-flash"],
       "hosts": ["api.302.ai", "api.302ai.cn", "dashscope.aliyuncs.com", "dashscope-intl.aliyuncs.com", "dashscope-us.aliyuncs.com"],
       "source": "https://www.alibabacloud.com/help/en/model-studio/deep-thinking",
       "context_window": null,
