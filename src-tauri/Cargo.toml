@@ -23,7 +23,7 @@ base64 = "0.22"
 arboard = { version = "3", default-features = false }
 rusqlite = { version = "0.37", features = ["bundled", "backup"] }
 tempfile = "3"
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "socks"] }
 semver = "1"
 tauri-plugin-updater = "2.14"
 tauri-plugin-global-shortcut = "2"

@@ -379,7 +379,8 @@ pub enum Operation {
     },
     GetSettings,
     RuntimeSchema,
-    TestProxyConnection { address: String },
+    /// Probe the saved answer model address through draft proxy settings.
+    TestProxyConnection { proxy: types::ModelProxy },
     MineruSchema,
     TestMineru {
         config: crate::mineru::MineruConfig,

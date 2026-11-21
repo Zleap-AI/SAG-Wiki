@@ -7,6 +7,7 @@
 - **上下文压缩**：摘要分块上限提高到 32,768 tokens，默认预算下通常一到两批完成；进度显示“第 N/M 块”；摘要长度取服务返回的输出 token 与本地估算中的较小值，并修正中文分词估算偏高的问题。摘要失败时不再整轮失败，改为只保留最近一轮、本轮记录和此前已有的摘要继续回答，并在回答上方说明原因。
 - **空回答**：模型只返回空白时自动重答一次，仍为空则显示错误而不是空白的“完成”；历史中的空回答显示占位和重新生成入口；回答渲染出错时退化为纯文本显示。
 - **重复调用与工具上限**：同一轮内连续第三次参数完全相同的 SAG 工具调用不再执行，标为“已跳过”且不计入次数，连续第四次后停止调用并作答，模型仍继续重复时结束本轮并说明；调用当前未绑定的工具时把“工具未启用”返回给模型并继续，不再终止本轮。每轮工具调用上限默认改为 20，已保存为 0 的设置保持不限制。
+- **网络代理高级设置**：新增「设置 → 网络代理」页面，与通用设置中的代理弹窗编辑同一份配置，可选择跟随系统代理、自定义代理或不使用代理。自定义代理支持 SOCKS5 地址和 Basic 认证，密码与 API 密钥一样只保存在本机；测试连接改为请求已保存的模型服务地址并报告实际线路；stdio 方式启动的 MCP 服务也获得同样的代理环境变量。([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171)、[Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
 
 ### English
 
@@ -15,6 +16,7 @@
 - **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the smaller of the provider's output tokens and the local estimate, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange, this turn's records and any earlier summary, with the reason shown above the answer.
 - **Empty answers**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action, and an answer that fails to render falls back to plain text.
 - **Repeated calls and tool limit**: The third consecutive SAG tool call with identical arguments is skipped and marked "Skipped" without counting toward the limit, and a fourth ends tool use for the turn; a model that still repeats ends the turn with a note. A call to a tool that is no longer bound returns "tool not enabled" to the model instead of ending the turn. The default tool-call limit is now 20; a saved 0 stays unlimited.
+- **Advanced network proxy settings**: Add a **Settings → Network proxy** page that edits the same configuration as the proxy dialog in General settings, with a choice to follow the system proxy, use a custom proxy, or connect directly. A custom proxy accepts SOCKS5 addresses and Basic authentication, with the password stored locally like API keys. **Test connection** now requests the saved model service address and reports the route taken, and MCP servers started over stdio receive the same proxy environment. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
 
 ## 0.4.1
 

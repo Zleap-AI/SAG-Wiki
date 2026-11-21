@@ -101,6 +101,20 @@ pub fn save_secret(dir: &std::path::Path, kind: &str, key: &str) -> Result<()> {
     write_credentials(dir, &values)
 }
 
+/// The proxy password lives with the model keys; `None` means none is stored.
+pub(crate) fn proxy_password(dir: &std::path::Path) -> Result<Option<String>> {
+    sag_client::network_proxy::stored_proxy_password(dir)
+}
+pub(crate) fn save_proxy_password(dir: &std::path::Path, password: Option<&str>) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
+    let mut values = credentials(dir)?;
+    match password.filter(|value| !value.is_empty()) {
+        Some(value) => { values.insert("proxy".into(), value.into()); }
+        None => { values.remove("proxy"); }
+    }
+    write_credentials(dir, &values)
+}
+
 pub(crate) fn online_secret(dir: &std::path::Path, id: &str) -> Result<Option<String>> {
     Ok(credentials(dir)?.remove(&format!("online:{id}")))
 }
