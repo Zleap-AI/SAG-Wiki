@@ -6,6 +6,7 @@ import {join,resolve,relative,delimiter} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync,execFileSync} from 'node:child_process';
 import {prepareQpdf} from './prepare-qpdf.mjs';
+import {preparePdfium} from './prepare-pdfium.mjs';
 const root=resolve('.');
 const windows=process.platform==='win32';
 const arch=process.arch==='arm64'?'aarch64':'x86_64';
@@ -89,6 +90,22 @@ test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:window
  const launch=spawnSync(process.execPath,[join(customer,'package/bin/sag.cjs'),'--version'],{encoding:'utf8'});
  assert.equal(launch.status,0,launch.stderr);
  assert.match(launch.stdout,/qpdf version 12\.4\.2/);
+});
+
+test('Windows PDFium payload includes the DLL and license files', async t => {
+ const dir = mkdtempSync(join(tmpdir(), 'sag-pdfium-package-'));
+ t.after(() => rmSync(dir, {recursive: true, force: true}));
+ const previous = process.cwd();
+ try {
+  process.chdir(dir);
+  const destination = join(dir, 'delivery', 'pdfium');
+  await preparePdfium(destination, 'x86_64-pc-windows-msvc');
+  assert.equal(readFileSync(join(destination, 'pdfium.dll')).toString('ascii', 0, 2), 'MZ');
+  assert.ok(readFileSync(join(destination, 'LICENSE')).length > 0);
+  assert.ok(readdirSync(join(destination, 'licenses')).length > 0);
+ } finally {
+  process.chdir(previous);
+ }
 });
 
 
