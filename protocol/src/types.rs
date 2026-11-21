@@ -425,6 +425,7 @@ pub struct Settings {
     pub answer_context_tokens: usize,
     pub answer_output_tokens: usize,
     /// Maximum tool calls per turn; 0 leaves the number unlimited.
+    /// The default bounds a model that keeps retrying the same lookups.
     pub max_tool_calls: usize,
     pub search_summary_enabled: bool,
     pub search_summary_model: String,
@@ -486,7 +487,7 @@ impl Default for Settings {
             timeout_secs: 120,
             answer_context_tokens: 65536,
             answer_output_tokens: 2048,
-            max_tool_calls: 0,
+            max_tool_calls: 20,
             search_summary_enabled: true,
             search_summary_model: String::new(),
             search_summary_sources: 10,
@@ -517,6 +518,9 @@ pub struct AnswerContext {
     pub generation_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub summary: Option<ContextSummary>,
+    /// Why the model summary failed this turn; older history was dropped locally instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_error: Option<String>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ToolCallRecord {
@@ -536,6 +540,9 @@ pub struct ToolCallRecord {
     pub is_error: bool,
     #[serde(default)]
     pub denied: bool,
+    /// Identical to an earlier call in the same turn; not executed again.
+    #[serde(default)]
+    pub skipped: bool,
     #[serde(default)]
     pub result: Option<serde_json::Value>,
     #[serde(default)]
@@ -658,10 +665,11 @@ mod default_tests {
         assert!(serde_json::from_str::<Settings>(r#"{"show_index_details":true}"#).unwrap().show_index_details);
     }
     #[test]
-    fn tool_call_limit_defaults_to_unlimited() {
-        assert_eq!(Settings::default().max_tool_calls, 0);
-        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().max_tool_calls, 0);
+    fn tool_call_limit_defaults_to_twenty_and_keeps_explicit_values() {
+        assert_eq!(Settings::default().max_tool_calls, 20);
+        assert_eq!(serde_json::from_str::<Settings>("{}").unwrap().max_tool_calls, 20);
         assert_eq!(serde_json::from_str::<Settings>(r#"{"max_tool_calls":10}"#).unwrap().max_tool_calls, 10);
+        assert_eq!(serde_json::from_str::<Settings>(r#"{"max_tool_calls":0}"#).unwrap().max_tool_calls, 0);
     }
 
     #[test]

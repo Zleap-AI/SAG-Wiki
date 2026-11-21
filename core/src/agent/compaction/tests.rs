@@ -11,6 +11,7 @@ struct Reply {
     complete: bool,
     truncated: bool,
     finish_reason: &'static str,
+    output_tokens: usize,
 }
 fn ok(text: &'static str) -> Reply {
     Reply {
@@ -20,6 +21,7 @@ fn ok(text: &'static str) -> Reply {
         complete: true,
         truncated: false,
         finish_reason: "stop",
+        output_tokens: 0,
     }
 }
 async fn server(replies: Vec<Reply>) -> (ModelConfig, Arc<Mutex<Vec<Value>>>) {
@@ -64,10 +66,9 @@ async fn server(replies: Vec<Reply>) -> (ModelConfig, Arc<Mutex<Vec<Value>>>) {
             captured.lock().unwrap().push(request);
             tokio::spawn(async move {
                 let partial = "data: {\"choices\":[{\"delta\":{\"content\":\"partial-\"}}]}\n\n";
-                let rest = format!(
-                    "data: {}\n\ndata: [DONE]\n\n",
-                    json!({"choices":[{"delta":{"content":reply.text},"finish_reason":reply.finish_reason}]})
-                );
+                let mut chunk = json!({"choices":[{"delta":{"content":reply.text},"finish_reason":reply.finish_reason}]});
+                if reply.output_tokens > 0 { chunk["usage"] = json!({"prompt_tokens":1,"completion_tokens":reply.output_tokens}); }
+                let rest = format!("data: {}\n\ndata: [DONE]\n\n", chunk);
                 let length = if reply.truncated {
                     partial.len() + 1024
                 } else if reply.complete {
@@ -101,17 +102,27 @@ async fn run(
     runtime: &sag_protocol::runtime::RuntimeSettings,
     cancel: &CancellationToken,
 ) -> Result<(String, Option<usize>, Option<usize>)> {
+    run_with_budget(config, messages, 32000, runtime, cancel, |_| {}).await
+}
+async fn run_with_budget(
+    config: &ModelConfig,
+    messages: &[Value],
+    budget: usize,
+    runtime: &sag_protocol::runtime::RuntimeSettings,
+    cancel: &CancellationToken,
+    progress: impl FnMut(&str),
+) -> Result<(String, Option<usize>, Option<usize>)> {
     summarize(
         &reqwest::Client::new(),
         config,
         "test-only",
         messages,
-        32000,
+        budget,
         2048,
         1,
         runtime,
         cancel,
-        |_| {},
+        progress,
     )
     .await
 }
@@ -180,9 +191,13 @@ async fn summary_bounds_work_and_resumes_the_failed_chunk() {
     ])
     .await;
     let messages = vec![json!({"role":"user","content":"保留全部证据和Unicode🦀。".repeat(1000)})];
-    run(&config, &messages, &runtime(2), &CancellationToken::new())
+    // A small budget keeps several parts in play; each part reports its place in the total.
+    let mut stages = vec![];
+    run_with_budget(&config, &messages, 8192, &runtime(2), &CancellationToken::new(), |stage| stages.push(stage.to_owned()))
         .await
         .unwrap();
+    assert!(stages[0].starts_with("正在压缩上下文：第 1/"), "{stages:?}");
+    assert!(stages.iter().any(|stage| stage.starts_with("正在重试上下文压缩：第 2/")), "{stages:?}");
     let requests = requests.lock().unwrap();
     assert!(requests.len() >= 4);
     for request in requests.iter() {
@@ -507,4 +522,17 @@ fn summary_proactive_compaction_keeps_room_for_the_complete_question() {
         should_compact(&messages, &question, &[], used / 2),
         "actual overflow still requires compaction"
     );
+}
+
+#[tokio::test]
+async fn summary_length_uses_the_smaller_of_provider_count_and_estimate() {
+    // A reasoning model reports thousands of output tokens for a short summary.
+    let (config, requests) = server(vec![Reply { output_tokens: 6000, ..ok("短摘要") }]).await;
+    let messages = vec![json!({"role":"user","content":"历史内容".repeat(200)})];
+    let (summary, _, output) = run(&config, &messages, &runtime(0), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(summary, "partial-短摘要");
+    assert_eq!(output, Some(6000));
+    assert_eq!(requests.lock().unwrap().len(), 1, "不因推理 token 触发精简");
 }

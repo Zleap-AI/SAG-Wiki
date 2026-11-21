@@ -7,10 +7,15 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="c9e3513bcbdb3631dddf52969e41385e52c45b06acd1aac8ffe9686763ee5fad" aria-hidden="true" />
+<span data-docs-changelog-sha="26473f34a4a09e97b7422b367c49d316feede1f85efb6e24381b4916c05788d8" aria-hidden="true" />
 
 ## 0.4.2
 
+- **Explore mode**: Show converted PDF and Office documents in the scope of their original source folder while preserving folder, hidden-directory, and exclusion rules. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
+- **Multi-turn reply format**: Replay earlier tool use as native tool-call and tool-result messages and keep final answers as plain text, so follow-up answers no longer imitate the internal record and come back as `{"answer":…}` JSON. A service that rejects that replay shape receives the records once more as plain text. Replies wrapped with only answer, sources and tool_history fields are unwrapped before citation checks; other JSON the user asked for is kept.
+- **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the smaller of the provider's output tokens and the local estimate, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange, this turn's records and any earlier summary, with the reason shown above the answer.
+- **Empty answers**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action, and an answer that fails to render falls back to plain text.
+- **Repeated calls and tool limit**: The third consecutive SAG tool call with identical arguments is skipped and marked "Skipped" without counting toward the limit, and a fourth ends tool use for the turn; a model that still repeats ends the turn with a note. A call to a tool that is no longer bound returns "tool not enabled" to the model instead of ending the turn. The default tool-call limit is now 20; a saved 0 stays unlimited.
 - **Advanced network proxy settings**: Add a **Settings → Network proxy** page that edits the same configuration as the proxy dialog in General settings, with a choice to follow the system proxy, use a custom proxy, or connect directly. A custom proxy accepts SOCKS5 addresses and Basic authentication, with the password stored locally like API keys. **Test connection** now requests the saved model service address and reports the route taken, and MCP servers started over stdio receive the same proxy environment. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
 
 ## 0.4.1
