@@ -1,0 +1,12 @@
+---
+title: "钉钉文档"
+description: "将钉钉知识库中的在线文档导入为 Markdown。"
+---
+
+钉钉是协作办公平台，团队可以用知识库集中维护在线文档。[钉钉官网](https://www.dingtalk.com/)
+
+1. 在[钉钉开放平台](https://open.dingtalk.com/)创建企业内部应用，开通 `Wiki.Workspace.Read`、`Wiki.Node.Read` 和 `Storage.File.Read` 后发布。准备一位有权访问目标知识库的操作人 Union ID。
+2. 在 **设置 → 数据源 → 钉钉文档 → 配置** 填写 **Client ID**、**Client Secret** 和 **操作人 Union ID**，点 **测试连接**。
+3. 选择知识库、文件夹或单篇钉钉在线文档，再点 **保存并导入**。在线文档正文会转为 Markdown。钉钉表格和钉盘上传附件暂未纳入同步范围。
+
+![钉钉文档连接配置与导入范围](/images/product-source-dingtalk-cn.png)

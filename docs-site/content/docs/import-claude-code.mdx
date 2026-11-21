@@ -1,0 +1,18 @@
+---
+title: "Claude Code"
+description: "把 Claude Code 的本地聊天记录导入知识库。"
+---
+
+Claude Code 是 Anthropic 的编程助手，可以在项目中阅读和修改代码。[Claude Code 官网](https://claude.com/product/claude-code)
+
+1. 在桌面端[打开数据源](/zh/docs/data-sources#打开数据源)，点击 **Claude Code** 旁的 **导入聊天记录**。
+2. SAG 默认读取 `~/.claude/projects` 的 `.jsonl` 记录。若设有 `CLAUDE_CONFIG_DIR`，则读取该目录下的 `projects`。也可以输入其他聊天记录文件夹的完整路径，再点击 **读取**。
+3. 按项目筛选或搜索标题，勾选需要的会话，预览后点击 **导入**。每个会话保存为一份 Markdown，默认放在系统文档目录的 `sag-wiki/agent-history/claude code/` 下。点击保存位置旁的 **更改** 可选择其他位置。
+
+![预览并勾选 Claude Code 聊天记录](/images/product-chat-import-cn.png)
+
+## 导入选项
+
+**展示工具调用过程** 默认关闭。开启后，预览和导入都会包含工具调用的参数和结果。
+
+**定时同步** 默认关闭。打开后可选同步频率，也可设为每天固定时间。再次导入会跳过未变化的会话，新增内容更新原 Markdown。已手动修改的文件会保留，并提示冲突。

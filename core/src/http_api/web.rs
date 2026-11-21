@@ -328,8 +328,23 @@ async fn route(
                 }
                 if let Op::OnlineImport { action: sag_protocol::online_import::Action::Save { source, .. } } = &mut operation {
                     if source.id.is_empty() {
-                        source.directory.clear();
+                        if source.connection.platform == sag_protocol::online_import::Platform::Api && !source.directory.is_empty() {
+                            source.directory = service.store.authorize(std::path::Path::new(&source.directory))
+                                .map_err(|error| error.to_string())?.to_string_lossy().into_owned();
+                        } else {
+                            source.directory.clear();
+                        }
                     }
+                }
+                if let Op::OnlineImport {
+                    action: sag_protocol::online_import::Action::Apify {
+                        request: sag_protocol::online_import::ApifyAction::Import { directory, .. }
+                            | sag_protocol::online_import::ApifyAction::SaveConnection { directory, .. },
+                        ..
+                    },
+                } = &mut operation
+                {
+                    directory.clear();
                 }
                 if let Op::ReadDocument { path } = &operation {
                     let path = service

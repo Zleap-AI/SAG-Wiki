@@ -1,0 +1,46 @@
+---
+title: "Lark"
+description: "Import documents from Lark knowledge bases and Drive."
+---
+
+Lark is a workplace collaboration platform. Its knowledge bases organize team documents, and Drive stores and shares files. [Lark website](https://www.larksuite.com/)
+
+1. Create or open a **Custom App** in the [Lark Developer Console](https://open.larksuite.com/app). Copy the permissions JSON below for your import type.
+2. In **Permissions & Scopes → Batch import/export → Import**, paste the JSON and confirm the permissions appear under **User scopes**.
+3. In **Security Settings → Redirect URLs**, add `http://127.0.0.1:24682/lark/oauth/callback`. Enable user token refresh if the option appears. Make the app available to the account that will sign in, then publish it.
+4. In **Settings → Data sources → Lark**, choose the import type, enter the App ID and App Secret, and select **Authorize with Lark**. After authorizing, choose what to import and how often to sync, then select **Save and import**.
+
+![Select Lark Drive content after authorizing](/images/product-source-lark-en.png)
+
+## Knowledge base [#lark-wiki]
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "wiki:wiki:readonly",
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+## Drive [#lark-drive]
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```

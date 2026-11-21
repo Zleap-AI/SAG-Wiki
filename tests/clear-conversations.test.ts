@@ -69,10 +69,11 @@ it('清除所有数据需确认，同时清空文件夹、会话和持久化搜�
  });
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('[title="/notes"]')).not.toBeNull());
+ expect(document.querySelector('.reasoning-trigger-model')?.textContent).toBe('old-model');
  [...document.querySelectorAll<HTMLButtonElement>('.sidebar button')].find(button=>button.textContent==='设置')!.click();await tick();
  [...document.querySelectorAll<HTMLButtonElement>('.settings-nav button')].find(button=>button.textContent==='数据与隐私')!.click();await tick();
  document.querySelector<HTMLButtonElement>('.clear-data-settings button')!.click();await tick();
- expect(document.querySelector('[aria-label="清除所有数据"]')?.textContent).toContain('模型设置、密钥和未保存草稿将被清除');
+ expect(document.querySelector('[aria-label="确认清除所有数据"]')?.closest('[role="dialog"]')?.textContent).toContain('模型设置、密钥和未保存草稿将被清除');
  expect(invoke.mock.calls.some(([command])=>command==='clear_all_data')).toBe(false);
  document.querySelector<HTMLButtonElement>('[aria-label="取消清除所有数据"]')!.click();await tick();
  expect(localStorage.getItem('sag.search.history')).toContain('旧搜索');
@@ -83,8 +84,8 @@ it('清除所有数据需确认，同时清空文件夹、会话和持久化搜�
  expect(document.querySelector('[title="待清理会话"]')).toBeNull();
  expect(invoke.mock.calls.filter(([command])=>command==='clear_all_data')).toHaveLength(1);
  expect(document.querySelector('[aria-label="关闭设置"]')).toBeNull();
- expect(document.querySelector('[aria-label="模型与思考强度"]')?.textContent).toContain('test');
- expect(document.querySelector('[aria-label="模型与思考强度"]')?.textContent).not.toContain('old-model');
+ expect(document.querySelector('.composer-model-controls .quick-setup-action')?.textContent).toBe('快速配置');
+ expect(document.querySelector('.reasoning-trigger-model')).toBeNull();
  expect(invoke.mock.calls.some(([command])=>command==='save_settings')).toBe(false);
  document.querySelector<HTMLButtonElement>('.workspace-switch button[title^="搜索"]')!.click();await tick();
  expect(document.querySelector('[aria-label="最近搜索"]')).toBeNull();

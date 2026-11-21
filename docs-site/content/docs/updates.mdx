@@ -7,7 +7,13 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="c07c5edeb85b2a2e738f45bed4dcf85e3b8bf6f20b44a8b959f7d13067b4a26a" aria-hidden="true" />
+<span data-docs-changelog-sha="3f9066cbaecbb1fc250308c31ee54d0fd2ca0280122c8e6d290d990c71436855" aria-hidden="true" />
+
+## 0.4.3
+
+- **在线数据源**新增 GitHub、GitLab、钉钉文档、腾讯 ima、API 请求和 Apify。GitHub 和 GitLab 可按分支、目录或单个 Markdown 文件同步。API 请求支持在桌面端和 Linux 网页端通过 GET 或 POST 获取 JSON，选择字段并定时追加到每日 Markdown，可在同一天内按记录 ID 去重，也可选用 AI 清洗。Apify 可在后台运行 Actor，将网页正文或选定字段导入为 Markdown，并按连接设置定时同步。
+- **导入入口**统一为「设置 → 数据源」，也可从文件页右键进入。首次在线导入成功后可直达保存目录，默认导入位置在 `sag-wiki/data-sources/` 下按平台和连接组织。
+- **网络代理**统一在「设置 → 网络代理」配置和测试。
 
 ## 0.4.2
 

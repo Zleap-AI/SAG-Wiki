@@ -1,0 +1,17 @@
+---
+title: "GitHub"
+description: "从选定的 GitHub 分支和目录同步 Markdown。"
+---
+
+GitHub 是 Git 仓库托管与协作平台，常用于维护代码、项目 README 和技术文档。[GitHub 官网](https://github.com/)
+
+1. 在 **设置 → 数据源 → GitHub → 配置** 填入仓库链接，例如 `https://github.com/owner/repo`。公开仓库可直接连接。私有仓库需要为该仓库创建具有 **Contents: Read-only** 权限的[细粒度访问令牌](https://github.com/settings/personal-access-tokens/new)，填入 **访问令牌（选填）**。
+   仓库链接末尾的锚点（例如 `#user-guide`）会自动移除。
+2. 点 **浏览分支**。仓库有 `main` 分支时，它会排在首位。点击分支名称进入，再勾选目录或文档。要同步该分支的全部文档，可在里面勾选 **整个分支**。继续勾选更具体的目录或文档时，会取消覆盖它的上级勾选。SAG 导入 README、`.md` 和 `.markdown`，勾选目录后会一并同步其子目录。
+3. 选好同步频率后点 **保存并导入**。默认保存到 `sag-wiki/data-sources/github/`，导入后可在知识库搜索。同步记录中可以查看新增、更新、跳过和冲突。
+
+已有连接继续按仓库默认分支同步。选定具体分支并保存后，新的同步范围按分支保存，已导入的本地文件会保留。
+
+如果 GitHub 提示请求已达限额，等待额度恢复后可以继续同步。已经导入的文件会保留。
+
+![在 GitHub 分支中选择目录或 Markdown 文件](/images/product-source-github-cn.png)

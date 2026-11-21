@@ -14,7 +14,7 @@ const address=(kind:ModelKind)=>card(kind).querySelector<HTMLInputElement>('inpu
 const key=(kind:ModelKind)=>card(kind).querySelector<HTMLInputElement>('input[type=password]')!;
 const trigger=(kind:ModelKind)=>card(kind).querySelector<HTMLButtonElement>('.provider-field button')!;
 const authTrigger=()=>card('jev').querySelector<HTMLButtonElement>('.auth-field button')!;
-async function input(element:HTMLInputElement,text:string){element.value=text;element.dispatchEvent(new Event('input',{bubbles:true}));await tick();}
+async function input(element:HTMLInputElement|HTMLTextAreaElement,text:string){element.value=text;element.dispatchEvent(new Event('input',{bubbles:true}));await tick();}
 async function choose(kind:ModelKind,id:string){
  trigger(kind).dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector(`[role=option][data-value="${id}"]`)).not.toBeNull());
@@ -209,68 +209,22 @@ it('供应商切换不会将已保存或已输入的另一家密钥用于测试�
  await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'answer',key:'test-new-key',config:expect.objectContaining({url:'https://api.openai.com/v1'})})));
  await save();expect(onSave.mock.calls[0][1]).toBe('test-new-key');
 });
-it('通用里打开代理弹窗，取消不保存，完成后可测试并保存代理',async()=>{
+it('网络代理页的修改随模型测试和设置保存生效',async()=>{
  api.mockImplementation(async command=>command==='runtime_schema'?{defaults:{},fields:[]}:'连接成功');
- const onSave=await setup(value,'general');
- const button=(name:string,root:ParentNode=document)=>[...root.querySelectorAll('button')].find(button=>button.textContent?.trim()===name)!;
- expect(document.querySelector('#model-proxy-url')).toBeNull();
- button('配置代理').click();await tick();
- await input(document.querySelector<HTMLInputElement>('#model-proxy-url')!,'http://discard.example:8080');
- button('取消',document.querySelector('.proxy-config-dialog')!).click();await tick();
- button('配置代理').click();await tick();
- const proxy=document.querySelector<HTMLInputElement>('#model-proxy-url')!;
- expect(proxy.value).toBe('');
- const dialog=document.querySelector('.proxy-config-dialog')!;
- expect(button('测试连接',dialog).disabled).toBe(true);
- const modelProxy={mode:'custom',url:'http://gateway.example:8080',username:'',bypass:'.office.example, 10.0.0.0/8',has_password:false,password:null};
- await input(proxy,modelProxy.url);
- await input(document.querySelector<HTMLInputElement>('#model-proxy-bypass')!,modelProxy.bypass);
- button('测试连接',dialog).click();
- await vi.waitFor(()=>expect(dialog.querySelector('[role="status"]')?.textContent).toBe('连接成功'));
- expect(api).toHaveBeenCalledWith('test_proxy_connection',{proxy:modelProxy});
- expect(onSave).not.toHaveBeenCalled();
- document.querySelector<HTMLFormElement>('.proxy-config-dialog form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
- button('模型设置',document.querySelector('.settings-nav')!).click();await tick();
- expect(document.querySelector('#model-proxy-url')).toBeNull();
+ const proxy={mode:'custom' as const,url:'http://gateway.example:8080',username:'',bypass:'',has_password:false,password:null};
+ const onSave=await setup({...value,model_proxy:proxy},'general');
+ const nav=document.querySelector('.settings-nav')!;
+ const openPage=(name:string)=>[...nav.querySelectorAll('button')].find(button=>button.textContent?.trim()===name)!.click();
+ expect(document.querySelector('.settings-content')?.textContent).not.toContain('配置代理');
+ openPage('网络代理');await tick();
+ const modelProxy={...proxy,url:'socks5://gateway.example:1080',bypass:'.office.example, 10.0.0.0/8'};
+ await input(document.querySelector<HTMLInputElement>('#network-proxy-url')!,modelProxy.url);
+ await input(document.querySelector<HTMLTextAreaElement>('#network-proxy-bypass')!,modelProxy.bypass);
+ openPage('模型设置');await tick();
  card('jev').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
  await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'jev',modelProxy})));
  expect(onSave).not.toHaveBeenCalled();
  await save();expect(onSave.mock.calls[0][0].model_proxy).toEqual(modelProxy);
-});
-it('代理地址改动后丢弃仍在进行的测试结果，并显示本次测试的错误',async()=>{
- const onSave=await setup(value,'general');
- const button=(name:string,root:ParentNode=document)=>[...root.querySelectorAll('button')].find(button=>button.textContent?.trim()===name)!;
- button('配置代理').click();await tick();
- const dialog=document.querySelector('.proxy-config-dialog')!;
- const proxy=dialog.querySelector<HTMLInputElement>('#model-proxy-url')!;
- let complete:(value:string)=>void=()=>{};
- api.mockImplementationOnce(()=>new Promise<string>(resolve=>{complete=resolve}));
- await input(proxy,'http://first.example:8080');
- button('测试连接',dialog).click();
- await vi.waitFor(()=>expect(button('测试连接',dialog).disabled).toBe(true));
- await input(proxy,'http://second.example:8080');
- complete('已通过代理 first.example:8080 连接 api.302.ai（HTTP 200）');await tick();
- expect(dialog.querySelector('[role="status"]')?.textContent).toBe('');
- api.mockRejectedValueOnce('无法连接代理 second.example:8080');
- button('测试连接',dialog).click();
- await vi.waitFor(()=>expect(dialog.querySelector('[role="status"]')?.textContent).toBe('无法连接代理 second.example:8080'));
- expect(onSave).not.toHaveBeenCalled();
-});
-it('代理弹窗与网络代理页编辑同一份配置，清空地址回到跟随系统',async()=>{
- const onSave=await setup({...value,model_proxy:{mode:'custom',url:'http://gateway.example:8080',username:'alice',bypass:'',has_password:true,password:null}},'general');
- const button=(name:string,root:ParentNode=document)=>[...root.querySelectorAll('button')].find(button=>button.textContent?.trim()===name)!;
- button('配置代理').click();await tick();
- expect(document.querySelector<HTMLInputElement>('#model-proxy-url')!.value).toBe('http://gateway.example:8080');
- button('需要 SOCKS5、认证或强制直连？前往「网络代理」').click();await tick();
- await vi.waitFor(()=>expect(document.querySelector('.network-settings')).not.toBeNull());
- expect(document.querySelector('.proxy-config-dialog')).toBeNull();
- expect(document.querySelector<HTMLInputElement>('#network-proxy-username')!.value).toBe('alice');
- button('通用',document.querySelector('.settings-nav')!).click();await tick();
- button('配置代理').click();await tick();
- await input(document.querySelector<HTMLInputElement>('#model-proxy-url')!,'');
- document.querySelector<HTMLFormElement>('.proxy-config-dialog form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();
- await save();
- expect(onSave.mock.calls[0][0].model_proxy).toMatchObject({mode:'system',url:'',username:'alice'});
 });
 it('供应商识别兼容已有地址，域名相似的自定义服务不会误认',()=>{
  expect(providerFor('answer','https://api.302ai.cn/v1/')).toBe('302');expect(providerFor('jev','https://openrouter.ai/api/alpha/decisions')).toBe('openrouter');

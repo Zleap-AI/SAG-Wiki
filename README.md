@@ -113,7 +113,7 @@ https://github.com/user-attachments/assets/bcdf9dbf-7535-41d6-bd22-bde0ea824525
 
 SAG-Wiki itself is free and open source. External service charges depend on your chosen provider. Original files stay on your machine; in-depth retrieval and Q&A send the required questions, document passages, or context to the services you configure.
 
-### 1. Download and add a folder
+### 1. Download, then add a folder or import data
 
 Download the macOS DMG from the latest release link above, open it, and drag SAG Wiki into Applications. The macOS app, bundled CLI, and DMG are Developer ID signed and notarized by Apple.
 
@@ -122,6 +122,16 @@ Install and open SAG-Wiki, switch the sidebar to **Folders**, then click **+** b
 <p align="center">
   <img src="docs/assets/readme/product-folders-en.png" alt="Local folders and documents in SAG-Wiki" width="940" />
 </p>
+
+#### Connect data sources
+
+In the desktop app, open **Settings → Data sources** to import chats and notes or connect an online platform.
+
+- **Chats and notes** can be imported from Claude Code, Codex, Evernote, Google Keep, and Apple Notes (macOS).
+- **Online sources** include Notion, Feishu, Lark, Yuque, GitHub, GitLab, DingTalk Docs, Tencent ima, and RSS / Atom. Import on demand or on a schedule.
+- **Apify** runs Actors on demand and imports website content or structured results as Markdown.
+
+See the [connection and sync guide](docs-site/content/docs/data-sources.en.mdx) for setup steps.
 
 ### 2. Search your files
 

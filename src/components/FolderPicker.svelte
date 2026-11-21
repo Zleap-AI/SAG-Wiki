@@ -20,6 +20,7 @@
  export let showHidden=false;
  export let onClose:()=>void;
  export let onImported:(()=>Promise<void>)|undefined=undefined;
+ export let onOpenImportedFolder:((path:string)=>Promise<void>)|undefined=undefined;
  export let onDestinationChange:((folder:string)=>void)|undefined=undefined;
  let tab=initialTab;
  function tabKey(event:KeyboardEvent){if(!receiving&&['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const index=tabs.findIndex(([id])=>id===tab);tab=tabs[event.key==='Home'?0:event.key==='End'?2:(index+(event.key==='ArrowRight'?1:2))%3][0];document.getElementById(`add-data-tab-${tab}`)?.focus();}}
@@ -85,7 +86,7 @@
  <div class="folder-picker-footer"><Button.Root class="folder-index-toggle" aria-expanded={optionsOpen} aria-controls="folder-index-options" disabled={adding} onclick={toggleOptions}>{@html icon('settings')}{$t('索引选项')}{@html icon(optionsOpen?'down':'chevron')}</Button.Root><Button.Root class="outline" disabled={adding||receiving} onclick={onClose}>{$t('取消')}</Button.Root><Button.Root class="primary" disabled={adding||loading||!chosen.length} onclick={add}>{adding?$t('正在添加…'):chosen.length?$t('添加 {value0} 个文件夹',{value0:chosen.length}):$t('添加到知识库')}</Button.Root></div>
  </div>
  <div id="add-data-panel-imports" class="folder-picker-imports" role="tabpanel" aria-labelledby="add-data-tab-imports" hidden={tab!=='imports'}>
-  <DataImport showSharing={false} {onImported} {onDestinationChange}/>
+  <DataImport showSharing={false} {onImported} {onOpenImportedFolder} {onDestinationChange}/>
  </div>
  {#if tab==='receive'}<div id="add-data-panel-receive" role="tabpanel" aria-labelledby="add-data-tab-receive"><ShareDialog embedded {initialDirectory} bind:busy={receiving} {onClose} onReceived={path=>onShareReceived?.(path)}/></div>{/if}
 </Modal>

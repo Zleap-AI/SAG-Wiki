@@ -1,0 +1,12 @@
+---
+title: "Notion"
+description: "连接 Notion，导入授权页面及其附件。"
+---
+
+Notion 是用于记笔记、协作文档和管理项目的工作空间。[Notion 官网](https://www.notion.com/zh-cn)
+
+1. 在 [Notion 集成设置](https://www.notion.so/my-integrations) 为目标工作区新建 **内部集成**，启用 **Read content**，复制内部集成的 API Token。[Notion 官方设置说明](https://www.notion.com/zh-cn/help/create-integrations-with-the-notion-api)
+2. 打开要导入的页面，在右上角 **⋯ → 连接** 中添加刚建的集成。回到 **设置 → 数据源 → Notion → 配置 → 添加连接**，填写名称和 Token，点 **测试连接**。
+3. 勾选已授权的页面，再点 **保存并导入**。支持可转换的 Markdown 和附件。如果页面被截断或缺少内容，同步记录会报错并保留上一次的完整副本。离线 ZIP 可通过 **从导出文件导入** 单独导入。
+
+![选择已授权的 Notion 页面](/images/product-source-notion-cn.png)

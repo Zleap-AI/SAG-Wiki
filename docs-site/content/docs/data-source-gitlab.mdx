@@ -1,0 +1,12 @@
+---
+title: "GitLab"
+description: "从选定的 GitLab 分支同步 Markdown。"
+---
+
+GitLab 是 Git 仓库托管与软件开发平台，提供云服务，也支持自行部署。[GitLab 官网](https://about.gitlab.com/)
+
+1. 在 **设置 → 数据源 → GitLab → 配置** 填入项目的 HTTPS 根地址。公开项目可直接连接。私有项目在 **访问令牌（选填）** 中填写有权读取该项目、具备 `read_api` 权限的令牌。
+2. 点 **浏览分支**，展开分支并勾选目录或文档。也可以勾选整个分支。导入范围包含 README、`.md` 和 `.markdown`，所选目录中的子目录一并导入。
+3. 设好同步频率，再点 **保存并导入**。可连接 GitLab.com，也可连接以公开 HTTPS 地址提供服务的自建 GitLab。默认保存到 `sag-wiki/data-sources/gitlab/`。
+
+![在 GitLab 分支中选择目录或 Markdown 文件](/images/product-source-gitlab-cn.png)

@@ -92,5 +92,7 @@ it('sends the empty input suggestion and opens the local citation at the referen
  expect(invoke.mock.calls.some(([command])=>['open_external_link','read_document'].includes(command))).toBe(false);
  document.querySelector<HTMLButtonElement>('.citation-close')!.click();
  back().click();
+ await vi.waitFor(()=>expect(entry()?.textContent).toContain('切回我的文件'));
+ entry().click();
  await vi.waitFor(()=>expect(entry()?.textContent).toContain('SAG Wiki 助手'));
 });

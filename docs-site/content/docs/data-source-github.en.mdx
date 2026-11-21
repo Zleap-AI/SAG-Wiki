@@ -1,0 +1,17 @@
+---
+title: "GitHub"
+description: "Sync Markdown from selected GitHub branches and folders."
+---
+
+GitHub is a platform for hosting Git repositories and collaborating on code, project READMEs, and technical documentation. [GitHub website](https://github.com/)
+
+1. In **Settings → Data sources → GitHub → Configure**, enter a repository URL such as `https://github.com/owner/repo`. For a private repository, create a [fine-grained access token](https://github.com/settings/personal-access-tokens/new) with **Contents: Read-only** access to that repository and enter it in **Access token (optional)**. Public repositories can be connected directly.
+   SAG removes URL fragments such as `#user-guide` automatically.
+2. Click **Browse branches**. If the repository has a `main` branch, it appears first. Click a branch name to open it, then select folders or individual documents. To sync every document in the branch, select **Entire branch** inside it. Selecting a folder or document clears any broader selection that covers it. SAG imports README, `.md`, and `.markdown` files, including those in the selected folders' subfolders.
+3. Set the sync frequency and click **Save and import**. Files are saved under `sag-wiki/data-sources/github/` by default and become searchable in the knowledge base. Review additions, updates, skips, and conflicts in **Sync history**.
+
+Existing connections continue to sync the repository's default branch. After you select and save an explicit branch, new imports are saved by branch. Previously imported local files are kept.
+
+If GitHub reports a rate limit, resume syncing once the limit resets. Already imported files are kept.
+
+![Select a folder or Markdown file in a GitHub branch](/images/product-source-github-en.png)

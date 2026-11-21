@@ -383,6 +383,18 @@ impl Store {
  CREATE TABLE IF NOT EXISTS chat_imports(identity TEXT PRIMARY KEY,path TEXT NOT NULL,output_hash TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS online_sources(id TEXT PRIMARY KEY, config TEXT NOT NULL, next_at INTEGER);
  CREATE TABLE IF NOT EXISTS online_items(source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, id TEXT NOT NULL, version TEXT NOT NULL, files TEXT NOT NULL, PRIMARY KEY(source,id));
+ CREATE TABLE IF NOT EXISTS online_api_records(
+   entry INTEGER PRIMARY KEY AUTOINCREMENT,
+   source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE,
+   day TEXT NOT NULL, dedup_key TEXT, fields TEXT, markdown TEXT
+ );
+ CREATE INDEX IF NOT EXISTS online_api_pending ON online_api_records(source,entry) WHERE fields IS NOT NULL;
+ CREATE UNIQUE INDEX IF NOT EXISTS online_api_dedup ON online_api_records(source,day,dedup_key) WHERE dedup_key IS NOT NULL;
+ CREATE TABLE IF NOT EXISTS online_api_writes(
+   source TEXT REFERENCES online_sources(id) ON DELETE CASCADE,
+   day TEXT, before_hash TEXT, after_hash TEXT NOT NULL, entries TEXT NOT NULL,
+   PRIMARY KEY(source,day)
+ );
  CREATE TABLE IF NOT EXISTS online_runs(id INTEGER PRIMARY KEY, source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, started INTEGER NOT NULL, finished INTEGER, result TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS chat_import_schedules(source TEXT PRIMARY KEY,enabled INTEGER NOT NULL,time TEXT NOT NULL,source_root TEXT,include_tools INTEGER NOT NULL,configured_at INTEGER NOT NULL,last_run_at INTEGER,last_run TEXT,interval_minutes INTEGER);
  CREATE TABLE IF NOT EXISTS root_watch_errors(root TEXT PRIMARY KEY REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
@@ -947,42 +959,43 @@ impl Store {
                 "资料文件夹不能包含自定义转换结果目录");
         }
         if !path.is_dir() && !path.is_file() { bail!("请选择文件或文件夹") }
-        let roots = self.roots()?;
-        if let Some(r) = roots.iter().find(|r| path.starts_with(&r.path)) {
-            let value = path_text(&path)?;
-            let mut db = self.connection();
-            let tx = db.transaction()?;
+        let value = path_text(&path)?;
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        let roots: Vec<String> = {
+            let mut query = tx.prepare("SELECT path FROM roots ORDER BY rowid")?;
+            let rows = query.query_map([], |row| row.get(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        if let Some(root) = roots.iter().find(|root| path.starts_with(root)) {
             tx.execute("DELETE FROM root_exclusions WHERE path=?", [&value])?;
             if Self::path_excluded(&tx, &value)? { bail!("请先重新添加已移除的上级目录") }
             tx.commit()?;
-            return Ok(r.path.clone());
+            return Ok(root.clone());
         };
         if !path.is_dir() {
             bail!("请选择文件夹")
         };
-        let value = path_text(&path)?;
         let name = path
             .file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy();
-        let mut c = self.connection();
-        let tx = c.transaction()?;
         tx.execute(
             "INSERT INTO roots(path,name) VALUES(?,?)",
             params![value, name],
         )?;
-        for r in roots
+        for root in roots
             .iter()
-            .filter(|r| Path::new(&r.path).starts_with(&path))
+            .filter(|root| Path::new(root).starts_with(&path))
         {
             tx.execute(
                 "UPDATE documents SET root=? WHERE root=?",
-                params![value, r.path],
+                params![value, root],
             )?;
-            tx.execute("UPDATE index_issues SET root=? WHERE root=?", params![value, r.path])?;
-            tx.execute("UPDATE conversion_failures SET root=? WHERE root=?", params![value, r.path])?;
-            tx.execute("UPDATE root_exclusions SET root=? WHERE root=?", params![value, r.path])?;
-            tx.execute("DELETE FROM roots WHERE path=?", [&r.path])?;
+            tx.execute("UPDATE index_issues SET root=? WHERE root=?", params![value, root])?;
+            tx.execute("UPDATE conversion_failures SET root=? WHERE root=?", params![value, root])?;
+            tx.execute("UPDATE root_exclusions SET root=? WHERE root=?", params![value, root])?;
+            tx.execute("DELETE FROM roots WHERE path=?", [root])?;
         }
         tx.commit()?;
         Ok(value)

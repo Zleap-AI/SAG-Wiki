@@ -1,4 +1,6 @@
 mod account_auth;
+mod apify;
+mod api_source;
 mod remote;
 #[cfg(test)]
 mod tests;
@@ -29,6 +31,7 @@ pub(crate) struct Jobs {
     account_login: Mutex<Option<account_auth::Login>>,
     account_refresh: tokio::sync::Mutex<()>,
     account_limits: Arc<remote::AccountLimits>,
+    apify_import: tokio::sync::Mutex<()>,
 }
 
 impl Jobs {
@@ -96,7 +99,7 @@ fn now() -> i64 {
 }
 
 fn next_run(source: &Source, after: i64) -> Result<Option<i64>> {
-    if source.paused || source.resources.is_empty() {
+    if source.paused || (source.connection.platform != Platform::Apify && source.resources.is_empty()) {
         return Ok(None);
     }
     match source.schedule {
@@ -132,6 +135,12 @@ fn next_run(source: &Source, after: i64) -> Result<Option<i64>> {
     }
 }
 
+fn normalize_resources(source: &mut Source) {
+    if source.connection.platform == Platform::Github {
+        source.resources = remote::github_resources(&source.resources);
+    }
+}
+
 fn source(store: &Store, id: &str) -> Result<(Source, Option<i64>)> {
     let (config, next) = store
         .connection()
@@ -142,7 +151,9 @@ fn source(store: &Store, id: &str) -> Result<(Source, Option<i64>)> {
         )
         .optional()?
         .context("连接不存在")?;
-    Ok((serde_json::from_str(&config)?, next))
+    let mut source = serde_json::from_str(&config)?;
+    normalize_resources(&mut source);
+    Ok((source, next))
 }
 
 fn history(store: &Store, id: &str) -> Result<Vec<Value>> {
@@ -166,7 +177,13 @@ fn platform_slug(platform: Platform) -> &'static str {
         Platform::Lark => "lark",
         Platform::Notion => "notion",
         Platform::Yuque => "yuque",
+        Platform::Github => "github",
+        Platform::Gitlab => "gitlab",
+        Platform::Dingtalk => "dingtalk",
+        Platform::Ima => "ima",
         Platform::Rss => "rss",
+        Platform::Apify => "apify",
+        Platform::Api => "api",
     }
 }
 
@@ -193,9 +210,20 @@ fn name_part(name: &str) -> String {
 }
 
 fn normal_connection(mut connection: Connection) -> Result<Connection> {
+    ensure!(connection.platform != Platform::Apify, "请使用 Apify 导入入口");
     ensure!(!connection.user_access || connection.platform.supports_account_login(), "此数据源不支持账号授权");
     connection.app_id = connection.app_id.trim().into();
     connection.address = connection.address.trim().into();
+    match connection.platform {
+        Platform::Github => connection.address = remote::github_address(&connection.address)?,
+        Platform::Gitlab => connection.address = remote::gitlab_address(&connection.address)?,
+        Platform::Dingtalk => ensure!(
+            !connection.app_id.is_empty() && !connection.address.is_empty(),
+            "请填写 Client ID 和操作人 Union ID"
+        ),
+        Platform::Ima => ensure!(!connection.app_id.is_empty(), "请填写 Client ID"),
+        _ => {}
+    }
     if matches!(connection.platform, Platform::Feishu | Platform::Lark) && connection.drive {
         if let Ok(url) = reqwest::Url::parse(&connection.address) {
             let host = url.host_str().unwrap_or_default();
@@ -223,9 +251,16 @@ fn normal_connection(mut connection: Connection) -> Result<Connection> {
     Ok(connection)
 }
 
+fn documents_dir() -> Option<PathBuf> {
+    dirs::document_dir().or_else(|| dirs::home_dir().map(|home| home.join("Documents")))
+}
+
 pub(crate) async fn handle(service: &Arc<Service>, action: Action) -> Result<Value> {
-    let documents = dirs::document_dir().or_else(|| dirs::home_dir().map(|home| home.join("Documents")));
+    let documents = documents_dir();
     match action {
+        Action::Apify { token, connection, request } => {
+            apify::handle(service, &token, connection.as_deref(), request).await
+        }
         Action::AccountLogin { platform, app_id, app_secret, drive } => {
             account_auth::start(service, platform.unwrap_or(Platform::Feishu), app_id, app_secret, drive).await
         }
@@ -249,10 +284,12 @@ pub(crate) async fn handle(service: &Arc<Service>, action: Action) -> Result<Val
                 .map(|(config, next)| Ok((serde_json::from_str::<Source>(&config)?, next)))
                 .collect::<Result<Vec<_>>>()?;
             let mut result = vec![];
-            for (source, next_at) in sources
+            for (mut source, next_at) in sources
                 .into_iter()
-                .filter(|(source, _)| source.connection.platform == platform)
+                .filter(|(source, _)| source.connection.platform == platform
+                    && (platform != Platform::Apify || !source.connection.address.is_empty()))
             {
+                normalize_resources(&mut source);
                 let last = history(&service.store, &source.id)?.into_iter().next();
                 let running = service
                     .online_import
@@ -260,11 +297,19 @@ pub(crate) async fn handle(service: &Arc<Service>, action: Action) -> Result<Val
                     .lock()
                     .unwrap()
                     .contains_key(&source.id);
-                result
-                    .push(json!({"source":source,"next_at":next_at,"last":last,"running":running}));
+                let pending = platform == Platform::Api && api_source::has_pending(&service.store, &source.id)?;
+                result.push(json!({"source":source,"next_at":next_at,"last":last,"running":running,"pending":pending}));
+
             }
             Ok(json!({"sources":result,"documents":documents}))
         }
+        Action::ApiSample { id, request, secret } => {
+            let existing = id.as_deref().map(|id| source(&service.store, id)).transpose()?;
+            let previous = existing.as_ref().and_then(|(source, _)| source.api.as_ref());
+            let token = api_source::secret(service, previous, id.as_deref(), &request, secret)?;
+            api_source::sample(&request, token.as_deref()).await
+        }
+        Action::ApiPreview { config, response } => Ok(json!(api_source::preview(service, &config, &response).await?)),
         Action::Browse {
             id,
             connection,
@@ -315,7 +360,22 @@ pub(crate) async fn handle(service: &Arc<Service>, action: Action) -> Result<Val
             } else {
                 Some(self::source(&service.store, &source.id)?.0)
             };
-            let token = if source.connection.user_access {
+            let token = if source.connection.platform == Platform::Api {
+                let config = source.api.as_ref().context("API 请求配置缺失")?;
+                let token = api_source::secret(
+                    service,
+                    current.as_ref().and_then(|source| source.api.as_ref()),
+                    current.as_ref().map(|source| source.id.as_str()),
+                    &config.request,
+                    secret,
+                )?;
+                api_source::validate(config, token.as_deref())?;
+                if let Some(cleanup) = &config.cleanup {
+                    ensure!(service.store.settings()?.answer.models.contains(&cleanup.model), "请为 API 清洗选择已配置的问答模型");
+                }
+                source.resources = vec!["api".into()];
+                token
+            } else if source.connection.user_access {
                 if let Some(session) = auth_session.as_deref() {
                     Some(account_auth::pending(&service.online_import, session, &source.connection)?)
                 } else {
@@ -337,7 +397,7 @@ pub(crate) async fn handle(service: &Arc<Service>, action: Action) -> Result<Val
                 read_secret(service, current.as_ref().map(|source| source.id.as_str()), &source.connection, secret)?
             };
             ensure!(
-                source.connection.platform == Platform::Rss || token.is_some(),
+                !source.connection.platform.requires_secret() || token.is_some(),
                 "请填写连接凭据"
             );
             source.name = source.name.trim().into();
@@ -350,6 +410,7 @@ pub(crate) async fn handle(service: &Arc<Service>, action: Action) -> Result<Val
                     && (!source.resources.is_empty() || source.connection.user_access),
                 "请选择 1 至 500 个导入范围"
             );
+            normalize_resources(&mut source);
             let first_import = !source.resources.is_empty()
                 && current.as_ref().is_none_or(|previous| previous.resources.is_empty());
             let instant = now();
@@ -366,6 +427,11 @@ pub(crate) async fn handle(service: &Arc<Service>, action: Action) -> Result<Val
                 ensure!(
                     current.directory == source.directory,
                     "已保存连接不能更改保存位置"
+                );
+                ensure!(
+                    !source.connection.platform.is_repository()
+                        || current.connection.address == source.connection.address,
+                    "已保存的连接不能更换仓库"
                 );
             } else {
                 source.id = uuid::Uuid::new_v4().to_string();
@@ -451,7 +517,8 @@ fn read_secret(
     if let Some(id) = id {
         let previous = source(&service.store, id)?.0.connection;
         ensure!(
-            !previous.user_access && previous.platform == connection.platform && previous.app_id == connection.app_id.trim(),
+            !previous.user_access && previous.platform == connection.platform && previous.app_id == connection.app_id.trim()
+                && (!connection.platform.is_repository() || previous.address == connection.address),
             "更改账号后请重新填写连接凭据"
         );
         models::online_secret(&service.data_dir, id)
@@ -476,8 +543,14 @@ fn start(service: &Arc<Service>, id: &str, retry: bool, allow_pending: bool) -> 
         return Ok(false);
     }
     ensure!(active.len() < 2, "同步任务已满，请等当前任务完成");
-    let (source, _) = source(&service.store, id)?;
-    if source.resources.is_empty() {
+    let (source, next_at) = source(&service.store, id)?;
+    let platform = source.connection.platform;
+    if platform == Platform::Apify {
+        if allow_pending && (source.paused || next_at.is_none_or(|next| next > now())) {
+            return Ok(false);
+        }
+        ensure!(source.schedule != Schedule::Manual, "请使用 Apify 导入入口");
+    } else if source.resources.is_empty() {
         ensure!(
             allow_pending,
             "{}",
@@ -485,7 +558,6 @@ fn start(service: &Arc<Service>, id: &str, retry: bool, allow_pending: bool) -> 
         );
         return Ok(false);
     }
-    let platform = source.connection.platform;
     if let Some(retry_at) = service.online_import.account_limits.retry_at(platform, &source.connection.app_id) {
         if !allow_pending {
             return Err(remote::AccountLimit::Rate { platform, retry_at }.into());
@@ -496,7 +568,7 @@ fn start(service: &Arc<Service>, id: &str, retry: bool, allow_pending: bool) -> 
         )?;
         return Ok(false);
     }
-    let filter = if retry {
+    let filter = if retry && !matches!(platform, Platform::Api | Platform::Apify) {
         let recent = history(&service.store, id)?
             .into_iter()
             .next()
@@ -507,13 +579,10 @@ fn start(service: &Arc<Service>, id: &str, retry: bool, allow_pending: bool) -> 
         {
             None
         } else {
-            Some(
-                result
-                    .issues
-                    .into_iter()
-                    .filter(|issue| source.resources.contains(&issue.resource))
-                    .collect::<Vec<_>>(),
-            )
+            let issues: Vec<_> = result.issues.into_iter()
+                .filter(|issue| source.resources.contains(&issue.resource))
+                .collect();
+            (!issues.is_empty() || platform != Platform::Github).then_some(issues)
         }
     } else {
         None
@@ -539,7 +608,7 @@ fn start(service: &Arc<Service>, id: &str, retry: bool, allow_pending: bool) -> 
     let service = service.clone();
     tokio::spawn(async move {
         let _guard = guard;
-        if let Err(error) = execute(&service, &source, run, cancel, filter, report).await {
+        if let Err(error) = execute(&service, &source, run, cancel, filter, retry, report).await {
             eprintln!("记录在线数据源同步结果失败：{error:#}");
         }
         service
@@ -558,27 +627,41 @@ async fn execute(
     run: i64,
     cancel: CancellationToken,
     filter: Option<Vec<Issue>>,
+    retry: bool,
     mut report: Report,
 ) -> Result<()> {
-    let secret = models::online_secret(&service.data_dir, &source.id);
-    let token = match secret {
-        Ok(secret) => account_auth::token(service, Some(&source.id), &source.connection, secret).await,
-        Err(error) => Err(error),
+    let result = if source.connection.platform == Platform::Apify {
+        apify::sync(service, source, &cancel, &mut report).await
+    } else {
+        let secret = models::online_secret(&service.data_dir, &source.id);
+        let token = match secret {
+            Ok(secret) if source.connection.platform == Platform::Api => Ok(secret),
+            Ok(secret) => account_auth::token(service, Some(&source.id), &source.connection, secret).await,
+            Err(error) => Err(error),
+        };
+        match token {
+            Err(error) => Err(error),
+            Ok(token) => tokio::select! {
+                _=cancel.cancelled()=>Err(anyhow::anyhow!("同步已取消")),
+                result=async {
+                    if source.connection.platform == Platform::Api {
+                        return api_source::sync(service, source, retry, token.as_deref(), &cancel, &mut report).await;
+                    }
+                    let remote = remote::Remote::open(
+                        source.connection.clone(),
+                        token,
+                        &service.online_import.account_limits,
+                    ).await?;
+                    sync(service, source, run, filter.as_deref(), &mut report, &remote, documents_dir().as_deref()).await
+                }=>result,
+            },
+        }
     };
-    let result = match token {
-        Err(error) => Err(error),
-        Ok(token) => tokio::select! {
-        _=cancel.cancelled()=>Err(anyhow::anyhow!("同步已取消")),
-        result=async {
-            let remote = remote::Remote::open(
-                source.connection.clone(),
-                token,
-                &service.online_import.account_limits,
-            ).await?;
-            sync(service, source, run, filter.as_deref(), &mut report, &remote).await
-        }=>result,
-        },
-    };
+    if source.connection.platform == Platform::Apify && cancel.is_cancelled() {
+        if let Err(error) = &result {
+            report.issue("", None, error.to_string(), true);
+        }
+    }
     let limit = result
         .as_ref()
         .err()
@@ -645,10 +728,12 @@ async fn sync(
     filter: Option<&[Issue]>,
     report: &mut Report,
     remote: &remote::Remote,
+    documents: Option<&Path>,
 ) -> Result<()> {
     let directory = PathBuf::from(&source.directory);
     let mut seen = HashSet::new();
     let mut index_root = None;
+    let mut checked_existing_root = false;
     for resource in &source.resources {
         let filters = filter.map(|issues| {
             issues
@@ -680,41 +765,42 @@ async fn sync(
             if !seen.insert(item.id.clone()) {
                 continue;
             }
-            match sync_item(&service.store, source, remote, &directory, &item).await {
-                Ok(Outcome::Skipped) => report.skipped += 1,
-                Ok(Outcome::Conflict(reason)) => report.issue(resource, Some(&item), reason, false),
+            let outcome = sync_item(&service.store, source, remote, &directory, &item).await;
+            let saved = matches!(&outcome, Ok(Outcome::Written { .. } | Outcome::Skipped));
+            let written = match outcome {
+                Ok(Outcome::Skipped) => {
+                    report.skipped += 1;
+                    None
+                }
+                Ok(Outcome::Conflict(reason)) => {
+                    report.issue(resource, Some(&item), reason, false);
+                    None
+                }
                 Ok(Outcome::Written { path, updated }) => {
                     if updated {
                         report.updated += 1;
                     } else {
                         report.imported += 1;
                     }
-                    let root = match &index_root {
-                        Some(root) => root,
-                        None => {
-                            let canonical = directory.canonicalize()?;
-                            let enclosing = service
-                                .store
-                                .roots()?
-                                .into_iter()
-                                .find(|root| canonical.starts_with(&root.path));
-                            let root = if let Some(root) = enclosing {
-                                root.path
-                            } else {
-                                indexer::add_root(&service.store, &service.scan, &directory)?
-                            };
-                            index_root.insert(root)
-                        }
-                    };
-                    service.scan.send(indexer::IndexRequest::Paths {
-                        root: root.clone(),
-                        paths: vec![path],
-                    })?;
+                    Some(path)
                 }
                 Err(error) if error.is::<account_auth::Reconnect>() || error.is::<remote::AccountLimit>() => {
                     return Err(error);
                 }
-                Err(error) => report.issue(resource, Some(&item), error.to_string(), true),
+                Err(error) => {
+                    report.issue(resource, Some(&item), error.to_string(), true);
+                    None
+                }
+            };
+            if index_root.is_none() && (written.is_some() || (saved && !checked_existing_root)) {
+                checked_existing_root = true;
+                index_root = ensure_index_root(service, source, &directory, documents, written.is_some())?;
+            }
+            if let Some(path) = written {
+                service.scan.send(indexer::IndexRequest::Paths {
+                    root: index_root.as_ref().unwrap().clone(),
+                    paths: vec![path.canonicalize()?],
+                })?;
             }
             service.store.connection().execute(
                 "UPDATE online_runs SET result=?2 WHERE id=?1",
@@ -723,6 +809,42 @@ async fn sync(
         }
     }
     Ok(())
+}
+
+fn ensure_index_root(
+    service: &Service,
+    source: &Source,
+    directory: &Path,
+    documents: Option<&Path>,
+    wrote_file: bool,
+) -> Result<Option<String>> {
+    let directory = directory.canonicalize()?;
+    let platform = Path::new("sag-wiki/data-sources").join(platform_slug(source.connection.platform));
+    let mut target = directory.clone();
+    if let Some((documents, parent)) = documents
+        .zip(directory.parent())
+        .filter(|(_, parent)| parent.ends_with(&platform))
+    {
+        match documents.canonicalize() {
+            Ok(documents) if parent == documents.join(&platform) => {
+                target = documents.join("sag-wiki");
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let roots = service.store.roots()?;
+    if let Some(root) = roots.iter().find(|root| target.starts_with(&root.path)) {
+        return Ok(Some(root.path.clone()));
+    }
+    // An unchanged item can group a legacy root, but should not re-add a
+    // destination the user has removed from the sidebar.
+    let old_root = target != directory && roots.iter().any(|root| directory.starts_with(&root.path));
+    if wrote_file || old_root {
+        return indexer::add_root(&service.store, &service.scan, &target).map(Some);
+    }
+    Ok(None)
 }
 
 enum Outcome {
@@ -800,19 +922,8 @@ async fn sync_item(
     directory: &Path,
     item: &remote::Item,
 ) -> Result<Outcome> {
-    let tracked = store
-        .connection()
-        .query_row(
-            "SELECT version,files FROM online_items WHERE source=?1 AND id=?2",
-            params![source.id, item.id],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        )
-        .optional()?;
-    let previous = tracked
-        .as_ref()
-        .map(|(_, files)| serde_json::from_str::<Vec<FileRecord>>(files))
-        .transpose()?;
-    if let Some(previous) = &previous {
+    let tracked = tracked_item(store, source, item)?;
+    if let Some((version, previous)) = &tracked {
         let main = previous.first().context("导入记录缺少文件")?;
         ensure_path(
             directory,
@@ -822,16 +933,21 @@ async fn sync_item(
         if file_hash(Path::new(&main.path))?.is_none() {
             return Ok(Outcome::Conflict("本地副本已删除，请先恢复文件".into()));
         }
-        if !item.version.is_empty()
-            && tracked
-                .as_ref()
-                .is_some_and(|(version, _)| version == &item.version)
-        {
+        if !item.version.is_empty() && version == &item.version {
             return Ok(Outcome::Skipped);
         }
     }
     let content = remote.fetch(item).await?;
-    install_content(store, source, directory, item, previous, content)
+    install_content(store, source, directory, item, tracked.map(|(_, files)| files), content)
+}
+
+fn tracked_item(store: &Store, source: &Source, item: &remote::Item) -> Result<Option<(String, Vec<FileRecord>)>> {
+    let row = store.connection().query_row(
+        "SELECT version,files FROM online_items WHERE source=?1 AND id=?2",
+        params![source.id, item.id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    ).optional()?;
+    row.map(|(version, files)| Ok((version, serde_json::from_str(&files)?))).transpose()
 }
 
 fn install_content(

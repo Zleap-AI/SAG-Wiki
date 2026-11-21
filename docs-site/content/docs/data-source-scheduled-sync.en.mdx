@@ -1,0 +1,16 @@
+---
+title: "Scheduled sync"
+description: "Set a sync frequency and check sync history and local destinations."
+---
+
+Set a frequency for each connection. Choose **Manual only**, **Every 30 minutes**, **Hourly**, **Every 6 hours**, **Every 12 hours**, or **Daily**. For daily sync, choose the time in your local time zone.
+
+1. Finish an initial import with **Manual only**. After the first successful import adds files, the settings close and **Files** opens the destination folder. Add an item to the test source or edit a document that was already imported.
+2. Open the connection's **Configure → Sync schedule**, select **Daily**, and set a time a few minutes ahead in your local time zone. Save and check **Next sync** on the connection.
+3. Keep the computer and the background service running. After the scheduled time, open **Sync history** to check for a new run and confirm the new or updated file at its save location. You can close the window while the background service continues to run.
+
+![Set a daily sync time for an online connection](/images/product-source-scheduled-sync-en.png)
+
+You can pause the schedule per connection and still use **Sync now**. Each connection runs at most once to catch up after the service resumes.
+
+Files go into `sag-wiki/data-sources/<platform>/<connection>/` in the system Documents folder by default. You can change the destination when adding a connection. After import, expand **sag-wiki → data-sources** in the Files sidebar to find connections that use the default location. Sync skips unchanged items and preserves local edits when there is a conflict. Failed items can be retried. Removing a connection or deleting content at the source leaves local copies intact. SAG does not write changes back to the provider.

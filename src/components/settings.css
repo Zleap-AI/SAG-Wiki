@@ -5,8 +5,11 @@
 .settings-window>.dialog-head .icon-button{width:28px;height:28px;border-radius:50%;color:var(--color-secondary)}
 .settings-window>.dialog-head .icon{width:15px;height:15px}
 .settings-window .settings-form{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
-.settings-window .settings-nav{padding:16px 10px;gap:3px;background:var(--color-sidebar);overflow:auto}
-.settings-window .settings-nav button{min-height:38px;height:auto;flex-shrink:0;padding:8px 11px;gap:10px;border-radius:7px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
+.settings-window .settings-nav{padding:11px 10px;gap:9px;background:var(--color-sidebar);overflow:auto}
+.settings-window .settings-nav-group{display:flex;flex:none;flex-direction:column;gap:1px;padding:0}
+.settings-window .settings-nav-group:last-child{padding-top:7px;border-top:1px solid var(--color-rule)}
+.settings-window .settings-nav-heading{margin:0 0 2px;padding-inline:11px 6px;color:var(--color-secondary);font:550 var(--text-small)/16px var(--font-body);overflow-wrap:anywhere}
+.settings-window .settings-nav button{min-height:32px;height:auto;flex-shrink:0;margin:0;padding:5px 11px;gap:10px;border-radius:7px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
 .settings-window .settings-nav button span{min-width:0;white-space:normal;overflow-wrap:anywhere}
 .settings-window .settings-nav button .icon{width:17px;height:17px;flex-shrink:0}
 .settings-window .settings-nav button.active{background:var(--color-selected);color:var(--color-ink);font-weight:550}

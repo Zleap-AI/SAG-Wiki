@@ -1,0 +1,21 @@
+---
+title: "API 请求"
+description: "请求返回 JSON 的 API，选择字段并定时导入 Markdown。"
+---
+
+API 让 SAG 直接从提供接口的网站或服务获取数据。接口地址和参数由服务提供方说明，SAG 支持通过 HTTP 请求获取 JSON 数据。[HTTP 规范](https://www.rfc-editor.org/rfc/rfc9110) · [JSON 规范](https://www.rfc-editor.org/rfc/rfc8259)
+
+在桌面端或 Linux 网页端打开 **设置 → 数据源 → 在线数据源 → API 请求**，点击 **配置**。
+
+![填写 API 地址并测试请求](/images/product-source-api-cn.png)
+
+1. 输入连接名称、API 地址，选择 **GET** 或 **POST**。展开「参数与鉴权」可添加查询参数和请求头。选择 POST 时可以填写 JSON 请求体。鉴权值在「参数与鉴权」中单独填写，例如请求头使用 `Authorization`，鉴权值填 `Bearer …`。如果目标位于本机或局域网，勾选「允许内网 API」。
+2. 点击 **测试请求**，查看 JSON 样例。选择记录位置，例如 `data › items`，再勾选要保留的字段。单个 JSON 对象也可以作为一条记录。在「保留字段」内点击 **预览 Markdown** 查看一条记录的输出。
+3. 如需清理正文，在 **AI 清洗** 中勾选 **启用**，选择已配置的问答模型，填写自定义提示词，再预览输出。SAG 只向模型发送选中的字段。关闭 AI 清洗时，SAG 直接生成 Markdown。
+4. 选择保存位置和[同步计划](/zh/docs/data-source-scheduled-sync)，点击 **保存并导入**。Linux 网页端可以使用默认目录，也可以从服务器上已加入 SAG 的文件夹中选择。
+
+![选择 JSON 字段并预览 Markdown](/images/product-source-api-fields-cn.png)
+
+同一条连接每天生成最多一份 `YYYY-MM-DD.md`。日期取自 SAG 后台所在机器的本地时间。每次同步把本轮成功处理的记录追加到当天的文件并更新索引。没有可入库的记录时，不创建空文件。
+
+如接口提供 ID，可开启 **按 ID 去重** 并选择字段。同一 ID 在同一天只入库一次。AI 清洗按记录处理，失败项可点击 **重试失败项**，成功后补写到最初接收日期的文件。

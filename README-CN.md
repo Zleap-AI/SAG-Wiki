@@ -113,7 +113,7 @@ https://github.com/user-attachments/assets/439bbb1c-3fd8-41e1-a77b-865e8dce4d48
 
 SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务商为准。原文件保留在本地；深入检索与问答会将所需问题、文档片段或上下文发送给你配置的服务。
 
-### 1. 下载，添加文件夹
+### 1. 下载，添加文件夹或导入数据
 
 从上方最新版本链接下载 macOS DMG，打开后将 SAG Wiki 拖入 Applications。macOS 应用、包内 CLI 与 DMG 已使用 Developer ID 签名并通过 Apple 公证。
 
@@ -122,6 +122,16 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 <p align="center">
   <img src="docs/assets/readme/product-folders-cn.png" alt="SAG-Wiki 中已添加的本地文件夹和文档" width="940" />
 </p>
+
+#### 连接数据源
+
+在桌面端打开 **设置 → 数据源**，即可导入聊天记录和笔记，或连接在线平台。
+
+- **聊天和笔记**可从 Claude Code、Codex、Evernote、Google Keep 和 Apple Notes（macOS）导入。
+- **在线来源**包括飞书、Lark、Notion、语雀、GitHub、GitLab、钉钉文档、腾讯 ima 和 RSS / Atom，可手动导入或定时同步。
+- **Apify** 支持手动运行 Actor，将网页或结构化结果导入为 Markdown。
+
+各来源的配置步骤见[连接与同步指南](docs-site/content/docs/data-sources.mdx)。
 
 ### 2. 搜索，查看原文
 

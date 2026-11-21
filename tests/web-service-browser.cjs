@@ -101,7 +101,7 @@ async function testIntake(browser){
   assert.equal(await workers.inputValue(),'4');
   await category('模型设置').click();
   assert.equal(await page.locator('#answer-models').inputValue(),'demo-model');
-  await category('数据导入').click();
+  await category('数据源').click();
   await page.getByRole('button',{name:'配置 RSS / Atom',exact:true}).click();
   const importDialog=page.getByRole('dialog',{name:'配置 RSS / Atom',exact:true});
   await importDialog.waitFor();
