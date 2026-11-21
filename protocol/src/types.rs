@@ -303,11 +303,85 @@ pub enum DocumentParser {
     Vision,
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
-#[serde(default)]
+/// How outbound requests reach the internet.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProxyMode {
+    /// Follow the Windows or macOS proxy settings and the standard proxy environment variables.
+    #[default]
+    System,
+    /// Send every outbound request through `ModelProxy::url`.
+    Custom,
+    /// Connect directly, ignoring system proxies and environment variables.
+    None,
+}
+
+/// Proxy settings shared by the desktop, the CLI and the background service.
+#[derive(Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "ModelProxyWire")]
 pub struct ModelProxy {
+    pub mode: ProxyMode,
+    /// `http://`, `https://`, `socks5://` or `socks5h://` address; a bare `host:port` means HTTP.
     pub url: String,
+    /// Basic authentication user for the custom proxy; the password is stored with the model keys.
+    pub username: String,
+    /// Comma-separated hosts, domain suffixes, IPs and networks that connect directly.
     pub bypass: String,
+    /// Whether a proxy password is stored locally; never carries the secret itself.
+    pub has_password: bool,
+    /// A password typed in settings. The service stores it with the model keys and clears it
+    /// before the settings are persisted or returned, so it only travels inbound.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub password: Option<String>,
+    /// The stored password, attached in memory by the service; never serialized.
+    #[serde(skip)]
+    pub stored_password: Option<String>,
+}
+impl ModelProxy {
+    /// Attaches the password read from local storage and the flag the UI shows for it.
+    pub fn with_stored_password(mut self, password: Option<String>) -> Self {
+        self.has_password = password.is_some();
+        self.stored_password = password;
+        self
+    }
+}
+impl std::fmt::Debug for ModelProxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ModelProxy")
+            .field("mode", &self.mode)
+            .field("url", &self.url)
+            .field("username", &self.username)
+            .field("bypass", &self.bypass)
+            .field("has_password", &self.has_password)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("stored_password", &self.stored_password.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
+}
+/// Settings saved by 0.4.0 carry only `url` and `bypass`; a non-empty address meant a custom proxy.
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct ModelProxyWire {
+    mode: Option<ProxyMode>,
+    url: String,
+    username: String,
+    bypass: String,
+    has_password: bool,
+    password: Option<String>,
+}
+impl From<ModelProxyWire> for ModelProxy {
+    fn from(wire: ModelProxyWire) -> Self {
+        let mode = wire.mode.unwrap_or(if wire.url.trim().is_empty() { ProxyMode::System } else { ProxyMode::Custom });
+        Self {
+            mode,
+            url: wire.url,
+            username: wire.username,
+            bypass: wire.bypass,
+            has_password: wire.has_password,
+            password: wire.password,
+            stored_password: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

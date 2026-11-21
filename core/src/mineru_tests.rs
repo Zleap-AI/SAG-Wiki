@@ -479,7 +479,7 @@ fn configured_proxy_handles_probe_upload_poll_and_connects_to_result_storage() {
         Step::json("GET", "http://192.0.2.10/302/v2/mineru/task?task_id=proxy-task", json!({"code":200,"data":{"status":"completed","zip_url":"https://files.example.test/result.zip"}})),
         Step { method: "CONNECT", path: "files.example.test:443", status: 403, body: vec![] },
     ]);
-    let proxy = ModelProxy { url: server.base.clone(), bypass: String::new() };
+    let proxy = ModelProxy { mode: sag_protocol::types::ProxyMode::Custom, url: server.base.clone(), ..Default::default() };
     let config = MineruConfig { base_url: "http://192.0.2.10".into(), ..Default::default() };
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
     assert!(runtime.block_on(test_connection(&config, "test-key", &proxy)).unwrap().contains("尚未验证"));

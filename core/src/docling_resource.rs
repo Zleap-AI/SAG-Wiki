@@ -344,6 +344,7 @@ mod tests {
         let bytes = b"package";
         let (proxy, downloads, server) = resource_server(bytes, bytes).await;
         let mut docling = Docling::new(dir.path());
+        docling.download_proxy.mode = sag_protocol::types::ProxyMode::Custom;
         docling.download_proxy.url = proxy;
         tokio::time::timeout(
             Duration::from_secs(5),
