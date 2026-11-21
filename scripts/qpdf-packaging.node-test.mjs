@@ -93,12 +93,13 @@ test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:window
 });
 
 test('Windows PDFium payload includes the DLL and license files', async t => {
- const dir = mkdtempSync(join(tmpdir(), 'sag-pdfium-package-'));
+ // The release checkout can be on a different drive from the system temp directory.
+ const dir = mkdtempSync(join(windows ? root : tmpdir(), 'sag-pdfium-package-'));
  t.after(() => rmSync(dir, {recursive: true, force: true}));
  const previous = process.cwd();
  try {
   process.chdir(dir);
-  const destination = join(dir, 'delivery', 'pdfium');
+  const destination = join(dir, 'src-tauri', 'bin', 'pdfium');
   await preparePdfium(destination, 'x86_64-pc-windows-msvc');
   assert.equal(readFileSync(join(destination, 'pdfium.dll')).toString('ascii', 0, 2), 'MZ');
   assert.ok(readFileSync(join(destination, 'LICENSE')).length > 0);
