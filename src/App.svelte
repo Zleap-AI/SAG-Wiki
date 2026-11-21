@@ -780,11 +780,6 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    if(focused&&focused.path!==focus?.path)await focusResult(focused);
   }
  }
- async function quickSetupSaved(value:Settings,a:string,j:string,credentials:Record<string,McpCredentials>={},mineruKey=''){
-  await saveSettings(value,a,j,credentials,mineruKey);
-  quickSetupOpen=false;
-  notify($t('快速配置已完成'));
- }
  async function keys(e:KeyboardEvent){if(onboardingOpen)return;if(e.key==='Escape'){if(view==='search'&&passagesOpen){e.preventDefault();closePassages();return;}if(view==='search'&&previewFindOpen){e.preventDefault();closePreviewFind();return;}if(view==='search'&&searchFocusMode){e.preventDefault();searchFocusMode=false;return;}if(leave||renameId||settingsOpen||quickSetupOpen||historySearchOpen||folderPickerOpen||chooseSaveFolder||menu||source||scopeOpen||toolApproval)return;if(narrowLayout&&mobileSidebarOpen&&!indexDetailsOpen){e.preventDefault();await toggleMobileSidebar(false);return;}if(mention){mention=false;return;}if(view==='search'&&focus&&showSummary&&!(e.target instanceof Element&&e.target.closest('input,textarea,[contenteditable=true],[role=listbox]:not(.search-results)'))){toggleSearchSummary()}return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();await openPreviewFind();return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='g'){e.preventDefault();previewFindOpen=true;await tick();document.querySelector<HTMLButtonElement>(`.search-preview ${e.shiftKey?'.match-previous':'.match-next'}`)?.click();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'&&view==='editor'){e.preventDefault();await save()}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();await navigate('search')}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='n'){e.preventDefault();await newChat()}}
  onMount(()=>{
   const openLink=(event:Event)=>{void api('open_external_link',{url:(event as CustomEvent<string>).detail}).catch(e=>notify($t(String(e))));};
@@ -933,7 +928,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
 
 {#if historySearchOpen}<HistorySearch {conversations} onClose={()=>historySearchOpen=false} onSelect={async c=>{await chooseHistory(c);if(conversation?.id===c.id)historySearchOpen=false}}/>{/if}
 {#if onboardingOpen}<Onboarding onClose={closeOnboarding} onQuickSetup={!web&&!answerReady?()=>{closeOnboarding();openQuickSetup()}:undefined}/>{/if}
-{#if quickSetupOpen&&settings&&!web}<QuickSetup {settings} onSave={quickSetupSaved} onClose={()=>quickSetupOpen=false} onManual={()=>{quickSetupOpen=false;settingsPage='models';settingsOpen=true}}/>{/if}
+{#if quickSetupOpen&&settings&&!web}<QuickSetup {settings} onSave={saveSettings} onSaved={()=>notify($t('快速配置已完成'))} onClose={()=>quickSetupOpen=false} onManual={()=>{quickSetupOpen=false;settingsPage='models';settingsOpen=true}}/>{/if}
 
 {#if saveNoteFor&&conversation&&displayedMessages[saveNoteFor.index]}<SaveNoteDialog message={displayedMessages[saveNoteFor.index]} conversationId={conversation.id} messageIndex={saveNoteFor.index} {roots} {cache} defaultFolder={settings?.notes?.folder} onClose={()=>saveNoteFor=null} onAddFolder={()=>{saveNoteFor=null;add()}} onSaved={(note,context)=>{saveNoteFor=null;noteSaved(context.conversationId,context.messageIndex,note);}}/>{/if}
 

@@ -1,11 +1,13 @@
 import type {MineruConfig,ModelConfig,Settings} from './types';
-import {sameProviderOrigin} from './providers';
+import {providers,sameProviderOrigin} from './providers';
+
+const provider302=(kind:'answer'|'jev')=>providers[kind].find(provider=>provider.value==='302')!.url;
 
 // One 302.AI key configures the answer model, the Jev decision model and MinerU parsing.
 export const quickSetup={
- answerUrl:'https://api.302ai.cn/v1',
+ answerUrl:provider302('answer'),
  answerModel:'qwen3.8-flash',
- jevUrl:'https://api.302ai.cn/typesafeai/v1',
+ jevUrl:provider302('jev'),
  jevModel:'jev-latest',
 } as const;
 

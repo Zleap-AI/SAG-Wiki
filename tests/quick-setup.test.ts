@@ -59,7 +59,6 @@ it('shows one key field with a visibility toggle and lists what will be written'
  invoke.mockResolvedValue('连接成功');
  mountDialog();await tick();
  expect(document.querySelector('.quick-setup-dialog h2')?.textContent).toBe('快速配置');
- expect(document.querySelector('[aria-label="同时配置 MinerU"]')).toBeNull();
  expect(document.querySelector('.quick-setup-plan')?.textContent).toContain('MinerU · 302.AI');
  expect(document.querySelector('.quick-setup-plan')?.textContent).toContain('qwen3.8-flash');
  await type('key-123');
@@ -74,7 +73,7 @@ it('shows one key field with a visibility toggle and lists what will be written'
 
 it('keeps an already configured MinerU and Jev untouched',async()=>{
  invoke.mockResolvedValue('连接成功');
- mountDialog({...settings,jev:{...settings.jev,has_key:true},mineru:{...mineru,provider:'302',has_key:true}});await tick();
+ mountDialog({...settings,jev:{...settings.jev,has_key:true},mineru:{...mineru,provider:'302',has_key:true,enabled:true}});await tick();
  expect([...document.querySelectorAll('.quick-setup-plan dd.kept')].map(node=>node.textContent)).toEqual(['已配置，保持不变','已配置，保持不变']);
  await type('key-123');
  button('测试并保存')!.click();
@@ -85,6 +84,32 @@ it('keeps an already configured MinerU and Jev untouched',async()=>{
  expect(saved.jev.url).toBe('https://api.zleap.com/v1');
  expect(jevKey).toBe('');
  expect(mineruKey).toBe('');
+});
+
+it('configures MinerU again when a key is stored but parsing is not routed to it',async()=>{
+ invoke.mockResolvedValue('连接成功');
+ mountDialog({...settings,mineru:{...mineru,provider:'302',has_key:true,enabled:false}});await tick();
+ expect(document.querySelector('.quick-setup-plan')?.textContent).toContain('MinerU · 302.AI');
+ await type('key-123');
+ button('测试并保存')!.click();
+ await vi.waitFor(()=>expect(onSave).toHaveBeenCalledTimes(1));
+ expect(invoke.mock.calls.some(([command])=>command==='test_mineru')).toBe(true);
+ const [saved,,,,mineruKey]=onSave.mock.calls[0];
+ expect(saved.document_parser).toBe('mineru');
+ expect(mineruKey).toBe('key-123');
+});
+
+it('does not save when the dialog is closed while a test is still running',async()=>{
+ let finish!:(value:string)=>void;
+ invoke.mockImplementation(async command=>command==='test_model'?new Promise<string>(resolve=>{finish=resolve}):'连接成功');
+ mountDialog();await tick();
+ await type('key-123');
+ button('测试并保存')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'answer'})));
+ expect(document.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.disabled).toBe(true);
+ await unmount(app!);app=undefined;
+ finish('连接成功');await tick();await tick();
+ expect(onSave).not.toHaveBeenCalled();
 });
 
 it('shows the entry only while the answer model is unconfigured',async()=>{
@@ -126,4 +151,5 @@ it('opens the dialog from the home entry and closes it after saving',async()=>{
  const [,args]=invoke.mock.calls.find(([command])=>command==='save_settings')!;
  expect(args).toMatchObject({answerKey:'key-123',jevKey:'key-123',mineruKey:'key-123'});
  await vi.waitFor(()=>expect(document.querySelector('.quick-setup-dialog')).toBeNull());
+ expect(document.querySelector('#notice')?.textContent).toContain('快速配置已完成');
 });
