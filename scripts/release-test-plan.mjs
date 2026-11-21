@@ -28,7 +28,7 @@ function matchesSuite(path, suite) {
   if (/^src\/lib\/(?:model-capabilities|sag-tools)\.json$/.test(path)) return ['core', 'cli'].includes(suite);
   if (path.startsWith('docs-site/content/docs/')) return ['core', 'cli', 'desktop'].includes(suite);
   if (/^scripts\/(?:test-windows-desktop\.ps1|windows-test\.manifest\.xml)$/.test(path)) return suite === 'desktop';
-  if (path.startsWith('third-party/qpdf/')) return ['core', 'cli', 'desktop'].includes(suite);
+  if (/^third-party\/(?:qpdf|pdfium)\//.test(path)) return ['core', 'cli', 'desktop'].includes(suite);
   if (/^scripts\/(?:install\.sh|prepare-(?:qpdf|pdfium)\.mjs|qpdf-packaging\.node-test\.mjs)$/.test(path)) return ['core', 'cli', 'desktop'].includes(suite);
   return false;
 }
@@ -45,7 +45,7 @@ export function nativeTestKey(git, ref, suite) {
     (path.startsWith('tests/') && !/^tests\/(?:local-jev-e2e\.py|http-api-e2e\.py|web-service-(?:e2e\.py|browser\.cjs))$/.test(path) && !/^tests\/[^/]+\.test\.[cm]?[jt]s$/.test(path)) ||
     /^src\/lib\/(?:model-capabilities|sag-tools)\.json$/.test(path) ||
     /(?:^|\/)(?:Cargo\.(?:toml|lock)|rust-toolchain(?:\.toml)?)$/.test(path) ||
-    path.startsWith('third-party/qpdf/') || path.startsWith('scripts/docling/') || /^scripts\/(?:prepare-(?:qpdf|pdfium)\.mjs|qpdf-packaging\.node-test\.mjs|test-windows-desktop\.ps1|windows-test\.manifest\.xml|install\.sh)$/.test(path)).sort((a,b)=>a.path.localeCompare(b.path));
+    /^third-party\/(?:qpdf|pdfium)\//.test(path) || path.startsWith('scripts/docling/') || /^scripts\/(?:prepare-(?:qpdf|pdfium)\.mjs|qpdf-packaging\.node-test\.mjs|test-windows-desktop\.ps1|windows-test\.manifest\.xml|install\.sh)$/.test(path)).sort((a,b)=>a.path.localeCompare(b.path));
   assert.ok(paths.some(({path})=>path==='core/Cargo.toml'), 'Missing native test inputs');
   const inputs = paths.filter(({path}) => matchesSuite(path, suite)).map(({path,mode,blob}) => {
     // Blob IDs preserve every byte, including binary fixtures and file renames.
