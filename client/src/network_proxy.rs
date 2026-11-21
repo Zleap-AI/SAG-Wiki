@@ -64,9 +64,12 @@ impl ProxySettings {
                 if std::env::var_os("REQUEST_METHOD").is_some() { settings } else { settings.with_env(env) }
             }
         };
-        if !proxy.bypass.trim().is_empty() {
+        // The UI accepts commas, semicolons and line breaks; the matcher and child
+        // processes only understand commas, so the list is normalized here.
+        let bypass = bypass_rules(&proxy.bypass);
+        if !bypass.is_empty() {
             settings.env_bypass.push(',');
-            settings.env_bypass.push_str(&proxy.bypass);
+            settings.env_bypass.push_str(&bypass.join(","));
         }
         Ok(settings)
     }
@@ -155,8 +158,9 @@ pub fn apply_proxy(builder: reqwest::ClientBuilder, proxy: &ModelProxy) -> Resul
     Ok(NetworkProxy::new(proxy)?.apply(builder))
 }
 
-/// uv and Python accept proxy settings through their own environment only.
-pub fn configure_download_command(command: &mut Command, proxy: &ModelProxy) -> Result<()> {
+/// Child processes such as uv, Python and stdio MCP servers only learn the proxy
+/// from their environment, so the resolved settings are written there.
+pub fn configure_child_proxy_env(command: &mut Command, proxy: &ModelProxy) -> Result<()> {
     let settings = ProxySettings::read(proxy)?;
     if settings.mode == ProxyMode::None {
         // Python's urllib also reads the macOS system proxy, so a wildcard bypass keeps it direct.
@@ -213,9 +217,7 @@ pub fn saved_proxy(data_dir: &Path) -> Result<ModelProxy> {
         Some(value) => serde_json::from_str::<Preferences>(&value)?.model_proxy,
         None => ModelProxy::default(),
     };
-    proxy.stored_password = stored_proxy_password(data_dir)?;
-    proxy.has_password = proxy.stored_password.is_some();
-    Ok(proxy)
+    Ok(proxy.with_stored_password(stored_proxy_password(data_dir)?))
 }
 
 /// The proxy password is kept with the model keys, outside the preferences row.
@@ -299,6 +301,11 @@ pub async fn probe(proxy: &ModelProxy, url: &str) -> Result<String> {
     })
 }
 
+/// HTTP, HTTPS and SOCKS5 (with local or remote DNS); SOCKS4 is not offered.
+fn supported_scheme(scheme: &str) -> bool {
+    matches!(scheme, "http" | "https" | "socks5" | "socks5h")
+}
+
 fn custom_proxy_url(value: &str) -> Result<Option<Url>> {
     let value = value.trim();
     if value.is_empty() {
@@ -306,7 +313,7 @@ fn custom_proxy_url(value: &str) -> Result<Option<Url>> {
     }
     let parsed = if value.contains("://") { Url::parse(value) } else { Url::parse(&format!("http://{value}")) };
     let url = parsed.ok().filter(|url| {
-        matches!(url.scheme(), "http" | "https" | "socks4" | "socks4a" | "socks5" | "socks5h") && url.host().is_some()
+        supported_scheme(url.scheme()) && url.host().is_some()
             && matches!(url.path(), "" | "/") && url.query().is_none() && url.fragment().is_none()
     }).context("代理地址须为 http://、https:// 或 socks5:// 地址，例如 http://proxy.example.com:8080")?;
     anyhow::ensure!(url.username().is_empty() && url.password().is_none(), "代理地址不能包含用户名或密码");
@@ -324,7 +331,7 @@ fn proxy_url(value: Option<&str>) -> Result<Option<Url>> {
             }
             .context("系统或环境变量中的代理地址无效")?;
             anyhow::ensure!(
-                matches!(url.scheme(), "http" | "https" | "socks4" | "socks4a" | "socks5" | "socks5h") && url.host().is_some(),
+                supported_scheme(url.scheme()) && url.host().is_some(),
                 "仅支持 HTTP、HTTPS 和 SOCKS5 代理"
             );
             Ok(url)

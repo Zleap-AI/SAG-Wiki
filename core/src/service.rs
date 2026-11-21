@@ -1716,11 +1716,10 @@ impl Service {
             }
             Op::ClearMineruKey {config} => { crate::mineru::clear_key(&self.data_dir,&config).map_err(error)?; Out::Unit }
             Op::RuntimeSchema => Out::Text(serde_json::to_string(&serde_json::json!({"defaults": sag_protocol::runtime::RuntimeSettings::default(), "fields": sag_protocol::runtime::fields(), "resources": crate::docling_budget::resource_summary(&self.store.settings().map_err(error)?.runtime).ok()})).map_err(error)?),
-            Op::TestProxyConnection { proxy, url } => {
+            Op::TestProxyConnection { proxy } => {
                 let settings = self.store.settings().map_err(error)?;
                 let proxy = draft_proxy(Some(proxy), &settings.model_proxy);
-                let target = url.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty()).unwrap_or(settings.answer.url);
-                Out::Text(sag_client::network_proxy::probe(&proxy, &target).await.map_err(error)?)
+                Out::Text(sag_client::network_proxy::probe(&proxy, &settings.answer.url).await.map_err(error)?)
             }
             Op::GetSettings => Out::Settings(get_settings(self)?),
             Op::RegisterDoclingComponent { path } => {

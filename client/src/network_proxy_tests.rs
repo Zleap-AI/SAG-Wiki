@@ -141,7 +141,7 @@ fn validation_accepts_supported_schemes_and_rejects_the_rest() {
     for url in ["http://127.0.0.1:7890", "https://proxy.example:3128", "socks5://10.0.0.2:1080", "socks5h://proxy.lan", "proxy.lan:8080"] {
         validate_proxy(&custom(url, "")).unwrap_or_else(|error| panic!("{url}: {error}"));
     }
-    for url in ["", "ftp://proxy.lan", "http://", "http://user:pw@proxy.lan:8080", "http://proxy.lan:8080/path", "not a url"] {
+    for url in ["", "ftp://proxy.lan", "socks4://proxy.lan", "http://", "http://user:pw@proxy.lan:8080", "http://proxy.lan:8080/path", "not a url"] {
         assert!(validate_proxy(&custom(url, "")).is_err(), "{url}");
     }
     // Other modes keep whatever was typed, so switching back restores the draft.
@@ -159,6 +159,10 @@ fn custom_mode_resolves_credentials_and_bypass_rules() {
     let proxy = ModelProxy { username: "ali ce".into(), password: Some("p@ss:word".into()), ..custom("proxy.lan:8080", ".corp.example, 10.0.0.0/8") };
     let resolved = ProxySettings::read(&proxy).unwrap();
     assert_eq!(resolved.mode, ProxyMode::Custom);
+    // Line breaks and semicolons from the settings textarea become comma-separated rules.
+    let multiline = ProxySettings::read(&custom("proxy.lan:8080", "10.0.0.0/8\n corp.example;*.internal")).unwrap();
+    assert_eq!(multiline.env_bypass, ",10.0.0.0/8,corp.example,*.internal");
+    assert!(Bypass::new(&[], &multiline.env_bypass).unwrap().matches(&Url::parse("https://wiki.corp.example/").unwrap()));
     assert_eq!(resolved.http.as_deref(), Some("http://ali%20ce:p%40ss%3Aword@proxy.lan:8080/"));
     assert_eq!(resolved.https, resolved.http);
     let bypass = Bypass::new(&resolved.system_bypass, &resolved.env_bypass).unwrap();
@@ -186,14 +190,14 @@ fn custom_mode_resolves_credentials_and_bypass_rules() {
 fn direct_mode_clears_proxy_variables_for_child_processes() {
     let mut command = Command::new("uv");
     command.env("HTTPS_PROXY", "http://stale.example:8080").env("all_proxy", "socks5://stale.example:1080");
-    configure_download_command(&mut command, &ModelProxy { mode: ProxyMode::None, ..custom("http://proxy.example:8080", "") }).unwrap();
+    configure_child_proxy_env(&mut command, &ModelProxy { mode: ProxyMode::None, ..custom("http://proxy.example:8080", "") }).unwrap();
     for key in ["HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY", "all_proxy"] {
         assert!(command.get_envs().any(|(name, value)| name == key && value.is_none()), "{key} must be removed");
     }
     let (_, value) = command.get_envs().find(|(name, _)| *name == "NO_PROXY").unwrap();
     assert_eq!(value.unwrap(), "*");
     let mut command = Command::new("uv");
-    configure_download_command(&mut command, &ModelProxy { username: "alice".into(), password: Some("secret".into()), ..custom("socks5h://proxy.example:1080", "") }).unwrap();
+    configure_child_proxy_env(&mut command, &ModelProxy { username: "alice".into(), password: Some("secret".into()), ..custom("socks5h://proxy.example:1080", "") }).unwrap();
     let (_, value) = command.get_envs().find(|(name, _)| *name == "HTTPS_PROXY").unwrap();
     assert_eq!(value.unwrap(), "socks5h://alice:secret@proxy.example:1080");
 }
@@ -230,7 +234,7 @@ async fn probe_reports_the_route_and_hides_credentials() {
 #[test]
 fn docling_install_commands_get_the_custom_proxy_and_bypass_addresses() {
     let mut command = Command::new("uv");
-    configure_download_command(&mut command, &ModelProxy {
+    configure_child_proxy_env(&mut command, &ModelProxy {
         mode: ProxyMode::Custom,
         url: "http://proxy.example:8080".into(),
         bypass: ".internal.example, 192.0.2.5".into(),

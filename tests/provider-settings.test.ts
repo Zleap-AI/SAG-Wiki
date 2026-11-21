@@ -226,7 +226,7 @@ it('通用里的“配置代理”跳转到网络页，可测试并随设置保�
  await input(document.querySelector<HTMLInputElement>('#model-proxy-bypass')!,modelProxy.bypass);
  button('测试连接').click();
  await vi.waitFor(()=>expect(document.querySelector('.network-test [role="status"]')?.textContent).toContain('已通过代理 gateway.example:8080'));
- expect(api).toHaveBeenCalledWith('test_proxy_connection',{proxy:modelProxy,url:value.answer.url});
+ expect(api).toHaveBeenCalledWith('test_proxy_connection',{proxy:modelProxy});
  expect(onSave).not.toHaveBeenCalled();
  button('模型设置',document.querySelector('.settings-nav')!).click();await tick();
  expect(document.querySelector('#model-proxy-url')).toBeNull();

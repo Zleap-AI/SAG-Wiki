@@ -48,7 +48,7 @@
   error=validate();result='';if(error)return;
   const current=++revision;testing=true;
   try{
-   const message=await api<string>('test_proxy_connection',{proxy:{...value,url:value.url.trim(),username:value.username.trim(),bypass:value.bypass.trim()},url:testUrl||null});
+   const message=await api<string>('test_proxy_connection',{proxy:{...value,url:value.url.trim(),username:value.username.trim(),bypass:value.bypass.trim()}});
    if(current===revision)result=$t(message);
   }catch(reason){if(current===revision)error=$t(String(reason));}
   finally{if(current===revision)testing=false;}

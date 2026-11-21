@@ -1673,11 +1673,23 @@ async fn proxy_password_is_stored_with_the_model_keys_and_never_returned() {
         .query_row("SELECT value FROM preferences WHERE id=1", [], |row| row.get(0)).unwrap();
     assert!(!preferences.contains("secret"), "the preferences row must not hold the password");
 
-    // Leaving the password blank keeps it; turning authentication off removes it.
+    // Leaving the password blank keeps it; so does clearing only the username by mistake.
     save(saved.clone()).await.unwrap();
     assert_eq!(crate::models::proxy_password(&data).unwrap().as_deref(), Some("secret"));
+    let mut slipped = saved.clone();
+    slipped.model_proxy.username.clear();
+    save(slipped).await.unwrap();
+    assert_eq!(crate::models::proxy_password(&data).unwrap().as_deref(), Some("secret"));
+    // A password typed without a username is refused instead of being thrown away.
+    let mut nameless = saved.clone();
+    nameless.model_proxy.username.clear();
+    nameless.model_proxy.password = Some("other".into());
+    let Err(error) = save(nameless).await else { panic!("a password without a username must be refused") };
+    assert!(error.to_string().contains("请填写代理用户名"), "{error}");
+    // Turning authentication off sends an empty password and removes the stored one.
     let mut anonymous = saved.clone();
     anonymous.model_proxy.username.clear();
+    anonymous.model_proxy.password = Some(String::new());
     save(anonymous).await.unwrap();
     assert_eq!(crate::models::proxy_password(&data).unwrap(), None);
     let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
@@ -1689,9 +1701,10 @@ async fn proxy_password_is_stored_with_the_model_keys_and_never_returned() {
     assert!(save(invalid).await.is_err());
     let mut direct = saved.clone();
     direct.model_proxy.mode = ProxyMode::None;
+    direct.answer.url = "http://127.0.0.1:9/v1".into();
     save(direct.clone()).await.unwrap();
     let Err(error) = client.call(Operation::TestProxyConnection {
-        proxy: direct.model_proxy, url: Some("http://127.0.0.1:9/".into()),
+        proxy: direct.model_proxy,
     }, Duration::from_secs(20)).await else { panic!("a closed port must fail the probe") };
     assert!(error.to_string().contains("无法连接 127.0.0.1"), "{error}");
     stop(&client, server).await;

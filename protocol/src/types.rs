@@ -337,6 +337,14 @@ pub struct ModelProxy {
     #[serde(skip)]
     pub stored_password: Option<String>,
 }
+impl ModelProxy {
+    /// Attaches the password read from local storage and the flag the UI shows for it.
+    pub fn with_stored_password(mut self, password: Option<String>) -> Self {
+        self.has_password = password.is_some();
+        self.stored_password = password;
+        self
+    }
+}
 impl std::fmt::Debug for ModelProxy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ModelProxy")

@@ -77,7 +77,7 @@ it('已保存密码时留空保持原密码，并按草稿测试连接',async()=
  expect(field('password').getAttribute('placeholder')).toContain('留空保持原密码');
  document.querySelector<HTMLButtonElement>('.network-test-button')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.network-test-result')?.textContent).toContain('已通过代理 proxy.corp:3128 连接 api.302ai.cn'));
- expect(invoke).toHaveBeenCalledWith('test_proxy_connection',{proxy:customProxy,url:'https://api.302ai.cn/v1'});
+ expect(invoke).toHaveBeenCalledWith('test_proxy_connection',{proxy:customProxy});
  await submit();
  expect(onSave.mock.calls[0][0].model_proxy?.password).toBeNull();
 });

@@ -65,9 +65,13 @@ async fn connect(
         if server.transport == "stdio" {
             let mut command = tokio::process::Command::new(&server.command);
             command.args(&server.args);
-            // A child server only learns the proxy from its environment; its own variables still win.
-            sag_client::network_proxy::configure_download_command(command.as_std_mut(), proxy)
-                .context("无法为 MCP 服务应用代理设置")?;
+            // A child server only learns the proxy from its environment. A server whose own
+            // variables name a proxy keeps them untouched, including a direct-mode NO_PROXY.
+            let proxy_var = |name: &str| matches!(name.to_ascii_uppercase().as_str(), "HTTP_PROXY" | "HTTPS_PROXY" | "ALL_PROXY" | "NO_PROXY");
+            if !secrets.env.keys().any(|name| proxy_var(name)) {
+                sag_client::network_proxy::configure_child_proxy_env(command.as_std_mut(), proxy)
+                    .context("无法为 MCP 服务应用代理设置")?;
+            }
             command.envs(&secrets.env);
             Ok(().serve(TokioChildProcess::new(command)?).await?)
         } else {

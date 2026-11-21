@@ -617,8 +617,8 @@ impl Store {
         settings.mineru.enabled = matches!(settings.document_parser, None | Some(DocumentParser::Mineru))
             && crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
         // The proxy password is kept with the model keys and only attached in memory.
-        settings.model_proxy.stored_password = crate::models::proxy_password(self.docling.data_directory())?;
-        settings.model_proxy.has_password = settings.model_proxy.stored_password.is_some();
+        settings.model_proxy = settings.model_proxy
+            .with_stored_password(crate::models::proxy_password(self.docling.data_directory())?);
         Ok(settings)
     }
     pub fn validate_settings(s: &Settings) -> Result<()> {
@@ -706,14 +706,21 @@ impl Store {
             settings.updates.source = UpdateSource::Github;
         }
         // A typed proxy password goes to credentials.json; the preferences row never stores it.
-        // Turning authentication off (no username) removes the stored password.
+        // Turning authentication off sends an empty password, which removes the stored one;
+        // a cleared username on its own keeps it, so a slip never discards a secret.
         settings.model_proxy.url = settings.model_proxy.url.trim().to_owned();
         settings.model_proxy.username = settings.model_proxy.username.trim().to_owned();
         settings.model_proxy.bypass = settings.model_proxy.bypass.trim().to_owned();
         let data_dir = self.docling.data_directory();
-        if settings.model_proxy.username.trim().is_empty() {
-            crate::models::save_proxy_password(data_dir, None)?;
-        } else if let Some(password) = settings.model_proxy.password.as_deref().filter(|value| !value.is_empty()) {
+        let typed = settings.model_proxy.password.as_deref();
+        if settings.model_proxy.username.is_empty() {
+            if settings.model_proxy.mode == ProxyMode::Custom && typed.is_some_and(|value| !value.is_empty()) {
+                bail!("请填写代理用户名")
+            }
+            if typed == Some("") && previous.model_proxy.has_password {
+                crate::models::save_proxy_password(data_dir, None)?;
+            }
+        } else if let Some(password) = typed.filter(|value| !value.is_empty()) {
             crate::models::save_proxy_password(data_dir, Some(password))?;
         }
         settings.model_proxy.password = None;
