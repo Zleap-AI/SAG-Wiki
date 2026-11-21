@@ -84,25 +84,40 @@ impl Explorer {
     fn documents(&self, scope: &str) -> Result<Vec<ExploreDocument>> {
         let settings = self.store.settings()?;
         let db = self.store.connection();
-        let mut query = db.prepare("SELECT id,path,name,hash FROM documents WHERE hash<>'' AND instr(replace(path,char(92),'/')||'/',?1)=1 ORDER BY name COLLATE NOCASE,path")?;
+        // Converted outputs may live outside the source root (app-data/custom
+        // storage), so match both direct paths and valid conversion sources;
+        // outputs of invalid conversions are never explored.
+        let mut query = db.prepare("SELECT d.id,d.path,d.name,d.hash,c.source FROM documents d LEFT JOIN conversions c ON c.output=d.path WHERE d.hash<>'' AND ((c.output IS NULL AND instr(replace(d.path,char(92),'/')||'/',?1)=1) OR (c.valid=1 AND instr(replace(c.source,char(92),'/')||'/',?1)=1)) ORDER BY d.name COLLATE NOCASE,d.path")?;
         let prefix = format!("{}/", scope.replace('\\', "/").trim_end_matches('/'));
         let documents = query
             .query_map(params![prefix], |row| {
-                Ok(ExploreDocument {
-                    id: row.get(0)?,
-                    path: row.get(1)?,
-                    name: row.get(2)?,
-                    hash: row.get(3)?,
-                    file_type: String::new(),
-                })
+                Ok((
+                    row.get::<_, i64>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         Ok(documents
             .into_iter()
-            .filter_map(|mut doc| {
-                let path = Path::new(&doc.path);
+            .filter_map(|(id, output, _name, hash, source)| {
+                // Scope, exclusion, and hidden-directory semantics follow the
+                // original source; the stored document row stays the output.
+                let source = source.unwrap_or_else(|| output.clone());
+                let path = Path::new(&source);
                 let relative = path.strip_prefix(scope).expect("scoped document path");
-                if !text::is_indexable(path, &settings.file_types)
+                let file_type = path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let name = path
+                    .file_name()
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .unwrap_or(_name);
+                if !text::is_indexable(Path::new(&output), &settings.file_types)
                     || text::in_hidden_directory(Path::new(scope), path, false)
                     || relative.components().any(|part| {
                         settings
@@ -113,12 +128,13 @@ impl Explorer {
                 {
                     return None;
                 }
-                doc.file_type = path
-                    .extension()
-                    .and_then(|value| value.to_str())
-                    .unwrap_or("")
-                    .to_lowercase();
-                Some(doc)
+                Some(ExploreDocument {
+                    id,
+                    path: source,
+                    name,
+                    hash,
+                    file_type,
+                })
             })
             .collect())
     }
@@ -271,10 +287,10 @@ impl Explorer {
         let chunks = text::chunks_for_file(
             &source.body,
             self.store.settings()?.retrieval.chunk_chars,
-            Path::new(&document.path),
+            Path::new(&source.path),
         );
         let terms = text::explore_summary(
-            Path::new(&document.path),
+            Path::new(&source.path),
             chunks
                 .iter()
                 .map(|chunk| (chunk.heading.as_str(), chunk.content.as_str())),
@@ -364,7 +380,7 @@ impl Explorer {
             vec![]
         } else {
             let db = self.store.connection();
-            let mut query = db.prepare("WITH hits AS MATERIALIZED (SELECT c.document_id,bm25(chunk_fts,0,0,1) AS score FROM chunk_fts JOIN chunks c ON c.id=chunk_fts.rowid JOIN documents d ON d.id=c.document_id WHERE chunk_fts MATCH ?1 AND d.id<>?2 AND d.id IN (SELECT value FROM json_each(?4)) AND instr(replace(d.path,char(92),'/')||'/',?3)=1) SELECT document_id FROM hits GROUP BY document_id ORDER BY min(score),document_id LIMIT 100")?;
+            let mut query = db.prepare("WITH hits AS MATERIALIZED (SELECT c.document_id,bm25(chunk_fts,0,0,1) AS score FROM chunk_fts JOIN chunks c ON c.id=chunk_fts.rowid JOIN documents d ON d.id=c.document_id WHERE chunk_fts MATCH ?1 AND d.id<>?2 AND d.id IN (SELECT value FROM json_each(?4)) AND (instr(replace(d.path,char(92),'/')||'/',?3)=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',?3)=1))) SELECT document_id FROM hits GROUP BY document_id ORDER BY min(score),document_id LIMIT 100")?;
             let ids = query
                 .query_map(
                     params![
@@ -405,7 +421,7 @@ impl Explorer {
         }
         {
             let db = self.store.connection();
-            let mut query = db.prepare("SELECT DISTINCT c.document_id FROM chunk_fts JOIN chunks c ON c.id=chunk_fts.rowid JOIN documents d ON d.id=c.document_id WHERE chunk_fts MATCH ?1 AND instr(replace(d.path,char(92),'/')||'/',?2)=1")?;
+            let mut query = db.prepare("SELECT DISTINCT c.document_id FROM chunk_fts JOIN chunks c ON c.id=chunk_fts.rowid JOIN documents d ON d.id=c.document_id WHERE chunk_fts MATCH ?1 AND (instr(replace(d.path,char(92),'/')||'/',?2)=1 OR EXISTS(SELECT 1 FROM conversions cv WHERE cv.output=d.path AND cv.valid=1 AND instr(replace(cv.source,char(92),'/')||'/',?2)=1))")?;
             let prefix = format!("{}/", scope.replace('\\', "/").trim_end_matches('/'));
             for term in vocabulary {
                 if cancel.is_cancelled() {
@@ -737,6 +753,259 @@ mod tests {
                 .unwrap()
                 .total,
             1
+        );
+    }
+    // Register a converted document (output row, chunks, conversion record)
+    // without running a converter, mirroring what conversion storage produces.
+    fn index_conversion(
+        store: &Store,
+        root: &str,
+        source: &Path,
+        output: &Path,
+        body: &str,
+        valid: i64,
+    ) {
+        fs::create_dir_all(output.parent().unwrap()).unwrap();
+        fs::write(output, body).unwrap();
+        let raw = fs::read(output).unwrap();
+        let output_text = crate::store::path_text(output).unwrap();
+        let mut db = store.connection();
+        let tx = db.transaction().unwrap();
+        tx.execute(
+            "INSERT INTO documents(root,path,name,hash,mtime,size) VALUES(?,?,?,?,0,?)",
+            params![
+                root,
+                output_text,
+                output.file_name().unwrap().to_string_lossy(),
+                crate::store::hash(&raw),
+                raw.len() as i64
+            ],
+        )
+        .unwrap();
+        let id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO chunks(id,document_id,heading,ranges,start_line,end_line,spans) VALUES(?1,?1,'','[]',1,1,'[]')",
+            params![id],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO chunk_fts(rowid,title,heading,body) VALUES(?1,?2,'',?3)",
+            params![
+                id,
+                text::index_text(&output.file_stem().unwrap().to_string_lossy()),
+                text::index_text(body)
+            ],
+        )
+        .unwrap();
+        tx.execute(
+            "INSERT INTO conversions(source,root,source_hash,output,output_hash,valid) VALUES(?,?,?,?,?,?)",
+            params![
+                crate::store::path_text(source).unwrap(),
+                root,
+                "fixture",
+                output_text,
+                crate::docling::fingerprint(output).unwrap(),
+                valid
+            ],
+        )
+        .unwrap();
+        tx.commit().unwrap();
+    }
+    #[test]
+    fn converted_documents_join_overview_and_graph_by_source_scope() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("library");
+        // App-data storage keeps conversion outputs outside the library root.
+        let storage = dir.path().join("app-data/.sag-converted/bucket");
+        fs::create_dir_all(root.join("nested")).unwrap();
+        fs::create_dir_all(&storage).unwrap();
+        let storage = storage.canonicalize().unwrap();
+        let root = root.canonicalize().unwrap();
+        fs::write(root.join("a.md"), "# 文件监听\n文件监听按照变化路径处理增量索引。").unwrap();
+        fs::write(
+            root.join("nested/b.md"),
+            "# 增量索引\n文件监听处理路径变动以及重命名。",
+        )
+        .unwrap();
+        let pdf = root.join("report.pdf");
+        fs::write(&pdf, b"%PDF fixture").unwrap();
+        let deck = root.join("nested/deck.pptx");
+        fs::write(&deck, b"pptx fixture").unwrap();
+        let stars = root.join("stars.pdf");
+        fs::write(&stars, b"%PDF fixture").unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let scope = store.add_root(&root).unwrap();
+        store.scan(&scope, |_| {}).unwrap();
+        index_conversion(
+            &store,
+            &scope,
+            &pdf,
+            &storage.join("report.pdf.md"),
+            "# 季度报告\n文件监听按照变化路径处理增量索引，转换文本可供探索。",
+            1,
+        );
+        index_conversion(
+            &store,
+            &scope,
+            &deck,
+            &storage.join("nested/deck.pptx.md"),
+            "# 演示文稿\n重命名与路径变动通过文件监听处理。",
+            1,
+        );
+        index_conversion(
+            &store,
+            &scope,
+            &stars,
+            &storage.join("stars.pdf.md"),
+            "# Astronomy\nSaturn rings composed of ice and dust.",
+            1,
+        );
+        let explorer = Explorer::new(store.clone());
+        let view = explorer.overview(&scope, "", &[]).unwrap();
+        assert_eq!(
+            view.documents
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            ["a.md", "b.md", "deck.pptx", "report.pdf", "stars.pdf"]
+        );
+        let report = view
+            .documents
+            .iter()
+            .find(|d| d.name == "report.pdf")
+            .unwrap();
+        assert_eq!(report.path, crate::store::path_text(&pdf).unwrap());
+        assert_eq!(report.file_type, "pdf");
+        let nested = explorer
+            .overview(root.join("nested").to_str().unwrap(), "", &[])
+            .unwrap();
+        assert_eq!(
+            nested
+                .documents
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            ["b.md", "deck.pptx"]
+        );
+        let graph = explorer.graph(&scope, &CancellationToken::new()).unwrap();
+        assert_eq!(graph.documents.len(), 5);
+        let isolated = graph
+            .documents
+            .iter()
+            .find(|d| d.name == "stars.pdf")
+            .unwrap();
+        assert!(graph
+            .edges
+            .iter()
+            .all(|edge| edge.source != isolated.id && edge.target != isolated.id));
+        assert!(graph
+            .edges
+            .iter()
+            .any(|edge| edge.source == report.id || edge.target == report.id));
+        let related = explorer
+            .neighbors(&scope, report.id, None, 0, &CancellationToken::new())
+            .unwrap();
+        assert!(related.documents.iter().any(|d| d.name == "a.md"));
+    }
+    #[test]
+    fn converted_documents_follow_source_scope_semantics() {
+        let dir = tempfile::tempdir().unwrap();
+        let root_a = dir.path().join("alpha");
+        let root_b = dir.path().join("beta");
+        let storage = dir.path().join("app-data/.sag-converted/bucket");
+        for root in [&root_a, &root_b] {
+            fs::create_dir_all(root.join("docs")).unwrap();
+            fs::create_dir_all(root.join("docs-old")).unwrap();
+            fs::create_dir_all(root.join("private")).unwrap();
+            fs::create_dir_all(root.join(".hidden")).unwrap();
+        }
+        fs::create_dir_all(&storage).unwrap();
+        let storage = storage.canonicalize().unwrap();
+        let root_a = root_a.canonicalize().unwrap();
+        let root_b = root_b.canonicalize().unwrap();
+        fs::write(root_a.join("direct.md"), "# 文件监听\n文件监听增量更新索引。").unwrap();
+        fs::write(root_b.join("direct-b.md"), "# 文件监听\n文件监听增量更新索引。").unwrap();
+        let library_source = root_a.join("library.pdf");
+        fs::write(&library_source, b"%PDF fixture").unwrap();
+        let stale_source = root_a.join("stale.pdf");
+        fs::write(&stale_source, b"%PDF fixture").unwrap();
+        let secret_source = root_a.join("private/secret.pdf");
+        fs::write(&secret_source, b"%PDF fixture").unwrap();
+        let hidden_source = root_a.join(".hidden/hush.pdf");
+        fs::write(&hidden_source, b"%PDF fixture").unwrap();
+        let legacy_source = root_a.join("docs-old/legacy.pdf");
+        fs::write(&legacy_source, b"%PDF fixture").unwrap();
+        let foreign_source = root_b.join("other.pdf");
+        fs::write(&foreign_source, b"%PDF fixture").unwrap();
+        let store = Arc::new(Store::open(&dir.path().join("index.sqlite")).unwrap());
+        let scope_a = store.add_root(&root_a).unwrap();
+        let scope_b = store.add_root(&root_b).unwrap();
+        store.scan(&scope_a, |_| {}).unwrap();
+        store.scan(&scope_b, |_| {}).unwrap();
+        // Library storage keeps outputs under the root's own .sag-converted.
+        index_conversion(
+            &store,
+            &scope_a,
+            &library_source,
+            &root_a.join(".sag-converted/library.pdf.md"),
+            "# 转换文档\n文件监听增量更新索引。",
+            1,
+        );
+        for (source, name) in [
+            (&secret_source, "private/secret.pdf.md"),
+            (&hidden_source, ".hidden/hush.pdf.md"),
+            (&legacy_source, "docs-old/legacy.pdf.md"),
+        ] {
+            index_conversion(
+                &store,
+                &scope_a,
+                source,
+                &storage.join(name),
+                "# 转换文档\n文件监听增量更新索引。",
+                1,
+            );
+        }
+        // An invalidated conversion must not surface its output document.
+        index_conversion(
+            &store,
+            &scope_a,
+            &stale_source,
+            &storage.join("stale.pdf.md"),
+            "# 转换文档\n文件监听增量更新索引。",
+            0,
+        );
+        index_conversion(
+            &store,
+            &scope_b,
+            &foreign_source,
+            &storage.join("foreign/other.pdf.md"),
+            "# 转换文档\n文件监听增量更新索引。",
+            1,
+        );
+        let mut settings = store.settings().unwrap();
+        settings.excluded = vec!["private".into()];
+        store.save_settings(&settings).unwrap();
+        let explorer = Explorer::new(store);
+        let view = explorer.overview(&scope_a, "", &[]).unwrap();
+        assert_eq!(
+            view.documents
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            ["direct.md", "legacy.pdf", "library.pdf"]
+        );
+        let docs = explorer
+            .overview(root_a.join("docs").to_str().unwrap(), "", &[])
+            .unwrap();
+        assert_eq!(docs.total, 0);
+        let view_b = explorer.overview(&scope_b, "", &[]).unwrap();
+        assert_eq!(
+            view_b
+                .documents
+                .iter()
+                .map(|d| d.name.as_str())
+                .collect::<Vec<_>>(),
+            ["direct-b.md", "other.pdf"]
         );
     }
     #[test]
