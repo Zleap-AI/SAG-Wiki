@@ -30,7 +30,14 @@ export type UpdateProgress={stage:'downloading'|'verifying';downloaded:number;to
 export type NoteSettings={folder?:string|null;ask_location?:boolean};
 export type DocumentParser='docling'|'mineru'|'vision';
 export type ConversionStorage={mode:"app_data"|"library"}|{mode:"custom";directory:string};
-export type ModelProxy={url:string;bypass:string};
+export type ProxyMode='system'|'custom'|'none';
+export type ModelProxy={mode:ProxyMode;url:string;username:string;bypass:string;has_password:boolean;password?:string|null};
+export const defaultModelProxy:ModelProxy={mode:'system',url:'',username:'',bypass:'',has_password:false,password:null};
+/** Settings saved by 0.4.0 carry only url and bypass; a non-empty address meant a custom proxy. */
+export function normalizeModelProxy(value?:Partial<ModelProxy>|null):ModelProxy{
+ const url=value?.url??'';
+ return {...defaultModelProxy,...value,mode:value?.mode??(url.trim()?'custom':'system'),url,username:value?.username??'',bypass:value?.bypass??'',has_password:value?.has_password??false,password:value?.password??null};
+}
 export type Settings={chat_import_folder?:string|null;document_parser?:DocumentParser;document_parser_model?:string;document_parser_pdf_prompt?:string;document_parser_image_prompt?:string;conversion_storage?:ConversionStorage;mineru?:MineruConfig;model_proxy?:ModelProxy;runtime?:Record<string,number|boolean>;notes?:NoteSettings;updates?:UpdateSettings;conversion_workers?:number;convert_other_formats?:boolean;conversion_formats?:string[]|null;search_summary_enabled?:boolean;search_summary_model?:string;search_summary_sources?:number;retrieval_version?:number;language?:Language;credential_error?:string|null;answer:ModelConfig;jev:ModelConfig;retrieval:Retrieval;theme:string;start_page:string;editor_size:number;show_hidden:boolean;show_index_details?:boolean;watch:boolean;index_workers?:number;excluded:string[];file_types?:FileTypes;timeout_secs:number;answer_context_tokens:number;answer_output_tokens:number;max_tool_calls?:number;model_profiles?:Record<string,ModelProfile>;mcp_servers?:McpServer[]};
 export type ReasoningBlock={answer_offset:number;tool_count:number;content:string};
 export type Message={help?:boolean;created_at?:number|null;question:string;answer:string;reasoning?:string;reasoning_blocks?:ReasoningBlock[];evidence:Candidate[];model:string;scope:string[];references:string[];status:string;error:string|null;retrieval_question:string;tool_calls?:ToolCallRecord[];context?:AnswerContext|null;note_path?:string|null};

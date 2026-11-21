@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.4.2
+
+- **网络代理模式**：新增「设置 → 网络」页面，可选择跟随系统代理、自定义代理或不使用代理，取代通用设置中的代理弹窗。自定义代理支持 SOCKS5 地址和 Basic 认证，密码与 API 密钥一样只保存在本机；测试连接改为请求模型服务地址并报告实际线路；stdio 方式启动的 MCP 服务也获得同样的代理环境变量。([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171)、[Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
+
+### English
+
+- **Network proxy modes**: Add a **Settings → Network** page to follow the system proxy, use a custom proxy, or connect directly, replacing the proxy dialog in General settings. A custom proxy accepts SOCKS5 addresses and Basic authentication, with the password stored locally like API keys. **Test connection** now requests the model service and reports the route taken, and MCP servers started over stdio receive the same proxy environment. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
+
 ## 0.4.1
 
 - **SAG Wiki 助手**：内置中英文更新日志。输入完整版本号即可检索该版本的改动，繁体中文、日语、韩语和西班牙语界面也可查阅英文日志。

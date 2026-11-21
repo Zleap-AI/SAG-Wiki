@@ -616,6 +616,9 @@ impl Store {
         }
         settings.mineru.enabled = matches!(settings.document_parser, None | Some(DocumentParser::Mineru))
             && crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
+        // The proxy password is kept with the model keys and only attached in memory.
+        settings.model_proxy.stored_password = crate::models::proxy_password(self.docling.data_directory())?;
+        settings.model_proxy.has_password = settings.model_proxy.stored_password.is_some();
         Ok(settings)
     }
     pub fn validate_settings(s: &Settings) -> Result<()> {
@@ -702,6 +705,19 @@ impl Store {
         if follows_official_update_language(&settings.updates) {
             settings.updates.source = UpdateSource::Github;
         }
+        // A typed proxy password goes to credentials.json; the preferences row never stores it.
+        // Turning authentication off (no username) removes the stored password.
+        settings.model_proxy.url = settings.model_proxy.url.trim().to_owned();
+        settings.model_proxy.username = settings.model_proxy.username.trim().to_owned();
+        settings.model_proxy.bypass = settings.model_proxy.bypass.trim().to_owned();
+        let data_dir = self.docling.data_directory();
+        if settings.model_proxy.username.trim().is_empty() {
+            crate::models::save_proxy_password(data_dir, None)?;
+        } else if let Some(password) = settings.model_proxy.password.as_deref().filter(|value| !value.is_empty()) {
+            crate::models::save_proxy_password(data_dir, Some(password))?;
+        }
+        settings.model_proxy.password = None;
+        settings.model_proxy.stored_password = None;
         let mut db = self.connection();
         let transaction = db.transaction()?;
         transaction.execute("INSERT INTO preferences VALUES(1,json_set(?, '$.update_source_migrated', json('true'))) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(&settings)?])?;

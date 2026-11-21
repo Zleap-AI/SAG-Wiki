@@ -471,10 +471,7 @@ remote!(test_mineru(config:sag_protocol::mineru::MineruConfig,key:String,model_p
 remote!(clear_mineru_key(config:sag_protocol::mineru::MineruConfig) => ClearMineruKey);
 remote!(runtime_schema() => RuntimeSchema);
 remote!(test_model(kind:String,config:ModelConfig,key:String,model_proxy:Option<ModelProxy>) => TestModel);
-#[tauri::command]
-async fn test_proxy_connection(address: String) -> CommandResult<()> {
-    sag_client::network_proxy::test_proxy_connection(&address).await.map_err(error)
-}
+remote!(test_proxy_connection(proxy:ModelProxy,url:Option<String>) => TestProxyConnection);
 remote!(list_answer_models(config:ModelConfig,key:String,model_proxy:Option<ModelProxy>) => ListAnswerModels);
 remote!(test_mcp(server:McpServer,credentials:Option<McpCredentials>) => TestMcp);
 remote!(resolve_tool_approval(id:String,allow:bool) => ResolveToolApproval);

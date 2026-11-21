@@ -12,7 +12,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync"
 uuid = { version = "1", features = ["v4"] }
 tempfile = "3"
 dirs = "6"
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "query", "stream", "rustls", "multipart"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "query", "stream", "rustls", "multipart", "socks"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 ipnet = "2"
 glob = "0.3"

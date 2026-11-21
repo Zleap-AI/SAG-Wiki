@@ -381,8 +381,9 @@ async fn model_proxy_routes_draft_and_saved_connections_for_both_model_kinds() {
     let (_dir, client, server) = start().await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let model_proxy = ModelProxy {
+        mode: crate::types::ProxyMode::Custom,
         url: format!("http://{}", listener.local_addr().unwrap()),
-        bypass: String::new(),
+        ..Default::default()
     };
     let fixture = tokio::spawn(async move {
         let body = r#"{"choices":[{"message":{"content":"OK"}}],"answers":{"test":{"noul":1}}}"#;
@@ -423,6 +424,7 @@ async fn remote_mcp_connection_test_uses_the_saved_proxy() {
     let (_dir, client, server) = start().await;
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.model_proxy.mode = crate::types::ProxyMode::Custom;
     settings.model_proxy.url = format!("http://{}", listener.local_addr().unwrap());
     call(&client, Operation::SaveSettings {
         settings, answer_key: String::new(), jev_key: String::new(), mineru_key: String::new(), mcp_credentials: None,
@@ -1640,4 +1642,57 @@ async fn chat_import_uses_remembered_folder_through_service() {
     assert_eq!(repeated[0].status, "updated");
     call(&client,Operation::Shutdown).await;
     server.await.unwrap().unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn proxy_password_is_stored_with_the_model_keys_and_never_returned() {
+    use crate::types::{ModelProxy, ProxyMode};
+    let (dir, client, server) = start().await;
+    let data = dir.path().join("data");
+    let save = |settings: Settings| client.call(Operation::SaveSettings {
+        settings, answer_key: String::new(), jev_key: String::new(), mineru_key: String::new(), mcp_credentials: None,
+    }, Duration::from_secs(5));
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(settings.model_proxy, ModelProxy::default());
+    settings.model_proxy = ModelProxy {
+        mode: ProxyMode::Custom,
+        url: "127.0.0.1:7890".into(),
+        username: " alice ".into(),
+        bypass: ".corp.example".into(),
+        has_password: false,
+        password: Some("secret".into()),
+        stored_password: None,
+    };
+    save(settings.clone()).await.unwrap();
+    assert_eq!(crate::models::proxy_password(&data).unwrap().as_deref(), Some("secret"));
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert_eq!(saved.model_proxy.username, "alice");
+    assert!(saved.model_proxy.has_password);
+    assert_eq!(saved.model_proxy.password, None, "the password never crosses the protocol");
+    let preferences: String = rusqlite::Connection::open(data.join("sag.sqlite")).unwrap()
+        .query_row("SELECT value FROM preferences WHERE id=1", [], |row| row.get(0)).unwrap();
+    assert!(!preferences.contains("secret"), "the preferences row must not hold the password");
+
+    // Leaving the password blank keeps it; turning authentication off removes it.
+    save(saved.clone()).await.unwrap();
+    assert_eq!(crate::models::proxy_password(&data).unwrap().as_deref(), Some("secret"));
+    let mut anonymous = saved.clone();
+    anonymous.model_proxy.username.clear();
+    save(anonymous).await.unwrap();
+    assert_eq!(crate::models::proxy_password(&data).unwrap(), None);
+    let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert!(!saved.model_proxy.has_password);
+
+    // Invalid addresses are rejected before anything is written; direct mode ignores the address.
+    let mut invalid = saved.clone();
+    invalid.model_proxy.url = "ftp://proxy".into();
+    assert!(save(invalid).await.is_err());
+    let mut direct = saved.clone();
+    direct.model_proxy.mode = ProxyMode::None;
+    save(direct.clone()).await.unwrap();
+    let Err(error) = client.call(Operation::TestProxyConnection {
+        proxy: direct.model_proxy, url: Some("http://127.0.0.1:9/".into()),
+    }, Duration::from_secs(20)).await else { panic!("a closed port must fail the probe") };
+    assert!(error.to_string().contains("无法连接 127.0.0.1"), "{error}");
+    stop(&client, server).await;
 }

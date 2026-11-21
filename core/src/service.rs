@@ -377,6 +377,13 @@ fn list_drafts(state: &Arc<Service>) -> CommandResult<Vec<Draft>> {
 fn delete_draft(path: String, state: &Arc<Service>) -> CommandResult<()> {
     state.store.delete_draft(&path).map_err(error)
 }
+/// A proxy drafted in the settings UI never carries the stored password; a typed one still wins.
+fn draft_proxy(draft: Option<ModelProxy>, saved: &ModelProxy) -> ModelProxy {
+    match draft {
+        Some(proxy) => ModelProxy { stored_password: saved.stored_password.clone(), ..proxy },
+        None => saved.clone(),
+    }
+}
 fn get_settings(state: &Arc<Service>) -> CommandResult<Settings> {
     let mut s = state.store.settings().map_err(error)?;
     let mut errors = vec![];
@@ -550,6 +557,7 @@ async fn test_mcp(
         &server,
         &credentials,
         &http,
+        &settings.model_proxy,
         settings.timeout_secs,
     )
     .await
@@ -649,7 +657,7 @@ async fn test_model(
         let settings = state.store.settings().map_err(error)?;
         let image = format!("data:image/png;base64,{}", STANDARD.encode(include_bytes!("../assets/image-probe.png")));
         let text = models::recognize_image(
-            &state.model_http.client(model_proxy.as_ref().unwrap_or(&settings.model_proxy)).map_err(error)?,
+            &state.model_http.client(&draft_proxy(model_proxy.clone(), &settings.model_proxy)).map_err(error)?,
             &config, &key, &image, "Read the visible text in this test image. Return only the text.",
             settings.timeout_secs, &settings.runtime, &Default::default(),
         ).await.map_err(error)?;
@@ -659,7 +667,7 @@ async fn test_model(
     let key = model_request_key(&kind, &config, key, state)?;
     let settings = state.store.settings().map_err(error)?;
     models::test_connection(
-        &state.model_http.client(model_proxy.as_ref().unwrap_or(&settings.model_proxy)).map_err(error)?,
+        &state.model_http.client(&draft_proxy(model_proxy, &settings.model_proxy)).map_err(error)?,
         &kind,
         &config,
         &key,
@@ -1003,9 +1011,10 @@ async fn execute_query(
             if !servers.is_empty() {
                 notify("思考中", None, 0, None);
             }
-            let mut mcp = mcp::McpSession::open(
+            let mut mcp = mcp::McpSession::open_with_proxy(
                 servers,
                 &http,
+                &settings.model_proxy,
                 settings.timeout_secs,
                 cancel,
                 &profile.mcp_tools,
@@ -1703,13 +1712,15 @@ impl Service {
                 config.validate().map_err(error)?;
                 let key=if key.trim().is_empty(){crate::mineru::key(&self.data_dir,&config).map_err(error)?}else{key};
                 let settings = self.store.settings().map_err(error)?;
-                Out::Text(crate::mineru::test_connection(&config, &key, model_proxy.as_ref().unwrap_or(&settings.model_proxy)).await.map_err(error)?)
+                Out::Text(crate::mineru::test_connection(&config, &key, &draft_proxy(model_proxy, &settings.model_proxy)).await.map_err(error)?)
             }
             Op::ClearMineruKey {config} => { crate::mineru::clear_key(&self.data_dir,&config).map_err(error)?; Out::Unit }
             Op::RuntimeSchema => Out::Text(serde_json::to_string(&serde_json::json!({"defaults": sag_protocol::runtime::RuntimeSettings::default(), "fields": sag_protocol::runtime::fields(), "resources": crate::docling_budget::resource_summary(&self.store.settings().map_err(error)?.runtime).ok()})).map_err(error)?),
-            Op::TestProxyConnection { address } => {
-                sag_client::network_proxy::test_proxy_connection(&address).await.map_err(error)?;
-                Out::Unit
+            Op::TestProxyConnection { proxy, url } => {
+                let settings = self.store.settings().map_err(error)?;
+                let proxy = draft_proxy(Some(proxy), &settings.model_proxy);
+                let target = url.map(|value| value.trim().to_owned()).filter(|value| !value.is_empty()).unwrap_or(settings.answer.url);
+                Out::Text(sag_client::network_proxy::probe(&proxy, &target).await.map_err(error)?)
             }
             Op::GetSettings => Out::Settings(get_settings(self)?),
             Op::RegisterDoclingComponent { path } => {
@@ -1771,7 +1782,7 @@ impl Service {
                 let key = model_request_key("answer", &config, key, self)?;
                 let settings = self.store.settings().map_err(error)?;
                 Out::Strings(models::list_answer_models(
-                    &self.model_http.client(model_proxy.as_ref().unwrap_or(&settings.model_proxy)).map_err(error)?,
+                    &self.model_http.client(&draft_proxy(model_proxy, &settings.model_proxy)).map_err(error)?,
                     &config.url,
                     &key,
                     settings.timeout_secs,

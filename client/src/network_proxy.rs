@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
 use ipnet::IpNet;
 use reqwest::{Client, Proxy, Url};
-use sag_protocol::types::ModelProxy;
-use std::{net::IpAddr, path::Path, process::Command, sync::Mutex};
+use sag_protocol::types::{ModelProxy, ProxyMode};
+use std::{net::IpAddr, path::Path, process::Command, sync::Mutex, time::Duration};
 
 #[derive(Default)]
 pub struct ModelHttp(Mutex<Option<(ProxySettings, Client)>>);
@@ -28,6 +28,7 @@ impl ModelHttp {
 
 #[derive(Default, PartialEq, Eq)]
 struct ProxySettings {
+    mode: ProxyMode,
     http: Option<String>,
     https: Option<String>,
     system_bypass: Vec<String>,
@@ -37,18 +38,31 @@ struct ProxySettings {
 impl ProxySettings {
     fn read(proxy: &ModelProxy) -> Result<Self> {
         let env = |name: &str| std::env::var(name).ok();
-        let mut settings = if let Some(address) = custom_proxy_url(&proxy.url)? {
-            let address = address.to_string();
-            Self {
-                http: Some(address.clone()),
-                https: Some(address),
-                env_bypass: env("NO_PROXY").or_else(|| env("no_proxy")).unwrap_or_default(),
-                ..Self::default()
+        let mut settings = match proxy.mode {
+            ProxyMode::None => return Ok(Self { mode: ProxyMode::None, ..Self::default() }),
+            ProxyMode::Custom => {
+                let mut address = custom_proxy_url(&proxy.url)?.context("请填写代理地址，例如 http://127.0.0.1:7890")?;
+                let username = proxy.username.trim();
+                if !username.is_empty() {
+                    // A password typed in settings wins over the stored one.
+                    let password = proxy.password.as_deref().filter(|value| !value.is_empty()).or(proxy.stored_password.as_deref());
+                    address.set_username(username).map_err(|_| anyhow::anyhow!("代理用户名无效"))?;
+                    address.set_password(password).map_err(|_| anyhow::anyhow!("代理密码无效"))?;
+                }
+                let address = address.to_string();
+                Self {
+                    mode: ProxyMode::Custom,
+                    http: Some(address.clone()),
+                    https: Some(address),
+                    env_bypass: env("NO_PROXY").or_else(|| env("no_proxy")).unwrap_or_default(),
+                    ..Self::default()
+                }
             }
-        } else {
-            let settings = system_settings()?;
-            // CGI hosts can turn HTTP headers into environment variables.
-            if std::env::var_os("REQUEST_METHOD").is_some() { settings } else { settings.with_env(env) }
+            ProxyMode::System => {
+                let settings = system_settings()?;
+                // CGI hosts can turn HTTP headers into environment variables.
+                if std::env::var_os("REQUEST_METHOD").is_some() { settings } else { settings.with_env(env) }
+            }
         };
         if !proxy.bypass.trim().is_empty() {
             settings.env_bypass.push(',');
@@ -94,6 +108,31 @@ impl ProxySettings {
             }
         }))))
     }
+
+    /// Where a request for `target` would go, mirroring `transport()`.
+    fn route(&self, target: &Url) -> Result<Route> {
+        let proxy = match target.scheme() {
+            "http" => proxy_url(self.http.as_deref())?,
+            _ => proxy_url(self.https.as_deref())?,
+        };
+        let Some(proxy) = proxy else { return Ok(Route::Direct) };
+        let bypass = Bypass::new(&self.system_bypass, &self.env_bypass)?;
+        Ok(if bypass.matches(target) { Route::Direct } else { Route::Proxy(display_address(&proxy)) })
+    }
+}
+
+enum Route {
+    Proxy(String),
+    Direct,
+}
+
+/// Host and port only, so an address can be shown without its credentials.
+fn display_address(url: &Url) -> String {
+    match (url.host_str(), url.port_or_known_default()) {
+        (Some(host), Some(port)) => format!("{host}:{port}"),
+        (Some(host), None) => host.to_owned(),
+        _ => String::new(),
+    }
 }
 
 pub struct NetworkProxy(Option<Proxy>);
@@ -119,6 +158,14 @@ pub fn apply_proxy(builder: reqwest::ClientBuilder, proxy: &ModelProxy) -> Resul
 /// uv and Python accept proxy settings through their own environment only.
 pub fn configure_download_command(command: &mut Command, proxy: &ModelProxy) -> Result<()> {
     let settings = ProxySettings::read(proxy)?;
+    if settings.mode == ProxyMode::None {
+        // Python's urllib also reads the macOS system proxy, so a wildcard bypass keeps it direct.
+        for key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
+            command.env_remove(key);
+        }
+        command.env("NO_PROXY", "*").env("no_proxy", "*");
+        return Ok(());
+    }
     let bypass = settings.system_bypass.iter().map(String::as_str)
         .chain(settings.env_bypass.split(','))
         .chain(["localhost", ".localhost", "127.0.0.1", "::1"])
@@ -162,33 +209,94 @@ pub fn saved_proxy(data_dir: &Path) -> Result<ModelProxy> {
     let preferences: Option<String> = connection
         .query_row("SELECT value FROM preferences WHERE id=1", [], |row| row.get(0))
         .optional().context("无法读取代理设置")?;
-    Ok(match preferences {
+    let mut proxy = match preferences {
         Some(value) => serde_json::from_str::<Preferences>(&value)?.model_proxy,
         None => ModelProxy::default(),
-    })
+    };
+    proxy.stored_password = stored_proxy_password(data_dir)?;
+    proxy.has_password = proxy.stored_password.is_some();
+    Ok(proxy)
+}
+
+/// The proxy password is kept with the model keys, outside the preferences row.
+pub fn stored_proxy_password(data_dir: &Path) -> Result<Option<String>> {
+    let bytes = match std::fs::read(data_dir.join("credentials.json")) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error.into()),
+    };
+    let values: std::collections::BTreeMap<String, String> =
+        serde_json::from_slice(&bytes).context("本地密钥文件格式无效")?;
+    Ok(values.get("proxy").cloned())
 }
 
 pub fn validate_proxy(proxy: &ModelProxy) -> Result<()> {
-    custom_proxy_url(&proxy.url)?;
+    // Length limits apply in every mode so stored settings stay bounded; the address is only
+    // checked when it is about to be used, so a half-typed draft never blocks switching back.
+    anyhow::ensure!(proxy.url.len() <= 512, "代理地址过长");
+    anyhow::ensure!(proxy.username.chars().count() <= 256, "代理用户名过长");
+    anyhow::ensure!(proxy.password.as_ref().map_or(true, |value| value.chars().count() <= 256), "代理密码过长");
+    anyhow::ensure!(proxy.bypass.len() <= 4096, "直连地址列表过长");
+    for rule in bypass_rules(&proxy.bypass) {
+        anyhow::ensure!(rule.len() <= 253, "直连地址过长：{rule}");
+        anyhow::ensure!(
+            !rule.contains("://") && (!rule.contains('/') || bypass_network(&rule).is_some()),
+            "直连地址只需填写域名、IP 或网段，不要包含协议和路径：{rule}"
+        );
+    }
     Bypass::new(&[], &proxy.bypass).context("直连地址无效")?;
+    if proxy.mode == ProxyMode::Custom {
+        custom_proxy_url(&proxy.url)?.context("请填写代理地址，例如 http://127.0.0.1:7890")?;
+    }
     Ok(())
 }
 
-pub async fn test_proxy_connection(address: &str) -> Result<()> {
-    let address = custom_proxy_url(address)?.context("请填写代理地址")?;
-    let client = Client::builder()
-        .no_proxy()
-        .proxy(Proxy::https(address)?)
-        .https_only(true)
-        .timeout(std::time::Duration::from_secs(10))
-        .build()?;
-    let response = client
-        .get(sag_protocol::types::OFFICIAL_UPDATE_MANIFEST)
-        .send()
-        .await
-        .map_err(|_| anyhow::anyhow!("无法通过代理访问 zleap.com"))?;
-    anyhow::ensure!(response.status().is_success(), "无法通过代理访问 zleap.com");
-    Ok(())
+fn bypass_rules(value: &str) -> Vec<String> {
+    value
+        .split(|ch: char| ch == ',' || ch == ';' || ch.is_whitespace())
+        .map(str::trim)
+        .filter(|rule| !rule.is_empty())
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Sends one request through draft settings and reports the route it took, without saving.
+pub async fn probe(proxy: &ModelProxy, url: &str) -> Result<String> {
+    validate_proxy(proxy)?;
+    let target = Url::parse(url.trim()).map_err(|_| anyhow::anyhow!("测试地址无效"))?;
+    anyhow::ensure!(
+        matches!(target.scheme(), "http" | "https") && target.host_str().is_some(),
+        "测试地址需要是 http 或 https 地址"
+    );
+    let host = target.host_str().unwrap_or_default().to_owned();
+    let settings = ProxySettings::read(proxy)?;
+    let route = settings.route(&target)?;
+    let builder = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none());
+    let client = settings.transport()?.apply(builder).build()?;
+    let response = client.get(target).send().await.map_err(|error| {
+        let (timed_out, connect) = (error.is_timeout(), error.is_connect());
+        // Drop the URL so proxy credentials never reach the UI or logs.
+        let detail = error.without_url().to_string();
+        match (&route, timed_out, connect) {
+            (Route::Proxy(address), true, _) => anyhow::anyhow!("经代理 {address} 连接 {host} 超时"),
+            (Route::Proxy(address), _, true) => anyhow::anyhow!("无法连接代理 {address}"),
+            (Route::Proxy(address), _, _) => anyhow::anyhow!("经代理 {address} 连接 {host} 失败：{detail}"),
+            (Route::Direct, true, _) => anyhow::anyhow!("直接连接 {host} 超时"),
+            (Route::Direct, _, true) => anyhow::anyhow!("无法连接 {host}"),
+            (Route::Direct, _, _) => anyhow::anyhow!("直接连接 {host} 失败：{detail}"),
+        }
+    })?;
+    let status = response.status().as_u16();
+    Ok(match (route, settings.mode) {
+        (Route::Proxy(address), ProxyMode::Custom) => format!("已通过代理 {address} 连接 {host}（HTTP {status}）"),
+        (Route::Proxy(address), _) => format!("已通过系统代理 {address} 连接 {host}（HTTP {status}）"),
+        (Route::Direct, ProxyMode::Custom) => format!("{host} 属于直连地址，已直接连接（HTTP {status}）"),
+        (Route::Direct, ProxyMode::System) => format!("未检测到系统代理，已直接连接 {host}（HTTP {status}）"),
+        (Route::Direct, ProxyMode::None) => format!("已直接连接 {host}（HTTP {status}）"),
+    })
 }
 
 fn custom_proxy_url(value: &str) -> Result<Option<Url>> {
@@ -196,10 +304,11 @@ fn custom_proxy_url(value: &str) -> Result<Option<Url>> {
     if value.is_empty() {
         return Ok(None);
     }
-    let url = Url::parse(value).ok().filter(|url| {
-        matches!(url.scheme(), "http" | "https") && url.host().is_some()
+    let parsed = if value.contains("://") { Url::parse(value) } else { Url::parse(&format!("http://{value}")) };
+    let url = parsed.ok().filter(|url| {
+        matches!(url.scheme(), "http" | "https" | "socks4" | "socks4a" | "socks5" | "socks5h") && url.host().is_some()
             && matches!(url.path(), "" | "/") && url.query().is_none() && url.fragment().is_none()
-    }).context("代理地址须为 HTTP 或 HTTPS 地址，例如 http://proxy.example.com:8080")?;
+    }).context("代理地址须为 http://、https:// 或 socks5:// 地址，例如 http://proxy.example.com:8080")?;
     anyhow::ensure!(url.username().is_empty() && url.password().is_none(), "代理地址不能包含用户名或密码");
     Ok(Some(url))
 }
@@ -215,8 +324,8 @@ fn proxy_url(value: Option<&str>) -> Result<Option<Url>> {
             }
             .context("系统或环境变量中的代理地址无效")?;
             anyhow::ensure!(
-                matches!(url.scheme(), "http" | "https") && url.host().is_some(),
-                "仅支持 HTTP 和 HTTPS 代理"
+                matches!(url.scheme(), "http" | "https" | "socks4" | "socks4a" | "socks5" | "socks5h") && url.host().is_some(),
+                "仅支持 HTTP、HTTPS 和 SOCKS5 代理"
             );
             Ok(url)
         })

@@ -46,6 +46,10 @@ Check that Node.js and npm are installed, then run `npm install -g @zleap-ai/sag
 
 Yes. Both use the same independent local service. Normal operations connect to or start it when required. `sag service status` only checks status and does not start it.
 
+## My company network needs a proxy to reach model services. What should I do?
+
+Open **Settings → Network**. The default follows the system proxy. If the network only allows egress through a fixed proxy, choose **Custom proxy**, enter the HTTP, HTTPS or SOCKS5 address, the credentials and the intranet addresses to bypass, then click **Test connection** before saving. The change applies immediately, and model requests, MinerU, MCP, component downloads and app updates share it. See [Network settings](/en/docs/preferences#network).
+
 ## How do I report an issue?
 
 Include your OS, app or CLI version, reproduction steps, expected behavior and actual result in [GitHub Issues](https://github.com/Zleap-AI/SAG-Wiki/issues). Hide keys and sensitive file contents in screenshots.
