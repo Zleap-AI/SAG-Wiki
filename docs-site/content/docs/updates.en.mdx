@@ -7,14 +7,14 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="9a914bab657f585bf28310d27b00762c8e23eb0c48df84a02fde43c4695862ec" aria-hidden="true" />
+<span data-docs-changelog-sha="b0b30d5f0462f77cf001b941cd69f62834bac574661936a82e6e826da7a43603" aria-hidden="true" />
 
 ## 0.4.2
 
-- **Quick setup**: While no answer model is configured, the chat home and the quick-start guide offer **Quick setup**. Enter one 302.AI API key; once the tests pass, the app configures the qwen3.8-flash answer model, the jev-latest decision model and 302.AI MinerU parsing. New installs default to qwen3.8-flash.
-- **Network proxy**: Add a **Settings → Network proxy** page with follow-system, custom and direct modes. A custom proxy accepts SOCKS5 and username/password, the password stays on this device, and **Test connection** reports the route taken. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
-- **Explore mode**: PDF and Office documents no longer disappear from Explore when conversion results are stored in the application data directory. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
-- **Reply format**: Follow-up answers no longer come back as `{"answer":…}` JSON.
+- **Quick setup**: While no answer model is configured, the chat home and the quick-start guide offer **Quick setup**. Enter one 302.AI API key; once the tests pass, the app configures the qwen3.8-flash answer model, the jev-latest decision model and 302.AI MinerU parsing. New installs default to qwen3.8-flash. ([PR #188](https://github.com/Zleap-AI/SAG-Wiki/pull/188))
+- **Network proxy**: Add a **Settings → Network proxy** page with follow-system, custom and direct modes. A custom proxy accepts SOCKS5 and username/password, the password stays on this device, and **Test connection** reports the route taken. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125), [PR #183](https://github.com/Zleap-AI/SAG-Wiki/pull/183))
+- **Explore mode**: PDF and Office documents no longer disappear from Explore when conversion results are stored in the application data directory. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185), [PR #186](https://github.com/Zleap-AI/SAG-Wiki/pull/186))
+- **Reply format**: Follow-up answers no longer come back as `{"answer":…}` JSON. ([PR #177](https://github.com/Zleap-AI/SAG-Wiki/pull/177))
 - **Context compaction**: Compaction shows "part N of M" progress instead of looking stuck, and a failed summary no longer fails the turn; the answer continues with the reason shown.
 - **Empty answers**: A whitespace-only reply is retried once, then reported as an error instead of a "complete" turn with no text.
 - **Tool calls**: Repeated retrieval calls with identical arguments are skipped; the per-turn limit defaults to 20, and a saved 0 stays unlimited.
