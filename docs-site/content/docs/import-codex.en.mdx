@@ -1,0 +1,18 @@
+---
+title: "Codex"
+description: "Import local Codex sessions into your knowledge base."
+---
+
+Codex is OpenAI’s coding assistant for writing, editing, and reviewing code. [Codex website](https://openai.com/codex/)
+
+1. On desktop, [open Data sources](/en/docs/data-sources#open-data-sources) and choose **Import chat history** next to **Codex**.
+2. SAG reads sessions from `~/.codex` by default. If `CODEX_HOME` is set, SAG uses that folder. Plain `.jsonl` and compressed `.jsonl.zst` transcripts are supported. To use a different transcript folder, enter its full path and click **Load**.
+3. Filter by project or search titles. Select the sessions you want, review the preview, and click **Import**. Multiple transcripts for a session become one Markdown file under `sag-wiki/agent-history/codex/` in Documents by default. Click **Change** to use a different folder.
+
+## Import options
+
+**Show tool calls and results** is off by default. Turn it on to include tool arguments and results in previews and imports.
+
+**Scheduled sync** is off by default. Turn it on to set an interval or a time of day. Repeat imports skip unchanged sessions and update files with new content. If you have edited a file, SAG reports the conflict and keeps your changes.
+
+![Setting the daily import time for Codex chats](/images/product-chat-import-schedule-en.png)

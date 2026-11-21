@@ -314,6 +314,9 @@ pub enum Operation {
     ReadDocument {
         path: String,
     },
+    ReadHelpDocument {
+        path: String,
+    },
     SaveDocument {
         path: String,
         body: String,
@@ -376,8 +379,15 @@ pub enum Operation {
     },
     GetSettings,
     RuntimeSchema,
+    /// Probe the saved answer model address through draft proxy settings.
+    TestProxyConnection { proxy: types::ModelProxy },
     MineruSchema,
-    TestMineru { config: crate::mineru::MineruConfig, key: String },
+    TestMineru {
+        config: crate::mineru::MineruConfig,
+        key: String,
+        #[serde(default)]
+        model_proxy: Option<types::ModelProxy>,
+    },
     ClearMineruKey { config: crate::mineru::MineruConfig },
     RegisterDoclingComponent {
         path: String,
@@ -397,10 +407,14 @@ pub enum Operation {
         kind: String,
         config: ModelConfig,
         key: String,
+        #[serde(default)]
+        model_proxy: Option<types::ModelProxy>,
     },
     ListAnswerModels {
         config: ModelConfig,
         key: String,
+        #[serde(default)]
+        model_proxy: Option<types::ModelProxy>,
     },
     TestMcp {
         server: McpServer,

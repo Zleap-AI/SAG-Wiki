@@ -1,0 +1,21 @@
+---
+title: "API Request"
+description: "Fetch JSON from an API, select fields, and import Markdown on a schedule."
+---
+
+An API lets SAG fetch data directly from a website or service. The provider documents the URL and parameters, and SAG supports HTTP requests that return JSON. [HTTP specification](https://www.rfc-editor.org/rfc/rfc9110) · [JSON specification](https://www.rfc-editor.org/rfc/rfc8259)
+
+In the desktop app or Linux web interface, open **Settings → Data sources**, then select **Configure** next to **API Request** under **Online sources**.
+
+![Enter an API URL and test the request](/images/product-source-api-en.png)
+
+1. Enter a connection name and URL, and choose **GET** or **POST**. Expand **Parameters and authentication** to add query parameters and request headers. POST also accepts a JSON body. Enter credentials separately under **Parameters and authentication**. For example, use `Authorization` as the header and `Bearer …` as its value. Enable **Allow local network API** for an API on the host or local network.
+2. Select **Test request** to inspect a JSON sample. Choose the record location, such as `data › items`, then select the fields to keep. A single JSON object can also be treated as one record. Select **Preview Markdown** under **Fields to keep** to see the output for one record.
+3. To clean up the content, select **Enable** under **AI cleanup**, choose a configured answer model, enter a custom prompt, and preview the result. SAG sends the selected fields to the model. With AI cleanup off, SAG writes those fields directly to Markdown.
+4. Choose a destination and [sync schedule](/en/docs/data-source-scheduled-sync), then select **Save and import**. On Linux, the web interface offers the default location and folders already added to SAG on the server.
+
+![Select JSON fields and preview the Markdown output](/images/product-source-api-fields-en.png)
+
+Each connection can create one `YYYY-MM-DD.md` per day, based on the SAG host's local date. Each sync appends the records it successfully processes and updates the index. SAG creates the file when the first record is ready to import.
+
+If the API provides IDs, enable **Deduplicate by ID** and choose the field. An ID is imported once per day. AI cleanup processes records individually. Select **Retry failed items** to retry failed records and add them to the original day's file after a successful retry.

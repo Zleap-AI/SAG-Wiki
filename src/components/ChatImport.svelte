@@ -1,5 +1,5 @@
 <script lang="ts">
- import {onMount} from 'svelte';
+ import {onMount,tick} from 'svelte';
  import {Button,Checkbox} from 'bits-ui';
  import Modal from './ui/Modal.svelte';
  import Input from './ui/Input.svelte';
@@ -29,6 +29,7 @@
   {value:'daily',label:'每天'},
  ];
  let listRequest=0,previewRequest=0,page=0;
+ let previewPane:HTMLElement;
  let searchTimer:ReturnType<typeof setTimeout>;
  function filterChanged(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>void load(false,0),250);}
  $:title=$t('导入 {value0} 聊天记录',{value0:source==='claude'?'Claude Code':'Codex'});
@@ -98,6 +99,8 @@
    const {renderMarkdown}=await import('../lib/markdown');
    if(request!==previewRequest)return;
    previewHtml=renderMarkdown(result.body);preview=result;previewLoading=false;
+   await tick();
+   if(request===previewRequest&&previewPane)previewPane.scrollTop=previewPane.scrollHeight;
   }
   catch(e){if(request===previewRequest)previewError=String(e)}finally{if(request===previewRequest)previewLoading=false}
  }
@@ -158,7 +161,7 @@
    </div>
    {#if catalog&&catalog.total>catalog.page_size}<nav class="chat-pagination" aria-label={$t('聊天分页')}><Button.Root class="icon-button" aria-label={$t('上一页')} disabled={loading||importing||page===0} onclick={()=>load(false,page-1)}>{@html icon('back')}</Button.Root><span>{page+1} / {Math.ceil(catalog.total/catalog.page_size)}</span><Button.Root class="icon-button" aria-label={$t('下一页')} disabled={loading||importing||(page+1)*catalog.page_size>=catalog.total} onclick={()=>load(false,page+1)}>{@html icon('forward')}</Button.Root></nav>{/if}
   </section>
-  <section class="chat-preview" aria-label={$t('导入预览')} aria-busy={previewLoading}>
+  <section bind:this={previewPane} class="chat-preview" aria-label={$t('导入预览')} aria-busy={previewLoading}>
    {#if previewLoading}<p class="chat-empty" role="status">{$t('正在生成预览…')}</p>
    {:else if previewError}<p class="chat-import-error" role="alert">{$t(previewError)}</p>
    {:else if preview}<article class="chat-preview-document tiptap">{@html previewHtml}</article>

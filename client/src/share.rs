@@ -431,11 +431,12 @@ pub fn prepare(path: &Path) -> Result<PreparedShare> {
     })
 }
 fn http() -> Result<reqwest::Client> {
-    Ok(reqwest::Client::builder()
+    let proxy = crate::network_proxy::saved_proxy(&sag_protocol::data_dir()?)?;
+    let builder = reqwest::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15))
-        .timeout(Duration::from_secs(150))
-        .build()?)
+        .timeout(Duration::from_secs(150));
+    Ok(crate::network_proxy::apply_proxy(builder, &proxy)?.build()?)
 }
 async fn response_error(response: reqwest::Response) -> anyhow::Error {
     let status = response.status();

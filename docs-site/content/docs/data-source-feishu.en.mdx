@@ -1,0 +1,54 @@
+---
+title: "Feishu"
+description: "Import documents from Feishu knowledge bases and Drive."
+---
+
+Feishu is a workplace collaboration platform. Its knowledge bases organize team documents, and Drive stores and shares files. [Feishu website](https://www.feishu.cn/)
+
+1. Create or open a **Custom App** in the [Feishu Developer Console](https://open.feishu.cn/app). Copy the permissions JSON below for Knowledge base or Drive.
+2. Go to **Development Configuration → Permissions & Scopes**. Open **Batch import/export scopes** from the menu next to **Add scopes** (批量处理), paste the JSON in the **Import** tab, and confirm the permissions appear under **User scopes**.
+3. In **Security Settings → Redirect URLs**, add `http://127.0.0.1:24682/feishu/oauth/callback`. Make the app available to the account that will sign in, then publish it under **Version Management & Release** and wait for any required approval.
+4. Copy the App ID and App Secret from **Credentials & Basic Info**. In **Settings → Data sources → Feishu**, choose the import type, enter the credentials, and select **Authorize with Feishu**. After authorizing, return to SAG, select what to import, and click **Save and import**.
+
+![Choose a Feishu knowledge base or page after authorizing](/images/product-source-feishu-en.png)
+
+If scheduled sync pauses because the monthly quota is exhausted, click **Sync now** once the quota is available again.
+
+## Knowledge base [#feishu-wiki]
+
+Selecting a page also imports its subpages that you can read.
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "wiki:space:retrieve",
+      "wiki:node:retrieve",
+      "wiki:node:read",
+      "docx:document:readonly",
+      "drive:drive:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+## Drive [#feishu-drive]
+
+If a shared folder is missing from the list, paste its link and click **Browse Drive folders**.
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```

@@ -4,7 +4,11 @@ use anyhow::{ensure, Result};
 use serde_json::{json, Value};
 use tokio_util::sync::CancellationToken;
 
-const MAX_SUMMARY_INPUT: usize = 8192;
+// Each summary request stays inside the chat budget; larger parts mean fewer
+// sequential round trips for a long transcript.
+const MAX_SUMMARY_INPUT: usize = 32_768;
+const FALLBACK_NOTICE: &str = "本次未能生成模型摘要。较早的对话内容已省略，仅保留最近一轮对话和本轮记录；不要假设被省略内容的细节，需要时向用户确认。";
+const CARRIED_SUMMARY: &str = "\n此前生成的摘要仍然有效：\n";
 
 // Start before exhaustion and leave room for the next tool exchange.
 pub(super) fn trigger_budget(budget: usize) -> usize { budget - budget / 10 }
@@ -19,21 +23,37 @@ const PROMPT: &str = include_str!("../../prompts/context-summary.md");
 
 pub(super) struct Compacted {
     pub messages: Vec<Value>,
-    pub summary: ContextSummary,
+    pub summary: Option<ContextSummary>,
     pub retained_history: usize,
     pub input_tokens: Option<usize>,
     pub output_tokens: Option<usize>,
 }
 
-pub(super) async fn compact(
-    client: &reqwest::Client, config: &ModelConfig, key: &str,
-    messages: &[Value], recent: &[Value], question: &Value, history_count: usize,
-    definitions: &[Value], budget: usize, timeout: u64, runtime: &sag_protocol::runtime::RuntimeSettings, cancel: &CancellationToken,
-    mut progress: impl FnMut(&str),
-) -> Result<Compacted> {
-    // Keep a complete recent tool exchange when it fits, never an unmatched tool reply.
-    let mut boundary = messages.iter().rposition(|item| item["role"] == "assistant" && item["tool_calls"].is_array())
-        .unwrap_or(messages.len());
+struct Fitted {
+    next: Vec<Value>,
+    boundary: usize,
+    retained_history: usize,
+    compact_budget: usize,
+}
+
+// The current question is the last structured user message; only this turn's
+// exchanges follow it. Earlier turns replay their own tool calls and must never
+// be mistaken for the current exchange.
+fn question_index(messages: &[Value]) -> usize {
+    messages.iter().rposition(|item| {
+        item["role"] == "user" && item["content"].as_str()
+            .and_then(|text| serde_json::from_str::<Value>(text).ok())
+            .is_some_and(|content| content.get("question").is_some())
+    }).unwrap_or(messages.len())
+}
+
+// Decide what stays verbatim next to the summary slot: the recent turn and this
+// turn's last complete tool exchange when they fit, never an unmatched tool reply.
+fn fit(messages: &[Value], recent: &[Value], question: &Value, definitions: &[Value], budget: usize) -> Result<Fitted> {
+    let start = question_index(messages);
+    let mut boundary = messages[start..].iter()
+        .rposition(|item| item["role"] == "assistant" && item["tool_calls"].is_array())
+        .map_or(messages.len(), |index| start + index);
     let mut tail = messages[boundary..].to_vec();
     let mut recent = recent.to_vec();
     let mut current = question.clone();
@@ -60,22 +80,56 @@ pub(super) async fn compact(
             question_summarized = true;
         }
     }
+    Ok(Fitted { next, boundary, retained_history: usize::from(!recent.is_empty()), compact_budget })
+}
+
+pub(super) async fn compact(
+    client: &reqwest::Client, config: &ModelConfig, key: &str,
+    messages: &[Value], recent: &[Value], question: &Value, history_count: usize,
+    definitions: &[Value], budget: usize, timeout: u64, runtime: &sag_protocol::runtime::RuntimeSettings, cancel: &CancellationToken,
+    mut progress: impl FnMut(&str),
+) -> Result<Compacted> {
+    let Fitted { mut next, boundary, retained_history, compact_budget } = fit(messages, recent, question, definitions, budget)?;
     let allowance = (compact_budget - tokens(&next, definitions) - 32).min(budget / 5);
     let (text, input_tokens, output_tokens) = summarize(
         client, config, key, &messages[1..boundary], budget, allowance, timeout, runtime, cancel, &mut progress,
-    ).await.map_err(|error| {
-        let detail = format!("上下文压缩失败，原始记录已保留：{error:#}");
-        error.context(detail)
-    })?;
+    ).await?;
     next[1] = summary_message(&text, true);
     ensure!(tokens(&next, definitions) <= budget, "模型生成的上下文摘要仍超过预算，原始记录已保留");
     Ok(Compacted {
         messages: next,
-        summary: ContextSummary { text, covered_turns: history_count },
-        retained_history: recent.len() / 2,
+        summary: Some(ContextSummary { text, covered_turns: history_count }),
+        retained_history,
         input_tokens,
         output_tokens,
     })
+}
+
+// Without a model summary, continue from the recent turn and this turn's records.
+// Nothing is persisted, so the next turn tries a model summary again.
+pub(super) fn fallback(
+    messages: &[Value], recent: &[Value], question: &Value, definitions: &[Value], budget: usize,
+) -> Result<Compacted> {
+    let Fitted { mut next, retained_history, .. } = fit(messages, recent, question, definitions, budget)?;
+    // A summary already in place (from an earlier turn or earlier in this turn) still
+    // holds the user's constraints; keep it with the notice when it fits.
+    let carried = messages.get(1).and_then(|item| item["content"].as_str())
+        .and_then(|text| serde_json::from_str::<Value>(text).ok())
+        .and_then(|value| value.get("context_summary")?.as_str().map(str::to_owned))
+        // An earlier fallback notice is not a summary; keep only the summary it carried.
+        .and_then(|text| match text.strip_prefix(FALLBACK_NOTICE) {
+            Some(rest) => rest.strip_prefix(CARRIED_SUMMARY).map(str::to_owned),
+            None => Some(text),
+        });
+    if let Some(text) = carried {
+        next[1] = summary_message(&format!("{FALLBACK_NOTICE}{CARRIED_SUMMARY}{text}"), false);
+        if tokens(&next, definitions) <= budget {
+            return Ok(Compacted { messages: next, summary: None, retained_history, input_tokens: None, output_tokens: None });
+        }
+    }
+    next[1] = summary_message(FALLBACK_NOTICE, false);
+    ensure!(tokens(&next, definitions) <= budget, "系统提示词、工具定义或查询范围超过上下文预算，请调整配置");
+    Ok(Compacted { messages: next, summary: None, retained_history, input_tokens: None, output_tokens: None })
 }
 
 pub(super) fn summary_message(text: &str, current_sources: bool) -> Value {
@@ -100,12 +154,12 @@ async fn summarize(
     let mut input_tokens = None;
     let mut output_tokens = None;
     while offset < transcript.len() {
-        progress(&format!("正在压缩上下文：已完成 {completed} 块"));
         // Checkpoint: summary + offset advance only after a complete, validated response.
         let remaining = &transcript[offset..];
         let mut request = vec![json!({"role":"system","content":system}), json!({"role":"user","content":""})];
         let mut low = 0;
-        let mut high = remaining.chars().count();
+        let remaining_chars = remaining.chars().count();
+        let mut high = remaining_chars;
         while low < high {
             let count = low + (high - low).div_ceil(2);
             let end = remaining.char_indices().nth(count).map_or(remaining.len(), |(index, _)| index);
@@ -115,6 +169,9 @@ async fn summarize(
         ensure!(low > 0, "上下文预算不足以生成摘要，请提高预算");
         let mut end = remaining.char_indices().nth(low).map_or(remaining.len(), |(index, _)| index);
         request[1]["content"] = json!(json!({"previous_summary":summary,"transcript_part":&remaining[..end]}).to_string());
+        // Later parts hold about as many characters as this one; the total is an estimate.
+        let total = completed + 1 + (remaining_chars - low).div_ceil(low);
+        progress(&format!("正在压缩上下文：第 {}/{total} 块", completed + 1));
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(runtime.retry_total_secs);
         let mut failures = 0;
         let mut refinements = 0;
@@ -150,7 +207,7 @@ async fn summarize(
                             request[1]["content"] = json!(json!({"previous_summary":summary,"transcript_part":&remaining[..end]}).to_string());
                         }
                     }
-                    progress(&format!("正在重试上下文压缩：已完成 {completed} 块，第 {failures} 次重试"));
+                    progress(&format!("正在重试上下文压缩：第 {}/{total} 块，第 {failures} 次重试", completed + 1));
                     tokio::select! {
                         _ = cancel.cancelled() => return Err(anyhow::anyhow!("已停止")),
                         _ = tokio::time::sleep_until(deadline) => return Err(anyhow::anyhow!("上下文摘要请求超过总时间限制")),
@@ -163,7 +220,11 @@ async fn summarize(
             if let Some(n) = turn.output_tokens { output_tokens = Some(output_tokens.unwrap_or(0) + n); }
             ensure!(turn.tool_calls.is_empty(), "摘要请求不能调用工具");
             ensure!(!turn.text.trim().is_empty(), "模型没有返回有效的上下文摘要");
-            if models::estimate(&json!(turn.text)) <= allowance {
+            // The provider's count can include reasoning tokens and the local estimate can
+            // overcount CJK text; the smaller one describes the summary that was returned.
+            let local = models::estimate(&json!(turn.text));
+            let produced = turn.output_tokens.filter(|n| *n > 0).map_or(local, |n| n.min(local));
+            if produced <= allowance {
                 summary = turn.text;
                 break;
             }

@@ -144,7 +144,7 @@ fn explicit_documents_install_does_not_authorize_a_media_download() {
     let temp = tempfile::tempdir().unwrap();
     let converter = Arc::new(Docling::new(temp.path()));
     fake_online_uv(&converter);
-    converter.start().unwrap();
+    converter.start(ModelProxy::default()).unwrap();
     let start = std::time::Instant::now();
     while converter.status().running {
         assert!(start.elapsed() < Duration::from_secs(60));
@@ -173,7 +173,7 @@ fn real_media_installation_passes_the_offline_audio_video_probe() {
         "use a fresh QA home"
     );
     converter
-        .start_profiles(vec![DoclingProfile::Media])
+        .start_profiles(vec![DoclingProfile::Media], ModelProxy::default())
         .unwrap();
     let start = std::time::Instant::now();
     while converter.status().running {
@@ -1868,7 +1868,7 @@ fn installation_status_preserves_nested_probe_error_diagnostics() {
     .unwrap();
     let converter = Arc::new(Docling::new(&temp.path().join("data")));
     converter.set_component_source(source).unwrap();
-    converter.start().unwrap();
+    converter.start(ModelProxy::default()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(3);
     let status = loop {
         let status = converter.status();
@@ -2122,7 +2122,7 @@ fn explicit_offline_import_runs_probe_and_preserves_the_registered_source() {
     fs::write(registered.join("manifest.json"), "{}").unwrap();
     let converter = Arc::new(Docling::new(&temp.path().join("data")));
     converter.set_component_source(registered.clone()).unwrap();
-    converter.import_component(source.clone()).unwrap();
+    converter.import_component(source.clone(), ModelProxy::default()).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     let status = loop {
         let status = converter.status();
@@ -2165,7 +2165,7 @@ fn offline_uv_import_skips_the_uv_download_and_continues_online() {
     let temp = tempfile::tempdir().unwrap();
     let source = offline_uv(&temp.path().join("offline"), UV_VERSION);
     let converter = Arc::new(Docling::new(&temp.path().join("data")));
-    converter.import_component(temp.path().join("offline")).unwrap();
+    converter.import_component(temp.path().join("offline"), ModelProxy::default()).unwrap();
     let status = finished(&converter);
     let error = status.error.unwrap();
     // The fixture blocks the next online step, so reaching it proves uv was
@@ -2183,7 +2183,7 @@ fn offline_uv_import_rejects_another_uv_version_with_the_download_url() {
     let temp = tempfile::tempdir().unwrap();
     offline_uv(&temp.path().join("offline"), "0.1.0");
     let converter = Arc::new(Docling::new(&temp.path().join("data")));
-    converter.import_component(temp.path().join("offline")).unwrap();
+    converter.import_component(temp.path().join("offline"), ModelProxy::default()).unwrap();
     let error = finished(&converter).error.unwrap();
     assert!(error.contains("导入的 uv 版本为 0.1.0") && error.contains(&uv_download_url().unwrap()), "{error}");
     assert!(!converter.home.join("uv").exists());
@@ -2194,7 +2194,7 @@ fn offline_import_rejects_a_folder_without_a_component_or_uv() {
     let temp = tempfile::tempdir().unwrap();
     fs::write(temp.path().join("uv-installer.txt"), "not uv").unwrap();
     let converter = Arc::new(Docling::new(&temp.path().join("data")));
-    let error = converter.import_component(temp.path().to_path_buf()).unwrap_err().to_string();
+    let error = converter.import_component(temp.path().to_path_buf(), ModelProxy::default()).unwrap_err().to_string();
     assert!(error.contains("manifest.json") && error.contains(UV_EXECUTABLE), "{error}");
     assert!(!converter.status().running);
 }
@@ -2215,7 +2215,7 @@ fn offline_uv_import_checks_the_copy_not_the_downloaded_file() {
     let temp = tempfile::tempdir().unwrap();
     offline_uv_script(&temp.path().join("offline"), "case \"$0\" in */offline/*) exit 1;; esac");
     let converter = Arc::new(Docling::new(&temp.path().join("data")));
-    converter.import_component(temp.path().join("offline")).unwrap();
+    converter.import_component(temp.path().join("offline"), ModelProxy::default()).unwrap();
     let error = finished(&converter).error.unwrap();
     assert!(error.contains("无法下载 Python 运行环境"), "{error}");
     assert!(converter.home.join("uv").is_file());
@@ -2227,7 +2227,7 @@ fn cancelling_an_offline_uv_check_reports_cancellation_and_leaves_no_uv() {
     let temp = tempfile::tempdir().unwrap();
     offline_uv_script(&temp.path().join("offline"), "sleep 10");
     let converter = Arc::new(Docling::new(&temp.path().join("data")));
-    converter.import_component(temp.path().join("offline")).unwrap();
+    converter.import_component(temp.path().join("offline"), ModelProxy::default()).unwrap();
     std::thread::sleep(Duration::from_millis(300));
     converter.cancel();
     let status = finished(&converter);

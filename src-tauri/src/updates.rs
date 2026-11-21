@@ -1,5 +1,6 @@
 use anyhow::{bail, ensure, Context, Result};
 use reqwest::Url;
+use sag_client::network_proxy::{saved_proxy, NetworkProxy};
 use sag_protocol::types::{UpdateSettings, UpdateSource};
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -113,13 +114,13 @@ fn manifest_update(
     Ok(info)
 }
 
-async fn check(config: UpdateSettings, current: &str, os: &str, arch: &str) -> Result<UpdateInfo> {
+async fn check(config: UpdateSettings, current: &str, os: &str, arch: &str, proxy: &NetworkProxy) -> Result<UpdateInfo> {
     let endpoint = manifest_endpoint(&config)?;
-    let client = reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .user_agent(format!("SAG-Wiki/{current}"))
         .https_only(true)
-        .timeout(Duration::from_secs(15))
-        .build()?;
+        .timeout(Duration::from_secs(15));
+    let client = proxy.apply(builder).build()?;
     let response = client
         .get(endpoint)
         .header("Accept", "application/json")
@@ -134,13 +135,16 @@ async fn check(config: UpdateSettings, current: &str, os: &str, arch: &str) -> R
 #[tauri::command]
 pub async fn check_app_update(
     app: tauri::AppHandle,
+    state: State<'_, Arc<crate::AppState>>,
     config: UpdateSettings,
 ) -> Result<UpdateInfo, String> {
+    let proxy = saved_proxy(&state.data_dir).and_then(|proxy| NetworkProxy::new(&proxy)).map_err(crate::error)?;
     check(
         config,
         &app.package_info().version.to_string(),
         std::env::consts::OS,
         std::env::consts::ARCH,
+        &proxy,
     )
     .await
     .map_err(|error| format!("{error:#}"))
@@ -158,11 +162,13 @@ async fn download(
     config: &UpdateSettings,
     version: &str,
     on_progress: Channel<DownloadProgress>,
+    proxy: NetworkProxy,
 ) -> Result<(Update, Arc<Vec<u8>>)> {
     let update = app
         .updater_builder()
         .endpoints(vec![manifest_endpoint(config)?])?
         .timeout(Duration::from_secs(15))
+        .configure_client(move |builder| proxy.apply(builder))
         .build()?
         .check()
         .await
@@ -210,11 +216,13 @@ async fn download_package(
 #[tauri::command]
 pub async fn download_app_update(
     app: tauri::AppHandle,
+    app_state: State<'_, Arc<crate::AppState>>,
     session: State<'_, UpdateSession>,
     config: UpdateSettings,
     version: String,
     on_progress: Channel<DownloadProgress>,
 ) -> Result<(), String> {
+    let proxy = saved_proxy(&app_state.data_dir).and_then(|proxy| NetworkProxy::new(&proxy)).map_err(crate::error)?;
     {
         let mut state = session.0.lock().unwrap();
         if state.busy {
@@ -223,7 +231,7 @@ pub async fn download_app_update(
         state.busy = true;
         state.package = None;
     }
-    let result = download(&app, &config, &version, on_progress).await;
+    let result = download(&app, &config, &version, on_progress, proxy).await;
     let mut state = session.0.lock().unwrap();
     state.busy = false;
     match result {
@@ -387,7 +395,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn downloads_verifies_and_replaces_only_the_temporary_application() {
-        use std::io::{Read, Write};
+        use std::io::{BufRead, BufReader, Write};
         use tauri::ipc::InvokeResponseBody;
         use tauri::test::{mock_builder, mock_context, noop_assets};
         let temp = tempfile::tempdir().unwrap();
@@ -421,14 +429,21 @@ mod tests {
         ] {
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let address = listener.local_addr().unwrap();
+            let proxy = NetworkProxy::new(&sag_protocol::types::ModelProxy {
+                mode: sag_protocol::types::ProxyMode::Custom,
+                url: format!("http://{address}"),
+                ..Default::default()
+            }).unwrap();
             let server = std::thread::spawn(move || {
                 for request in 0..if announced == requested { 2 } else { 1 } {
                     let (mut stream, _) = listener.accept().unwrap();
-                    let mut buffer = [0; 4096];
-                    stream.read(&mut buffer).unwrap();
+                    let path = if request == 0 { "latest.json" } else { "update" };
+                    let mut line = String::new();
+                    BufReader::new(&mut stream).read_line(&mut line).unwrap();
+                    assert_eq!(line.trim_end(), format!("GET http://192.0.2.10/{path} HTTP/1.1"));
                     let manifest = serde_json::to_vec(
                         &json!({"version":announced,"platforms":{(format!("darwin-{}", std::env::consts::ARCH)):{
-                            "url":format!("http://{address}/update"),"signature":signature
+                            "url":"http://192.0.2.10/update","signature":signature
                         }}}),
                     )
                     .unwrap();
@@ -451,11 +466,9 @@ mod tests {
             let updater = app
                 .updater_builder()
                 .executable_path(&application)
-                .no_proxy()
+                .configure_client(move |builder| proxy.apply(builder))
                 .timeout(Duration::from_secs(5))
-                .endpoints(vec![format!("http://{address}/latest.json")
-                    .parse()
-                    .unwrap()])
+                .endpoints(vec!["http://192.0.2.10/latest.json".parse().unwrap()])
                 .unwrap()
                 .build()
                 .unwrap();
@@ -596,12 +609,13 @@ mod tests {
     #[ignore = "read-only live GitHub integration check"]
     fn checks_real_github_release() {
         let config = UpdateSettings { source: UpdateSource::Github, ..Default::default() };
+        let proxy = NetworkProxy::new(&Default::default()).unwrap();
         for (os, arch, suffix) in [
             ("macos", "aarch64", "macOS-arm64.app.tar.gz"),
             ("windows", "x86_64", "Windows-x64-setup.exe"),
         ] {
             let info =
-                tauri::async_runtime::block_on(check(config.clone(), "0.1.6", os, arch))
+                tauri::async_runtime::block_on(check(config.clone(), "0.1.6", os, arch, &proxy))
                     .unwrap();
             assert!(info.available);
             assert!(info.download_url.unwrap().ends_with(suffix));

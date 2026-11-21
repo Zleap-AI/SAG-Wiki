@@ -11,7 +11,7 @@ const katexWoff2Only={name:'katex-woff2-only',enforce:'pre' as const,transform(c
  if(!/katex(\.min)?\.css$/.test(id))return;
  return code.replace(/src:url\(([^)]*\.woff2)\) format\("woff2"\),url\([^)]*\.woff\) format\("woff"\),url\([^)]*\.ttf\) format\("truetype"\)/g,'src:url($1?no-inline) format("woff2")');
 }};
-// OnlineImport reads these two MDX files directly. Keep them and their parent
+// OnlineImport reads the data source guides directly. Keep them and their parent
 // directories watched, while excluding the rest of the docs site from Vite.
-const ignoredDocs=/\/docs-site\/(?!(?:content(?:\/docs(?:\/data-import(?:\.en)?\.mdx)?)?)\/?$)/;
+const ignoredDocs=/\/docs-site\/(?!(?:content(?:\/docs(?:\/data-source-[\w-]+(?:\.en)?\.mdx)?)?)\/?$)/;
 export default defineConfig({plugins:[katexWoff2Only,svelte()],clearScreen:false,server:{strictPort:true,port:1420,watch:{ignored:['**/.cache/**',ignoredDocs,'**/browser-extension/build/**']}},envPrefix:['VITE_','TAURI_ENV_*'],optimizeDeps:{entries:['index.html'],include:lazyDependencies},build:{target:'es2022',sourcemap:false}});

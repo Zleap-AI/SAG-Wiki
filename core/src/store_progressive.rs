@@ -201,6 +201,22 @@ impl Store {
                     continue;
                 }
             }
+            if crate::conversion::vision::selected(source, settings) {
+                let source_text = path_text(source)?;
+                let identity = crate::conversion::identity(source, settings);
+                let current = self.connection().query_row(
+                    "SELECT source_hash,output FROM conversions WHERE source=?1 AND valid=1 AND mtime=?2 AND size=?3",
+                    params![source_text, mtime, metadata.len() as i64],
+                    |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+                ).optional()?.is_some_and(|(hash, output)| {
+                    hash.rsplit_once(':').is_some_and(|(prefix, _)| prefix == identity)
+                        && Path::new(&output).is_file()
+                });
+                if !current {
+                    self.conversion_state(&source_text, root, "awaiting_conversion", None)?;
+                }
+                continue;
+            }
             if !source
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("pdf"))

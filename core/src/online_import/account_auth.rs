@@ -822,6 +822,7 @@ mod tests {
             schedule: Schedule::Hourly,
             daily_time: "09:00".into(),
             paused: false,
+            api: None,
         };
         let saved = handle(
             &service,

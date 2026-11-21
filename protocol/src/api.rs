@@ -22,6 +22,9 @@ pub enum ApiAction {
     WebStop,
     WebCode,
     WebRotateCode,
+    WebSetAccessCode {
+        required: bool,
+    },
     WebSetExternalUrl {
         url: Option<String>,
     },

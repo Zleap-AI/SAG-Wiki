@@ -450,7 +450,7 @@ impl SagTools {
                 SearchScope::Paths(&scope)
             };
             let key = models::jev_secret(&self.data_dir, &self.settings.jev)?;
-            let http = self.http.client().map_err(models::DecisionRequestError)?;
+            let http = self.http.client(&self.settings.model_proxy).map_err(models::DecisionRequestError)?;
             let output = retrieval::retrieve_in_scope(
                 &self.store,
                 &args.query,
@@ -588,7 +588,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn calculator_is_discovered_and_returns_decimal_arithmetic_without_sources() {
         let (_dir, tools, _) = fixture();
-        let mut session = McpSession::open(vec![], &tools.http.client().unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
+        let mut session = McpSession::open(vec![], &tools.http.client(&tools.settings.model_proxy).unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
         assert!(session.tool("sag2_calculate").unwrap().builtin);
         for (expression, expected) in [
@@ -628,7 +628,7 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn get_time_returns_current_local_and_utc_time_without_sources() {
         let (_dir, tools, _) = fixture();
-        let mut session = McpSession::open(vec![], &tools.http.client().unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
+        let mut session = McpSession::open(vec![], &tools.http.client(&tools.settings.model_proxy).unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
         let before = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() as i64;
         let result = session.call("sag2_getTime", json!({}), &tools.cancel).await.unwrap();
@@ -854,7 +854,7 @@ pub(crate) mod tests {
     async fn mcp_discovery_defaults_and_selected_tools() {
         let (_dir, tools, root) = fixture();
         let mut session =
-            McpSession::open(vec![], &tools.http.client().unwrap(), 5, &tools.cancel, &Default::default())
+            McpSession::open(vec![], &tools.http.client(&tools.settings.model_proxy).unwrap(), 5, &tools.cancel, &Default::default())
                 .await
                 .unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
@@ -877,7 +877,7 @@ pub(crate) mod tests {
         let mut restricted = tools.clone();
         restricted.enabled = vec!["list".into()];
         let mut session =
-            McpSession::open(vec![], &tools.http.client().unwrap(), 5, &tools.cancel, &Default::default())
+            McpSession::open(vec![], &tools.http.client(&tools.settings.model_proxy).unwrap(), 5, &tools.cancel, &Default::default())
                 .await
                 .unwrap();
         session.attach_sag(restricted).await.unwrap();
@@ -1161,7 +1161,7 @@ pub(crate) mod tests {
             write!(socket,"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",body.len(),body).unwrap();
         });
         let expected=retrieval::retrieve(&tools.store,"needle",&tools.scope,&[],&tools.settings.retrieval,&tools.cancel,|mut candidates,_|async move{for candidate in &mut candidates{candidate.score=0.7;}Ok(candidates)},|_,_|{}).await.unwrap();
-        let mut session=McpSession::open(vec![],&tools.http.client().unwrap(),5,&tools.cancel,&Default::default()).await.unwrap();
+        let mut session=McpSession::open(vec![],&tools.http.client(&tools.settings.model_proxy).unwrap(),5,&tools.cancel,&Default::default()).await.unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
         let result=session.call("sag2_search",json!({"query":"needle","top_k":1}),&tools.cancel).await.unwrap();
         response.join().unwrap();

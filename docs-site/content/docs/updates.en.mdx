@@ -7,10 +7,40 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="37d641b777f56c7d520cb3d8620b0e92fb3397ac27807259aa71f6a7a0e0c9c7" aria-hidden="true" />
+<span data-docs-changelog-sha="420c29e082cce515b5848e9a819b9c70262a607bc712fd5cc549e3e1aa080a1f" aria-hidden="true" />
 
-## 0.3.14
+## 0.4.3
 
+- **Online data sources** now include GitHub, GitLab, DingTalk Docs, Tencent ima, API requests, and Apify. Sync branches, folders, or individual Markdown files from GitHub and GitLab. On desktop and Linux web, use GET or POST to fetch JSON and append selected fields to daily Markdown files on a schedule, with optional same-day deduplication by record ID and AI cleanup. Apify can run Actors in the background and import web page content or selected fields as Markdown on a schedule for each connection.
+- **Data import** is available under **Settings → Data sources** and from the Files context menu. You can go straight to the destination after a first successful online import. Default destinations are grouped by platform and connection under `sag-wiki/data-sources/`.
+- **Network proxy** configuration and testing are available under **Settings → Network proxy**.
+
+## 0.4.2
+
+- **Quick setup**: While no answer model is configured, the chat home and the quick-start guide offer **Quick setup**. Enter one 302.AI API key; once the tests pass, the app configures the qwen3.8-flash answer model, the jev-latest decision model and 302.AI MinerU parsing. New installs default to qwen3.8-flash. ([PR #188](https://github.com/Zleap-AI/SAG-Wiki/pull/188))
+- **Network proxy**: Add a **Settings → Network proxy** page with follow-system, custom and direct modes. A custom proxy accepts SOCKS5 and username/password, the password stays on this device, and **Test connection** reports the route taken. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125), [PR #183](https://github.com/Zleap-AI/SAG-Wiki/pull/183))
+- **Explore mode**: PDF and Office documents no longer disappear from Explore when conversion results are stored in the application data directory. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185), [PR #186](https://github.com/Zleap-AI/SAG-Wiki/pull/186))
+- **Reply format**: Follow-up answers no longer come back as `{"answer":…}` JSON. ([PR #177](https://github.com/Zleap-AI/SAG-Wiki/pull/177))
+- **Context compaction**: Compaction shows "part N of M" progress instead of looking stuck, and a failed summary no longer fails the turn; the answer continues with the reason shown.
+- **Empty answers**: A whitespace-only reply is retried once, then reported as an error instead of a "complete" turn with no text.
+- **Tool calls**: Repeated retrieval calls with identical arguments are skipped; the per-turn limit defaults to 20, and a saved 0 stays unlimited.
+
+## 0.4.1
+
+- **SAG Wiki Assistant**: Search the bundled Chinese and English changelogs by full version number. The English changelog is also available in the Traditional Chinese, Japanese, Korean, and Spanish interfaces.
+- **Changelog links**: Links such as installation and folder management open the corresponding pages on the official site when you read the changelog from an assistant citation.
+- **Help access**: The question mark in the lower-left corner opens the online documentation in the current interface language and keeps the conversation open. The assistant remains available from the Q&A home.
+
+## 0.4.0
+
+- **Online data import**: Connect Feishu, Lark, Notion, Yuque, and RSS or Atom feeds to import selected content into your library. Sync each connection manually or on a schedule. Unchanged items are skipped and local edits are preserved.
+- **Linux web workspace**: Create folders and upload individual files or entire directories from the browser. Uploaded files are indexed automatically. Web settings let you configure models, connect online sources, and manage API and MCP settings and keys.
+- **PDF and image recognition**: Use a vision-capable answer model to parse PDF, PNG, and JPEG files, with separate prompts for PDFs and images. Docling and MinerU remain available.
+- **Remote web access**: Use the CLI to set an external URL for access through a public IP or an HTTPS reverse proxy and control the web access code. New Linux setups start with the code disabled; existing settings are preserved. You can enable verification for remote access.
+- **Chat history import**: Schedule Claude Code and Codex imports separately. Scheduling is off by default. New messages update the existing Markdown file, unchanged chats are skipped, and previews open at the latest message.
+- **Application data location**: Move indexes, settings, conversations, and in-app conversion results from the desktop app while keeping the previous folder as a backup. Desktop and CLI share the new location, remote service autostart and folder permissions move with it, and startup recovery lets you choose an existing data folder if the saved location is unavailable. ([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
+- **SAG Wiki Assistant**: Search the built-in user guides from the chat home screen and follow citations to the relevant sections. You can still search and read matching sections without an answer model.
+- **Shared proxy settings**: Use one proxy configuration for answer models, Jev, MinerU, app updates, component downloads, sharing, and remote HTTP MCP. Set proxy bypass addresses and test the connection before saving.
 - **Linux file monitoring**: When the watch limit is reached, CLI and indexing details explain how to raise the inotify quota and restart the background service. Indexed content remains searchable. ([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
 
 ## 0.3.13

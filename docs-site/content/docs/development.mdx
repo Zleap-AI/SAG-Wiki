@@ -39,6 +39,8 @@ npm run build:cli
 
 前者生成 debug CLI，后者生成 release CLI。开发产物放在 `src-tauri/bin/development/`，正式产物放在 `src-tauri/bin/`；macOS 产物会执行签名步骤。
 
+桌面端和 CLI 打包时，会从仓库的 `third-party/pdfium/` 读取对应平台的 PDFium 压缩包，校验 SHA-256 后将运行库和许可文件放入安装包。这个步骤无需联网下载 PDFium。
+
 需要把当前构建安装到用户终端时，显式执行：
 
 ```sh

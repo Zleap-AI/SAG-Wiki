@@ -17,6 +17,7 @@ type Lexer={tokenizer:{rules:{inline:{reflinkSearch:RegExp}}};blockTokens(src:st
 type ParserInternals={createLexer():Lexer;parseTokens(tokens:unknown[],top:boolean):JSONContent[];activeParseLexer:unknown};
 const internals=parser as unknown as ParserInternals;
 import {splitFrontmatter,protectHtml} from './markdown-source';
+import {isHelpDocument} from './domain';
 export {splitFrontmatter,protectHtml,restoreHtml} from './markdown-source';
 // Link reference definitions in document order, including nested containers.
 export function markdownLinks(body:string):LinkDefinition[]{
@@ -190,7 +191,7 @@ export function renderAnswer(text:string,evidence:Candidate[],tools:ToolCallReco
   for(const match of matches){
    const index=Number(match[1])-1;
    const candidate=evidence[index];
-   const key=candidate.hash||candidate.path;
+   const key=isHelpDocument(candidate.path)?candidate.path+'#'+candidate.heading:(candidate.hash||candidate.path);
    let number=numbers.get(key);
    if(number===undefined){number=sources.length+1;numbers.set(key,number);sources.push({first:candidate,number});}
    fragment.append(value.slice(end,match.index));

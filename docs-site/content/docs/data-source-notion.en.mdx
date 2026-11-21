@@ -1,0 +1,12 @@
+---
+title: "Notion"
+description: "Connect Notion and import authorized pages and their attachments."
+---
+
+Notion is a workspace for notes, collaborative documents, and project management. [Notion website](https://www.notion.com/)
+
+1. In [Notion integrations](https://www.notion.so/my-integrations), create an **internal integration** for the target workspace. Enable **Read content** and copy the integration's API token. [Notion connection guide](https://www.notion.com/en-gb/help/create-integrations-with-the-notion-api)
+2. On the Notion page to import, open **⋯ → Connections** and add the integration. In **Settings → Data sources → Notion → Configure → Add connection**, enter the connection name and token and click **Test connection**.
+3. Select the authorized pages and click **Save and import**. SAG saves supported Markdown and attachments. If the page is incomplete, the error appears in sync history and the last complete copy is preserved. Use **Import from an export file** for a Notion ZIP.
+
+![Select authorized Notion pages](/images/product-source-notion-en.png)

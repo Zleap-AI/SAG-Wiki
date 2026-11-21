@@ -101,6 +101,20 @@ pub fn save_secret(dir: &std::path::Path, kind: &str, key: &str) -> Result<()> {
     write_credentials(dir, &values)
 }
 
+/// The proxy password lives with the model keys; `None` means none is stored.
+pub(crate) fn proxy_password(dir: &std::path::Path) -> Result<Option<String>> {
+    sag_client::network_proxy::stored_proxy_password(dir)
+}
+pub(crate) fn save_proxy_password(dir: &std::path::Path, password: Option<&str>) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
+    let mut values = credentials(dir)?;
+    match password.filter(|value| !value.is_empty()) {
+        Some(value) => { values.insert("proxy".into(), value.into()); }
+        None => { values.remove("proxy"); }
+    }
+    write_credentials(dir, &values)
+}
+
 pub(crate) fn online_secret(dir: &std::path::Path, id: &str) -> Result<Option<String>> {
     Ok(credentials(dir)?.remove(&format!("online:{id}")))
 }
@@ -151,6 +165,41 @@ pub fn endpoint(config: &ModelConfig, jev: bool) -> String {
     url.set_path(&normalized);
     url.into()
 }
+pub(crate) async fn recognize_image(
+    client: &Client, config: &ModelConfig, key: &str, image_url: &str, prompt: &str,
+    timeout: u64, runtime: &RuntimeSettings, cancel: &CancellationToken,
+) -> Result<String> {
+    let responses = responses::enabled(config);
+    let body = if responses {
+        json!({"model":config.model,"store":false,"input":[{"role":"user","content":[
+            {"type":"input_text","text":prompt},{"type":"input_image","image_url":image_url,"detail":"high"}
+        ]}]})
+    } else {
+        payload(config, vec![json!({"role":"user","content":[
+            {"type":"text","text":prompt},{"type":"image_url","image_url":{"url":image_url,"detail":"high"}}
+        ]})], false)?
+    };
+    let response = request_with_runtime(client, &endpoint(config, false), key, &body, timeout, runtime, cancel).await?;
+    let value: Value = tokio::select! {
+        _ = cancel.cancelled() => return Err(cancelled()),
+        result = response.json() => result.context("图片解析响应格式不正确")?,
+    };
+    if responses {
+        anyhow::ensure!(value["status"] == "completed", "模型未完整返回图片解析结果");
+        let parts: Vec<_> = value["output"].as_array().into_iter().flatten()
+            .filter(|item| item["type"] == "message")
+            .flat_map(|item| item["content"].as_array().into_iter().flatten())
+            .filter(|part| part["type"] == "output_text")
+            .filter_map(|part| part["text"].as_str())
+            .collect();
+        anyhow::ensure!(!parts.is_empty(), "模型未返回图片解析文本");
+        Ok(parts.join("\n"))
+    } else {
+        let choice = &value["choices"][0];
+        anyhow::ensure!(choice["finish_reason"] == "stop", "模型未完整返回图片解析结果");
+        Ok(choice["message"]["content"].as_str().context("模型未返回图片解析文本")?.into())
+    }
+}
 fn redact(message: &str, key: &str) -> String {
     if key.is_empty() { message.to_owned() } else { message.replace(key, "[已隐藏]") }
 }
@@ -176,6 +225,12 @@ pub(crate) fn context_limit_error(error: &anyhow::Error) -> bool {
         ["context_length_exceeded", "max_tokens_exceeded", "maximum context length", "context window", "too many tokens", "input is too long", "input tokens exceed"]
             .iter().any(|phrase| detail.contains(phrase))
     })
+}
+
+/// The server rejected the request itself, not its size: a shape it does not accept.
+pub(crate) fn request_rejected(error: &anyhow::Error) -> bool {
+    !context_limit_error(error)
+        && error.downcast_ref::<RequestError>().is_some_and(|error| matches!(error.status, 400 | 422))
 }
 
 /// A batch the server rejected for carrying more items than one request may
@@ -262,9 +317,14 @@ async fn request_with_runtime(
     }
 }
 // Estimate all request budgets without serializing or fully tokenizing them.
+// tokenx counts one token per CJK character; common tokenizers need about
+// 0.6–0.8 for Chinese. Keep a margin above that so the budget never runs out.
+fn cjk_chars(text: &str) -> usize {
+    text.chars().filter(|c| matches!(c, '\u{4E00}'..='\u{9FFF}' | '\u{3400}'..='\u{4DBF}' | '\u{3000}'..='\u{303F}' | '\u{FF00}'..='\u{FFEF}')).count()
+}
 pub(crate) fn estimate(value: &Value) -> usize {
     match value {
-        Value::String(text) => tokenx_rs::estimate_token_count(text),
+        Value::String(text) => tokenx_rs::estimate_token_count(text).saturating_sub(cjk_chars(text) / 4),
         Value::Array(items) => 2 + items.iter().map(estimate).sum::<usize>(),
         Value::Object(fields) => 2 + fields.iter().map(|(key, value)| tokenx_rs::estimate_token_count(key) + estimate(value) + 4).sum::<usize>(),
         Value::Number(number) => number.to_string().len().div_ceil(3),
@@ -617,7 +677,7 @@ pub fn prepare_answer(
         output_tokens: None,
         elapsed_ms: None,
         generation_ms: None,
-        summary: None,
+        summary: None, summary_error: None,
     };
     Ok(AnswerPlan {
         payload: payload(config, messages, true)?,
@@ -672,7 +732,7 @@ pub fn prepare_search_summary(
             limit, reserved_output: output, estimated_input: message_tokens(&messages),
             omitted_sources: evidence.len() - selected.len(), omitted_history: 0,
             input_tokens: None, output_tokens: None, elapsed_ms: None, generation_ms: None,
-            summary: None,
+            summary: None, summary_error: None,
         },
         payload: payload(config, messages, true)?,
         evidence: selected,
@@ -1066,6 +1126,7 @@ mod tests {
     fn answer_keeps_more_than_four_history_rounds_within_budget() {
         let history = (0..8)
             .map(|index| crate::types::Message {
+                help: false,
                 created_at: None,
                 question: format!("Earlier question {index}"),
                 answer: format!("Earlier answer {index}"),
@@ -1098,6 +1159,7 @@ mod tests {
     #[test]
     fn long_history_cannot_overflow_answer() {
         let old = crate::types::Message {
+            help: false,
             created_at: None,
             question: "old".repeat(10000),
             answer: "历史".repeat(10000),

@@ -17,7 +17,7 @@ vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 const settings:Settings={language:'zh-CN',answer:{url:'https://example.com/v1',model:'test',models:['test'],has_key:false},jev:{url:'https://example.com/v1',model:'jev',models:[],has_key:false},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:2200},theme:'light',start_page:'ask',editor_size:15,show_hidden:true,watch:true,excluded:['.git'],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048};
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
-const click=(label:string)=>{const element=[...document.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent?.trim()===label||node.getAttribute('aria-label')===label);expect(element,label).toBeDefined();element!.click()};
+const click=(label:string,root:ParentNode=document)=>{const element=[...root.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent?.trim()===label||node.getAttribute('aria-label')===label);expect(element,label).toBeDefined();element!.click()};
 async function chooseLanguage(locale:Language){
  await vi.waitFor(()=>expect(document.querySelector('[aria-label="界面语言"]')).not.toBeNull());
  const control=document.querySelector<HTMLButtonElement>('[aria-label="界面语言"]')!;
@@ -77,8 +77,18 @@ it('restores saved English across all settings pages and preserves original file
  expect(document.body.textContent).toContain('用户原来的问题');expect(document.body.textContent).toContain('资料');
  expect(document.querySelector('.workspace-switch')?.textContent).toContain('Chat');
  click('Settings');await tick();
- for(const page of ['General','Appearance','File settings','Data import','Shortcuts','Model settings','Chat settings','Search settings','Data and privacy','About']){
-  click(page);await tick();
+ expect([...document.querySelectorAll('.settings-nav-group')].map(group=>[
+  group.getAttribute('aria-label'),
+  [...group.querySelectorAll('button')].map(button=>button.textContent?.trim()),
+ ])).toEqual([
+  ['Application',['General','Appearance','Shortcuts']],
+  ['Knowledge base',['Data sources','File settings','Web Clipper']],
+  ['Search & Q&A',['Model settings','Chat settings','Search settings']],
+  ['Connections & services',['CLI settings','Remote services','Network proxy']],
+  [null,['Data and privacy','About']],
+ ]);
+ for(const page of ['General','Appearance','Data sources','File settings','Shortcuts','Model settings','Chat settings','Search settings','Data and privacy','About']){
+  click(page,document.querySelector('.settings-nav')!);await tick();
   expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe(page);
   if(page==='Chat settings')expect(document.querySelector('.settings-content')?.textContent).toContain('MCP servers');
   expect(document.querySelector('.settings-content')?.textContent,page).not.toMatch(/[\u3400-\u9fff]/);
@@ -108,7 +118,7 @@ it('translates tool progress and failure details while preserving arguments and 
  expect(document.body.textContent).toContain('工具返回的原文');
 });
 
-it('数据导入打开聊天窗口，关闭后保留设置，并保存新的导入位置',async()=>{
+it('数据源打开聊天窗口，关闭后保留设置，并保存新的导入位置',async()=>{
  setLanguage('zh-CN');
  invoke.mockImplementation(async command=>{
   if(command==='get_chat_import_folder')return '/Documents/AgentHistory';
@@ -129,7 +139,7 @@ it('数据导入打开聊天窗口，关闭后保留设置，并保存新的导�
  expect(document.querySelector('.chat-import-heading h2')?.textContent).toBe('导入 Codex 聊天记录');
  click('更改');await vi.waitFor(()=>expect(document.querySelector('.chat-import')?.textContent).toContain('/Archive/Chats'));
  click('关闭');await vi.waitFor(()=>expect(document.querySelector('.chat-import')).toBeNull());
- expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('数据导入');
+ expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('数据源');
  click('通用');await tick();click('保存设置');
  await vi.waitFor(()=>expect(onSave).toHaveBeenCalled());
  expect(onSave.mock.calls[0][0].chat_import_folder).toBe('/Archive/Chats');

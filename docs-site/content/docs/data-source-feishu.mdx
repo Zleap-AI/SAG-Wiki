@@ -1,0 +1,54 @@
+---
+title: "飞书"
+description: "导入飞书知识库与云盘中的文档。"
+---
+
+飞书是协作办公平台，知识库用于组织团队文档，云盘用于存放和共享文件。[飞书官网](https://www.feishu.cn/)
+
+1. 在[飞书开放平台](https://open.feishu.cn/app) 创建或打开一个**企业自建应用**。按下方的知识库或云盘选项复制权限 JSON。
+2. 进入 **开发配置 → 权限管理 → 批量处理 → 批量导入/导出权限 → 导入**，粘贴 JSON，确认权限添加到 **用户身份权限**。
+3. 在 **安全设置 → 重定向 URL** 添加 `http://127.0.0.1:24682/feishu/oauth/callback`。确认登录账号可以使用该应用，再到 **版本管理与发布** 发布，等待所需审批。
+4. 从 **凭证与基础信息** 复制 App ID 和 App Secret。在 **设置 → 数据源 → 飞书** 选择导入类型并填入凭据，点 **使用飞书账号授权**。授权后返回 SAG，勾选范围，点 **保存并导入**。
+
+![飞书授权后选择知识库或页面](/images/product-source-feishu-cn.png)
+
+如果定时同步因月度额度耗尽而暂停，额度恢复后点 **立即同步**。
+
+## 知识库 [#feishu-wiki]
+
+勾选页面时，也会导入你有权读取的子页面。
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "wiki:space:retrieve",
+      "wiki:node:retrieve",
+      "wiki:node:read",
+      "docx:document:readonly",
+      "drive:drive:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+## 云盘 [#feishu-drive]
+
+共享文件夹未列出时，粘贴文件夹链接，再点 **浏览云盘文件夹**。
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```

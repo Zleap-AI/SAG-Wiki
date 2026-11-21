@@ -1,0 +1,12 @@
+---
+title: "DingTalk Docs"
+description: "Import online documents from DingTalk knowledge bases as Markdown."
+---
+
+DingTalk is a workplace collaboration platform where teams can maintain online documents in shared knowledge bases. [DingTalk website](https://www.dingtalk.com/)
+
+1. Create an internal enterprise app in the [DingTalk Open Platform](https://open.dingtalk.com/), grant `Wiki.Workspace.Read`, `Wiki.Node.Read`, and `Storage.File.Read`, and publish it. Obtain the Union ID of an operator who can access the target knowledge base.
+2. In **Settings → Data sources → DingTalk Docs → Configure**, enter the **Client ID**, **Client Secret**, and **Operator Union ID**. Click **Test connection**.
+3. Select a knowledge base, a folder, or individual DingTalk documents and click **Save and import**. SAG converts online document content to Markdown. Sync currently covers native documents, with DingTalk spreadsheets and uploaded Drive files outside its scope.
+
+![DingTalk Docs connection settings and import scope](/images/product-source-dingtalk-en.png)

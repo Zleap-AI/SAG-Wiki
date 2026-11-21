@@ -43,7 +43,7 @@
  {#if !embedded}<div class="dialog-head"><h2>{$t(path?'分享':'接收分享')}</h2><Button.Root class="icon-button" aria-label={$t('关闭')} disabled={busy} onclick={close}>{@html icon('close')}</Button.Root></div>{/if}
  <div class="share-body">
   {#if received}<p class="share-complete">{$t('下载完成')}</p><p class="share-path">{received}</p>
-  {:else if shared}<div class="share-result"><div class="share-code-row"><p class="share-code">{shared}</p><ShareHelp onError={message=>error=message}/></div><p class="share-instructions">{$t('将分享码发给对方。对方复制后打开 SAG 即可接收，也可在“设置 → 数据导入”中输入分享码。')}</p><Button.Root class="outline" onclick={async()=>{try{await copyText($t('分享码：{value0}\n复制此分享码，打开SAG-Wiki即可下载对应文件内容',{value0:shared}));copied=true;error=''}catch(e){error=String(e)}}}>{@html icon('copy')}{$t(copied?'已复制':'复制分享码')}</Button.Root><p class="share-hint share-expiry"><span aria-hidden="true">{@html icon('clock')}</span>{$t('有效期至 {value0}',{value0:new Date(expires).toLocaleString()})}</p></div>
+  {:else if shared}<div class="share-result"><div class="share-code-row"><p class="share-code">{shared}</p><ShareHelp onError={message=>error=message}/></div><p class="share-instructions">{$t('将分享码发给对方。对方复制后打开 SAG 即可接收，也可在“设置 → 数据源”中输入分享码。')}</p><Button.Root class="outline" onclick={async()=>{try{await copyText($t('分享码：{value0}\n复制此分享码，打开SAG-Wiki即可下载对应文件内容',{value0:shared}));copied=true;error=''}catch(e){error=String(e)}}}>{@html icon('copy')}{$t(copied?'已复制':'复制分享码')}</Button.Root><p class="share-hint share-expiry"><span aria-hidden="true">{@html icon('clock')}</span>{$t('有效期至 {value0}',{value0:new Date(expires).toLocaleString()})}</p></div>
   {:else if path}
    {#if preview}
     <div class="share-package">

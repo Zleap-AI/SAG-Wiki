@@ -31,6 +31,81 @@ beforeEach(()=>{
 afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerHTML='';vi.clearAllMocks();listeners.clear();localStorage.removeItem('sag.sidebar.expanded')});
 const fileTab=()=>document.querySelector<HTMLButtonElement>('.workspace-switch [title="文件"]')!;
 async function start(){app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelector('.ask-content')).not.toBeNull())}
+it.each(['success','failed'] as const)('首次同步 %s 后按结果处理导入窗口和文件侧栏',async(status)=>{
+ const root='/Documents/sag-wiki';
+ const platform=`${root}/data-sources/github`;
+ const directory=`${platform}/repo`;
+ const branch='github:tree:main:';
+ const readme='github:blob:main:README.md';
+ const succeeded=status==='success';
+ let saved=false,finished=false;
+ const fallback=invoke.getMockImplementation()!;
+ const source={id:'github-saved',name:'owner/repo',connection:{platform:'github',address:'https://github.com/owner/repo',app_id:'',drive:false},resources:[readme],directory,schedule:'manual',daily_time:'09:00',paused:false};
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='get_settings')return {
+   ...await fallback(command,args),language:'zh-CN',
+   answer:{url:'http://localhost',model:'test',models:['test'],has_key:false},
+   jev:{url:'http://localhost',model:'jev',models:[],has_key:false},
+   retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:512},
+  };
+  if(command==='list_roots')return finished&&succeeded?[{path:root,name:'sag-wiki',status:'ready',count:1,error:null}]:[];
+  if(command==='list_files')return [];
+  if(command==='list_entries'){
+   const children:Record<string,string>={[root]:`${root}/data-sources`,[`${root}/data-sources`]:platform,[platform]:directory,[directory]:`${directory}/main`};
+   const path=children[args.path];
+   return path?[{path,name:path.split('/').at(-1),directory:true,symlink:false}]:[];
+  }
+  if(command==='get_share_settings')return {directory:'',clipboard:false};
+  if(command==='online_import'){
+   const {action}=args;
+   if(action.action==='browse')return {cursor:null,items:action.parent
+    ?[{id:readme,title:'README.md',expandable:false}]
+    :[{id:branch,title:'main',expandable:true}]};
+   if(action.action==='save'){saved=true;return source;}
+   return {documents:'/Documents',sources:saved?[{
+    source,next_at:null,running:!finished,last:{started:1,finished:finished?2:null,result:{
+     status:finished?status:'running',imported:finished&&succeeded?1:0,updated:0,skipped:0,conflicts:0,
+     failed:finished&&!succeeded?1:0,issues:[],
+    }},
+   }]:[]};
+  }
+  return fallback(command,args);
+ });
+ const labelled=(label:string)=>document.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+ const named=(label:string)=>[...document.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent?.trim()===label);
+ await start();
+ labelled('设置')!.click();await tick();
+ named('数据源')!.click();await tick();
+ labelled('配置 GitHub')!.click();
+ const url=await vi.waitFor(()=>{
+  const input=document.querySelector<HTMLInputElement>('input[placeholder="https://github.com/owner/repo"]');
+  expect(input).not.toBeNull();return input!;
+ });
+ url.value=source.connection.address;url.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ named('浏览分支')!.click();
+ await vi.waitFor(()=>expect(labelled('打开 main')).not.toBeNull());
+ labelled('打开 main')!.click();
+ const checkbox=await vi.waitFor(()=>{
+  const label=[...document.querySelectorAll('label')].find(label=>label.textContent?.trim()==='README.md');
+  expect(label).toBeDefined();return label!.querySelector('input')!;
+ });
+ checkbox.click();await tick();named('保存并导入')!.click();
+ await vi.waitFor(()=>expect(named('停止同步')).toBeDefined());
+ expect(document.querySelector('.online-import')).not.toBeNull();
+ expect(document.querySelector('.folder-browser')).toBeNull();
+ finished=true;
+ if(succeeded){
+  await vi.waitFor(()=>expect(document.querySelector('.settings-window')).toBeNull(),{timeout:3500});
+  expect(document.querySelector('.online-import')).toBeNull();
+  expect(document.querySelector('.folder-browser h1')?.textContent).toBe('repo');
+  expect(document.querySelector(`.tree-name[title="${directory}"]`)?.getAttribute('aria-current')).toBe('page');
+  expect(invoke).toHaveBeenCalledWith('list_entries',{path:directory});
+ }else{
+  await vi.waitFor(()=>expect(named('重试失败项')).toBeDefined(),{timeout:3500});
+  expect(document.querySelector('.settings-window')).not.toBeNull();
+  expect(document.querySelector('.folder-browser')).toBeNull();
+ }
+});
 it('Windows 侧栏和文件列表提示显示普通路径，浏览仍提交原始路径',async()=>{
  const path=String.raw`\\?\D:\资料`,child=path+'\\intro.txt';
  const fallback=invoke.getMockImplementation()!;

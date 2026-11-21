@@ -7,15 +7,20 @@
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
  import {api} from '../lib/api';
+ import {web} from '../lib/web-connection';
  import type {DoclingStatus,MineruConfig,Settings} from '../lib/types';
  export let enabled=false;
  export let remoteParsing:boolean|undefined=undefined;
  export let remoteProvider:MineruConfig['provider']|undefined=undefined;
+ export let visionParsing:boolean|undefined=undefined;
  let savedRemoteParsing=false;
+ let savedVisionParsing=false;
  let savedRemoteProvider:MineruConfig['provider']|undefined;
  $:usingRemote=remoteParsing??savedRemoteParsing;
+ $:usingVision=visionParsing??savedVisionParsing;
  $:pdfOnly=(remoteProvider??savedRemoteProvider)==='302';
  const remoteFormats=new Set(['pdf','png','jpg','jpeg','jp2','webp','gif','bmp','doc','docx','ppt','pptx','xls','xlsx']);
+ const visionFormats=new Set(['pdf','png','jpg','jpeg']);
  export let formats:string[]|null|undefined=undefined;
  export let disabled=false;
  export let workers:number|undefined=undefined;
@@ -34,7 +39,7 @@
  function invalidateInstall(){selectionVersion++;revokeInstall();}
  function changeSelection(next:string[]){selectionVersion++;revokeInstall();selectionChanged=true;selected=next;}
  $:preserveLegacyAll=legacyAll&&!selectionChanged;
- $:requiredProfiles=[...new Set(selected.filter(extension=>!usingRemote||!(pdfOnly?extension==='pdf':remoteFormats.has(extension))).map(extension=>profileForExtension(status,extension)).filter(profile=>profile!==undefined))];
+ $:requiredProfiles=[...new Set(selected.filter(extension=>!(usingVision&&visionFormats.has(extension))&&(!usingRemote||!(pdfOnly?extension==='pdf':remoteFormats.has(extension)))).map(extension=>profileForExtension(status,extension)).filter(profile=>profile!==undefined))];
  $:missingProfiles=requiredProfiles.filter(profile=>!profileInstalled(status,profile));
  $:needsInstall=!preserveLegacyAll&&missingProfiles.length>0;
  export async function showDetails(configure=false){
@@ -46,7 +51,7 @@
   selectionError='';draftWorkers=workers??defaultConversionWorkers;savedWorkers=draftWorkers;workersReady=workers!==undefined;details=true;
   if(workers===undefined||remoteParsing===undefined){
    workersLoading=true;
-   try{const settings=await api<Settings>('get_settings');if(workers===undefined){draftWorkers=settings.conversion_workers??defaultConversionWorkers;savedWorkers=draftWorkers;}savedRemoteParsing=settings.mineru?.enabled??false;savedRemoteProvider=settings.mineru?.provider;workersReady=true;}
+   try{const settings=await api<Settings>('get_settings');if(workers===undefined){draftWorkers=settings.conversion_workers??defaultConversionWorkers;savedWorkers=draftWorkers;}savedRemoteParsing=settings.mineru?.enabled??false;savedRemoteProvider=settings.mineru?.provider;savedVisionParsing=settings.document_parser==='vision';workersReady=true;}
    catch(e){selectionError=String(e);}
    finally{workersLoading=false;}
   }
@@ -96,7 +101,7 @@
 <div class="setting-row other-formats">
  <div class="description">
   <strong>{$t('更多文件格式')}</strong>
-  <p>{$t('扫描 PDF、图片、音视频等可按需安装 Docling，普通文档无需下载。')}</p>
+  {#if !usingVision}<p>{$t('扫描 PDF、图片、音视频等可按需安装 Docling，普通文档无需下载。')}</p>{/if}
   {#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}
  </div>
  <div class="other-formats-actions"><Button.Root type="button" class="outline other-formats-action" aria-label={$t('选择更多文件格式')} disabled={loading||disabled} onclick={()=>showDetails()}>{$t('选择')}</Button.Root></div>
@@ -156,8 +161,8 @@
  <div class="dialog-footer formats-footer">
   {#if !profileInstalled(status,'documents')&&!status.running}
    <div class="format-install-options">
-    <Button.Root type="button" class="docling-component-link" disabled={uninstalling||applying} onclick={()=>openDoclingDownload(['documents'],[],undefined,'command')}>{$t('通过命令行安装')}</Button.Root>
-    <Button.Root type="button" class="docling-component-link" disabled={uninstalling||applying} onclick={()=>openDoclingDownload(['documents'],[],undefined,'import')}>{$t('导入离线组件')}</Button.Root>
+    {#if !web}<Button.Root type="button" class="docling-component-link" disabled={uninstalling||applying} onclick={()=>openDoclingDownload(['documents'],[],undefined,'command')}>{$t('通过命令行安装')}</Button.Root>
+    <Button.Root type="button" class="docling-component-link" disabled={uninstalling||applying} onclick={()=>openDoclingDownload(['documents'],[],undefined,'import')}>{$t('导入离线组件')}</Button.Root>{/if}
    </div>
   {/if}
   <div class="formats-footer-actions">

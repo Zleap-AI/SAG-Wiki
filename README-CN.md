@@ -34,6 +34,7 @@ PDF 基础文字入库后即可搜索，OCR 与表格增强在后台继续。本
   <a href="#technology">技术原理</a> ·
   <a href="#user-guide">用户指南</a> ·
   <a href="#agent-guide">Agent 指南</a> ·
+  <a href="#linux-guide">Linux 指南</a> ·
   <a href="#developer-guide">开发者指南</a> ·
   <a href="#community">社区交流</a>
 </p>
@@ -112,7 +113,7 @@ https://github.com/user-attachments/assets/439bbb1c-3fd8-41e1-a77b-865e8dce4d48
 
 SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务商为准。原文件保留在本地；深入检索与问答会将所需问题、文档片段或上下文发送给你配置的服务。
 
-### 1. 下载，添加文件夹
+### 1. 下载，添加文件夹或导入数据
 
 从上方最新版本链接下载 macOS DMG，打开后将 SAG Wiki 拖入 Applications。macOS 应用、包内 CLI 与 DMG 已使用 Developer ID 签名并通过 Apple 公证。
 
@@ -121,6 +122,16 @@ SAG-Wiki 本身开源免费，外部服务是否收费及费用以所选服务�
 <p align="center">
   <img src="docs/assets/readme/product-folders-cn.png" alt="SAG-Wiki 中已添加的本地文件夹和文档" width="940" />
 </p>
+
+#### 连接数据源
+
+在桌面端打开 **设置 → 数据源**，即可导入聊天记录和笔记，或连接在线平台。
+
+- **聊天和笔记**可从 Claude Code、Codex、Evernote、Google Keep 和 Apple Notes（macOS）导入。
+- **在线来源**包括飞书、Lark、Notion、语雀、GitHub、GitLab、钉钉文档、腾讯 ima 和 RSS / Atom，可手动导入或定时同步。
+- **Apify** 支持手动运行 Actor，将网页或结构化结果导入为 Markdown。
+
+各来源的配置步骤见[连接与同步指南](docs-site/content/docs/data-sources.mdx)。
 
 ### 2. 搜索，查看原文
 
@@ -197,6 +208,38 @@ sag "权限在哪里检查？" . -m 5
 完整的 Agent 安装流程见 Skill 的 [setup 指南](cli/skills/sag/references/setup.md#first-use-setup)，其他命令见 [CLI 使用说明](docs/zh-CN/CLI与Harness使用说明.md)。
 
 </details>
+
+---
+
+<a id="linux-guide"></a>
+
+## Linux 指南
+
+在 Linux 电脑或服务器上安装 CLI，即可通过浏览器使用 SAG Wiki，无需安装桌面端。npm CLI 已在 Ubuntu 24.04 和 Debian 12（ARM64、x86_64）上验证。
+
+**1. 安装 CLI。** 安装 Node.js 18 或更高版本和 npm 后，运行：
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+如果使用 Ubuntu 或 Debian 的精简系统，缺少系统证书时先运行 `sudo apt install ca-certificates`。
+
+**2. 开启网页服务。** 在 Linux 主机上运行以下命令。`0.0.0.0` 表示监听所有 IPv4 网卡，访问范围由网络和防火墙决定：
+
+```sh
+sag api web start --host 0.0.0.0
+sag api status
+```
+
+仅在本机访问时，使用 `--host 127.0.0.1`。默认端口为 `24681`；若改过端口，省略 `--port` 会沿用已保存的设置。
+
+**3. 用浏览器打开。** 在本机打开 `sag api status` 显示的本机地址，或在同一局域网内的其他设备上打开局域网地址。Linux 新配置默认关闭访问码。需要验证时可用 `sag api web access-code on` 开启，再用 `sag api web code` 查看访问码。请保持 Linux 主机和后台服务运行。网页使用 HTTP，请在可信局域网内使用。
+
+云服务器的公网 IP 若映射到内网 IP，可用 `sag api web external-url http://公网IP:端口` 保存浏览器访问的地址。此命令不启动网页服务，也不改变访问码设置。详见[公网访问说明](docs-site/content/docs/remote-access.mdx#通过公网-ip-或域名访问)。
+
+在 Linux 主机上运行 `sag add /你的/文件夹路径` 可添加文件夹。快速搜索无需配置模型。运行 `sag api web stop` 可关闭网页访问。详见[网页服务指南](docs-site/content/docs/remote-access.mdx#通过-cli-开启)。
 
 ---
 

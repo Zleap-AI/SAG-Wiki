@@ -124,11 +124,11 @@ impl Docling {
         origin: &str,
         platform: &str,
     ) -> Result<(String, Asset, fs::File)> {
-        let client = reqwest::Client::builder()
+        let builder = reqwest::Client::builder()
             .connect_timeout(Duration::from_secs(20))
             .read_timeout(Duration::from_secs(60))
-            .redirect(reqwest::redirect::Policy::none())
-            .build()?;
+            .redirect(reqwest::redirect::Policy::none());
+        let client = sag_client::network_proxy::apply_proxy(builder, &self.download_proxy)?.build()?;
         let response = client
             .get(format!("{origin}{RELEASES}"))
             .send()
@@ -316,7 +316,12 @@ mod tests {
                 let (mut stream, _) = listener.accept().await.unwrap();
                 let mut request = [0u8; 4096];
                 let length = stream.read(&mut request).await.unwrap();
-                let download = request[..length].starts_with(b"GET /downloads/");
+                let request = std::str::from_utf8(&request[..length]).unwrap();
+                let target = request.split_ascii_whitespace().nth(1).unwrap();
+                let path = reqwest::Url::parse(target)
+                    .map(|url| url.path().to_owned())
+                    .unwrap_or_else(|_| target.to_owned());
+                let download = path.starts_with("/downloads/");
                 let (payload, length) = if download {
                     count.fetch_add(1, Ordering::Relaxed);
                     (&body, size)
@@ -331,6 +336,22 @@ mod tests {
             }
         });
         (origin, downloads, task)
+    }
+
+    #[tokio::test]
+    async fn downloads_manifest_and_component_through_shared_proxy() {
+        let dir = tempfile::tempdir().unwrap();
+        let bytes = b"package";
+        let (proxy, downloads, server) = resource_server(bytes, bytes).await;
+        let mut docling = Docling::new(dir.path());
+        docling.download_proxy.mode = sag_protocol::types::ProxyMode::Custom;
+        docling.download_proxy.url = proxy;
+        tokio::time::timeout(
+            Duration::from_secs(5),
+            docling.download_resource("http://192.0.2.10", "windows-x86_64"),
+        ).await.unwrap().unwrap();
+        assert_eq!(downloads.load(Ordering::Relaxed), 1);
+        server.abort();
     }
 
     #[tokio::test]

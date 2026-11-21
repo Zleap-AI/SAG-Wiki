@@ -34,6 +34,7 @@ PDF basic text can become searchable before background OCR and table enhancement
   <a href="#technology">Technology</a> ·
   <a href="#user-guide">User Guide</a> ·
   <a href="#agent-guide">Agent Guide</a> ·
+  <a href="#linux-guide">Linux Guide</a> ·
   <a href="#developer-guide">Developer Guide</a> ·
   <a href="#community">Community</a>
 </p>
@@ -112,7 +113,7 @@ https://github.com/user-attachments/assets/bcdf9dbf-7535-41d6-bd22-bde0ea824525
 
 SAG-Wiki itself is free and open source. External service charges depend on your chosen provider. Original files stay on your machine; in-depth retrieval and Q&A send the required questions, document passages, or context to the services you configure.
 
-### 1. Download and add a folder
+### 1. Download, then add a folder or import data
 
 Download the macOS DMG from the latest release link above, open it, and drag SAG Wiki into Applications. The macOS app, bundled CLI, and DMG are Developer ID signed and notarized by Apple.
 
@@ -121,6 +122,16 @@ Install and open SAG-Wiki, switch the sidebar to **Folders**, then click **+** b
 <p align="center">
   <img src="docs/assets/readme/product-folders-en.png" alt="Local folders and documents in SAG-Wiki" width="940" />
 </p>
+
+#### Connect data sources
+
+In the desktop app, open **Settings → Data sources** to import chats and notes or connect an online platform.
+
+- **Chats and notes** can be imported from Claude Code, Codex, Evernote, Google Keep, and Apple Notes (macOS).
+- **Online sources** include Notion, Feishu, Lark, Yuque, GitHub, GitLab, DingTalk Docs, Tencent ima, and RSS / Atom. Import on demand or on a schedule.
+- **Apify** runs Actors on demand and imports website content or structured results as Markdown.
+
+See the [connection and sync guide](docs-site/content/docs/data-sources.en.mdx) for setup steps.
 
 ### 2. Search your files
 
@@ -197,6 +208,38 @@ For a large folder, use `sag add --timeout 3600` to increase the wait limit. An 
 See the Skill's [setup guide](cli/skills/sag/references/setup.md#first-use-setup) for the complete agent workflow and the [CLI guide](docs/en/cli-and-harness.md) for other commands.
 
 </details>
+
+---
+
+<a id="linux-guide"></a>
+
+## Linux Guide
+
+Run SAG Wiki in a browser from a Linux computer or server, without installing the desktop app. The npm CLI has been verified on Ubuntu 24.04 and Debian 12 (ARM64 and x86_64).
+
+**1. Install the CLI.** With Node.js 18 or later and npm installed, run:
+
+```sh
+npm install -g @zleap-ai/sag
+sag --version
+```
+
+On a minimal Ubuntu or Debian installation, install the system certificates if they are missing: `sudo apt install ca-certificates`.
+
+**2. Start the web service.** Run these commands on the Linux host. `0.0.0.0` listens on all IPv4 interfaces; network and firewall rules determine which devices can connect:
+
+```sh
+sag api web start --host 0.0.0.0
+sag api status
+```
+
+For access from the Linux host only, use `--host 127.0.0.1`. The default port is `24681`; if you changed it, omitting `--port` reuses the saved port.
+
+**3. Open SAG Wiki in your browser.** Use the local address shown by `sag api status` on the host, or the LAN address from another device on the same network. The access code is off by default for fresh Linux configurations. To require it, run `sag api web access-code on`, then use `sag api web code` to view the code. Keep the Linux host and background service running. Use a trusted local network, as the web service uses HTTP.
+
+If your cloud server maps a public IP to a private IP, use `sag api web external-url http://PUBLIC_IP:PORT` to save the browser-facing address. This command leaves the web service and access code settings unchanged. See [public access](docs-site/content/docs/remote-access.en.mdx#access-via-a-public-ip-address-or-domain).
+
+To add files, run `sag add /path/to/your/folder` on the Linux host. Quick search works without a model. To stop browser access, run `sag api web stop`. See the [web service guide](docs-site/content/docs/remote-access.en.mdx#start-from-the-cli) for more details.
 
 ---
 

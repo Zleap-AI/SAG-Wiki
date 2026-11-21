@@ -13,9 +13,32 @@ pub fn data_dir() -> Result<PathBuf> {
     {
         return Ok(path.into());
     }
+    data_dir_from_config(&data_directory_config()?)
+}
+
+/// This locator stays outside the movable application data directory.
+pub fn data_directory_config() -> Result<PathBuf> {
+    Ok(dirs::config_dir()
+        .context("无法获取用户配置目录")?
+        .join("com.sag.desktop-location.json"))
+}
+
+fn data_dir_from_config(config: &std::path::Path) -> Result<PathBuf> {
+    if let Some(path) = read_data_directory_location(config)? {
+        anyhow::ensure!(path.is_absolute() && path.join("sag.sqlite").is_file(), "应用数据目录不可用：{}", path.display());
+        return Ok(path);
+    }
     Ok(dirs::data_dir()
         .context("无法获取用户数据目录")?
         .join("com.sag.desktop"))
+}
+
+pub fn read_data_directory_location(config: &std::path::Path) -> Result<Option<PathBuf>> {
+    match std::fs::read(config) {
+        Ok(bytes) => serde_json::from_slice(&bytes).context("应用数据位置配置无效").map(Some),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(error).context("无法读取应用数据位置配置"),
+    }
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -182,4 +205,32 @@ pub enum Response {
     Search(SearchOutput),
     Matches(MatchOutput),
     Error(String),
+}
+
+#[cfg(test)]
+mod data_directory_tests {
+    use super::*;
+    #[test]
+    fn saved_location_is_shared_and_invalid_locations_fail() {
+        let temp = std::env::temp_dir().join(format!("sag-location-test-{}", std::process::id()));
+        std::fs::create_dir(&temp).unwrap();
+        let config = temp.join("location.json");
+        std::fs::write(temp.join("sag.sqlite"), b"database").unwrap();
+        std::fs::write(&config, serde_json::to_vec(&temp).unwrap()).unwrap();
+        assert_eq!(data_dir_from_config(&config).unwrap(), temp);
+        std::fs::write(&config, b"invalid json").unwrap();
+        assert!(data_dir_from_config(&config).is_err());
+        std::fs::write(&config, br#""relative-folder""#).unwrap();
+        assert!(data_dir_from_config(&config).is_err());
+        std::fs::write(&config, serde_json::to_vec(&temp.join("missing")).unwrap()).unwrap();
+        assert!(data_dir_from_config(&config).is_err());
+        std::fs::create_dir(temp.join("missing")).unwrap();
+        assert!(data_dir_from_config(&config).is_err());
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+    #[test]
+    fn missing_locator_uses_the_existing_default() {
+        let config = std::env::temp_dir().join(format!("sag-missing-location-{}.json", std::process::id()));
+        assert_eq!(data_dir_from_config(&config).unwrap(), dirs::data_dir().unwrap().join("com.sag.desktop"));
+    }
 }

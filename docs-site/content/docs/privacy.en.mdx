@@ -11,6 +11,20 @@ The application data directory stores SQLite indexes, folder records, settings, 
 
 Original files stay in the folders you added. Editing and saving Markdown changes the original file. Removing an index or uninstalling the app is a different operation.
 
+## Change the application data location
+
+In the desktop app, open **Settings → Data and privacy → Application data location** to see the full path, open the folder or select **Change location**. Choose an existing empty folder, check the current and new paths, then select **Move and restart**.
+
+The app stops the shared background service, copies indexes, settings, keys, conversations, drafts and conversion results stored inside the application data directory, updates internal paths, saves the new location and restarts automatically. Documents inside the data directory are copied with it; documents and conversion results outside it stay in place. Reindexing is not required. The desktop app and CLI versions that support this feature share the new location. Remote service autostart follows the new location if enabled, and existing MCP and API key folder permissions continue to work.
+
+The old directory is kept as a backup and continues to use disk space. Allow enough free space and keep the app open during migration. Unsaved settings on this page will not be retained. Copy or validation failures leave the original location selected and appear in the confirmation dialog. The destination must be empty and neither directory may contain the other.
+
+If the saved location is unavailable at startup, reconnect the original drive, or use the startup prompt to select a retained folder containing an existing SAG database. Choosing a backup does not merge newer records from the unavailable location.
+
+If the app starts with `SAG_DATA_DIR` or `SAG_DESKTOP_DATA_DIR` set, these environment variables take precedence. The UI explains the override and disables changes; remove the variables and restart first. This action is unavailable in the web client.
+
+![Choose a destination and confirm migration](/images/product-data-directory-en.png)
+
 ## Network requests
 
 | Operation | Data flow |

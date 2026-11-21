@@ -73,7 +73,7 @@ it('centers the code and tells recipients where to receive it',async()=>{
  app=mount(ShareDialog,{target:document.body,props:{path:'/Notes',onClose:vi.fn(),onReceived:vi.fn()}});
  await vi.waitFor(()=>expect(button('分享').disabled).toBe(false));button('分享').click();
  await vi.waitFor(()=>expect(document.querySelector('.share-result .share-code')?.textContent).toBe('SAG-ABCDEFGH'));
- expect(document.querySelector('.share-instructions')?.textContent).toContain('设置 → 数据导入');
+ expect(document.querySelector('.share-instructions')?.textContent).toContain('设置 → 数据源');
 });
 
 it.each([[180,'180 B'],[1024,'1.0 KB'],[1048576,'1.00 MB']])('displays %i bytes without rounding small files to zero',async(size,label)=>{

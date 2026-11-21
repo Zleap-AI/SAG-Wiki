@@ -8,7 +8,7 @@ vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>nativeWindow}));
 vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 const conversations=Array.from({length:50},(_,i)=>({id:`chat-${i}`,title:`会话 ${i}`,updated:i,deleted:false,messages:[{question:`问题 ${i}`,answer:i===41?'Deep connection tracing':'回答 '+i,model:'test',evidence:[],scope:[],references:[],status:'complete',error:null,retrieval_question:`问题 ${i}`}]}));
-const keys=['sag.history.scroll','sag.sidebar.library.scroll','sag.sidebar.expanded'];
+const keys=['sag.history.scroll','sag.assistant.history.scroll','sag.sidebar.library.scroll','sag.sidebar.expanded'];
 let app:ReturnType<typeof mount>;
 beforeEach(()=>{
  keys.forEach(key=>localStorage.removeItem(key));localStorage.setItem('sag.onboarding.seen','1');
@@ -22,6 +22,36 @@ beforeEach(()=>{
 });
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';keys.forEach(key=>localStorage.removeItem(key));vi.restoreAllMocks();vi.clearAllMocks()});
 async function start(){app=mount(App,{target:document.body});await vi.waitFor(()=>expect(document.querySelectorAll('.history-row')).toHaveLength(50));await tick()}
+it('助手与知识库的会话列表和搜索仅显示各自记录',async()=>{
+ const assistant={...conversations[0],id:'help-1',title:'怎么在浏览器里访问？',messages:[{...conversations[0].messages[0],help:true,answer:'助手回答'}]};
+ const original=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,...args)=>command==='list_conversations'?[assistant,...conversations]:original(command,...args));
+ localStorage.setItem('sag.history.scroll','120');
+ localStorage.setItem('sag.assistant.history.scroll','24');
+ await start();
+ const home=()=>document.querySelector<HTMLElement>('.ask-content')!;
+ const click=(selector:string)=>document.querySelector<HTMLButtonElement>(selector)!.click();
+ expect(home().textContent).not.toContain(assistant.title);
+ click('button[aria-label="搜索会话"]');await tick();
+ expect(document.querySelectorAll('.history-search-result')).toHaveLength(50);
+ expect(document.querySelector('.history-search-results')?.textContent).not.toContain(assistant.title);
+ click('button[aria-label="关闭会话列表"]');await tick();
+ click('.help-entry button');
+ await vi.waitFor(()=>expect(document.querySelector('.conversation-item')?.textContent).toContain(assistant.title));
+ expect(home().scrollTop).toBe(24);
+ expect(document.querySelectorAll('.history-row')).toHaveLength(1);
+ click('button[aria-label="搜索会话"]');await tick();
+ expect(document.querySelectorAll('.history-search-result')).toHaveLength(1);
+ expect(document.querySelector('.history-search-result')?.textContent).toContain(assistant.title);
+ click('.history-search-result');
+ await vi.waitFor(()=>expect(document.querySelector('.answer-text')?.textContent).toBe('助手回答'));
+ click('button[aria-label="返回会话列表"]');
+ await vi.waitFor(()=>expect(document.querySelector('.conversation-item')?.textContent).toContain(assistant.title));
+ click('.help-entry button');
+ await vi.waitFor(()=>expect(document.querySelectorAll('.history-row')).toHaveLength(50));
+ expect(home().scrollTop).toBe(120);
+ expect(home().textContent).not.toContain(assistant.title);
+});
 it('搜索历史标题和内容，键盘打开结果，并保留原列表位置',async()=>{
  await start();
  const list=document.querySelector<HTMLElement>('.ask-content')!;list.scrollTop=520;list.dispatchEvent(new Event('scroll'));
@@ -114,7 +144,9 @@ it('问答与搜索切换位于右侧顶部，折叠左栏后仍可切换并保�
  expect(document.querySelector('.workspace-header [aria-label="返回会话列表"]')).not.toBeNull();
  search.click();
  await vi.waitFor(()=>expect(search.getAttribute('aria-current')).toBe('page'));
- expect(document.querySelector('.search-page')).not.toBeNull();
+ const searchInput=document.querySelector<HTMLInputElement>('.search-page [aria-label="搜索关键词"]');
+ expect(searchInput).not.toBeNull();
+ expect(document.activeElement).toBe(searchInput);
  document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
  ask.click();
  await vi.waitFor(()=>expect(ask.getAttribute('aria-current')).toBe('page'));
@@ -136,10 +168,11 @@ it('没有文件夹时说明用途，快捷按钮打开文件夹选择窗口',as
  expect(invoke.mock.calls.some(([command])=>command==='browse_folders')).toBe(true);
 });
 
-it('右上角接入入口直达 CLI 设置，保留未发送的问题',async()=>{
+it('右上角三个入口直达相应设置，保留未发送的问题',async()=>{
  const original=invoke.getMockImplementation()!;
  invoke.mockImplementation(async(command,...args)=>{
   if(command==='get_cli_settings')return{access:{enabled:true},installations:[]};
+  if(command==='get_web_clipper')return{packages:['chrome','safari']};
   const result=await original(command,...args);
   if(command==='get_settings')return{...result,
    answer:{...result.answer,url:'https://example.com/v1',has_key:false},
@@ -152,14 +185,16 @@ it('右上角接入入口直达 CLI 设置，保留未发送的问题',async()=>
  await start();
  const input=document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;
  input.value='未发送的问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
- expect(document.querySelector('.agent-connect-hint')).toBeNull();
- expect(document.querySelector('.sidebar .agent-connect-entry')).toBeNull();
- expect(document.querySelectorAll('.agent-connect-entry')).toHaveLength(1);
-  document.querySelector<HTMLButtonElement>('.workspace-header .agent-connect-entry')!.click();
-  await vi.waitFor(()=>expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe('CLI设置'));
-  expect(document.querySelector('.cli-settings')).not.toBeNull();
+ const actions=Array.from(document.querySelectorAll<HTMLButtonElement>('.workspace-header .workspace-actions button'));
+ expect(actions.map(button=>button.getAttribute('aria-label'))).toEqual(['数据源','网页剪藏','CLI']);
+ const pages=['数据源','网页剪藏','CLI设置'];
+ for(const [index,button] of actions.entries()){
+  button.click();
+  await vi.waitFor(()=>expect(document.querySelector('.settings-page-heading h2')?.textContent).toBe(pages[index]));
+  if(index===2)expect(document.querySelector('.cli-settings')).not.toBeNull();
   document.querySelector<HTMLButtonElement>('[aria-label="关闭设置"]')!.click();await tick();
   expect(input.value).toBe('未发送的问题');
+ }
  expect(invoke.mock.calls.some(([command])=>command==='install_cli_integration'||command==='run_query')).toBe(false);
 });
 

@@ -1,0 +1,18 @@
+---
+title: "Claude Code"
+description: "Import local Claude Code chat history into your knowledge base."
+---
+
+Claude Code is Anthropic’s coding assistant for reading and editing code in a project. [Claude Code website](https://claude.com/product/claude-code)
+
+1. On desktop, [open Data sources](/en/docs/data-sources#open-data-sources) and choose **Import chat history** next to **Claude Code**.
+2. SAG reads `.jsonl` transcripts from `~/.claude/projects` by default. If `CLAUDE_CONFIG_DIR` is set, SAG reads the `projects` folder inside it. To use a different transcript folder, enter its full path and click **Load**.
+3. Filter by project or search titles. Select the chats you want, review the preview, and click **Import**. Each chat becomes one Markdown file under `sag-wiki/agent-history/claude code/` in Documents by default. Click **Change** next to the save location to use a different folder.
+
+![Selecting Claude Code chats and previewing the import](/images/product-chat-import-en.png)
+
+## Import options
+
+**Show tool calls and results** is off by default. Turn it on to include tool arguments and results in previews and imports.
+
+**Scheduled sync** is off by default. Turn it on to set an interval or a time of day. Repeat imports skip unchanged chats and update the same Markdown files with new content. If you have edited a file, SAG reports the conflict and keeps your changes.

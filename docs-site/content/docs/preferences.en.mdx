@@ -7,7 +7,7 @@ description: "Set your start page, language and reading preferences."
 
 Open **Settings** from the sidebar, choose a category and select **Save settings** after making changes. In the single-column layout, choose a category from the dropdown at the top. Select **Cancel** or the back arrow in the upper left to discard ordinary unsaved changes, including any previewed language change.
 
-Each category groups related settings into cards, with section headings above the cards.
+The sidebar groups pages under **Application**, **Knowledge base**, **Search & Q&A**, and **Connections & services**. **Data and privacy** and **About** appear at the bottom.
 
 Testing a connection does not save its configuration. Removing a key, installing or removing a Skill, restoring directories and clearing data are separate actions that run immediately or request their own confirmation.
 
@@ -26,7 +26,29 @@ The saved interface language also applies to the web workspace, Quick Search, an
 
 Reopen the app from the system tray or menu bar. On Windows, launching the desktop shortcut again restores the existing window instead of starting a second desktop instance. On macOS, pressing **⌘Q** or choosing **Quit SAG Wiki** exits only the desktop client; the service keeps running and CLI and MCP remain available. On Windows, choosing **Quit SAG Wiki** stops the standalone service and waits for cleanup before exiting the client. CLI and MCP connections close; reopening the desktop or running a CLI command that needs the service starts it on demand. If stopping fails, the client stays open and reports the error.
 
-![Start page, language and quick-start settings](/images/product-preferences-en.png)
+![Start page, interface language and window behavior in General settings](/images/product-preferences-en.png)
+
+## Network proxy
+
+Choose a proxy mode in **Settings → Network proxy**. Answer models, Jev, MinerU, app updates, Docling component downloads, sharing, and remote HTTP MCP share this setting. CLI sharing reads the saved configuration when it uses the same data directory. Online data imports and their account authorization do not use it.
+
+| Proxy mode | Behavior |
+| --- | --- |
+| Follow system proxy (default) | Reads the manual HTTP/HTTPS proxy from Windows **Settings → Network & Internet → Proxy** or macOS **System Settings → Network → Proxies**, plus the `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` variables; environment variables take precedence. PAC scripts and auto-discovery are not supported yet |
+| Custom proxy | Uses the specified proxy server, with direct connections for bypass addresses |
+| No proxy | Always connects directly, ignoring system proxies and environment variables |
+
+With a custom proxy, fill in:
+
+- **Proxy URL**: accepts `http://`, `https://`, `socks5://` and `socks5h://`, for example `http://10.0.0.8:3128`. A bare host and port is treated as an HTTP proxy. Pasting an address such as `http://user:password@host:port` moves the credentials into the authentication fields.
+- **Proxy requires authentication**: enter the username and password, which are sent with Basic authentication. Like API keys, the password stays in the local application data directory and never enters the settings database; leave it blank when reopening settings to keep it, and turning authentication off removes it. A password without a username cannot be saved.
+- **Bypass proxy for**: a list separated by commas, semicolons or line breaks of domains (`corp.example.com` also matches its subdomains), suffixes starting with a dot, IPs, networks (`10.0.0.0/8`) or patterns with `*`. `localhost` and loopback addresses always connect directly, which suits local or LAN model services. The list also applies when following the system proxy, on top of the system bypass rules.
+
+**Test connection** requests the saved answer model address with the settings as entered and reports the route taken, for example "Reached api.302ai.cn through proxy 10.0.0.8:3128 (HTTP 401)". Any HTTP status means the proxy route works; 401 or 404 only means that address needs a key or a different path. In system mode the result also says whether a system proxy was detected. Editing any field clears the previous result, and testing does not save the settings.
+
+Changes apply right after saving, without restarting the desktop app or the background service. Requests in progress keep their connection; the next request uses the new settings. uv, pip and Hugging Face model downloads, as well as MCP servers started over stdio, receive the same proxy through the `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` variables. An MCP server whose own environment variables name any proxy variable runs entirely on its own configuration. With no proxy these variables are cleared.
+
+![Proxy mode, custom proxy URL, and bypass addresses](/images/product-network-en.png)
 
 ## Appearance
 
@@ -71,7 +93,7 @@ Click **?** at the bottom of the sidebar to open the [SAG Wiki documentation](ht
 
 | Category | Documentation |
 | --- | --- |
-| Data import | [Import notes](/en/docs/data-import#import-notes) and [chat history](/en/docs/data-import#import-chats) |
+| Data sources | [Import chats and notes, connect online sources](/en/docs/data-sources), [share and receive](/en/docs/file-sharing) |
 | File settings and folder indexing | [Folders and indexing](/en/docs/folders#file-settings-in-detail) |
 | Model settings | [Model connections](/en/docs/models) |
 | Q&A settings | [Q&A parameters](/en/docs/chat#qa-settings-in-detail) |

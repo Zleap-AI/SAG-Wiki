@@ -70,6 +70,18 @@ The answer-model test asks for a short reply; output length follows the model se
 
 ![Separate decision model configuration and connection test](/images/product-jev-en.png)
 
+## Quick setup
+
+While no answer model is configured, **Quick setup** appears in the model slot at the bottom right of the question box. You can also open it from the last page of the quick-start guide. One 302.AI API key completes setup.
+
+1. Select **Get an API key** above the field to open the 302.AI console, create a key and paste it in. The eye icon shows or hides the key.
+2. The "Will be configured" list below shows the three items this writes: the answer model, the decision model and document parsing.
+3. Select **Test and save**. The app tests the answer model, the Jev decision model and MinerU in turn and writes the settings only after every test passes. If one fails, the reason appears under the field, the key you entered stays and nothing is saved.
+
+After saving, the answer model is 302.AI `qwen3.8-flash`, the decision model is `jev-latest`, PDFs go to 302.AI MinerU and all three services share the key. A Jev or MinerU that is already configured is left unchanged and listed as "Configured; kept as is". You can still change providers, models and keys later under model settings and file settings. **Set up manually** in the dialog opens model settings directly. Once an answer model is configured, the model picker appears at the bottom right of the question box.
+
+![Quick setup for answers dialog](/images/product-quick-setup-en.png)
+
 ## Setup sequence
 
 1. Configure the decision model, test it, save and run a deep search.
@@ -77,14 +89,16 @@ The answer-model test asks for a short reply; output length follows the model se
 3. Save, select that model in Q&A and ask a question with verifiable sources.
 4. Adjust prompts, reasoning or tool permissions under [Q&A settings](/en/docs/chat#qa-settings-in-detail).
 
-## Connection problems
+## Proxy settings
 
-Model requests from the desktop app and CLI follow the manual HTTP and HTTPS system proxy settings on Windows and macOS. `localhost`, loopback IPs, and addresses covered by the system bypass rules (such as listed intranet addresses) connect directly. A proxy change takes effect on the next model operation without a restart. When set, `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` take precedence for their applicable requests, and `NO_PROXY` adds bypass addresses. PAC scripts and automatic proxy discovery are currently unsupported.
+Answer models, Jev, and MinerU share the [network proxy](/en/docs/preferences#network-proxy). The default mode follows the system proxy. In **Settings → Network proxy**, you can choose a custom proxy or connect directly. MinerU uses this setting for connection tests, file uploads, progress checks, and result downloads. **Test connection** shows the route a request takes.
+
+## Connection problems
 
 - Authentication failure: check the provider, key and expiry.
 - Unknown model: verify the exact ID and account access.
 - Invalid endpoint: check the API URL and required path.
-- Timeout: check the network and service. Answer and context-summary calls share Request timeout in Q&A settings. Summary body timeouts have bounded retries; if they still fail, try 300 seconds. Increasing the client deadline may not help if the model service or proxy disconnects earlier. See [Q&A and context management](./chat).
+- Timeout: check the network and service. Answer and context-summary calls share Request timeout in Q&A settings. Summary body timeouts have bounded retries; if they still fail, the turn continues with recent content only and says so above the answer. Try 300 seconds. Increasing the client deadline may not help if the model service or proxy disconnects earlier. See [Q&A and context management](./chat).
 - No tool calls: verify that the model and API support tools, then check that model's bindings.
 
 Keys are stored in the current user's application data directory. macOS uses owner-only file permissions; other processes running as that user may still read them. Do not publicly share the data directory. See [Data and privacy](/en/docs/privacy).

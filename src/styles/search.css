@@ -16,17 +16,12 @@
 .real-client .search-composer.compact .search-composer-bottom{flex-shrink:0;gap:10px}
 .real-client .search-composer.compact .send{width:30px;height:30px}
 @media(max-width:680px){
- .real-client.narrow-layout .search-composer{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:6px 10px 4px 12px;border-radius:12px}
- .narrow-layout .search-entry{min-height:38px;padding-right:44px;align-items:center}
- .real-client.narrow-layout .search-composer .search-entry input{padding:6px 0;font-size:16px}
- .narrow-layout .search-composer-bottom{justify-content:space-between;min-height:30px;padding-top:3px}
- .narrow-layout .search-composer.compact .search-composer-bottom{border-top:1px solid var(--color-rule);padding-top:2px}
- .real-client.narrow-layout .search-composer .send{position:absolute;top:6px;right:8px;width:36px;height:36px}
- .real-client.narrow-layout .search-composer:not(.compact){padding:13px 14px 11px;border-radius:18px}
- .real-client.narrow-layout .search-composer:not(.compact) .search-entry input{padding-bottom:36px}
- .real-client.narrow-layout .search-composer:not(.compact) .send{top:11px;right:12px}
- .narrow-layout .search-composer .scope-button{padding-left:0}
- .narrow-layout .search-page:not(.has-results) .search-welcome{margin-bottom:22px}
+ .real-client.narrow-layout .search-composer.compact{position:relative;display:flex;flex-direction:column;align-items:stretch;gap:0;padding:6px 10px 4px 12px;border-radius:12px}
+ .narrow-layout .search-composer.compact .search-entry{min-height:38px;padding-right:44px;align-items:center}
+ .real-client.narrow-layout .search-composer.compact .search-entry input{padding:6px 0;font-size:16px}
+ .narrow-layout .search-composer.compact .search-composer-bottom{justify-content:space-between;min-height:30px;padding-top:2px;border-top:1px solid var(--color-rule)}
+ .real-client.narrow-layout .search-composer.compact .send{position:absolute;top:6px;right:8px;width:36px;height:36px}
+ .narrow-layout .search-composer.compact .scope-button{padding-left:0}
  .narrow-layout .has-results .search-query-row{padding-top:6px}
 }
 /* Status on the left, the summary action on the right: one line between the input and the columns. */

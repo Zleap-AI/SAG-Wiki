@@ -381,10 +381,22 @@ impl Store {
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
  CREATE TABLE IF NOT EXISTS chat_imports(identity TEXT PRIMARY KEY,path TEXT NOT NULL,output_hash TEXT NOT NULL);
- CREATE TABLE IF NOT EXISTS chat_import_schedules(source TEXT PRIMARY KEY,enabled INTEGER NOT NULL,time TEXT NOT NULL,source_root TEXT,include_tools INTEGER NOT NULL,configured_at INTEGER NOT NULL,last_run_at INTEGER,last_run TEXT,interval_minutes INTEGER);
  CREATE TABLE IF NOT EXISTS online_sources(id TEXT PRIMARY KEY, config TEXT NOT NULL, next_at INTEGER);
  CREATE TABLE IF NOT EXISTS online_items(source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, id TEXT NOT NULL, version TEXT NOT NULL, files TEXT NOT NULL, PRIMARY KEY(source,id));
+ CREATE TABLE IF NOT EXISTS online_api_records(
+   entry INTEGER PRIMARY KEY AUTOINCREMENT,
+   source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE,
+   day TEXT NOT NULL, dedup_key TEXT, fields TEXT, markdown TEXT
+ );
+ CREATE INDEX IF NOT EXISTS online_api_pending ON online_api_records(source,entry) WHERE fields IS NOT NULL;
+ CREATE UNIQUE INDEX IF NOT EXISTS online_api_dedup ON online_api_records(source,day,dedup_key) WHERE dedup_key IS NOT NULL;
+ CREATE TABLE IF NOT EXISTS online_api_writes(
+   source TEXT REFERENCES online_sources(id) ON DELETE CASCADE,
+   day TEXT, before_hash TEXT, after_hash TEXT NOT NULL, entries TEXT NOT NULL,
+   PRIMARY KEY(source,day)
+ );
  CREATE TABLE IF NOT EXISTS online_runs(id INTEGER PRIMARY KEY, source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, started INTEGER NOT NULL, finished INTEGER, result TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS chat_import_schedules(source TEXT PRIMARY KEY,enabled INTEGER NOT NULL,time TEXT NOT NULL,source_root TEXT,include_tools INTEGER NOT NULL,configured_at INTEGER NOT NULL,last_run_at INTEGER,last_run TEXT,interval_minutes INTEGER);
  CREATE TABLE IF NOT EXISTS root_watch_errors(root TEXT PRIMARY KEY REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS root_exclusions(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE);
  CREATE TABLE IF NOT EXISTS index_issues(path TEXT PRIMARY KEY,root TEXT NOT NULL REFERENCES roots(path) ON DELETE CASCADE,error TEXT NOT NULL);
@@ -614,17 +626,23 @@ impl Store {
         if follows_official_update_language(&settings.updates) {
             settings.updates.source = UpdateSource::Website;
         }
-        settings.mineru.enabled = settings.document_parser != Some(DocumentParser::Docling)
+        settings.mineru.enabled = matches!(settings.document_parser, None | Some(DocumentParser::Mineru))
             && crate::mineru::has_key(self.docling.data_directory(), &settings.mineru)?;
+        // The proxy password is kept with the model keys and only attached in memory.
+        settings.model_proxy = settings.model_proxy
+            .with_stored_password(crate::models::proxy_password(self.docling.data_directory())?);
         Ok(settings)
     }
     pub fn validate_settings(s: &Settings) -> Result<()> {
         s.runtime.validate().map_err(anyhow::Error::msg)?;
+        crate::model_http::validate_proxy(&s.model_proxy)?;
         if s.answer.auth_mode != ModelAuthMode::Bearer {
             bail!("问答模型需要 API Key 鉴权；无需鉴权选项仅适用于 Jev")
         }
         anyhow::ensure!(s.search_summary_sources > 0, "自动问答参考数量必须大于 0");
         anyhow::ensure!(s.search_summary_model.is_empty() || s.answer.models.contains(&s.search_summary_model), "总结模型必须从可选问答模型中选择");
+        anyhow::ensure!(s.document_parser != Some(DocumentParser::Vision)
+            || (!s.document_parser_model.is_empty() && s.answer.models.contains(&s.document_parser_model)), "解析模型必须从可选问答模型中选择");
         if !sag_protocol::locales::supports_interface_language(&s.language) {
             bail!("不支持的界面语言")
         }
@@ -699,6 +717,26 @@ impl Store {
         if follows_official_update_language(&settings.updates) {
             settings.updates.source = UpdateSource::Github;
         }
+        // A typed proxy password goes to credentials.json; the preferences row never stores it.
+        // Turning authentication off sends an empty password, which removes the stored one;
+        // a cleared username on its own keeps it, so a slip never discards a secret.
+        settings.model_proxy.url = settings.model_proxy.url.trim().to_owned();
+        settings.model_proxy.username = settings.model_proxy.username.trim().to_owned();
+        settings.model_proxy.bypass = settings.model_proxy.bypass.trim().to_owned();
+        let data_dir = self.docling.data_directory();
+        let typed = settings.model_proxy.password.as_deref();
+        if settings.model_proxy.username.is_empty() {
+            if settings.model_proxy.mode == ProxyMode::Custom && typed.is_some_and(|value| !value.is_empty()) {
+                bail!("请填写代理用户名")
+            }
+            if typed == Some("") && previous.model_proxy.has_password {
+                crate::models::save_proxy_password(data_dir, None)?;
+            }
+        } else if let Some(password) = typed.filter(|value| !value.is_empty()) {
+            crate::models::save_proxy_password(data_dir, Some(password))?;
+        }
+        settings.model_proxy.password = None;
+        settings.model_proxy.stored_password = None;
         let mut db = self.connection();
         let transaction = db.transaction()?;
         transaction.execute("INSERT INTO preferences VALUES(1,json_set(?, '$.update_source_migrated', json('true'))) ON CONFLICT(id) DO UPDATE SET value=excluded.value",[serde_json::to_string(&settings)?])?;
@@ -750,7 +788,7 @@ impl Store {
         if options.convert_other_formats
             && (!previous.convert_other_formats || previous.conversion_formats != options.conversion_formats)
         {
-            self.docling.require_formats(&crate::conversion::local_formats(&options.conversion_formats,&self.settings()?.mineru))?;
+            self.docling.require_formats(&crate::conversion::local_formats(&options.conversion_formats,&self.settings()?))?;
         }
         let root = self.roots()?.into_iter().find(|root| path.starts_with(&root.path)).unwrap().path;
         let mut db = self.connection();
@@ -921,42 +959,43 @@ impl Store {
                 "资料文件夹不能包含自定义转换结果目录");
         }
         if !path.is_dir() && !path.is_file() { bail!("请选择文件或文件夹") }
-        let roots = self.roots()?;
-        if let Some(r) = roots.iter().find(|r| path.starts_with(&r.path)) {
-            let value = path_text(&path)?;
-            let mut db = self.connection();
-            let tx = db.transaction()?;
+        let value = path_text(&path)?;
+        let mut db = self.connection();
+        let tx = db.transaction()?;
+        let roots: Vec<String> = {
+            let mut query = tx.prepare("SELECT path FROM roots ORDER BY rowid")?;
+            let rows = query.query_map([], |row| row.get(0))?;
+            rows.collect::<rusqlite::Result<_>>()?
+        };
+        if let Some(root) = roots.iter().find(|root| path.starts_with(root)) {
             tx.execute("DELETE FROM root_exclusions WHERE path=?", [&value])?;
             if Self::path_excluded(&tx, &value)? { bail!("请先重新添加已移除的上级目录") }
             tx.commit()?;
-            return Ok(r.path.clone());
+            return Ok(root.clone());
         };
         if !path.is_dir() {
             bail!("请选择文件夹")
         };
-        let value = path_text(&path)?;
         let name = path
             .file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy();
-        let mut c = self.connection();
-        let tx = c.transaction()?;
         tx.execute(
             "INSERT INTO roots(path,name) VALUES(?,?)",
             params![value, name],
         )?;
-        for r in roots
+        for root in roots
             .iter()
-            .filter(|r| Path::new(&r.path).starts_with(&path))
+            .filter(|root| Path::new(root).starts_with(&path))
         {
             tx.execute(
                 "UPDATE documents SET root=? WHERE root=?",
-                params![value, r.path],
+                params![value, root],
             )?;
-            tx.execute("UPDATE index_issues SET root=? WHERE root=?", params![value, r.path])?;
-            tx.execute("UPDATE conversion_failures SET root=? WHERE root=?", params![value, r.path])?;
-            tx.execute("UPDATE root_exclusions SET root=? WHERE root=?", params![value, r.path])?;
-            tx.execute("DELETE FROM roots WHERE path=?", [&r.path])?;
+            tx.execute("UPDATE index_issues SET root=? WHERE root=?", params![value, root])?;
+            tx.execute("UPDATE conversion_failures SET root=? WHERE root=?", params![value, root])?;
+            tx.execute("UPDATE root_exclusions SET root=? WHERE root=?", params![value, root])?;
+            tx.execute("DELETE FROM roots WHERE path=?", [root])?;
         }
         tx.commit()?;
         Ok(value)
@@ -4319,7 +4358,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn model_profiles_and_tool_limit_persist_and_validate() {
         let (_dir, store, _) = setup();
         let mut settings = store.settings().unwrap();
-        assert_eq!(settings.max_tool_calls, 0);
+        assert_eq!(settings.max_tool_calls, 20);
         settings.mcp_servers.push(McpServer {
             id: "wiki".into(),
             name: "Wiki".into(),
@@ -4422,6 +4461,7 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
     fn delete_and_restore_message_keeps_the_rest_of_the_conversation() {
         let (_dir, store, _) = setup();
         let message = Message {
+            help: false,
             created_at: Some(1_792_368_300_000),
             question: "第一问".into(),
             answer: "第一答".into(),

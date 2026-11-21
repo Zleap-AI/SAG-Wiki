@@ -14,7 +14,7 @@ const address=(kind:ModelKind)=>card(kind).querySelector<HTMLInputElement>('inpu
 const key=(kind:ModelKind)=>card(kind).querySelector<HTMLInputElement>('input[type=password]')!;
 const trigger=(kind:ModelKind)=>card(kind).querySelector<HTMLButtonElement>('.provider-field button')!;
 const authTrigger=()=>card('jev').querySelector<HTMLButtonElement>('.auth-field button')!;
-async function input(element:HTMLInputElement,text:string){element.value=text;element.dispatchEvent(new Event('input',{bubbles:true}));await tick();}
+async function input(element:HTMLInputElement|HTMLTextAreaElement,text:string){element.value=text;element.dispatchEvent(new Event('input',{bubbles:true}));await tick();}
 async function choose(kind:ModelKind,id:string){
  trigger(kind).dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
  await vi.waitFor(()=>expect(document.querySelector(`[role=option][data-value="${id}"]`)).not.toBeNull());
@@ -31,6 +31,32 @@ async function chooseAuth(id:'bearer'|'none'){
 async function setup(settings=value,initial='models'){const onSave=vi.fn().mockResolvedValue(undefined);app=mount(SettingsPanel,{target:document.body,props:{value:structuredClone(settings),initial,onClose:()=>{},onSave}});await tick();return onSave;}
 async function save(){document.querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await tick();}
 afterEach(async()=>{if(app)await unmount(app);app=undefined;document.body.innerHTML='';api.mockReset();});
+
+it('在解析模型配置中分别编辑和恢复 PDF 与图片提示词',async()=>{
+ api.mockImplementation(async command=>command==='runtime_schema'?JSON.stringify({defaults:{},fields:[]}):[]);
+ const onSave=await setup({...value,document_parser:'vision',document_parser_model:'second'},'files');
+ [...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='配置模型')!.click();
+ const dialog=()=>document.querySelector<HTMLElement>('[role=dialog][aria-label="配置模型"]')!;
+ const pdf=()=>dialog().querySelector<HTMLTextAreaElement>('#vision-pdf-prompt')!;
+ const image=()=>dialog().querySelector<HTMLTextAreaElement>('#vision-image-prompt')!;
+ await vi.waitFor(()=>expect(pdf().value).toContain('Transcribe this PDF page into Markdown'));
+ expect(image().value).toContain('Transcribe visible text in reading order');
+ const defaults={pdf:pdf().value,image:image().value};
+ const edit=async(element:HTMLTextAreaElement,text:string)=>{
+  element.value=text;element.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ };
+ await edit(pdf(),'自定义 PDF 提示词');
+ await edit(image(),'自定义图片提示词');
+ dialog().querySelector<HTMLButtonElement>('[aria-describedby="vision-pdf-label"]')!.click();
+ await tick();
+ expect(pdf().value).toBe(defaults.pdf);
+ expect(image().value).toBe('自定义图片提示词');
+ dialog().querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await tick();
+ expect(onSave).not.toHaveBeenCalled();
+ await save();
+ expect(onSave.mock.calls[0][0]).toMatchObject({document_parser_pdf_prompt:'',document_parser_image_prompt:'自定义图片提示词'});
+});
 
 it('文件设置按所选解析器打开配置，切回 Docling 后保留 MinerU 密钥',async()=>{
  const mineru={enabled:true,provider:'302' as const,has_key:true,request_timeout_secs:60,task_timeout_secs:1800,poll_interval_secs:2,concurrency:2,model_version:'vlm' as const,ocr:true,table:true,formula:true};
@@ -65,6 +91,38 @@ it('已有 302 配置默认显示 302，打开设置不覆盖地址',async()=>{
  await setup();expect(trigger('answer').textContent).toContain('302.AI');expect(trigger('jev').textContent).toContain('302.AI');
  expect(address('answer').value).toBe(value.answer.url);expect(address('jev').value).toBe(value.jev.url);expect(api.mock.calls.filter(([command])=>!['mineru_schema','runtime_schema'].includes(command))).toHaveLength(0);
 });
+
+it('打开所选解析模型的配置，在弹窗内测试连接并保存共享配置',async()=>{
+ api.mockImplementation(async command=>{
+  if(command==='runtime_schema')return JSON.stringify({defaults:{},fields:[]});
+  if(command==='get_docling_status')return {installed:false,running:false,formats:[]};
+  if(command==='test_model')return '连接成功';
+  return [];
+ });
+ const onSave=await setup({...value,answer:{...value.answer,has_key:true}},'files');
+ const parser=document.querySelector<HTMLButtonElement>('[aria-label="优先解析方式"]')!;
+ parser.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="model:second"]')).not.toBeNull());
+ document.querySelector('[role=option][data-value="model:second"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));
+ await tick();
+ expect(parser.textContent).toContain('second');
+ expect(document.body.textContent).toContain('将使用所选模型的多模态能力解析 PDF 和图片。');
+ [...document.querySelectorAll('button')].find(button=>button.textContent?.trim()==='配置模型')!.click();
+ const dialog=()=>document.querySelector<HTMLElement>('[role=dialog][aria-label="配置模型"]')!;
+ await vi.waitFor(()=>expect(dialog()?.querySelector('h2')?.textContent).toBe('second'));
+ expect(api.mock.calls.filter(([command])=>command==='test_model')).toHaveLength(0);
+ const endpoint=dialog().querySelector<HTMLInputElement>('input[type=url]')!;
+ expect(endpoint.value).toBe(value.answer.url);
+ const url='https://api.302.ai/team/v1';
+ await input(endpoint,url);
+ [...dialog().querySelectorAll('button')].find(button=>button.textContent?.trim()==='测试连接')!.click();
+ await vi.waitFor(()=>expect(dialog().querySelector('[role=status]')?.textContent).toBe('连接成功'));
+ expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'vision',config:expect.objectContaining({model:'second',url})}));
+ dialog().querySelector('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await tick();
+ await save();
+ expect(onSave.mock.calls[0][0]).toMatchObject({document_parser:'vision',document_parser_model:'second',answer:{model:'first',url}});
+});
 it('302 密钥入口打开指定网页，切换供应商后隐藏',async()=>{
  await setup();
  const link=()=>card('answer').querySelector<HTMLAnchorElement>('a.settings-key-link');
@@ -83,7 +141,7 @@ it('获取问答模型列表后可筛选并追加，保留已有模型直到保�
  button.click();
  const dialog=()=>document.querySelector<HTMLElement>('[role=dialog][aria-label="模型列表"]')!;
  await vi.waitFor(()=>expect(dialog()?.querySelectorAll('input[type=checkbox]')).toHaveLength(3));
- expect(api).toHaveBeenCalledWith('list_answer_models',{config:answer,key:''});
+ expect(api).toHaveBeenCalledWith('list_answer_models',{config:answer,key:'',modelProxy:{mode:'system',url:'',username:'',bypass:'',has_password:false,password:null}});
  expect(dialog().querySelector<HTMLInputElement>('input[type=checkbox]')?.disabled).toBe(true);
  await input(dialog().querySelector<HTMLInputElement>('input[type=search]')!,'FAST');
  const option=dialog().querySelector<HTMLInputElement>('input[type=checkbox]')!;
@@ -150,6 +208,23 @@ it('供应商切换不会将已保存或已输入的另一家密钥用于测试�
  card('answer').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
  await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'answer',key:'test-new-key',config:expect.objectContaining({url:'https://api.openai.com/v1'})})));
  await save();expect(onSave.mock.calls[0][1]).toBe('test-new-key');
+});
+it('网络代理页的修改随模型测试和设置保存生效',async()=>{
+ api.mockImplementation(async command=>command==='runtime_schema'?{defaults:{},fields:[]}:'连接成功');
+ const proxy={mode:'custom' as const,url:'http://gateway.example:8080',username:'',bypass:'',has_password:false,password:null};
+ const onSave=await setup({...value,model_proxy:proxy},'general');
+ const nav=document.querySelector('.settings-nav')!;
+ const openPage=(name:string)=>[...nav.querySelectorAll('button')].find(button=>button.textContent?.trim()===name)!.click();
+ expect(document.querySelector('.settings-content')?.textContent).not.toContain('配置代理');
+ openPage('网络代理');await tick();
+ const modelProxy={...proxy,url:'socks5://gateway.example:1080',bypass:'.office.example, 10.0.0.0/8'};
+ await input(document.querySelector<HTMLInputElement>('#network-proxy-url')!,modelProxy.url);
+ await input(document.querySelector<HTMLTextAreaElement>('#network-proxy-bypass')!,modelProxy.bypass);
+ openPage('模型设置');await tick();
+ card('jev').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'jev',modelProxy})));
+ expect(onSave).not.toHaveBeenCalled();
+ await save();expect(onSave.mock.calls[0][0].model_proxy).toEqual(modelProxy);
 });
 it('供应商识别兼容已有地址，域名相似的自定义服务不会误认',()=>{
  expect(providerFor('answer','https://api.302ai.cn/v1/')).toBe('302');expect(providerFor('jev','https://openrouter.ai/api/alpha/decisions')).toBe('openrouter');

@@ -8,13 +8,14 @@ let app:ReturnType<typeof mount>;
 const value:MineruConfig={enabled:false,provider:'302',has_key:false,request_timeout_secs:120,task_timeout_secs:1800,poll_interval_secs:2,concurrency:2,model_version:'vlm',ocr:true,table:true,formula:true};
 afterEach(async()=>{if(app)await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 it('offers API key only and tests unsaved provider settings without saving',async()=>{
- api.mockImplementation((command)=>Promise.resolve(command==='mineru_schema'?JSON.stringify({defaults:value,keys:{},endpoints:{'302':'https://api.302ai.cn',official:'https://mineru.net/api/v4'}}):'服务可达；未验证密钥有效性')); app=mount(MineruSettings,{target:document.body,props:{value:{...value}}});await tick();
+ const modelProxy={mode:'custom' as const,url:'http://gateway.example:8080',username:'',bypass:'.office.example',has_password:false,password:null};
+ api.mockImplementation((command)=>Promise.resolve(command==='mineru_schema'?JSON.stringify({defaults:value,keys:{},endpoints:{'302':'https://api.302ai.cn',official:'https://mineru.net/api/v4'}}):'服务可达；未验证密钥有效性')); app=mount(MineruSettings,{target:document.body,props:{value:{...value},modelProxy}});await tick();
  const address=document.querySelector<HTMLInputElement>('input[type=url]')!;await vi.waitFor(()=>expect(address.placeholder).toBe('https://api.302ai.cn'));
  address.value='https://mineru.example.com/proxy';address.dispatchEvent(new Event('input',{bubbles:true}));
  expect(document.querySelector('[aria-label="启用 MinerU"]')).toBeNull();
  const key=document.querySelector<HTMLInputElement>('[aria-label="MinerU API Key"]')!;key.value='test-key';key.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  [...document.querySelectorAll('button')].find(b=>b.textContent==='测试连接')!.click();
- await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_mineru',expect.objectContaining({key:'test-key',config:expect.objectContaining({provider:'302',base_url:'https://mineru.example.com/proxy'})})));
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_mineru',expect.objectContaining({key:'test-key',modelProxy,config:expect.objectContaining({provider:'302',base_url:'https://mineru.example.com/proxy'})})));
  expect(api.mock.calls.some(([command])=>command==='save_settings')).toBe(false);
  await vi.waitFor(()=>expect(document.querySelector('.mineru-test-area')?.textContent).toContain('未验证密钥有效性'));
 });

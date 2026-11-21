@@ -13,7 +13,7 @@ const path=require('node:path');
     await page.screenshot({path:path.resolve(`docs-site/public/images/product-files-${lang}.png`),animations:'disabled'});
    }
    await page.getByRole('button',{name:en?'Settings':'设置',exact:true}).click();
-   await page.getByRole('button',{name:en?'Data import':'数据导入',exact:true}).click();
+   await page.getByRole('button',{name:en?'Data sources':'数据源',exact:true}).click();
    if(process.env.SCHEDULE_ONLY){
     const dialogName=en?'Import Codex chats':'导入 Codex 聊天记录';
     await page.getByRole('button',{name:dialogName,exact:true}).click();

@@ -3689,27 +3689,32 @@ dependencies = [
  "chrono",
  "dirs 6.0.0",
  "futures-util",
+ "glob",
  "infer 0.19.0",
+ "ipnet",
  "libc",
  "percent-encoding",
  "pulldown-cmark",
  "reqwest",
+ "rusqlite",
  "sag-protocol",
  "scraper",
  "serde",
  "serde_json",
  "sha2",
+ "system-configuration",
  "tempfile",
  "tokio",
  "unicode-normalization",
  "uuid",
  "walkdir",
+ "windows-sys 0.61.2",
  "zip 2.6.1",
 ]
 
 [[package]]
 name = "sag-desktop"
-version = "0.3.11"
+version = "0.4.3"
 dependencies = [
  "anyhow",
  "arboard",
