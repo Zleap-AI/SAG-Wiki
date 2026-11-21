@@ -32,11 +32,12 @@ export async function preparePdfium(destination, target = process.env.TAURI_ENV_
   if (!existsSync(archive)) writeFileSync(archive, bytes);
   mkdirSync(destination, {recursive: true});
   const entry = {mac: 'lib/libpdfium.dylib', win: 'bin/pdfium.dll', linux: 'lib/libpdfium.so'}[platform];
-  const library = spawnSync('tar', ['-xOzf', archive, entry], {maxBuffer: 64 * 1024 * 1024});
-  if (library.status !== 0 || library.stdout.length === 0) throw Error('PDFium library extraction failed', {cause: library.error});
+  // GNU tar treats a Windows drive letter in the archive path as a remote host.
+  const library = spawnSync('tar', ['-xOzf', '-', entry], {input: bytes, maxBuffer: 64 * 1024 * 1024});
+  if (library.status !== 0 || library.stdout.length === 0) throw Error(`PDFium library extraction failed: ${library.stderr?.toString().trim() || library.error?.message || 'empty output'}`);
   writeFileSync(resolve(destination, entry.split('/').at(-1)), library.stdout);
-  const notices = spawnSync('tar', ['-xzf', archive, '-C', destination, 'LICENSE', 'licenses']);
-  if (notices.status !== 0) throw Error('PDFium license extraction failed', {cause: notices.error});
+  const notices = spawnSync('tar', ['-xzf', '-', '-C', destination, 'LICENSE', 'licenses'], {input: bytes});
+  if (notices.status !== 0) throw Error(`PDFium license extraction failed: ${notices.stderr?.toString().trim() || notices.error?.message || `exit ${notices.status}`}`);
   if (process.platform === 'darwin' && platform === 'mac') {
     const sign = spawnSync('codesign', ['--force', '--sign', '-', resolve(destination, entry.split('/').at(-1))], {stdio: 'inherit'});
     if (sign.status !== 0) throw Error('PDFium ad hoc signing failed', {cause: sign.error});
