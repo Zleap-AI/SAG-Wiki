@@ -39,6 +39,8 @@ npm run build:cli
 
 The first command produces a debug CLI; the second produces a release CLI. Development artifacts go in `src-tauri/bin/development/`, and release artifacts go in `src-tauri/bin/`. macOS artifacts go through a signing step.
 
+Desktop and CLI packaging read the target platform's PDFium archive from `third-party/pdfium/`, verify its SHA-256, and bundle the runtime and license files. This step requires no PDFium download.
+
 To install the current build in the user's terminal, run explicitly:
 
 ```sh
