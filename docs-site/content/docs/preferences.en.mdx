@@ -20,7 +20,7 @@ Location: **Settings → General**.
 | Start page | The first page shown when the app opens | Q&A by default; Q&A or Search |
 | Interface language | Language of menus, controls and messages | Simplified Chinese by default. Also available in Traditional Chinese, English, Japanese, Korean, and Spanish. |
 | After closing the window | Shows the window-close behavior | Continue running in the background |
-| Proxy settings | Configure the shared network proxy for SAG Wiki | Select Configure proxy to open [Network](#network) |
+| Proxy settings | Configure the shared network proxy for SAG Wiki | Select Configure proxy |
 | Quick start | Reopen the folder, search and Q&A tutorial | Select View tutorial |
 
 The saved interface language also applies to the web workspace, Quick Search, and the desktop tray menu. Core guides are available in [Traditional Chinese](/zh-TW/docs), [Japanese](/ja/docs), [Korean](/ko/docs), and [Spanish](/es/docs).
@@ -29,15 +29,27 @@ Reopen the app from the system tray or menu bar. On Windows, launching the deskt
 
 ![Proxy settings entry in General settings](/images/product-preferences-en.png)
 
-## Network
+### Proxy settings
 
-Open **Settings → Network**, or select **Configure proxy** under **General → Proxy settings**. These settings decide how SAG's outbound requests reach the internet. Answer model and Jev requests, MinerU cloud parsing, remote HTTP MCP servers, Docling component downloads, sharing and app updates all use the same proxy settings, shared by the desktop app, the CLI and the background service. Online data imports and their account authorization do not use these settings.
+On the desktop, open **Settings → General → Configure proxy**, enter a proxy URL such as `http://proxy.example.com:8080`, and optionally list domains, IP addresses or networks separated by commas under **Bypass proxy for**. Entering an address uses a custom proxy; leaving it blank follows environment proxy variables and the manual Windows or macOS system proxy. PAC and automatic proxy discovery are unsupported.
+
+Answer models, Jev, MinerU, app updates, Docling component downloads, sharing and remote HTTP MCP use this setting, and CLI sharing reads the saved configuration when it uses the same data directory. Online data imports and their account authorization do not use it.
+
+**Test connection** requests the saved answer model address through the entered proxy and reports the route taken, without saving. For a SOCKS5 address, proxy authentication or a forced direct connection, select "Open Network proxy" in the dialog to reach the advanced options on the [Network proxy](#network-proxy) page.
+
+Select **Done**, then **Save settings**. New requests use the new configuration without restarting the app.
+
+![Dialog for the proxy URL and bypass addresses](/images/product-model-proxy-en.png)
+
+## Network proxy
+
+Location: **Settings → Network proxy**. It edits the same configuration as the Configure proxy dialog on the General page: an address and bypass list entered in the dialog appear here, and the advanced options chosen here apply to the dialog and to every outbound request.
 
 | Proxy mode | Behavior |
 | --- | --- |
 | Follow system proxy (default) | Reads the manual HTTP/HTTPS proxy from Windows **Settings → Network & Internet → Proxy** or macOS **System Settings → Network → Proxies**, plus the `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY` and `NO_PROXY` variables; environment variables take precedence. PAC scripts and auto-discovery are not supported yet |
-| Custom proxy | Sends every outbound request through the proxy you specify. Use it on corporate networks that only allow egress through a fixed proxy, or when the system proxy cannot be changed |
-| No proxy | Always connects directly, ignoring system proxies and environment variables |
+| Custom proxy | Sends every outbound request through the proxy you specify. Entering an address in the General dialog switches to this mode automatically |
+| No proxy | Always connects directly, ignoring system proxies and environment variables. Available only on this page |
 
 With a custom proxy, fill in:
 

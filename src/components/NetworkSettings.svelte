@@ -56,7 +56,7 @@
 </script>
 
 <div class="network-settings">
- <div class="settings-info-box">{$t('这里的代理设置决定 SAG 的出网请求如何到达互联网。公司内网或需要经过代理访问模型服务时，在此指定代理。')}</div>
+ <div class="settings-info-box">{$t('与通用页的“代理设置”是同一份配置。公司内网或需要经过代理访问模型服务时，可在此选择代理模式、填写 SOCKS5 地址和认证信息，并测试连接。')}</div>
  <section class="settings-group">
   <div class="setting-row network-mode-row">
    <div><strong>{$t('代理模式')}</strong><p>{summary}</p></div>
@@ -67,19 +67,19 @@
   <section class="settings-group settings-fields network-proxy-fields">
    {#if value.mode==='custom'}
     <label class="field-label">{$t('代理地址')}
-     <Input id="model-proxy-url" type="text" inputmode="url" required value={value.url} oninput={event=>changeUrl(event.currentTarget.value)} placeholder="http://127.0.0.1:7890" autocomplete="off" spellcheck="false" aria-describedby="model-proxy-url-help"/>
+     <Input id="network-proxy-url" type="text" inputmode="url" required value={value.url} oninput={event=>changeUrl(event.currentTarget.value)} placeholder="http://127.0.0.1:7890" autocomplete="off" spellcheck="false" aria-describedby="network-proxy-url-help"/>
     </label>
-    <p class="settings-help" id="model-proxy-url-help">{urlHint||$t('支持 http://、https://、socks5:// 和 socks5h:// 地址；只写主机和端口时按 HTTP 代理处理。')}</p>
+    <p class="settings-help" id="network-proxy-url-help">{urlHint||$t('支持 http://、https://、socks5:// 和 socks5h:// 地址；只写主机和端口时按 HTTP 代理处理。')}</p>
     <div class="setting-row network-auth-row">
      <div><strong>{$t('代理需要认证')}</strong><p>{$t('以 Basic 方式把用户名和密码发给代理服务器；密码只保存在本机。')}</p></div>
      <Switch checked={authEnabled} label={$t('代理需要认证')} onCheckedChange={toggleAuth}/>
     </div>
     {#if authEnabled}
      <div class="network-auth-fields">
-      <label class="field-label">{$t('用户名')}<Input id="model-proxy-username" type="text" required value={value.username} oninput={event=>{value={...value,username:event.currentTarget.value};invalidate();}} autocomplete="off" spellcheck="false"/></label>
+      <label class="field-label">{$t('用户名')}<Input id="network-proxy-username" type="text" required value={value.username} oninput={event=>{value={...value,username:event.currentTarget.value};invalidate();}} autocomplete="off" spellcheck="false"/></label>
       <label class="field-label">{$t('密码')}
        <div class="key-field">
-        <Input id="model-proxy-password" type={showPassword?'text':'password'} value={value.password??''} oninput={event=>{value={...value,password:event.currentTarget.value};invalidate();}} placeholder={value.has_password&&value.password===null?$t('已保存在本机；留空保持原密码'):$t('填写代理密码')} autocomplete="off" spellcheck="false"/>
+        <Input id="network-proxy-password" type={showPassword?'text':'password'} value={value.password??''} oninput={event=>{value={...value,password:event.currentTarget.value};invalidate();}} placeholder={value.has_password&&value.password===null?$t('已保存在本机；留空保持原密码'):$t('填写代理密码')} autocomplete="off" spellcheck="false"/>
         <Button.Root type="button" onclick={()=>showPassword=!showPassword}>{showPassword?$t('隐藏'):$t('显示')}</Button.Root>
        </div>
       </label>
@@ -87,9 +87,9 @@
     {/if}
    {/if}
    <label class="field-label">{$t('直连地址')}
-    <Textarea id="model-proxy-bypass" rows={2} value={value.bypass} oninput={event=>{value={...value,bypass:event.currentTarget.value};invalidate();}} placeholder=".corp.example.com, 10.0.0.0/8, *.internal" spellcheck="false" aria-describedby="model-proxy-bypass-help"/>
+    <Textarea id="network-proxy-bypass" rows={2} value={value.bypass} oninput={event=>{value={...value,bypass:event.currentTarget.value};invalidate();}} placeholder=".corp.example.com, 10.0.0.0/8, *.internal" spellcheck="false" aria-describedby="network-proxy-bypass-help"/>
    </label>
-   <p class="settings-help" id="model-proxy-bypass-help">{$t('用逗号分隔。localhost 和回环地址始终直接连接；可填写域名、以点开头的域名后缀、IP、网段或带 * 的匹配规则，例如内网的模型服务。')}</p>
+   <p class="settings-help" id="network-proxy-bypass-help">{$t('用逗号分隔。localhost 和回环地址始终直接连接；可填写域名、以点开头的域名后缀、IP、网段或带 * 的匹配规则，例如内网的模型服务。')}</p>
   </section>
  {/if}
  <section class="settings-group network-test">

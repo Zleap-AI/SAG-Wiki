@@ -2264,9 +2264,6 @@
   "怎么添加文件夹？": "How do I add a folder?",
   "怎么配置模型？": "How do I configure models?",
   "怎么在浏览器里访问？": "How do I access SAG Wiki in a browser?",
-  "网络": "Network",
-  "设置出网请求使用的代理。": "Choose the proxy for outbound requests.",
-  "在“网络”中选择代理模式、填写地址与直连地址。": "Choose the proxy mode, address and bypass list under Network.",
   "跟随系统代理": "Follow system proxy",
   "自定义代理": "Custom proxy",
   "不使用代理": "No proxy",
@@ -2278,7 +2275,6 @@
   "HTTP 代理：HTTPS 请求通过 CONNECT 隧道转发。": "HTTP proxy: HTTPS requests are tunneled with CONNECT.",
   "请填写代理地址，例如 http://127.0.0.1:7890": "Enter a proxy address, such as http://127.0.0.1:7890",
   "请填写代理用户名": "Enter the proxy username",
-  "这里的代理设置决定 SAG 的出网请求如何到达互联网。公司内网或需要经过代理访问模型服务时，在此指定代理。": "These settings decide how SAG's outbound requests reach the internet. On a corporate network, or whenever model services are only reachable through a proxy, set it here.",
   "代理模式": "Proxy mode",
   "支持 http://、https://、socks5:// 和 socks5h:// 地址；只写主机和端口时按 HTTP 代理处理。": "Accepts http://, https://, socks5:// and socks5h:// addresses. A bare host and port is treated as an HTTP proxy.",
   "代理需要认证": "Proxy requires authentication",
@@ -2314,5 +2310,11 @@
   "直接连接 {value0} 超时": "Connecting directly to {value0} timed out",
   "无法连接 {value0}": "Could not connect to {value0}",
   "直接连接 {value0} 失败：{value1}": "Connecting directly to {value0} failed: {value1}",
-  "无法为 MCP 服务应用代理设置": "Could not apply the proxy settings to the MCP server"
+  "无法为 MCP 服务应用代理设置": "Could not apply the proxy settings to the MCP server",
+  "网络代理": "Network proxy",
+  "代理的高级设置：模式、SOCKS5、认证与测试连接。": "Advanced proxy settings: mode, SOCKS5, authentication and connection test.",
+  "与通用页的“代理设置”是同一份配置。公司内网或需要经过代理访问模型服务时，可在此选择代理模式、填写 SOCKS5 地址和认证信息，并测试连接。": "This is the same configuration as Proxy settings on the General page. On a corporate network, or whenever model services are only reachable through a proxy, choose the proxy mode here, enter a SOCKS5 address or credentials, and test the connection.",
+  "需要 SOCKS5、认证或强制直连？前往「网络代理」": "Need SOCKS5, authentication or a direct connection? Open Network proxy",
+  "留空时沿用系统代理和环境变量。": "Leave blank to use system and environment proxy settings.",
+  "可选。域名、IP 或网段，用逗号分隔。": "Optional. Separate domains, IP addresses or networks with commas."
 }

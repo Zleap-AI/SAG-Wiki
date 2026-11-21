@@ -2264,9 +2264,6 @@
   "怎么添加文件夹？": "¿Cómo añado una carpeta?",
   "怎么配置模型？": "¿Cómo configuro los modelos?",
   "怎么在浏览器里访问？": "¿Cómo accedo a SAG Wiki desde el navegador?",
-  "网络": "Red",
-  "设置出网请求使用的代理。": "Configura el proxy para las solicitudes salientes.",
-  "在“网络”中选择代理模式、填写地址与直连地址。": "Elige el modo de proxy, la dirección y las exclusiones en Red.",
   "跟随系统代理": "Seguir el proxy del sistema",
   "自定义代理": "Proxy personalizado",
   "不使用代理": "Sin proxy",
@@ -2278,7 +2275,6 @@
   "HTTP 代理：HTTPS 请求通过 CONNECT 隧道转发。": "Proxy HTTP: las solicitudes HTTPS se envían por un túnel CONNECT.",
   "请填写代理地址，例如 http://127.0.0.1:7890": "Introduce una dirección de proxy, por ejemplo http://127.0.0.1:7890",
   "请填写代理用户名": "Introduce el usuario del proxy",
-  "这里的代理设置决定 SAG 的出网请求如何到达互联网。公司内网或需要经过代理访问模型服务时，在此指定代理。": "Estos ajustes determinan cómo las solicitudes salientes de SAG llegan a internet. En una red corporativa, o cuando los servicios de modelos solo son accesibles mediante proxy, configúralo aquí.",
   "代理模式": "Modo de proxy",
   "支持 http://、https://、socks5:// 和 socks5h:// 地址；只写主机和端口时按 HTTP 代理处理。": "Admite direcciones http://, https://, socks5:// y socks5h://. Si solo indicas host y puerto se trata como proxy HTTP.",
   "代理需要认证": "El proxy requiere autenticación",
@@ -2314,5 +2310,11 @@
   "直接连接 {value0} 超时": "La conexión directa a {value0} agotó el tiempo de espera",
   "无法连接 {value0}": "No se pudo conectar con {value0}",
   "直接连接 {value0} 失败：{value1}": "La conexión directa a {value0} falló: {value1}",
-  "无法为 MCP 服务应用代理设置": "No se pudo aplicar la configuración de proxy al servidor MCP"
+  "无法为 MCP 服务应用代理设置": "No se pudo aplicar la configuración de proxy al servidor MCP",
+  "网络代理": "Proxy de red",
+  "代理的高级设置：模式、SOCKS5、认证与测试连接。": "Ajustes avanzados del proxy: modo, SOCKS5, autenticación y prueba de conexión.",
+  "与通用页的“代理设置”是同一份配置。公司内网或需要经过代理访问模型服务时，可在此选择代理模式、填写 SOCKS5 地址和认证信息，并测试连接。": "Es la misma configuración que Ajustes de proxy en la página General. En una red corporativa, o cuando los servicios de modelos solo son accesibles mediante proxy, elige aquí el modo de proxy, introduce una dirección SOCKS5 o credenciales y prueba la conexión.",
+  "需要 SOCKS5、认证或强制直连？前往「网络代理」": "¿Necesitas SOCKS5, autenticación o conexión directa? Abre Proxy de red",
+  "留空时沿用系统代理和环境变量。": "Si se deja en blanco, se usa la configuración del sistema y del entorno.",
+  "可选。域名、IP 或网段，用逗号分隔。": "Opcional. Separa los dominios, las IP o las redes con comas."
 }

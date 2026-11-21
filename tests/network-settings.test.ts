@@ -10,7 +10,7 @@ vi.mock('@tauri-apps/api/core',()=>({invoke}));
 const value:Settings={answer:{url:'https://api.302ai.cn/v1',model:'test',models:['test'],has_key:true},jev:{url:'https://api.zleap.com/v1',model:'jev',models:[],has_key:true},retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:20,max_hops:1,top_k:10,chunk_chars:1000},theme:'light',start_page:'ask',editor_size:15,show_hidden:true,watch:true,excluded:[],timeout_secs:120,answer_context_tokens:65536,answer_output_tokens:2048};
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks();setLanguage('zh-CN')});
-const field=(id:string)=>document.querySelector<HTMLInputElement|HTMLTextAreaElement>(`#model-proxy-${id}`)!;
+const field=(id:string)=>document.querySelector<HTMLInputElement|HTMLTextAreaElement>(`#network-proxy-${id}`)!;
 const setInput=(element:HTMLInputElement|HTMLTextAreaElement,text:string)=>{element.value=text;element.dispatchEvent(new Event('input',{bubbles:true}));};
 async function pickMode(mode:string){
  const control=document.querySelector<HTMLButtonElement>('.network-mode-select')!;
@@ -31,7 +31,7 @@ it('默认跟随系统代理；自定义时显示地址、认证和直连地址�
  await pickMode('custom');
  await vi.waitFor(()=>expect(field('url')).not.toBeNull());
  setInput(field('url'),'http://proxy.corp:3128 ');await tick();
- expect(document.querySelector('#model-proxy-url-help')?.textContent).toContain('HTTP 代理');
+ expect(document.querySelector('#network-proxy-url-help')?.textContent).toContain('HTTP 代理');
  setInput(field('bypass'),'.corp.example, 10.0.0.0/8');await tick();
  document.querySelector<HTMLButtonElement>('[aria-label="代理需要认证"]')!.click();await tick();
  setInput(field('username'),'alice');setInput(field('password'),'secret');await tick();
@@ -62,7 +62,7 @@ it('粘贴带账号密码的地址时拆分到认证字段，关闭认证会清�
  expect(field('url').value).toBe('socks5://10.0.0.9:1080');
  expect(field('username').value).toBe('bob');
  expect(field('password').value).toBe('p@ss');
- expect(document.querySelector('#model-proxy-url-help')?.textContent).toContain('SOCKS5');
+ expect(document.querySelector('#network-proxy-url-help')?.textContent).toContain('SOCKS5');
  document.querySelector<HTMLButtonElement>('[aria-label="代理需要认证"]')!.click();await tick();
  expect(field('username')).toBeNull();
  await submit();
