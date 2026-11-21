@@ -7,10 +7,19 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="637031bf2799d88d2c9d73bc2e0e812b56c84e3ff4202cf1dcd151024af7b9ca" aria-hidden="true" />
+<span data-docs-changelog-sha="5f98d421ffa526d9be53f5e5063795fa5fdd24fdee1c831210ad1a71eb7de3f7" aria-hidden="true" />
 
-## 0.3.14
+## 0.4.0
 
+- **Online data import**: Connect Feishu, Lark, Notion, Yuque, and RSS or Atom feeds to import selected content into your library. Sync each connection manually or on a schedule. Unchanged items are skipped and local edits are preserved.
+- **Linux web workspace**: Create folders and upload individual files or entire directories from the browser. Uploaded files are indexed automatically. Web settings let you configure models, connect online sources, and manage API and MCP settings and keys.
+- **PDF and image recognition**: Use a vision-capable answer model to parse PDF, PNG, and JPEG files, with separate prompts for PDFs and images. Docling and MinerU remain available.
+- **Remote web access**: Use the CLI to set an external URL for access through a public IP or an HTTPS reverse proxy and control the web access code. New Linux setups start with the code disabled; existing settings are preserved. You can enable verification for remote access.
+- **Chat history import**: Schedule Claude Code and Codex imports separately. Scheduling is off by default. New messages update the existing Markdown file, unchanged chats are skipped, and previews open at the latest message.
+- **Application data location**: Move indexes, settings, conversations, and in-app conversion results from the desktop app while keeping the previous folder as a backup. Desktop and CLI share the new location, remote service autostart and folder permissions move with it, and startup recovery lets you choose an existing data folder if the saved location is unavailable. ([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
+- **SAG Wiki Assistant**: Search the built-in user guides from the chat home screen and follow citations to the relevant sections. You can still search and read matching sections without an answer model.
+- **Shared proxy settings**: Use one proxy configuration for answer models, Jev, MinerU, app updates, component downloads, sharing, and remote HTTP MCP. Set proxy bypass addresses and test the connection before saving.
+- **Linux file monitoring**: When the watch limit is reached, CLI and indexing details explain how to raise the inotify quota and restart the background service. Indexed content remains searchable. ([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
 - **Multi-turn reply format**: Replay earlier tool use as native tool-call and tool-result messages and keep final answers as plain text, so follow-up answers no longer imitate the internal record and come back as `{"answer":…}` JSON. A service that rejects that replay shape receives the records once more as plain text. Replies wrapped with only answer and sources fields are unwrapped before citation checks; other JSON the user asked for is kept.
 - **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the smaller of the provider's output tokens and the local estimate, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange, this turn's records and any earlier summary, with the reason shown above the answer.
 - **Empty answers**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action, and an answer that fails to render falls back to plain text.

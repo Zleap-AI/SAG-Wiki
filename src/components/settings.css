@@ -36,16 +36,16 @@
 .settings-window .settings-group-heading h3{font:600 14px/1.5 var(--font-body);margin:0}
 .settings-window .settings-group-heading p{margin:6px 0 0}
 .settings-window .settings-group-heading>span{font-size:var(--text-caption);color:var(--color-muted);border:1px solid var(--color-rule);border-radius:5px;padding:3px 6px;background:var(--color-panel)}
-.settings-window .field-label{font-size:var(--text-ui);font-weight:500;line-height:1.5;margin:0 0 16px}
-.settings-window .field-label:last-child{margin-bottom:0}
-.settings-window .field-label>input,.settings-window .field-label>textarea{display:block;width:100%;margin-top:7px;padding:8px 10px;font-size:var(--text-ui);line-height:1.6;font-weight:400;border-radius:7px;border:1px solid var(--color-rule);background:var(--color-panel)}
-.settings-window .field-label>textarea{resize:vertical;min-height:78px;max-height:240px}
-.settings-window .field-label>.ui-select{display:flex;width:100%;min-height:38px;margin-top:7px}
-.settings-window .key-field{margin-top:7px;border:1px solid var(--color-rule);border-radius:7px;background:var(--color-panel);align-items:center;overflow:hidden}
-.settings-window .key-field:focus-within{outline:2px solid var(--color-focus);outline-offset:3px}
-.settings-window .key-field input{padding:8px 10px;font-size:var(--text-ui);line-height:1.6;font-weight:400;border:0;border-radius:0;background:var(--color-transparent);outline:none}
-.settings-window .key-field input::placeholder{font-size:var(--text-ui)}
-.settings-window .key-field button{padding:4px 9px;margin:0 4px;border-radius:4px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
+:is(.settings-window,.vision-config-dialog) .field-label{font-size:var(--text-ui);font-weight:500;line-height:1.5;margin:0 0 16px}
+:is(.settings-window,.vision-config-dialog) .field-label:last-child{margin-bottom:0}
+:is(.settings-window,.vision-config-dialog) .field-label>input,:is(.settings-window,.vision-config-dialog) .field-label>textarea{display:block;width:100%;margin-top:7px;padding:8px 10px;font-size:var(--text-ui);line-height:1.6;font-weight:400;border-radius:7px;border:1px solid var(--color-rule);background:var(--color-panel)}
+:is(.settings-window,.vision-config-dialog) .field-label>textarea{resize:vertical;min-height:78px;max-height:240px}
+:is(.settings-window,.vision-config-dialog) .field-label>.ui-select{display:flex;width:100%;min-height:38px;margin-top:7px}
+:is(.settings-window,.vision-config-dialog) .key-field{margin-top:7px;border:1px solid var(--color-rule);border-radius:7px;background:var(--color-panel);align-items:center;overflow:hidden}
+:is(.settings-window,.vision-config-dialog) .key-field:focus-within{outline:2px solid var(--color-focus);outline-offset:3px}
+:is(.settings-window,.vision-config-dialog) .key-field input{padding:8px 10px;font-size:var(--text-ui);line-height:1.6;font-weight:400;border:0;border-radius:0;background:var(--color-transparent);outline:none}
+:is(.settings-window,.vision-config-dialog) .key-field input::placeholder{font-size:var(--text-ui)}
+:is(.settings-window,.vision-config-dialog) .key-field button{padding:4px 9px;margin:0 4px;border-radius:4px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
 .settings-window .settings-card-actions{display:flex;align-items:center;gap:10px;margin-top:17px}
 .settings-window .model-settings-card .settings-model-test{margin-left:auto}
 .settings-window .outline,.settings-window .settings-cancel{min-height:30px;padding:6px 12px;border:1px solid var(--color-rule);border-radius:6px;background:var(--color-paper);font-size:var(--text-ui);font-weight:450;box-shadow:0 1px 2px var(--color-shadow)}
@@ -79,7 +79,7 @@
 .settings-window .settings-footer{min-height:62px;padding:12px 20px;background:var(--color-titlebar);gap:8px}
 .settings-window .settings-feedback{min-width:0;flex:1;display:flex;flex-direction:column;gap:2px;padding-right:12px;font-size:var(--text-caption);line-height:1.6;overflow-wrap:anywhere}
 .settings-window .settings-feedback .form-error{font-size:var(--text-caption);line-height:1.6;margin:0}
-.settings-window .settings-status{color:var(--color-secondary)}
+:is(.settings-window,.vision-config-dialog) .settings-status{color:var(--color-secondary)}
 .settings-window .settings-footer>.primary{padding:7px 14px;min-height:31px;border-radius:6px;font-size:var(--text-ui);font-weight:550}
 .settings-window .model-profile-settings>.model-reasoning-row{padding:0 0 17px;margin-bottom:17px}
 .settings-window .model-request-settings>.setting-row{display:grid;grid-template-columns:minmax(0,1fr) 128px;gap:24px}
@@ -117,7 +117,13 @@
 .settings-window .conversion-storage>p{margin:0;padding:14px 17px}
 .settings-window .parser-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .settings-window .parser-actions>button{white-space:nowrap}
-.mineru-config-dialog{width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
+.settings-window .parser-actions>.ui-select{width:clamp(110px,20vw,210px)}
+.settings-window .parser-actions>.ui-select>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mineru-config-dialog,.vision-config-dialog{width:min(540px,calc(100vw - 32px));max-height:calc(100dvh - 48px);display:flex;flex-direction:column;overflow:hidden}
+.vision-config-dialog h2{overflow-wrap:anywhere}
+.vision-config-dialog form{display:flex;flex-direction:column;min-height:0}
+.vision-config-dialog .dialog-body{overflow:auto}
+.vision-config-dialog .dialog-body>p{margin:8px 0 0;overflow-wrap:anywhere}
 .mineru-config-dialog>.dialog-body{min-height:0;overflow:auto;padding-top:10px}
 .mineru-config-dialog .mineru-settings-card{border:0;margin:0;padding:0}
 .mineru-config-dialog .field-label{margin:0 0 12px}
@@ -190,7 +196,8 @@
 
 .clear-conversations-button,.remove-roots-button{color:var(--color-danger);border:1px solid currentColor;padding:8px 12px;border-radius:7px;flex-shrink:0}
 
-.settings-window .key-field-label{display:flex;align-items:center;justify-content:space-between;gap:12px}.settings-window .settings-key-link{color:var(--color-accent);font-size:var(--text-caption);text-decoration:underline;text-underline-offset:3px}
+:is(.settings-window,.vision-config-dialog) .key-field-label{display:flex;align-items:center;justify-content:space-between;gap:12px}
+:is(.settings-window,.vision-config-dialog) .settings-key-link{color:var(--color-accent);font-size:var(--text-caption);text-decoration:underline;text-underline-offset:3px}
 
 .settings-window .model-settings-card[data-model=answer]{background:#fffcf9;border-color:#e8e3de}
 .settings-window .model-settings-card[data-model=jev]{background:#fafcff;border-color:#e0e5eb}
@@ -250,17 +257,7 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
-  .settings-window .settings-nav {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    width: auto;
-    margin: 4px 20px 0;
-    padding: 3px;
-    background: var(--color-hover);
-    border: 1px solid var(--color-rule);
-    border-radius: 10px;
-  }
-  html:not([data-sag-web]) .settings-window .settings-nav { display: none; }
+  .settings-window .settings-nav { display: none; }
   .settings-window .settings-category-picker { margin: 4px 20px 0; }
   .settings-window .settings-category-picker > .ui-select {
     width: 100%;

@@ -4,6 +4,7 @@ use futures_util::StreamExt;
 use reqwest::{Client, Response, Url};
 use sag_protocol::mineru::{MineruConfig, MineruProvider};
 use sag_protocol::runtime::RuntimeSettings;
+use sag_protocol::types::ModelProxy;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -67,12 +68,12 @@ fn safe_url(value: &str) -> Result<Url> {
     );
     Ok(url)
 }
-fn client(timeout: u64) -> Result<Client> {
-    Ok(Client::builder()
+fn client(timeout: u64, proxy: &ModelProxy) -> Result<Client> {
+    let builder = Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(15.min(timeout)))
-        .timeout(Duration::from_secs(timeout))
-        .build()?)
+        .timeout(Duration::from_secs(timeout));
+    Ok(crate::model_http::apply_proxy(builder, proxy)?.build()?)
 }
 fn endpoint(base: &str, path: &str) -> String {
     format!("{}/{}", base.trim_end_matches('/'), path)
@@ -198,15 +199,15 @@ async fn finish_302(client:&Client,result:&Value,part:&Part,require_pages:bool,l
 }
 
 /// This is a reachability/authentication probe, not a document conversion.
-pub async fn test_connection(config: &MineruConfig, key: &str) -> Result<String> {
-    test_connection_at(config, key, config.base_url()).await
+pub async fn test_connection(config: &MineruConfig, key: &str, proxy: &ModelProxy) -> Result<String> {
+    test_connection_at(config, key, config.base_url(), proxy).await
 }
-async fn test_connection_at(config: &MineruConfig, key: &str, base: &str) -> Result<String> {
+async fn test_connection_at(config: &MineruConfig, key: &str, base: &str, proxy: &ModelProxy) -> Result<String> {
     config.validate().map_err(anyhow::Error::msg)?;
     validate_base_url(base)?;
     ensure!(!key.trim().is_empty(), "请填写 MinerU API Key");
     let result = async {
-        let response = client(config.request_timeout_secs.min(15))?
+        let response = client(config.request_timeout_secs.min(15), proxy)?
             .get(endpoint(
                 base,
                 &if config.provider==MineruProvider::Ai302 {"302/v2/mineru/task".into()} else {task_path(config.provider,"sag-connection-check-no-task")},
@@ -1152,6 +1153,7 @@ pub fn convert_with_progress(
         config.base_url(),
         &RuntimeSettings::default(),
         progress,
+        &ModelProxy::default(),
     )
 }
 pub fn convert_with_runtime(
@@ -1162,6 +1164,7 @@ pub fn convert_with_runtime(
     runtime: &RuntimeSettings,
     cancel: &impl Fn() -> bool,
     progress: &impl Fn(&str),
+    proxy: &ModelProxy,
 ) -> Result<()> {
     convert_at_with_progress(
         source,
@@ -1172,6 +1175,7 @@ pub fn convert_with_runtime(
         config.base_url(),
         runtime,
         progress,
+        proxy,
     )
 }
 #[cfg(test)]
@@ -1192,6 +1196,7 @@ fn convert_at(
         base,
         &RuntimeSettings::default(),
         &|_| {},
+        &ModelProxy::default(),
     )
 }
 pub(crate) fn convert_pdf_segment_with_runtime(
@@ -1204,6 +1209,7 @@ pub(crate) fn convert_pdf_segment_with_runtime(
     progress: &impl Fn(&str),
     original_start: u32,
     pause_submissions: Option<&std::sync::atomic::AtomicBool>,
+    proxy: &ModelProxy,
 ) -> Result<()> {
     convert_range_at_with_progress(
         source,
@@ -1216,6 +1222,7 @@ pub(crate) fn convert_pdf_segment_with_runtime(
         progress,
         Some(original_start),
         pause_submissions,
+        proxy,
     )
 }
 
@@ -1228,9 +1235,10 @@ fn convert_at_with_progress(
     base: &str,
     runtime: &RuntimeSettings,
     progress: &impl Fn(&str),
+    proxy: &ModelProxy,
 ) -> Result<()> {
     convert_range_at_with_progress(
-        source, output, config, key, cancel, base, runtime, progress, None, None,
+        source, output, config, key, cancel, base, runtime, progress, None, None, proxy,
     )
 }
 
@@ -1245,6 +1253,7 @@ fn convert_range_at_with_progress(
     progress: &impl Fn(&str),
     original_start: Option<u32>,
     pause_submissions: Option<&std::sync::atomic::AtomicBool>,
+    proxy: &ModelProxy,
 ) -> Result<()> {
     if config.provider == MineruProvider::Ai302 {
         ensure!(source.extension().is_some_and(|ext|ext.eq_ignore_ascii_case("pdf")),"302.AI 开源部署版仅支持 PDF，尝试本地解析");
@@ -1289,7 +1298,7 @@ fn convert_range_at_with_progress(
         .build()?;
     let result:Result<String>=runtime.block_on(async{
         let operation=async{
-            let http=client(config.request_timeout_secs)?;
+            let http=client(config.request_timeout_secs, proxy)?;
             let mut output_text=String::new();
             for (part,path) in parts.iter().zip(&paths){
                 let text=parse_part_with_limit(&http,base,part,path,config,key,parts.len()>1 || original_start.is_some(),progress,output_limit,pause_submissions).await?;

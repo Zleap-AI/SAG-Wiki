@@ -8,7 +8,8 @@ function suites(...paths) {
 }
 
 test('documentation-only changes need no application fixtures', () => {
-  assert.deepEqual(suites('README.md', 'docs-site/content/docs/faq.mdx'), []);
+  assert.deepEqual(suites('README.md', 'docs-site/content/docs/architecture.mdx'), []);
+  assert.deepEqual(suites('docs-site/content/docs/faq.mdx'), ['cli', 'jev', 'http', 'web']);
 });
 
 test('frontend, embedded Rust input, and shared fixture changes are distinguished', () => {

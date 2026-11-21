@@ -12,10 +12,13 @@ export const progressiveStages=[indexStages[0],
 ];
 export function indexPipeline(stage:string){return ['extracting_basic','enhancing','retrying_enhancement'].includes(stage)?progressiveStages:indexStages;}
 
-// Maps raw indexing errors to an actionable hint; null means no specific cause was recognized.
+export const watchLimitHint='文件监听失败：已达到 Linux inotify 监听上限，自动更新受限。请调大 fs.inotify.max_user_watches（例如 sudo sysctl fs.inotify.max_user_watches=524288），然后重启 SAG 后台服务。';
+const watchFailureHint='文件监听失败，自动更新受限；请在索引设置中重建索引以重试。';
 export function indexErrorHint(message:string|null|undefined){
  if(!message)return null;
- if(message.includes('文件监听失败'))return '文件监听失败，自动更新受限；请在索引设置中重建索引以重试。';
+ const lines=message.split('\n');
+ if(lines.includes(watchLimitHint)||lines.some((line,index)=>line===watchFailureHint&&/^OS file watch limit reached\.(?: about \[.*\])?$/.test(lines[index+1]??'')))return watchLimitHint;
+ if(message.includes('文件监听失败'))return watchFailureHint;
  if(/permission denied|access is denied|拒绝访问|权限不足/i.test(message))return '无法读取文件：请检查文件或文件夹的访问权限。';
  if(/no such file|file not found|找不到文件|文件不存在|路径不存在/i.test(message))return '文件已移动或删除，请确认文件仍位于该文件夹中。';
  if(/unsupported|not support|不支持|无法转换/i.test(message))return '文件格式暂不支持。';

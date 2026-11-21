@@ -3,6 +3,7 @@ import {chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, realpathSy
 import {delimiter, dirname, join, resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {prepareQpdf} from './prepare-qpdf.mjs';
+import {preparePdfium} from './prepare-pdfium.mjs';
 import {buildWebAssets} from './build-web-assets.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -47,6 +48,7 @@ for (const item of supported) {
   mkdirSync(destination, {recursive: true});
   copyFileSync(join(nativeCache, `${item.platform}-${item.arch}`, item.file), join(destination, item.file));
   await prepareQpdf(join(destination, 'qpdf'), item.target);
+  await preparePdfium(join(destination, 'pdfium'), item.target);
   if (item.platform !== 'win32') chmodSync(join(destination, item.file), 0o755);
 }
 const manifest = JSON.parse(readFileSync(join(root, 'npm/sag/package.json'), 'utf8'));

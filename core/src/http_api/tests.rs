@@ -648,7 +648,7 @@ async fn api_access_is_independent_of_cli_access_and_reset_revokes_all_keys() {
         .status(),
         200
     );
-    f.service.api.reset().await.unwrap();
+    f.service.api.reset(false).await.unwrap();
     assert_eq!(f.service.api.status().unwrap()["key_count"], 0);
     assert_eq!(f.service.api.status().unwrap()["running"], false);
     assert_eq!(

@@ -6,6 +6,7 @@ import {join,resolve,relative,delimiter} from 'node:path';
 import {tmpdir} from 'node:os';
 import {spawnSync,execFileSync} from 'node:child_process';
 import {prepareQpdf} from './prepare-qpdf.mjs';
+import {preparePdfium} from './prepare-pdfium.mjs';
 const root=resolve('.');
 const windows=process.platform==='win32';
 const arch=process.arch==='arm64'?'aarch64':'x86_64';
@@ -68,7 +69,7 @@ test('QPDF remains executable after its build cache is removed, including an old
 });
 test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:windows},async t=>{
  const dir=await fixture(t);
- for(const file of ['scripts/package-npm-cli.mjs','scripts/prepare-qpdf.mjs','npm/sag/bin/sag.cjs','npm/sag/package.json','npm/sag/README.md','cli/Cargo.toml']) {
+ for(const file of ['scripts/package-npm-cli.mjs','scripts/prepare-qpdf.mjs','scripts/prepare-pdfium.mjs','npm/sag/bin/sag.cjs','npm/sag/package.json','npm/sag/README.md','cli/Cargo.toml']) {
   const destination=join(dir,file);mkdirSync(resolve(destination,'..'),{recursive:true});copyFileSync(join(root,file),destination);
  }
  writeFileSync(join(dir,'scripts/build-web-assets.mjs'),"export const buildWebAssets = () => 'unused-web-fixture';\n");
@@ -84,10 +85,28 @@ test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:window
  execFileSync('tar',['-xzf',archive,'-C',customer]);
  const helper=join(customer,'package/native',`${process.platform}-${process.arch}`,'qpdf/bin/qpdf');
  assert.ok(existsSync(helper),'npm package must contain its required PDF helper');
+ assert.ok(existsSync(join(helper,'../../../pdfium',process.platform==='darwin'?'libpdfium.dylib':'libpdfium.so')),'npm package must contain PDFium');
  renameSync(join(dir,'node_modules'),join(dir,'hidden-build-cache'));
  const launch=spawnSync(process.execPath,[join(customer,'package/bin/sag.cjs'),'--version'],{encoding:'utf8'});
  assert.equal(launch.status,0,launch.stderr);
  assert.match(launch.stdout,/qpdf version 12\.4\.2/);
+});
+
+test('Windows PDFium payload includes the DLL and license files', async t => {
+ // The release checkout can be on a different drive from the system temp directory.
+ const dir = mkdtempSync(join(windows ? root : tmpdir(), 'sag-pdfium-package-'));
+ t.after(() => rmSync(dir, {recursive: true, force: true}));
+ const previous = process.cwd();
+ try {
+  process.chdir(dir);
+  const destination = join(dir, 'src-tauri', 'bin', 'pdfium');
+  await preparePdfium(destination, 'x86_64-pc-windows-msvc');
+  assert.equal(readFileSync(join(destination, 'pdfium.dll')).toString('ascii', 0, 2), 'MZ');
+  assert.ok(readFileSync(join(destination, 'LICENSE')).length > 0);
+  assert.ok(readdirSync(join(destination, 'licenses')).length > 0);
+ } finally {
+  process.chdir(previous);
+ }
 });
 
 

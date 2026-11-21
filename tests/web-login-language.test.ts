@@ -3,7 +3,7 @@ import {afterEach,expect,it,vi} from 'vitest';
 import {mount,unmount} from 'svelte';
 import WebApp from '../src/WebApp.svelte';
 import {setLanguage} from '../src/lib/i18n';
-import {disconnectWeb,webRequest} from '../src/lib/web-connection';
+import {changeWebAccessCode,disconnectWeb,webRequest} from '../src/lib/web-connection';
 
 vi.mock('../src/App.svelte',()=>({default:()=>({})}));
 
@@ -56,7 +56,7 @@ it.each([
 
 it('returns to a localized sign-in form after the workspace session expires',async()=>{
  vi.spyOn(navigator,'language','get').mockReturnValue('en-US');
- vi.stubGlobal('fetch',vi.fn(async(path:string)=>new Response(null,{status:path==='/web/session'?200:401})));
+ vi.stubGlobal('fetch',vi.fn(async(path:string,options:RequestInit)=>path==='/web/session'&&new Headers(options.headers).has('Authorization')?Response.json({access_code_required:true}):new Response(null,{status:401})));
  app=mount(WebApp,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('label')?.textContent).toBe('Web access code'));
  submitAccessCode('saved-code');
@@ -66,4 +66,43 @@ it('returns to a localized sign-in form after the workspace session expires',asy
  await expect(webRequest({})).rejects.toThrow('请重新连接网页服务');
  await vi.waitFor(()=>expect(document.querySelector('label')?.textContent).toBe('Web アクセスコード'));
  expect(document.querySelector('[role=alert]')?.textContent).toBe('Web アクセスコードを再入力してください。');
+});
+
+it('opens a passwordless workspace without displaying the access-code form',async()=>{
+ const fetch=vi.fn(async(_path:string,_options:RequestInit)=>Response.json({access_code_required:false}));
+ vi.stubGlobal('fetch',fetch);
+ app=mount(WebApp,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.web-login')).toBeNull());
+ expect(fetch).toHaveBeenCalledWith('/web/session',{headers:{},cache:'no-store'});
+ expect(localStorage.getItem('sag.web.code')).toBeNull();
+ await webRequest({operation:'list_roots'});
+ expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).has('Authorization')).toBe(false);
+});
+
+it('keeps the initiating browser signed in if an old request expires during rotation',async()=>{
+ let expireRequest!:(response:Response)=>void;
+ let finishRotation!:(response:Response)=>void;
+ const staleResponse=new Promise<Response>(resolve=>expireRequest=resolve);
+ const rotationResponse=new Promise<Response>(resolve=>finishRotation=resolve);
+ const fetch=vi.fn(async(path:string,options:RequestInit)=>{
+  if(path==='/web/session')return Response.json({access_code_required:true});
+  const {operation}=JSON.parse(String(options.body));
+  if(operation==='list_roots')return staleResponse;
+  if(operation==='api')return rotationResponse;
+  return Response.json({});
+ });
+ vi.stubGlobal('fetch',fetch);
+ localStorage.setItem('sag.web.code','previous-code');
+ app=mount(WebApp,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('.web-login')).toBeNull());
+ const stale=expect(webRequest({operation:'list_roots'})).rejects.toThrow('请重新连接网页服务');
+ const rotation=changeWebAccessCode({action:'web_rotate_code'});
+ expireRequest(new Response(null,{status:401}));
+ await Promise.resolve();
+ finishRotation(Response.json({code:'rotated-code'}));
+ await Promise.all([rotation,stale]);
+ expect(document.querySelector('.web-login')).toBeNull();
+ expect(localStorage.getItem('sag.web.code')).toBe('rotated-code');
+ await webRequest({operation:'get_settings'});
+ expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get('Authorization')).toBe('Bearer rotated-code');
 });

@@ -46,6 +46,8 @@ export function sourceName(candidate:Pick<Candidate,'path'|'title'|'source_path'
  return indexedSourcePath(candidate.path)!==candidate.path?candidate.title.replace(/\.md$/i,''):candidate.title;
 }
 
+export function isHelpDocument(path:string):boolean{return path.startsWith('sag-help/');}
+
 // Folder of a result relative to the indexed folder that holds it, starting with that folder's name.
 export function sourceFolder(path:string,roots:{path:string;name:string}[],source?:string):string{
  const folder=dirname(indexedSourcePath(path,source));

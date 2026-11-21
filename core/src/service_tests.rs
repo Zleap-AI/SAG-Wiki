@@ -328,7 +328,7 @@ async fn jev_auth_mode_cannot_disable_answer_provider_key_protection() {
     }, Duration::from_secs(5)).await;
     assert!(result.is_err(), "Jev-only auth mode was accepted for the answer model");
     let result = client.call(Operation::TestModel {
-        kind: "answer".into(), config: settings.answer, key: String::new(),
+        kind: "answer".into(), config: settings.answer, key: String::new(), model_proxy: None,
     }, Duration::from_secs(5)).await;
     assert!(result.err().unwrap().to_string().contains("问答模型"));
     let Output::Settings(saved) = call(&client, Operation::GetSettings).await else { panic!("settings") };
@@ -362,7 +362,7 @@ async fn answer_model_catalog_uses_the_configured_provider_and_protects_its_save
             stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
         }
     });
-    let fetch = |config, key: &str| client.call(Operation::ListAnswerModels {config, key: key.into()}, Duration::from_secs(5));
+    let fetch = |config, key: &str| client.call(Operation::ListAnswerModels {config, key: key.into(), model_proxy: None}, Duration::from_secs(5));
     let Output::Strings(models) = fetch(settings.answer.clone(), "").await.unwrap() else { panic!("model list") };
     assert_eq!(models, ["test-a", "test-b"]);
     let mut config = settings.answer;
@@ -373,6 +373,75 @@ async fn answer_model_catalog_uses_the_configured_provider_and_protects_its_save
     assert!(error.contains("切换供应商后"));
     assert_eq!(crate::models::secret(&dir.path().join("data"), "answer").unwrap(), "fixture-saved-key");
     fixture.await.unwrap();
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn model_proxy_routes_draft_and_saved_connections_for_both_model_kinds() {
+    let (_dir, client, server) = start().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let model_proxy = ModelProxy {
+        url: format!("http://{}", listener.local_addr().unwrap()),
+        bypass: String::new(),
+    };
+    let fixture = tokio::spawn(async move {
+        let body = r#"{"choices":[{"message":{"content":"OK"}}],"answers":{"test":{"noul":1}}}"#;
+        for path in ["chat/completions", "systemone"] {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut header = Vec::new();
+            while !header.ends_with(b"\r\n\r\n") {
+                header.push(stream.read_u8().await.unwrap());
+            }
+            let header = String::from_utf8(header).unwrap();
+            assert!(header.starts_with(&format!("POST http://192.0.2.10/v1/{path} HTTP/1.1\r\n")));
+            let length: usize = header.lines().find_map(|line| line.strip_prefix("content-length: ")).unwrap().parse().unwrap();
+            stream.read_exact(&mut vec![0; length]).await.unwrap();
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.answer.url = "http://192.0.2.10/v1".into();
+    settings.jev.url = "http://192.0.2.10/v1/systemone".into();
+    assert!(matches!(call(&client, Operation::TestModel {
+        kind: "answer".into(), config: settings.answer.clone(), key: "fixture-key".into(), model_proxy: Some(model_proxy.clone()),
+    }).await, Output::Text(result) if result == "连接成功"));
+    let Output::Settings(before_save) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    assert!(before_save.model_proxy.url.is_empty());
+    settings.model_proxy = model_proxy;
+    call(&client, Operation::SaveSettings {
+        settings: settings.clone(), answer_key: "fixture-key".into(), jev_key: "fixture-key".into(), mineru_key: String::new(), mcp_credentials: None,
+    }).await;
+    assert!(matches!(call(&client, Operation::TestModel {
+        kind: "jev".into(), config: settings.jev, key: String::new(), model_proxy: None,
+    }).await, Output::Text(result) if result == "连接成功"));
+    fixture.await.unwrap();
+    stop(&client, server).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn remote_mcp_connection_test_uses_the_saved_proxy() {
+    let (_dir, client, server) = start().await;
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let Output::Settings(mut settings) = call(&client, Operation::GetSettings).await else { panic!("settings") };
+    settings.model_proxy.url = format!("http://{}", listener.local_addr().unwrap());
+    call(&client, Operation::SaveSettings {
+        settings, answer_key: String::new(), jev_key: String::new(), mineru_key: String::new(), mcp_credentials: None,
+    }).await;
+    let fixture = tokio::spawn(async move {
+        let (mut stream, _) = listener.accept().await.unwrap();
+        let mut header = Vec::new();
+        while !header.ends_with(b"\r\n\r\n") {
+            header.push(stream.read_u8().await.unwrap());
+        }
+        assert!(header.starts_with(b"CONNECT 192.0.2.10:443 HTTP/1.1\r\n"));
+        stream.write_all(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.unwrap();
+    });
+    let result = client.call(Operation::TestMcp {
+        server: McpServer { id: "proxy-test".into(), name: "Proxy test".into(), url: "https://192.0.2.10/mcp".into(), ..Default::default() },
+        credentials: Some(McpCredentials::default()),
+    }, Duration::from_secs(5)).await;
+    tokio::time::timeout(Duration::from_secs(5), fixture).await.unwrap().unwrap();
+    assert!(result.is_err());
     stop(&client, server).await;
 }
 
@@ -404,6 +473,71 @@ fn query(id: &str) -> Query {
         replace_from: None,
         page: None,
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn help_uses_only_bundled_documents_and_reads_citations_by_path() {
+    let (dir, client, server) = start().await;
+    let private = dir.path().join("notes");
+    std::fs::create_dir(&private).unwrap();
+    let file = private.join("private.md");
+    std::fs::write(&file, "# Private\n\nxyqzxxyalone987").unwrap();
+    call(&client, Operation::AddRoot { path: private.display().to_string() }).await;
+    let Output::Settings(settings) = call(&client, Operation::GetSettings).await else {
+        panic!("settings")
+    };
+    let mut request = query("built-in-help");
+    request.kind = "ask_help".into();
+    request.question = "how do I add a folder?".into();
+    request.model = settings.answer.model;
+    let Output::Query(output) = call(&client, Operation::RunQuery { query: request.clone() }).await else {
+        panic!("query output")
+    };
+    assert!(!output.trace.is_empty());
+    let conversation = output.conversation.unwrap();
+    let message = &conversation.messages[0];
+    assert!(message.help);
+    assert_eq!(message.status, "complete");
+    assert!(message.answer.contains("[1]"));
+    assert!(message.tool_calls.is_empty());
+    assert!(!message.evidence.is_empty());
+    assert!(message.evidence.iter().all(|candidate| candidate.path.starts_with("sag-help/")));
+    let source = &message.evidence[0];
+    let Output::Document(document) = call(&client, Operation::ReadHelpDocument { path: source.path.clone() }).await else {
+        panic!("bundled document")
+    };
+    assert_eq!(document.hash, source.hash);
+    assert!(!source.source_spans.is_empty());
+    assert!(source.source_spans.iter().all(|span|
+        !document.body[span.start_byte..span.end_byte].trim().is_empty()));
+    assert!(client.call(Operation::ReadHelpDocument { path: file.display().to_string() }, Duration::from_secs(2)).await.is_err());
+
+    request.id = "help-private".into();
+    request.question = "xyqzxxyalone987".into();
+    let Output::Query(output) = call(&client, Operation::RunQuery { query: request.clone() }).await else {
+        panic!("query output")
+    };
+    assert!(output.results.is_empty());
+    assert!(output.conversation.unwrap().messages[0].evidence.is_empty());
+
+    let (url, model) = model_server(false, Arc::new(AtomicBool::new(false)), Arc::new(AtomicUsize::new(0))).await;
+    configure(&client, url, true).await;
+    request.id = "help-with-model".into();
+    request.model = "test".into();
+    request.question = "how do I add a folder? (built-in help fixture)".into();
+    let Output::Query(output) = call(&client, Operation::RunQuery { query: request.clone() }).await else {
+        panic!("query output")
+    };
+    let message = &output.conversation.unwrap().messages[0];
+    assert_eq!(message.answer, "添加文件夹 [1]");
+    assert_eq!(message.tool_calls.len(), 2);
+    assert!(message.evidence.iter().all(|candidate| candidate.path.starts_with("sag-help/")));
+    model.abort();
+
+    request.id = "help-with-reference".into();
+    request.references = vec![file.display().to_string()];
+    assert!(client.call(Operation::RunQuery { query: request }, Duration::from_secs(2)).await.is_err());
+    stop(&client, server).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
@@ -633,6 +767,29 @@ async fn model_server(
                     serde_json::json!({"tool_calls":[{"index":0,"id":"approval-call","type":"function","function":{"name":"mcp_0_0","arguments":"{\"text\":\"hello\"}"}}]})
                 } else if body["model"] == "summary-test" {
                     serde_json::json!({"content":"独立总结"})
+                } else if let Some(messages) = body["messages"].as_array().filter(|messages| messages.iter()
+                    .any(|message| message["role"] == "user" && message["content"].as_str()
+                        .is_some_and(|input| input.contains("built-in help fixture"))))
+                {
+                    let tools = body["tools"].as_array().unwrap();
+                    assert_eq!(tools.len(), 1);
+                    assert_eq!(tools[0]["function"]["name"], "sag2_search");
+                    let results: Vec<serde_json::Value> = messages.iter().filter(|message| message["role"] == "tool")
+                        .map(|message| serde_json::from_str(message["content"].as_str().unwrap()).unwrap()).collect();
+                    for result in &results {
+                        assert!(result["sources"].as_array().unwrap().iter().all(|source|
+                            source["path"].as_str().unwrap().starts_with("sag-help/")));
+                    }
+                    if results.is_empty() {
+                        assert_eq!(body["tool_choice"], "auto");
+                        serde_json::json!({"tool_calls":[{"index":0,"id":"start-help","type":"function","function":{"name":"sag2_search","arguments":"{\"query\":\"how do I add a folder?\"}"}}]})
+                    } else if results.len() == 1 {
+                        assert!(!results[0]["sources"].as_array().unwrap().is_empty());
+                        serde_json::json!({"tool_calls":[{"index":0,"id":"more-help","type":"function","function":{"name":"sag2_search","arguments":"{\"query\":\"xyqzxxyalone987\"}"}}]})
+                    } else {
+                        assert!(results[1]["sources"].as_array().unwrap().is_empty());
+                        serde_json::json!({"content":"添加文件夹 [1]"})
+                    }
                 } else {
                     serde_json::json!({"content":"完成"})
                 };
@@ -1294,6 +1451,7 @@ async fn save_note_writes_an_anchored_file_and_tracks_source_changes() {
         bm25: 0., score: 1., previous_score: None, order: 0, hash: crate::store::hash(&raw),
     };
     let message = Message {
+        help: false,
         created_at: Some(1_761_370_800_000), question: "权限在哪里校验？".into(), answer: "在 guard 里 [1]，再提一次 [1]。".into(),
         reasoning: String::new(), reasoning_blocks: vec![], evidence: vec![candidate], model: "test".into(),
         scope: vec![root.to_string_lossy().into_owned()], references: vec![], status: "complete".into(), error: None,

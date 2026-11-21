@@ -37,8 +37,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec
         with:
           toolchain: '1.98.1'
-      - name: Test HTTP cancellation, authentication, deadlines and shared capacity
-        run: cargo test --locked --manifest-path core/Cargo.toml http_api::tests
       - name: Build the native npm package
         run: npm ci && node scripts/package-npm-cli.mjs
       - name: Install npm package and exercise the real CLI-managed service
@@ -51,3 +49,7 @@ jobs:
           name: cli-${{ matrix.distro }}-${{ matrix.arch }}
           path: releases/npm/*.tgz
           if-no-files-found: error
+      - name: Test HTTP cancellation, authentication, deadlines and shared capacity
+        env:
+          CARGO_PROFILE_TEST_DEBUG: '0'
+        run: cargo test --locked --manifest-path core/Cargo.toml http_api::tests

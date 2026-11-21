@@ -1,4 +1,5 @@
 mod cli_commands;
+mod data_directory;
 mod share;
 mod note_import;
 mod folder_picker;
@@ -49,6 +50,7 @@ fn output_value(output: Output) -> CommandResult<serde_json::Value> {
     use Output::*;
     let value = match output {
         ChatCatalog(value) => serde_json::to_value(value).map_err(error)?,
+        ChatImportSchedule(value) => serde_json::to_value(value).map_err(error)?,
         ChatPreview(value) => serde_json::to_value(value).map_err(error)?,
         ChatImports(value) => serde_json::to_value(value).map_err(error)?,
         Api(value) => value,
@@ -379,7 +381,6 @@ async fn quit_application(app: tauri::AppHandle, state: State<'_, Arc<AppState>>
     Ok(())
 }
 
-#[cfg(any(test, not(target_os = "macos")))]
 async fn stop_background<R: tauri::Runtime>(state: &AppState<R>) -> CommandResult<()> {
     // Block automatic startup/reconnect before requesting shutdown. Reuse the
     // reconnect lock so an already-starting service is stopped as well.
@@ -405,6 +406,7 @@ remote!(list_roots() => ListRoots);
 remote!(list_entries(path:String) => ListEntries);
 remote!(list_files() => ListFiles);
 remote!(read_document(path:String) => ReadDocument);
+remote!(read_help_document(path:String) => ReadHelpDocument);
 remote!(explore_overview(scope:String,query:String,visible:Vec<i64>) => ExploreOverview);
 remote!(explore_graph(scope:String,request_id:String) => ExploreGraph);
 remote!(explore_neighbors(scope:String,center_id:i64,snapshot:Option<String>,offset:usize,request_id:String) => ExploreNeighbors);
@@ -427,6 +429,9 @@ remote!(set_index_paused(paused:bool) => SetIndexPaused);
 remote!(remove_all_roots() => RemoveAllRoots);
 remote!(save_document(path:String,body:String,expected_hash:Option<String>) => SaveDocument);
 remote!(get_chat_import_folder() => GetChatImportFolder);
+remote!(online_import(action:sag_protocol::online_import::Action) => OnlineImport);
+remote!(get_chat_import_schedule(source:sag_protocol::ChatSource) => GetChatImportSchedule);
+remote!(save_chat_import_schedule(source:sag_protocol::ChatSource,schedule:sag_protocol::ChatImportSchedule) => SaveChatImportSchedule);
 #[tauri::command]
 async fn choose_chat_import_folder(state: State<'_, Arc<AppState>>) -> CommandResult<Option<String>> {
     use tauri_plugin_dialog::DialogExt;
@@ -462,11 +467,15 @@ remote!(cancel_docling_install() => CancelDoclingInstall);
 remote!(uninstall_docling() => UninstallDocling);
 remote!(clear_model_key(kind:String) => ClearModelKey);
 remote!(mineru_schema() => MineruSchema);
-remote!(test_mineru(config:sag_protocol::mineru::MineruConfig,key:String) => TestMineru);
+remote!(test_mineru(config:sag_protocol::mineru::MineruConfig,key:String,model_proxy:Option<ModelProxy>) => TestMineru);
 remote!(clear_mineru_key(config:sag_protocol::mineru::MineruConfig) => ClearMineruKey);
 remote!(runtime_schema() => RuntimeSchema);
-remote!(test_model(kind:String,config:ModelConfig,key:String) => TestModel);
-remote!(list_answer_models(config:ModelConfig,key:String) => ListAnswerModels);
+remote!(test_model(kind:String,config:ModelConfig,key:String,model_proxy:Option<ModelProxy>) => TestModel);
+#[tauri::command]
+async fn test_proxy_connection(address: String) -> CommandResult<()> {
+    sag_client::network_proxy::test_proxy_connection(&address).await.map_err(error)
+}
+remote!(list_answer_models(config:ModelConfig,key:String,model_proxy:Option<ModelProxy>) => ListAnswerModels);
 remote!(test_mcp(server:McpServer,credentials:Option<McpCredentials>) => TestMcp);
 remote!(resolve_tool_approval(id:String,allow:bool) => ResolveToolApproval);
 remote!(list_conversations() => ListConversations);
@@ -668,7 +677,14 @@ pub fn run() {
                     tokio::time::sleep(Duration::from_secs(30)).await;
                 }
             });
-            let data = protocol::data_dir()?;
+            let data = match protocol::data_dir() {
+                Ok(data) => data,
+                Err(failure) => {
+                    app.get_webview_window("main").unwrap().hide()?;
+                    data_directory::recover_at_startup(app.handle(), error(failure));
+                    return Ok(());
+                }
+            };
             quick_search::initialize(app.handle(), &data)?;
             let fresh_library = !data.join("sag.sqlite").try_exists()?;
             let cli_install_error = cli_commands::initialize_cli(app.handle()).err();
@@ -802,6 +818,7 @@ pub fn run() {
             folder_picker::browse_folders,
             list_files,
             read_document,
+            read_help_document,
             explore_overview,
             explore_graph,
             explore_neighbors,
@@ -825,10 +842,13 @@ pub fn run() {
             remove_all_roots,
             save_document,
             get_chat_import_folder,
+            get_chat_import_schedule,
+            save_chat_import_schedule,
             choose_chat_import_folder,
             list_chat_sessions,
             preview_chat_import,
             import_chat_sessions,
+            online_import,
             save_note,
             list_notes,
             get_note,
@@ -867,9 +887,12 @@ pub fn run() {
             open_source_file,
             reveal_docling_log,
             open_data_directory,
+            data_directory::get_data_directory,
+            data_directory::migrate_data_directory,
             open_about_link,
             open_external_link,
             updates::check_app_update,
+            test_proxy_connection,
             updates::download_app_update,
             updates::install_app_update,
             load_image,

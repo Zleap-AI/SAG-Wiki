@@ -2,6 +2,7 @@
  import {onMount,onDestroy} from 'svelte';
  import {Button} from 'bits-ui';
  import {api} from '../lib/api';
+ import {changeWebAccessCode,copyText,web} from '../lib/web-connection';
  import {t,language,interfaceLocales} from '../lib/i18n';
  import {icon} from '../lib/icons';
  import Switch from './ui/Switch.svelte';
@@ -10,13 +11,14 @@
  import Modal from './ui/Modal.svelte';
  import ApiKeyScope from './ApiKeyScope.svelte';
  export let pending=false;
- type Status={enabled:boolean;running:boolean;web_enabled:boolean;web_running:boolean;host:string;port:number;local_url:string;lan_urls:string[];key_count:number;autostart:boolean;last_error:string|null};
+ type Status={enabled:boolean;running:boolean;web_enabled:boolean;web_running:boolean;web_access_code_required?:boolean;host:string;port:number;local_url:string;lan_urls:string[];key_count:number;autostart:boolean;last_error:string|null};
  type Scope={type:'all'}|{type:'folders';paths:string[]};
  type Key={id:string;name:string;prefix:string;created_at:number;copyable:boolean;scope?:Scope};
  let scopeMode='all',scopePaths:string[]=[],editing:Key|null=null;
  let choosingMcp:{url:string;target:string}|null=null;
  const keyScope=(key:Key)=>key.scope?.type==='folders'?key.scope.paths.join(' · '):$t('全部知识库');
  let apiEnabled=false,webEnabled=false,autostartEnabled=false,copied='';
+ let webAccessCodeRequired=true;
  let rotating=false;
  let copyTimer:ReturnType<typeof setTimeout>|undefined;
  onDestroy(()=>clearTimeout(copyTimer));
@@ -29,6 +31,7 @@
   const next=await call<Status>({action:'status'});
   if(reset||!status||!changed){host=next.host;port=next.port;}
   status=next;apiEnabled=next.enabled;webEnabled=next.web_enabled===true;autostartEnabled=next.autostart;keys=await call<Key[]>({action:'list_keys'});
+  webAccessCodeRequired=next.web_access_code_required!==false;
  }
  onMount(()=>{
   let disposed=false;
@@ -36,26 +39,33 @@
   void poll();const timer=setInterval(()=>void poll(),3000);
   return()=>{disposed=true;clearInterval(timer);created=null;};
  });
- async function act(action:Record<string,unknown>){
+ async function act(action:Record<string,unknown>,run=()=>call(action)){
   pending=true;error='';notice='';
-  try{await call(action);await refresh(action.action==='configure'||action.action==='start'||action.action==='web_start');return true;}catch(e){error=String(e);return false;}finally{pending=false;}
+  try{await run();await refresh(action.action==='configure'||action.action==='start'||action.action==='web_start');return true;}catch(e){error=String(e);return false;}finally{pending=false;}
  }
  async function toggleService(service:'api'|'web',enabled:boolean){
-  if(enabled&&(!port||!Number.isInteger(port)||port<1||port>65535))error=$t('请输入有效端口（1–65535）');
+  if(!web&&enabled&&(!port||!Number.isInteger(port)||port<1||port>65535))error=$t('请输入有效端口（1–65535）');
   else{
    const action=service==='web'?(enabled?'web_start':'web_stop'):(enabled?'start':'stop');
-   await act(enabled?{action,host,port}:{action});
+   await act(enabled&&!web?{action,host,port}:{action});
   }
   if(service==='web')webEnabled=status!.web_enabled;else apiEnabled=status!.enabled;
  }
  async function toggleAutostart(enabled:boolean){await act({action:'autostart',enabled});autostartEnabled=status!.autostart;}
+ async function toggleWebAccessCode(required:boolean){
+  const action={action:'web_set_access_code' as const,required};
+  await act(action,web?()=>changeWebAccessCode(action):undefined);
+  webAccessCodeRequired=status!.web_access_code_required!==false;
+ }
  async function rotateWebCode(){
   copied='';clearTimeout(copyTimer);
-  if(await act({action:'web_rotate_code'})){rotating=false;notice=$t('访问码已更换');}
+  const action={action:'web_rotate_code' as const};
+  if(await act(action,web?()=>changeWebAccessCode(action):undefined)){rotating=false;notice=$t('访问码已更换');}
  }
  async function saveConnection(){if(await act({action:'configure',host,port}))notice=$t('连接配置已保存');}
  async function copy(value:string|Promise<string>,target:string){error='';dialogError='';try{
-  if(typeof value==='string')await navigator.clipboard.writeText(value);
+  if(web)await copyText(await value);
+  else if(typeof value==='string')await navigator.clipboard.writeText(value);
   else await navigator.clipboard.write([new ClipboardItem({'text/plain':value.then(text=>new Blob([text],{type:'text/plain'}))})]);
   copied=target;notice=$t('已复制');clearTimeout(copyTimer);copyTimer=setTimeout(()=>{copied='';notice='';},2000);
  }catch(e){if(creating)dialogError=String(e);else error=String(e);}}
@@ -101,14 +111,19 @@
  <section class="settings-group web-service-settings">
   <div class="setting-row">
    <div><strong>{$t('网页服务')}</strong><p class="api-run-state" data-state={status.web_running?'running':'stopped'} role="status">{$t(status.web_running?'运行中':status.web_enabled?'已启用，未运行':'已关闭')}</p></div>
-   <Switch bind:checked={webEnabled} disabled={pending} label={$t('网页服务')} onCheckedChange={enabled=>toggleService('web',enabled)}/>
+   {#if !web}<Switch bind:checked={webEnabled} disabled={pending} label={$t('网页服务')} onCheckedChange={enabled=>toggleService('web',enabled)}/>{/if}
   </div>
   {#if status.web_running}
-   <div class="api-address"><span>{$t('本机地址')}</span><code>{status.local_url}</code><Button.Root type="button" class="icon-button" aria-label={$t('打开网页')} onclick={()=>api('open_external_link',{url:status!.local_url}).catch(e=>error=String(e))}>{@html icon('externalLink')}</Button.Root></div>
+   {#if !web}<div class="api-address"><span>{$t('本机地址')}</span><code>{status.local_url}</code><Button.Root type="button" class="icon-button" aria-label={$t('打开网页')} onclick={()=>api('open_external_link',{url:status!.local_url}).catch(e=>error=String(e))}>{@html icon('externalLink')}</Button.Root></div>{/if}
    {#each status.lan_urls as url}
     <div class="api-address"><span>{$t('局域网地址')}</span><code>{url}</code><Button.Root type="button" class="icon-button" aria-label={$t('复制局域网地址')} onclick={()=>copy(url,'web-'+url)}>{@html icon(copied==='web-'+url?'check':'copy')}</Button.Root></div>
    {/each}
-   <div class="setting-row"><strong>{$t('网页访问码')}</strong><div class="web-code-actions"><Button.Root type="button" class="outline" disabled={pending} onclick={()=>{rotating=true;error='';}}>{$t('更换访问码')}</Button.Root><Button.Root type="button" class="outline" disabled={pending} onclick={()=>copy(call<{code:string}>({action:'web_code'}).then(value=>value.code),'web-code')}>{$t(copied==='web-code'?'已复制':'复制访问码')}</Button.Root></div></div>
+   <div class="setting-row">
+    <div><div class="web-code-label"><strong>{$t('网页访问码')}</strong><Switch bind:checked={webAccessCodeRequired} disabled={pending} label={$t('网页访问码')} onCheckedChange={toggleWebAccessCode}/></div>
+     {#if !webAccessCodeRequired}<p>{$t('任何能打开网页地址的人都可以修改设置、管理 API Key 和清除应用数据。')}</p>{/if}
+    </div>
+    {#if webAccessCodeRequired}<div class="web-code-actions"><Button.Root type="button" class="outline" disabled={pending} onclick={()=>{rotating=true;error='';}}>{$t('更换访问码')}</Button.Root><Button.Root type="button" class="outline" disabled={pending} onclick={()=>copy(call<{code:string}>({action:'web_code'}).then(value=>value.code),'web-code')}>{$t(copied==='web-code'?'已复制':'复制访问码')}</Button.Root></div>{/if}
+   </div>
   {/if}
  </section>
  <section class="settings-group api-endpoints">
@@ -126,7 +141,7 @@
   {/if}
   <details class="api-example"><summary>{@html icon('chevron')}{$t('调用示例')}</summary><pre><code>{example}</code></pre><Button.Root type="button" class="outline" onclick={()=>copy(example,'example')}>{copied==='example'?$t('已复制'):$t('复制示例')}</Button.Root></details>
  </section>
- <h3 class="settings-section-title" id="api-connection-heading">{$t('连接配置')}</h3>
+ {#if !web}<h3 class="settings-section-title" id="api-connection-heading">{$t('连接配置')}</h3>
  <section class="settings-group" aria-labelledby="api-connection-heading">
   <div class="api-connection">
    <label>{$t('连接范围')}<Select label={$t('连接范围')} placeholder={$t('选择连接范围')} bind:value={host} items={[{value:'127.0.0.1',label:$t('仅本机')},{value:'0.0.0.0',label:$t('本机与局域网')}]} disabled={pending||status.running||status.web_running}/></label>
@@ -136,7 +151,7 @@
  </section>
  <section class="settings-group">
   <div class="setting-row"><div><strong>{$t('开机自启')}</strong><p>{$t('登录系统后恢复已启用的远程服务。')}</p></div><Switch bind:checked={autostartEnabled} disabled={pending} label={$t('开机自启')} onCheckedChange={toggleAutostart}/></div>
- </section>
+ </section>{/if}
  <header class="settings-group-heading"><h3 id="api-keys-heading">API Key</h3><Button.Root type="button" class="outline" disabled={pending} onclick={()=>{creating=true;dialogError='';scopeMode='all';scopePaths=[];}}>{$t('创建 Key')}</Button.Root></header>
  <section class="settings-group" aria-labelledby="api-keys-heading">
   {#if keys.length}
@@ -152,7 +167,7 @@
 
 {#if rotating}<Modal label={$t('更换访问码')} onClose={()=>{if(!pending)rotating=false;}}>
  <div class="dialog-head"><h2>{$t('更换访问码')}</h2></div>
- <div class="dialog-body"><p>{$t('旧访问码将立即失效，已登录的浏览器需要重新输入新码。')}</p>{#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}</div>
+ <div class="dialog-body"><p>{$t(web?'旧访问码将立即失效，其他已登录的浏览器需要重新输入新码。':'旧访问码将立即失效，已登录的浏览器需要重新输入新码。')}</p>{#if error}<p class="form-error" role="alert">{$t(error)}</p>{/if}</div>
  <div class="dialog-footer"><Button.Root type="button" disabled={pending} onclick={()=>rotating=false}>{$t('取消')}</Button.Root><Button.Root type="button" class="primary" disabled={pending} onclick={rotateWebCode}>{$t('确认更换')}</Button.Root></div>
 </Modal>{/if}
 {#if creating}<Modal label={$t('创建 Key')} onClose={closeCreate}>
@@ -183,6 +198,7 @@
  .api-docs-link{flex-shrink:0;padding-top:4px}.api-docs-link a{display:inline-flex;align-items:center;gap:8px;font-size:13px;color:var(--color-secondary);text-underline-offset:3px}.api-docs-link :global(svg){width:16px;height:16px}
  .api-docs-link a:focus-visible,summary:focus-visible{outline:2px solid var(--color-focus);outline-offset:4px;border-radius:4px}
  .web-code-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
+ .web-code-label{display:flex;align-items:center;gap:12px}
  .setting-row{padding-left:16px;padding-right:16px}.api-run-state{display:flex;align-items:center;gap:6px}.api-run-state::before{content:'';width:6px;height:6px;flex-shrink:0;border-radius:50%;background:var(--color-muted)}.api-run-state[data-state=running]::before{background:var(--color-success)}
  .api-address{display:grid;grid-template-columns:76px minmax(0,1fr) 32px;align-items:center;gap:12px;padding:10px 16px;font-size:12px}.api-address>span{color:var(--color-secondary)}.api-address code{overflow-wrap:anywhere;font-family:var(--font-mono);font-size:12px;font-variant-numeric:tabular-nums;user-select:text;-webkit-user-select:text}.api-address :global(button){justify-self:end}
  .api-settings:lang(en) .api-address{grid-template-columns:96px minmax(0,1fr) 32px}

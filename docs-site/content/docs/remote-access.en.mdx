@@ -7,11 +7,13 @@ description: "Use SAG Wiki in a browser on this device or your local network."
 
 1. In the desktop app, open **Settings → Remote services** and enable **Web service**.
 2. Click the open button next to the local address, or open the displayed LAN address on another device on the same network.
-3. Click **Copy access code** and paste it into the browser sign-in page. The same browser reconnects automatically when you reopen the same address. Click **Sign out** to clear the remembered code.
+3. When an access code is required, click **Copy access code** and paste it into the browser sign-in page. The same browser reconnects automatically when you reopen the same address. Click **Sign out** to clear the remembered code. If the code is turned off, the library opens directly.
 
 The first sign-in page uses the browser’s preferred language. It supports Simplified Chinese, Traditional Chinese, English, Japanese, Korean, and Spanish. Other languages use English. If you sign out or reconnect within the same page, the sign-in form keeps the library’s interface language.
 
 Click **Change access code** and confirm to invalidate the old code immediately. Signed-in browsers must enter the new code. The web service stays on and API keys are unaffected. Turning off the web service also invalidates the old code.
+
+The **Web access code** switch appears while the web service is running. Fresh configurations default to off on Linux and on for macOS and Windows. Existing installations keep their saved setting. With the code off, anyone who can open the web address can access the library, change shared settings, manage API keys, and clear application data. Turning the code back on generates a new one. The server keeps its listening address and continues to require API/MCP authentication.
 
 ![Web address and access code in Remote services settings](/images/product-remote-services-en.png)
 
@@ -19,22 +21,63 @@ In **Connection configuration** below **API and MCP**, choose **This device only
 
 ## What you can do in the browser
 
-Use the browser to browse files, create and edit Markdown, search, ask questions, save notes and check indexing progress. The browser and desktop share the same files, index and conversation history. Add or remove library folders, configure models and manage services on the computer running SAG Wiki. The browser does not offer removal of folders or files from the knowledge base.
+Use the browser to browse files, create and edit Markdown, search, ask questions, save notes, and check indexing progress. The browser and desktop share the same files, index, and conversation history.
 
 On narrow phone screens, the sidebar is hidden by default. Tap the upper-left button to open it, then tap outside the sidebar or use its close button to hide it. The sidebar opens over the page, leaving the content width unchanged.
 
 The header shows a centered **Chat** or **Search** title in a conversation or on the results page. Open documents use the document toolbar. Use the back arrow in the upper left to go back. The search field and submit button are on the first row, with scope and search mode on the second. The keyboard dismisses automatically when you submit a search or send a question.
 
-On a phone, open **Settings** from the sidebar. Use the tabs at the top of the full-screen page to switch between **General** and **Appearance**. Tap **Save settings** at the bottom to apply changes, or use the back arrow in the upper left to return.
+Open **Settings** from the sidebar to manage general, appearance, file, model, chat, and search settings, configure online sources, and manage CLI access, API/MCP services, and API keys. Under **Data and privacy**, you can clear conversations, remove all folders, or clear application data. Browsers connected to the same service share these settings. On a phone, use the category menu at the top of the page. Click **Save settings** to apply changes. Remote service actions take effect immediately.
 
-If the web app reports a missing model, contact the administrator to configure it on the host. Quick search works without a model.
+If the web app reports a missing model, open **Settings → Models** to configure it. Quick search works without a model.
 
-Anyone with the access code can view the library and edit files. Use a trusted LAN because the built-in HTTP connection is unencrypted. Keep the host computer and background service running; you can close the desktop window.
+In the web app, go to **Settings → Remote services → Web access code** to turn verification on or off, copy the code, or change it. When you turn verification on or change the code, the browser that made the change continues with the new code. Other browsers must enter the new code.
+
+Use the host to start or stop the web service and manage its listening address, port, and autostart. Local Agent integration, external MCP tools, and local file imports also run on the host. Clearing application data in the browser keeps the current web address and access code working.
+
+The Web Clipper entry appears only in desktop settings. In the Linux web app, add content by uploading files or folders or by connecting an online source.
+
+Use a trusted LAN because the built-in HTTP connection is unencrypted. Keep the host computer and background service running; you can close the desktop window.
+
+## Create folders and upload from the web
+
+1. Click **+** next to **Folder management** in the sidebar, or choose **Create folder** in the **Files** overview. Enter a name and the web app opens the new folder.
+2. In a folder created from the web, **Create folder** and **New document** are grouped together. Next to them, use **Upload file** for a single file or **Upload folder** for an entire directory.
+3. Uploads preserve relative paths and are indexed according to **File settings**. If a file with the same name already exists, SAG reports the conflict and keeps the existing file.
+
+Folders created in the browser are stored under `web-library` in the SAG application data directory on the host. Find the application data directory under **Settings → Data and privacy**. Each file can be up to 512 MB. The upload skips hidden files and empty subfolders the browser does not send.
+
+To index an existing folder on the host, continue to use `sag add /path/to/folder`. That folder stays where it is and appears in the same web library. Browser uploads go into folders created on the web.
 
 ## Start from the CLI
 
 The standalone CLI with `sag api web` can run the web service on **Windows x64, macOS on Apple Silicon, and Linux**. Supported Linux distributions are Ubuntu 24.04 and Debian 12 (x86_64 or ARM64).
 
+On Linux, install Node.js 18 or later and npm, then run `npm install -g @zleap-ai/sag` and check `sag --version`. On minimal Ubuntu or Debian systems, install `ca-certificates` if system certificates are missing. See [CLI installation](/en/docs/installation#cli-only) for details.
+
 In a terminal on the computer running the CLI, run `sag add` with the local folder path to add and index it. Use `sag list` to check indexing status, or run `sag remove` with the folder path to remove it from the knowledge base while keeping the original files. See [CLI commands](/en/docs/cli#commands) for details.
 
-Run `sag api web start` to start the web service, `sag api web code` to view the access code, and `sag api status` to check addresses. If LAN access is enabled, open the displayed address on another device on the same network and enter the code. Run `sag api web stop` to turn off the web service.
+```sh
+sag api web start --host 0.0.0.0
+sag api status
+```
+
+With a fresh Linux configuration, open the web address directly. To require a code from the first connection, run `sag api web access-code on` before starting the web service, then use `sag api web code` to view the code after startup. Run `sag api web access-code off` to turn verification off. The setting takes effect immediately and persists across restarts.
+
+`0.0.0.0` listens on all IPv4 interfaces; network and firewall rules determine which devices can connect. Use `--host 127.0.0.1` for access from the host only. The default port is `24681`; if you changed it, omitting `--port` reuses the saved port.
+
+Open the local address shown by `sag api status` on the host, or the LAN address on another device on the same network. Enter the access code if the sign-in page appears. Run `sag api web stop` to turn off the web service.
+
+## Access via a public IP address or domain
+
+If a public IP is mapped to a private IP, save the full address your browser opens with `sag api web external-url` on the host.
+
+```sh
+sag api web external-url http://203.0.113.10:24681
+```
+
+Replace the example IP with your own. Use `sag api status` to see the saved address. Saving it leaves the web service, access code, and firewall settings unchanged. When you are ready, start the service with `sag api web start --host 0.0.0.0` and allow the port only from the clients that need access. When the access code is off, anyone who can connect can open the library.
+
+Include `http://` or `https://` and any non-default port. For an HTTPS reverse proxy, enter the browser-facing HTTPS address. The proxy handles HTTPS and must preserve the original request's host and port. Other external addresses are rejected; local and LAN addresses continue to work.
+
+Clear the address with `sag api web external-url --clear`.

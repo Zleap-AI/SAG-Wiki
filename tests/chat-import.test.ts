@@ -13,6 +13,7 @@ const button=(label:string)=>[...document.querySelectorAll<HTMLButtonElement>('b
 beforeEach(()=>{
  invoke.mockImplementation(async command=>{
   if(command==='get_chat_import_folder')return '/Documents/sag-wiki/agent-history';
+  if(command==='get_chat_import_schedule')return {schedule:{enabled:false,time:'09:00',source_root:null,include_tools:false},last_run_at:null,last_run:null};
   if(command==='choose_chat_import_folder')return '/Archive/Chats';
   if(command==='list_chat_sessions')return{source_root:'/transcripts',sessions:[session],issues:[],total:1,page:0,page_size:50,projects:['/demo/project']};
   if(command==='preview_chat_import')return{title:'发布流程讨论',body:'# 发布流程讨论\n\n用户问题\n\n助手回答'};

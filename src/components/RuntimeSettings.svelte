@@ -28,7 +28,7 @@
  <details class="runtime-settings" class:embedded={group==='files'}><summary>{$t('高级运行参数')}</summary>
  {#if group==='files'&&resources}<p class="settings-help">{$t('当前本地转换内存预算 {value0} MiB，单任务 {value1} MiB，最多同时运行 {value2} 个任务。',{value0:Math.floor(resources[0]/1048576),value1:Math.floor(resources[1]/1048576),value2:resources[2]})}</p>{/if}
  <p class="settings-help">{$t('保存后新任务生效，运行中的任务继续使用原参数。资源不足时会等待可用内存。')}</p>
-  <section class="settings-group">
+  <section class="settings-group" class:transparent={group==='models'}>
    {#each visible.filter(field=>field.advanced) as field}
     <div class="setting-row"><label for={'runtime-'+field.key}><strong>{$t(field.label)}{field.unit?' · '+$t(field.unit):''}</strong><p>{$t(field.help)}</p></label>
     {#if typeof defaults[field.key]==='boolean'}<Switch checked={Boolean(value[field.key])} onCheckedChange={checked=>value={...value,[field.key]:checked}} label={$t(field.label)}/>
@@ -45,6 +45,7 @@
  summary{cursor:pointer;font-weight:500}
  .runtime-settings>.settings-help{line-height:1.6;margin:14px 0}
  .runtime-settings .settings-group{border:0;padding:0;margin:0}
+ .runtime-settings .settings-group.transparent{background:transparent}
  .runtime-settings .setting-row{gap:24px;padding:14px 0}
  .runtime-settings :global(input[type=number]){width:120px;flex-shrink:0}
  .runtime-settings .settings-section-actions{margin-top:16px}

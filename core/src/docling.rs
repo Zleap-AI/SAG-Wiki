@@ -1,5 +1,7 @@
 //! Optional external document conversion. The index only reads its Markdown output.
 use anyhow::{anyhow, bail, Context, Result};
+use sag_client::network_proxy::{apply_proxy, configure_download_command};
+use sag_protocol::types::ModelProxy;
 use sag_protocol::{DoclingProfile, DoclingProfileStatus, DoclingStatus};
 use sha2::{Digest, Sha256};
 use std::{
@@ -209,6 +211,7 @@ pub struct Docling {
     packages: Arc<Mutex<Packages>>,
     cancel: Arc<AtomicBool>,
     profile: DoclingProfile,
+    download_proxy: ModelProxy,
     usage: RwLock<()>,
 }
 #[derive(Default)]
@@ -255,6 +258,7 @@ impl Docling {
             packages: Arc::new(Mutex::new(Packages::default())),
             cancel: Arc::new(AtomicBool::new(false)),
             profile: DoclingProfile::Documents,
+            download_proxy: ModelProxy::default(),
             usage: RwLock::new(()),
         }
     }
@@ -369,18 +373,18 @@ impl Docling {
         status.packages_done = 0;
         status.packages_total = 0;
     }
-    pub fn start(self: &Arc<Self>) -> Result<()> {
-        self.start_profiles(vec![DoclingProfile::Documents])
+    pub fn start(self: &Arc<Self>, proxy: ModelProxy) -> Result<()> {
+        self.start_profiles(vec![DoclingProfile::Documents], proxy)
     }
     /// An explicit offline source applies to this installation only. Never
     /// register it as the source of later online retries or media installs.
     /// A folder with a manifest is a complete component; a folder holding only
     /// the extracted uv archive replaces the first download, and the remaining
     /// steps still install online.
-    pub fn import_component(self: &Arc<Self>, path: PathBuf) -> Result<()> {
+    pub fn import_component(self: &Arc<Self>, path: PathBuf, proxy: ModelProxy) -> Result<()> {
         if path.join("manifest.json").is_file() {
             let source = InstallSource::Component(path.canonicalize()?);
-            return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source));
+            return self.start_profiles_from(vec![DoclingProfile::Documents], Some(source), proxy);
         }
         // Extracting the archive may add one folder level, e.g. uv-<platform>/uv.
         let uv = walkdir::WalkDir::new(&path)
@@ -393,18 +397,19 @@ impl Docling {
             bail!("所选目录既不是完整组件（缺少 manifest.json），也不包含 {UV_EXECUTABLE}，请选择解压后的目录")
         };
         let source = InstallSource::Uv(uv.path().canonicalize()?);
-        self.start_profiles_from(vec![DoclingProfile::Documents], Some(source))
+        self.start_profiles_from(vec![DoclingProfile::Documents], Some(source), proxy)
     }
-    pub fn start_profiles(self: &Arc<Self>, profiles: Vec<DoclingProfile>) -> Result<()> {
-        self.start_profiles_from(profiles, None)
+    pub fn start_profiles(self: &Arc<Self>, profiles: Vec<DoclingProfile>, proxy: ModelProxy) -> Result<()> {
+        self.start_profiles_from(profiles, None, proxy)
     }
-    pub fn start_from_resource(self: &Arc<Self>, profiles: Vec<DoclingProfile>) -> Result<()> {
-        self.start_profiles_from(profiles, Some(InstallSource::Resource))
+    pub fn start_from_resource(self: &Arc<Self>, profiles: Vec<DoclingProfile>, proxy: ModelProxy) -> Result<()> {
+        self.start_profiles_from(profiles, Some(InstallSource::Resource), proxy)
     }
     fn start_profiles_from(
         self: &Arc<Self>,
         profiles: Vec<DoclingProfile>,
         source: Option<InstallSource>,
+        proxy: ModelProxy,
     ) -> Result<()> {
         let profiles: Vec<_> = [DoclingProfile::Documents, DoclingProfile::Media]
             .into_iter()
@@ -435,7 +440,8 @@ impl Docling {
                 if this.has_profile(profile) {
                     return Ok(());
                 }
-                let view = this.profile_view(profile);
+                let mut view = this.profile_view(profile);
+                view.download_proxy = proxy.clone();
                 match &source {
                     Some(InstallSource::Component(source)) => {
                         *view.source.lock().unwrap() = Some(source.clone());
@@ -481,6 +487,7 @@ impl Docling {
             packages: self.packages.clone(),
             cancel: self.cancel.clone(),
             profile,
+            download_proxy: self.download_proxy.clone(),
             usage: RwLock::new(()),
         }
     }
@@ -554,6 +561,7 @@ impl Docling {
         let packages = staging.path().join("site-packages");
         let models = staging.path().join("models");
         let mut command = self.command(uv);
+        configure_download_command(&mut command, &self.download_proxy)?;
         command.env("UV_PYTHON_INSTALL_DIR", &python_home).args([
             "python",
             "install",
@@ -583,6 +591,7 @@ impl Docling {
             .context("下载的 Python 运行环境缺少解释器")?
             .into_path();
         let mut command = self.command(uv);
+        configure_download_command(&mut command, &self.download_proxy)?;
         command
             .env("UV_PYTHON_INSTALL_DIR", &python_home)
             .args(["pip", "install", "--python"])
@@ -634,6 +643,7 @@ impl Docling {
                 "无法下载组件依赖：{error:#}。如无法访问 PyPI，可设置 UV_DEFAULT_INDEX 环境变量（例如 https://pypi.tuna.tsinghua.edu.cn/simple），重启 SAG 服务后重试。"
             )))?;
         let mut command = self.command(&python);
+        configure_download_command(&mut command, &self.download_proxy)?;
 
         command
             .env("PYTHONPATH", &packages)
@@ -710,10 +720,10 @@ impl Docling {
         let url = format!("{}/api/models/docling-project/docling-layout-heron", endpoint.trim_end_matches('/'));
         self.status.lock().unwrap().message = format!("正在连接模型服务 {endpoint}…");
         let probe: Result<std::result::Result<(), reqwest::Error>> = tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
-            let client = reqwest::Client::builder()
+            let builder = reqwest::Client::builder()
                 .connect_timeout(Duration::from_secs(10))
-                .timeout(Duration::from_secs(15))
-                .build()?;
+                .timeout(Duration::from_secs(15));
+            let client = apply_proxy(builder, &self.download_proxy)?.build()?;
             let request = client.head(&url).send();
             tokio::pin!(request);
             loop {
@@ -1084,7 +1094,10 @@ impl Docling {
         tokio::runtime::Builder::new_current_thread().enable_all().build()?.block_on(async {
             if self.cancel.load(Ordering::Relaxed) { bail!("已取消下载，可稍后重试") }
             self.status.lock().unwrap().downloaded = 0;
-            let client = reqwest::Client::builder().connect_timeout(Duration::from_secs(20)).timeout(Duration::from_secs(600)).build()?;
+            let builder = reqwest::Client::builder()
+                .connect_timeout(Duration::from_secs(20))
+                .timeout(Duration::from_secs(600));
+            let client = apply_proxy(builder, &self.download_proxy)?.build()?;
             let request = client.get(url).send();
             tokio::pin!(request);
             let response = loop {

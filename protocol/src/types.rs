@@ -300,15 +300,30 @@ fn legacy_conversion_storage() -> ConversionStorage { ConversionStorage::Library
 pub enum DocumentParser {
     Docling,
     Mineru,
+    Vision,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ModelProxy {
+    pub url: String,
+    pub bypass: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub runtime: crate::runtime::RuntimeSettings,
+    pub model_proxy: ModelProxy,
     pub mineru: crate::mineru::MineruConfig,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub document_parser: Option<DocumentParser>,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub document_parser_model: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub document_parser_pdf_prompt: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub document_parser_image_prompt: String,
     pub updates: UpdateSettings,
     pub convert_other_formats: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -351,8 +366,12 @@ impl Default for Settings {
     fn default() -> Self {
         Self {
             runtime: crate::runtime::RuntimeSettings::default(),
+            model_proxy: ModelProxy::default(),
             mineru: crate::mineru::MineruConfig::default(),
             document_parser: None,
+            document_parser_model: String::new(),
+            document_parser_pdf_prompt: String::new(),
+            document_parser_image_prompt: String::new(),
             updates: UpdateSettings::default(),
             convert_other_formats: false,
             conversion_formats: None,
@@ -464,6 +483,8 @@ pub struct ReasoningBlock {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Message {
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub help: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<i64>,
     pub question: String,

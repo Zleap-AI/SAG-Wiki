@@ -5,6 +5,7 @@ import SettingsPanel from '../src/components/Settings.svelte';
 import App from '../src/App.svelte';
 import type {Settings} from '../src/lib/types';
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn()}));
+const dataLocation={directory:'/sag-data',environment_override:false};
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
 vi.mock('@tauri-apps/api/window',()=>({getCurrentWindow:()=>({onCloseRequested:async()=>()=>{}})}));
@@ -13,11 +14,11 @@ const value:Settings={answer:{url:'http://localhost',model:'test',models:['test'
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.resetAllMocks();localStorage.removeItem('sag.search.history')});
 it('数据与隐私中的清空操作须确认，成功后清除界面历史',async()=>{
- const cleared=vi.fn();invoke.mockResolvedValue(undefined);
+ const cleared=vi.fn();invoke.mockImplementation(async command=>command==='get_data_directory'?dataLocation:undefined);
  app=mount(SettingsPanel,{target:document.body,props:{value,initial:'privacy',onClose:()=>{},onSave:async()=>{},onConversationsCleared:cleared}});await tick();
  const button=()=>[...document.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent?.trim()==='清空所有对话')!;
- expect(button()).toBeDefined();expect(document.querySelector('.clear-conversations-settings')).not.toBeNull();button().click();await tick();expect(invoke).not.toHaveBeenCalled();
- document.querySelector<HTMLButtonElement>('[aria-label="取消清空对话"]')!.click();await tick();expect(invoke).not.toHaveBeenCalled();
+ expect(button()).toBeDefined();expect(document.querySelector('.clear-conversations-settings')).not.toBeNull();button().click();await tick();expect(invoke).not.toHaveBeenCalledWith('clear_conversations',undefined);
+ document.querySelector<HTMLButtonElement>('[aria-label="取消清空对话"]')!.click();await tick();expect(invoke).not.toHaveBeenCalledWith('clear_conversations',undefined);
  button().click();await tick();document.querySelector<HTMLButtonElement>('[aria-label="确认清空所有对话"]')!.click();
  await vi.waitFor(()=>expect(cleared).toHaveBeenCalledOnce());
  expect(invoke).toHaveBeenCalledWith('clear_conversations',undefined);
@@ -35,6 +36,7 @@ it('清空失败时显示错误，不报告成功',async()=>{
 it('清空后当前会话和列表立即移除，并可开始新对话',async()=>{
  let history=[{id:'old',title:'清空前的对话',updated:0,deleted:false,messages:[{question:'旧问题',answer:'旧回答',evidence:[],model:'test',scope:[],references:[],status:'complete',error:null,retrieval_question:'旧问题'}]}];
  invoke.mockImplementation(async(command)=>{
+  if(command==='get_data_directory')return dataLocation;
   if(command==='get_settings')return value;
   if(command==='list_conversations')return history;
   if(command==='clear_conversations'){history=[];return;}
@@ -58,6 +60,7 @@ it('清除所有数据需确认，同时清空文件夹、会话和持久化搜�
  localStorage.setItem('sag.search.history',JSON.stringify(['旧搜索']));
  let cleared=false;
  invoke.mockImplementation(async command=>{
+  if(command==='get_data_directory')return dataLocation;
   if(command==='get_settings')return cleared?value:{...value,answer:{...value.answer,model:'old-model',models:['old-model'],has_key:true}};
   if(command==='list_roots')return cleared?[]:[{path:'/notes',name:'待清理文件夹',status:'ready',count:1,error:null}];
   if(command==='list_conversations')return cleared?[]:[{id:'old',title:'待清理会话',updated:0,deleted:false,messages:[]}];

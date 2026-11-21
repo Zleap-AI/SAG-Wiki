@@ -1,5 +1,8 @@
+mod build_help;
+
 fn main() {
     let output = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());
+    build_help::bundle(&output);
     let mut entries = String::new();
     println!("cargo:rerun-if-env-changed=SAG_WEB_DIST");
     if let Some(dist) = std::env::var_os("SAG_WEB_DIST") {
