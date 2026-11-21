@@ -1,0 +1,25 @@
+---
+title: "Apify"
+description: "Run an Apify Actor, preview its results, and choose which fields to import."
+---
+
+Apify is a platform for web scraping and automation. Choose a ready-to-run scraping or automation program (an Actor) from Apify Store, then use SAG to run it and import the results. [Apify website](https://apify.com/) · [Apify Store](https://apify.com/store)
+
+## Import from an Actor
+
+![Configure the Apify website crawler with an Actor ID and run parameters](/images/product-source-apify-en.png)
+
+1. Open **Settings → Data sources → Apify → Configure**. The form opens directly for your first connection. If you already have connections, choose **Add connection**. Name your connection. Choose **Browse Actors** to see popular Actors, search by keyword, and page through the results. Selecting an Actor fills in its ID and loads the parameters. You can also paste an Apify Store link or enter an Actor ID. Use `owner/name`, `owner~name`, or the internal ID from Apify. Pasting a link loads the parameters. For a typed ID, choose **Load parameters**. Press Enter or Tab in the empty field to fill it with the official website crawler's Actor ID.
+2. Enter your [Apify API token](https://console.apify.com/settings/integrations) and fill in the **Run parameters**. For a private Actor, enter the token before loading the parameters. Use the JSON editor for complex inputs.
+3. Choose **Save and run**. For the official website crawler shown above, choose **Save and import** to import Markdown automatically when the run finishes. Apify may charge for the run. You can close the dialog and keep using SAG. The task continues while SAG stays open. Reopen Apify to check or cancel the run from the connection list. To import manually, choose **Result preview**, select the content fields, and optionally assign a title, source URL, and unique ID. Choose **Import** to save the results as Markdown.
+
+## Sync schedule
+
+Connections default to **Manual only**. Click the clock next to Apify in the data sources list. Open the connection’s **Configure** panel, then find **Sync schedule**. The available frequencies are **Every 30 minutes**, **Hourly**, **Every 6 hours**, **Every 12 hours**, or **Daily**. Daily schedules use the local time you choose. The official website crawler can be scheduled immediately. For other Actors, select fields and complete a manual import first. Later runs import those saved fields automatically.
+
+While the SAG background service is running, it starts the Actor on schedule and imports the results. Apify may charge for each run. The connection list shows the next scheduled sync. You can pause the schedule and still choose **Sync now**. Configure the schedule in SAG without creating a separate schedule in Apify Console.
+
+SAG reads the Actor's default Dataset. If the Dataset is empty, it looks for a JSON or text record named `OUTPUT` in the default Key-value Store. You can save a connection and run it later with **Sync now**. SAG stores the token with the connection. When editing, leave the token field blank to keep the saved token. Removing a connection preserves the imported files.
+
+Files go under `sag-wiki/data-sources/apify/` in Documents by default. The desktop app lets you change the destination. Imported files are indexed automatically. A unique ID or source URL lets later imports update the original file. SAG preserves locally edited files.
+

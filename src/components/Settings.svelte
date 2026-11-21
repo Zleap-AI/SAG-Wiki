@@ -12,7 +12,7 @@
  import Switch from "./ui/Switch.svelte";
  import ReasoningControl from "./ReasoningControl.svelte";
  import{Button,Checkbox}from 'bits-ui';
- import type{Settings,ModelConfig,ModelProxy,Retrieval,FileTypes,CliAccess,ConversionStorage}from '../lib/types';import{normalizeModelProxy}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
+ import type{Settings,ModelConfig,Retrieval,FileTypes,CliAccess,ConversionStorage}from '../lib/types';import{normalizeModelProxy}from '../lib/types';import{icon,logo}from '../lib/icons';import{api}from '../lib/api';
  import {open} from '@tauri-apps/plugin-dialog';
  import {displayPath} from '../lib/domain';
  import Modal from './ui/Modal.svelte';import McpSettings from './McpSettings.svelte';import{parseMcpCredentials}from '../lib/mcp-config';import type{McpCredentials,McpServer,McpToolInfo}from '../lib/types';
@@ -36,6 +36,7 @@
  import imageRecognitionPrompt from '../../protocol/src/image-recognition-prompt.txt?raw';
  export let onShareReceived:((path:string)=>void)|undefined=undefined;
  export let onChatImported:(()=>Promise<void>)|undefined=undefined;
+ export let onOpenImportedFolder:((path:string)=>Promise<void>)|undefined=undefined;
  export let narrowLayout=false;
  export let onShowGuide:(()=>void)|undefined=undefined;
  export let onIndexHistory:(()=>void)|undefined=undefined;
@@ -67,27 +68,6 @@
   pdf:value.document_parser_pdf_prompt?.trim()||visionPromptFields[0].defaultPrompt,
   image:value.document_parser_image_prompt?.trim()||visionPromptFields[1].defaultPrompt,
  };
- let proxyDraft:ModelProxy|null=null;
- let proxyTest:{result:'pending'|'success'|'failure',message:string}|null=null;
- /** The General dialog edits the shared proxy: an address means a custom proxy, none keeps or restores the system default. */
- function applyProxyDraft(){
-  if(!proxyDraft)return;
-  const url=proxyDraft.url.trim();
-  settings.model_proxy={...settings.model_proxy,url,bypass:proxyDraft.bypass.trim(),mode:url?'custom':settings.model_proxy.mode==='custom'?'system':settings.model_proxy.mode};
-  proxyDraft=null;
- }
- async function testProxy(){
-  const address=proxyDraft?.url.trim();
-  if(!proxyDraft||!address||proxyTest?.result==='pending')return;
-  const attempt={result:'pending' as const,message:'正在测试连接…'};
-  proxyTest=attempt;
-  try{
-   const message=await api<string>('test_proxy_connection',{proxy:{...settings.model_proxy,mode:'custom',url:address,bypass:proxyDraft.bypass.trim()}});
-   if(proxyTest===attempt)proxyTest={result:'success',message};
-  }catch(e){
-   if(proxyTest===attempt)proxyTest={result:'failure',message:String(e)};
-  }
- }
  $:documentParser=settings.document_parser??(value.mineru?.enabled?'mineru':'docling');
  $:remoteParsing=documentParser==='mineru'&&!!(settings.mineru?.has_key||mineruKey.trim());
  let storage:ConversionStorage=value.conversion_storage??{mode:'library'};
@@ -152,8 +132,36 @@
  function changeProvider(kind:ModelKind,id:string){const current=providerChoice[kind];providerChoice[kind]=id;if(id===current)return;if(kind==='jev'){settings.jev.model=id==='zleap'?'Zev-1':id==='openai'?'gpt-6-luna':id==='302'||id==='official'?'jev-latest':'';if(id==='openai'&&settings.jev.auth_mode==='none')changeJevAuth('bearer');}if(id==='custom')return;changeAddress(kind,providerFor(kind,value[kind].url)===id?value[kind].url:providers[kind].find(provider=>provider.value===id)!.url);}
  $:applyTheme(settings.theme);
  onDestroy(()=>{if(!languageSaved)setLanguage(value.language);applyTheme(value.theme)});
- $:pages=[['general',$t("通用"),'settings'],['appearance',$t("外观"),'sun'],['files',$t("文件设置"),'folder'],['imports',$t('数据导入'),'download'],['clipper',$t('网页剪藏'),'globe'],['shortcuts',$t("快捷键"),'panel'],['models',$t("模型设置"),'plug'],['answer',$t("问答设置"),'chat'],['retrieval',$t("搜索设置"),'search'],['cli',$t('CLI设置'),'codeBlock'],['api',$t('远程服务'),'network'],['network',$t('网络代理'),'route'],['privacy',$t("数据与隐私"),'globe'],['about',$t("关于"),'info']].filter(([id])=>!web||id!=='clipper');
- let descriptions:Record<string,string>; $:descriptions={api:$t('供本机与局域网程序搜索知识库。'),clipper:$t('将网页保存为本地 Markdown 文件。'),general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),network:$t("代理的高级设置：模式、SOCKS5、认证与测试连接。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
+ type SettingsPage=[id:string,label:string,glyph:string];
+ let pageGroups:{label:string;pages:SettingsPage[]}[];
+ $:pageGroups=[
+  {label:$t('settings.group.app'),pages:[
+   ['general',$t('通用'),'settings'],
+   ['appearance',$t('外观'),'sun'],
+   ['shortcuts',$t('快捷键'),'panel'],
+  ]},
+  {label:$t('知识库'),pages:[
+   ['imports',$t('数据源'),'plug'],
+   ['files',$t('文件设置'),'folder'],
+   ...(!web?[['clipper',$t('网页剪藏'),'globe'] as SettingsPage]:[]),
+  ]},
+  {label:$t('settings.group.searchAndChat'),pages:[
+   ['models',$t('模型设置'),'plug'],
+   ['answer',$t('问答设置'),'chat'],
+   ['retrieval',$t('搜索设置'),'search'],
+  ]},
+  {label:$t('settings.group.connections'),pages:[
+   ['cli',$t('CLI设置'),'codeBlock'],
+   ['api',$t('远程服务'),'network'],
+   ['network',$t('网络代理'),'route'],
+  ]},
+  {label:'',pages:[
+   ['privacy',$t('数据与隐私'),'globe'],
+   ['about',$t('关于'),'info'],
+  ]},
+ ];
+ $:pages=pageGroups.flatMap(group=>group.pages);
+ let descriptions:Record<string,string>; $:descriptions={api:$t('供本机与局域网程序搜索知识库。'),clipper:$t('将网页保存为本地 Markdown 文件。'),general:$t("设置启动方式与日常使用习惯。"),appearance:$t("选择适合你的外观与阅读字号。"),files:$t("原文件保留在本地，内容变化自动同步。"),shortcuts:$t("使用键盘完成常用操作。"),models:$t("配置问答模型与 Jev 的连接信息。"),answer:$t("配置提示词、工具绑定与问答请求参数。"),retrieval:$t("调整 SAG2 的召回、扩展与片段设置。"),cli:$t("让 Agent 通过 SAG 搜索本地项目。"),network:$t("设置代理模式、认证和直连地址。"),privacy:$t("查看数据保存方式与本地存储位置。"),about:$t("你的文件，直接成为知识库。")};
  let parameters:[keyof Retrieval,string,string,number,number][]; $:parameters=[['candidate_k',$t("每轮候选数量"),$t("问答每轮的新候选上限；深入搜索固定为 100"),10,100],['seed_k',$t("扩展起点数量"),$t("每轮尚未扩展的起点"),1,20],['expansion_term_limit',$t("扩展词上限"),$t("包括词项和完整名称短语"),1,500],['max_hops',$t("扩展轮数"),$t("默认扩展 1 次；加上首次召回，共 2 轮检索"),0,2],['top_k',$t("返回片段数量"),$t("问答工具返回的片段数；深入搜索最多展示 100 个文件"),1,100],['chunk_chars',$t("片段目标字符数"),$t("默认约 512，保留完整句子及相邻上下文；长句可超过目标长度。修改后自动重建索引"),400,12000]];
  let fileTypeOptions:[keyof FileTypes,string,string][]; $:fileTypeOptions=[['markdown','Markdown','.md · .markdown'],['text',$t("文本与文档"),'.txt · .rtf · .docx · .pptx · .xlsx · .odt · .epub · .pdf'],['code',$t("代码"),'.py · .js · .ts · .rs · .html · .css'],['config',$t("配置文件"),'.json · .yaml · .toml · .xml · .ini']];
  $:indexSettingsChanged=settings.runtime.office_text_only!==(value.runtime?.office_text_only??false)||JSON.stringify(settings.conversion_formats??null)!==JSON.stringify(value.conversion_formats??null)||settings.convert_other_formats!==(value.convert_other_formats??false)||fileTypeOptions.some(([kind])=>settings.file_types[kind]!==({markdown:true,text:true,code:false,config:false,...value.file_types})[kind])||JSON.stringify(settings.excluded)!==JSON.stringify(value.excluded)||settings.retrieval.chunk_chars!==value.retrieval.chunk_chars;
@@ -210,8 +218,13 @@
   </div>
   <form on:submit|preventDefault={()=>{if(page!=='api'&&!dataDirectoryBusy)void save();}} class="settings-form">
    <nav class="settings-nav" aria-label={$t("设置分类")}>
-    {#each pages as [id,label,glyph]}
-     <Button.Root type="button" disabled={cliBusy||apiBusy||dataDirectoryBusy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
+    {#each pageGroups as group}
+     <div class="settings-nav-group" role={group.label?'group':undefined} aria-label={group.label||undefined}>
+      {#if group.label}<p class="settings-nav-heading" aria-hidden="true">{group.label}</p>{/if}
+      {#each group.pages as [id,label,glyph] (id)}
+       <Button.Root type="button" disabled={cliBusy||apiBusy||dataDirectoryBusy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
+      {/each}
+     </div>
     {/each}
    </nav>
    {#if narrowLayout}
@@ -226,7 +239,6 @@
       {#if !web}<div class="setting-row"><div><strong>{$t("启动页面")}</strong><p>{$t("打开应用时首先显示的页面")}</p></div><Select label={$t("启动页面")} class="start-page-select" bind:value={settings.start_page} items={[{value:"ask",label:$t("问答")},{value:"search",label:$t("搜索")}]}/></div>{/if}
       <div class="setting-row"><div><strong>{$t("settings.interfaceLanguage")}</strong></div><Select label={$t("settings.interfaceLanguage")} value={settings.language} onValueChange={next=>{settings.language=resolveLanguage(next);setLanguage(settings.language)}} items={languageOptions}/></div>
       {#if !web}<div class="setting-row"><div><strong>{$t("关闭窗口后")}</strong><p>{$t("从托盘或菜单栏重新打开，也可在那里退出。")}</p></div><span class="setting-value">{$t("后台继续运行")}</span></div>{/if}
-      <div class="setting-row"><strong>{$t('代理设置')}</strong><Button.Root type="button" class="outline" disabled={busy} onclick={()=>{proxyTest=null;proxyDraft={...settings.model_proxy}}}>{$t('配置代理')}</Button.Root></div>
      </section>
      {#if onShowGuide}<section class="settings-group"><div class="setting-row"><div><strong>{$t('快速入门')}</strong><p>{$t('重新查看文件接入、搜索与问答教程')}</p></div><Button.Root type="button" class="outline" onclick={onShowGuide}>{$t('查看教程')}</Button.Root></div></section>{/if}
     {:else if page==='appearance'}
@@ -347,7 +359,7 @@
      <details class="settings-limits"><summary>{$t("算法固定规则")}</summary><p>{$t("每次检索最多 3 轮 Jev 评分，本地排序不增加模型请求。单轮预算为 64,000 tokens，单候选与共享证据合计不超过 32,000 tokens；超限时提示调整候选数量，原文不截断。")}</p></details>
      <RuntimeSettings group="retrieval" bind:value={settings.runtime}/>
     {:else if page==='imports'}
-     <DataImport {onShareReceived} onImported={onChatImported} onDestinationChange={folder=>settings.chat_import_folder=folder}/>
+     <DataImport {onShareReceived} onImported={onChatImported} {onOpenImportedFolder} onDestinationChange={folder=>settings.chat_import_folder=folder}/>
     {:else if page==='clipper'&&!web}
      <WebClipper/>
     {:else if page==='api'}
@@ -443,33 +455,7 @@
  <div class="dialog-footer"><Button.Root type="button" aria-label={$t("取消清空对话")} disabled={clearing} onclick={()=>confirmClear=false}>{$t("取消")}</Button.Root><Button.Root type="button" class="clear-conversations-button" aria-label={$t("确认清空所有对话")} disabled={clearing} onclick={clearConversations}>{clearing?$t("正在清空…"):$t("确认清空")}</Button.Root></div>
 </Modal>{/if}
 
-{#if proxyDraft}
- <Modal label={$t('配置代理')} class="proxy-config-dialog" onClose={()=>proxyDraft=null}>
-  <div class="dialog-head"><h2>{$t('配置代理')}</h2></div>
-  <form on:submit|preventDefault={applyProxyDraft}>
-   <div class="dialog-body">
-    <p class="settings-help">{$t('留空时沿用系统代理和环境变量。')}</p>
-    <label class="field-label">{$t('代理地址')}<Input id="model-proxy-url" type="url" bind:value={proxyDraft.url} oninput={()=>proxyTest=null} placeholder="http://proxy.example.com:8080" autocomplete="off" spellcheck={false}/></label>
-    <label class="field-label">{$t('直连地址')}<Input id="model-proxy-bypass" aria-describedby="model-proxy-bypass-help" bind:value={proxyDraft.bypass} placeholder=".internal.example, 10.0.0.0/8" autocomplete="off" spellcheck={false}/></label>
-    <p id="model-proxy-bypass-help" class="settings-help">{$t('可选。域名、IP 或网段，用逗号分隔。')}</p>
-    <p class="settings-help"><Button.Root type="button" class="settings-text-button proxy-advanced-link" onclick={()=>{proxyDraft=null;page='network';status='';error=''}}>{$t('需要 SOCKS5、认证或强制直连？前往「网络代理」')}</Button.Root></p>
-    <div role="status">{#if proxyTest}<p class="proxy-test-result" class:form-error={proxyTest.result==='failure'}>{$t(proxyTest.message)}</p>{/if}</div>
-   </div>
-   <div class="dialog-footer">
-    <Button.Root type="button" class="outline proxy-test-button" disabled={!proxyDraft.url.trim()||proxyTest?.result==='pending'} onclick={testProxy}>{$t('测试连接')}</Button.Root>
-    <Button.Root type="button" class="outline" onclick={()=>proxyDraft=null}>{$t('取消')}</Button.Root>
-    <Button.Root type="submit" class="primary">{$t('完成')}</Button.Root>
-   </div>
-  </form>
- </Modal>
-{/if}
-
 <style>
- :global(.proxy-config-dialog.dialog-panel){max-width:calc(100vw - 32px)}
- :global(.proxy-config-dialog .field-label:last-of-type){margin-bottom:0}
- :global(.proxy-config-dialog .proxy-test-button){margin-inline-end:auto}
- :global(.proxy-config-dialog .proxy-advanced-link){padding:0;margin-top:10px}
- .proxy-test-result{margin:8px 0 0}
  :global(.model-catalog-backdrop){z-index:45}
  :global(.model-catalog.dialog-panel){display:flex;flex-direction:column;max-height:calc(100dvh - 48px)}
  :global(.model-catalog .dialog-body){display:flex;flex-direction:column;min-height:0;gap:12px}

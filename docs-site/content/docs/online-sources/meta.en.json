@@ -1,0 +1,17 @@
+{
+  "title": "Online sources",
+  "defaultOpen": false,
+  "pages": [
+    "../data-source-notion",
+    "../data-source-feishu",
+    "../data-source-lark",
+    "../data-source-yuque",
+    "../data-source-github",
+    "../data-source-gitlab",
+    "../data-source-dingtalk",
+    "../data-source-ima",
+    "../data-source-rss",
+    "../data-source-apify",
+    "../data-source-api"
+  ]
+}

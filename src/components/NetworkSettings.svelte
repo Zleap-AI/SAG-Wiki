@@ -56,7 +56,6 @@
 </script>
 
 <div class="network-settings">
- <div class="settings-info-box">{$t('与通用页的“代理设置”是同一份配置。公司内网或需要经过代理访问模型服务时，可在此选择代理模式、填写 SOCKS5 地址和认证信息，并测试连接。')}</div>
  <section class="settings-group">
   <div class="setting-row network-mode-row">
    <div><strong>{$t('代理模式')}</strong><p>{summary}</p></div>
@@ -104,7 +103,6 @@
 
 <style>
  .network-settings{display:flex;flex-direction:column;min-width:0}
- .network-settings .settings-info-box{margin-bottom:18px}
  .network-settings .setting-row{padding:16px}
  .network-settings .setting-row:last-child{border-bottom:0}
  .network-settings .setting-row p{margin:4px 0 0;font-size:var(--text-caption);line-height:1.6;color:var(--color-secondary)}

@@ -12,6 +12,13 @@ use std::{
     time::Duration,
 };
 
+mod github;
+mod gitlab;
+mod dingtalk;
+mod ima;
+pub(super) use github::{github_address, github_resources};
+pub(super) use gitlab::gitlab_address;
+
 const JSON_LIMIT: usize = 12 * 1024 * 1024;
 const FILE_LIMIT: usize = 100 * 1024 * 1024;
 
@@ -43,7 +50,7 @@ pub(super) struct Content {
     pub assets: Vec<(String, Vec<u8>)>,
 }
 
-fn public_ip(ip: IpAddr) -> bool {
+pub(super) fn public_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
             let [first, second, third, _] = ip.octets();
@@ -99,7 +106,7 @@ fn public_url(address: &str) -> Result<Url> {
     Ok(url)
 }
 
-fn client() -> Result<Client> {
+pub(super) fn client() -> Result<Client> {
     Ok(Client::builder()
         .no_proxy()
         .dns_resolver(Arc::new(PublicDns))
@@ -118,6 +125,7 @@ pub(super) enum AccountLimit {
 impl fmt::Display for AccountLimit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
+            Self::Rate { platform: Platform::Github, .. } => "GitHub 请求已达限额，请稍后重试。",
             Self::Rate { platform: Platform::Lark, .. } => "Lark 暂时限制了请求频率，请稍后重试。",
             Self::Quota(Platform::Lark) => "Lark 本月的 API 调用额度已用完。",
             Self::Rate { .. } => "飞书暂时限制了请求频率，请稍后重试。",
@@ -196,6 +204,29 @@ async fn request(
                 return Ok(response)
             }
             Ok(response)
+                if matches!(response.status(), StatusCode::FORBIDDEN | StatusCode::TOO_MANY_REQUESTS)
+                    && (response.url().host_str() == Some("api.github.com")
+                        || response.headers().contains_key("x-github-request-id")) =>
+            {
+                let headers = response.headers();
+                let exhausted = headers.get("x-ratelimit-remaining").is_some_and(|value| value == "0");
+                let limit_header = |name: &str| headers.get(name)?.to_str().ok()?.parse::<i64>().ok();
+                let reset = exhausted.then(|| limit_header("x-ratelimit-reset")).flatten();
+                let retry_after = limit_header("retry-after").filter(|seconds| *seconds > 0);
+                let throttled = response.status() == StatusCode::TOO_MANY_REQUESTS
+                    || exhausted || retry_after.is_some()
+                    || serde_json::from_slice::<Value>(&bounded_body(response, 64 * 1024).await?)
+                        .ok().and_then(|body| body["message"].as_str().map(|message| message.to_ascii_lowercase()))
+                        .is_some_and(|message| message.contains("rate limit"));
+                if throttled {
+                    let now = super::now();
+                    let retry_at = reset.into_iter().chain(retry_after.map(|seconds| now.saturating_add(seconds)))
+                        .filter(|until| *until > now).max().unwrap_or(now + 60);
+                    return Err(AccountLimit::Rate { platform: Platform::Github, retry_at }.into());
+                }
+                bail!("授权失败或无权读取该资源");
+            }
+            Ok(response)
                 if attempt < 2
                     && (response.status().is_server_error()
                         || (account.is_none() && response.status() == StatusCode::TOO_MANY_REQUESTS)) =>
@@ -208,6 +239,9 @@ async fn request(
                     .unwrap_or(1 << attempt);
                 ensure!(wait <= 30, "请求受限，请稍后重试");
                 tokio::time::sleep(Duration::from_secs(wait)).await;
+            }
+            Ok(response) if account.is_none() && response.status() == StatusCode::NOT_FOUND => {
+                return response.error_for_status().context("数据源请求失败（HTTP 404）");
             }
             Ok(response) => {
                 let status = response.status();
@@ -375,6 +409,7 @@ pub(super) struct Remote {
     connection: Connection,
     token: String,
     account_limits: Arc<AccountLimits>,
+    github_files: tokio::sync::Mutex<HashMap<Option<String>, Arc<[github::File]>>>,
     #[cfg(test)]
     test_origin: Option<String>,
 }
@@ -386,6 +421,7 @@ impl Remote {
         account_limits: &Arc<AccountLimits>,
     ) -> Result<Self> {
         let platform = connection.platform;
+        ensure!(platform != Platform::Api, "请选择 API 请求");
         if platform == Platform::Rss {
             public_url(&connection.address)?;
         }
@@ -394,11 +430,15 @@ impl Remote {
             connection,
             token: token.unwrap_or_default(),
             account_limits: account_limits.clone(),
+            github_files: Default::default(),
             #[cfg(test)]
             test_origin: None,
         };
-        if platform != Platform::Rss {
+        if platform.requires_secret() {
             ensure!(!remote.token.is_empty(), "请填写连接凭据");
+        }
+        if platform == Platform::Dingtalk {
+            remote.token = remote.dingtalk_token().await?;
         }
         if matches!(platform, Platform::Feishu | Platform::Lark) && !remote.connection.user_access {
             ensure!(!remote.connection.app_id.is_empty(), "请填写 App ID");
@@ -431,7 +471,11 @@ impl Remote {
             Platform::Lark => "https://open.larksuite.com",
             Platform::Notion => "https://api.notion.com",
             Platform::Yuque => "https://www.yuque.com",
-            Platform::Rss => unreachable!(),
+            Platform::Github => "https://api.github.com",
+            Platform::Gitlab => self.gitlab_origin(),
+            Platform::Dingtalk => "https://api.dingtalk.com",
+            Platform::Ima => "https://ima.qq.com",
+            Platform::Rss | Platform::Apify | Platform::Api => unreachable!(),
         }
     }
 
@@ -445,6 +489,12 @@ impl Remote {
                 .bearer_auth(&self.token)
                 .header("Notion-Version", "2026-03-11"),
             Platform::Yuque => builder.header("X-Auth-Token", &self.token),
+            Platform::Github | Platform::Gitlab if self.token.is_empty() => builder,
+            Platform::Gitlab => builder.header("PRIVATE-TOKEN", &self.token),
+            Platform::Dingtalk => builder.header("x-acs-dingtalk-access-token", &self.token),
+            Platform::Ima => builder
+                .header("ima-openapi-clientid", &self.connection.app_id)
+                .header("ima-openapi-apikey", &self.token),
             _ => builder.bearer_auth(&self.token),
         }
     }
@@ -602,6 +652,12 @@ impl Remote {
     pub async fn browse(&self, parent: Option<&str>, cursor: Option<&str>) -> Result<Page> {
         let mut items = vec![];
         let next = match self.connection.platform {
+            Platform::Apify => bail!("请使用 Apify 导入入口"),
+            Platform::Api => unreachable!(),
+            Platform::Github => return self.github_browse(parent, cursor).await,
+            Platform::Gitlab => return self.gitlab_browse(parent, cursor).await,
+            Platform::Dingtalk => return self.dingtalk_browse(parent, cursor).await,
+            Platform::Ima => return self.ima_browse(cursor).await,
             Platform::Rss => {
                 let feed = self.feed().await?;
                 items.push(Resource {
@@ -737,6 +793,12 @@ impl Remote {
 
     pub async fn items(&self, resource: &str) -> Result<Vec<Item>> {
         match self.connection.platform {
+            Platform::Apify => bail!("请使用 Apify 导入入口"),
+            Platform::Api => unreachable!(),
+            Platform::Github => self.github_items(resource).await,
+            Platform::Gitlab => self.gitlab_items(resource).await,
+            Platform::Dingtalk => self.dingtalk_items(resource).await,
+            Platform::Ima => self.ima_items(resource).await,
             Platform::Notion => {
                 let id = id_part(resource)?;
                 let page = self.get(&format!("/v1/pages/{id}"), &[]).await?;
@@ -944,6 +1006,10 @@ impl Remote {
     pub async fn fetch(&self, item: &Item) -> Result<Content> {
         let mut link = item.link.clone();
         let mut output = match item.kind.as_str() {
+            "github" => return self.github_fetch(&item.version).await,
+            "gitlab" => return self.gitlab_fetch(&item.version).await,
+            "dingtalk" => self.dingtalk_fetch(&item.id).await?,
+            "ima" => return self.ima_fetch(item).await,
             "rss" => markdown(item.inline.clone().context("订阅没有内容")?),
             "notion" => {
                 let id = id_part(&item.id)?;
@@ -1453,6 +1519,303 @@ mod tests {
         net::TcpListener,
     };
 
+    #[tokio::test]
+    async fn gitlab_keeps_selected_branch_and_subdirectory() {
+        let branch = "release/docs";
+        let (mut remote, handler) = fixture(
+            Platform::Gitlab,
+            false,
+            vec![
+                ("/projects/group%2Fsub%2Fproject/repository/branches?page=1", json!([{"name":branch}])),
+                ("/repository/tree?ref=release%2Fdocs&path=", json!([
+                    {"type":"tree","path":"manual","name":"manual"},
+                    {"type":"blob","path":"package.json","name":"package.json"}
+                ])),
+                ("/repository/tree?ref=release%2Fdocs&path=manual&recursive=true", json!([
+                    {"type":"blob","mode":"100644","id":"aabb","path":"manual/nested/README.md"},
+                    {"type":"blob","mode":"120000","id":"ccdd","path":"manual/link.md"}
+                ])),
+                ("/repository/blobs/aabb/raw", json!("# README")),
+            ],
+        ).await;
+        remote.connection.address = gitlab_address("https://gitlab.com/group/sub/project.git/").unwrap();
+        let branches = remote.browse(None, None).await.unwrap();
+        assert_eq!(branches.items[0].title, branch);
+        let tree = remote.browse(Some(&branches.items[0].id), None).await.unwrap();
+        assert_eq!(tree.items.len(), 1);
+        assert_eq!(tree.items[0].title, "manual");
+        let files = remote.items(&tree.items[0].id).await.unwrap();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].folders, ["release/docs", "manual", "nested"]);
+        let content = remote.fetch(&files[0]).await.unwrap();
+        assert!(String::from_utf8(content.bytes).unwrap().contains("# README"));
+        handler.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn dingtalk_lists_workspaces_and_converts_native_documents() {
+        let (mut remote, handler) = fixture(
+            Platform::Dingtalk,
+            false,
+            vec![
+                ("/v2.0/wiki/workspaces?operatorId=operator", json!({"workspaces":[{"workspaceId":"space","rootNodeId":"root","name":"团队知识库"}]})),
+                ("/v2.0/wiki/nodes?operatorId=operator&parentNodeId=root", json!({"nodes":[
+                    {"type":"FILE","category":"ALIDOC","extension":"adoc","nodeId":"doc","name":"指南","modifiedTimestamp":42},
+                    {"type":"FILE","category":"ALIDOC","extension":"asheet","nodeId":"sheet","name":"表格"}
+                ]})),
+                ("/v2.0/wiki/nodes?operatorId=operator&parentNodeId=root", json!({"nodes":[
+                    {"type":"FILE","category":"ALIDOC","extension":"adoc","nodeId":"doc","name":"指南","modifiedTimestamp":42}
+                ]})),
+                ("/v1.0/doc/suites/documents/doc/blocks?operatorId=operator&startIndex=0&endIndex=99", json!({
+                    "success":true,"result":{"data":[
+                        {"blockType":"heading","heading":{"level":"h2","text":"操作步骤"}},
+                        {"blockType":"unorderedList","unorderedList":{"text":"打开设置"}},
+                        {"blockType":"unorderedList","unorderedList":{"text":"选择数据源"}}
+                    ]}
+                })),
+            ],
+        ).await;
+        remote.connection.address = "operator".into();
+        let spaces = remote.browse(None, None).await.unwrap();
+        let docs = remote.browse(Some(&spaces.items[0].id), None).await.unwrap();
+        assert_eq!(docs.items.len(), 1);
+        let items = remote.items(&docs.items[0].id).await.unwrap();
+        assert_eq!(items[0].version, "42");
+        let body = String::from_utf8(remote.fetch(&items[0]).await.unwrap().bytes).unwrap();
+        assert!(body.contains("## 操作步骤\n\n- 打开设置\n- 选择数据源"));
+        handler.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn ima_reads_notes_from_a_selected_knowledge_base() {
+        let (mut remote, handler) = fixture(
+            Platform::Ima,
+            false,
+            vec![
+                ("/openapi/wiki/v1/get_addable_knowledge_base_list", json!({"code":0,"data":{"addable_knowledge_base_list":[{"id":"kb","name":"资料"}],"is_end":true}})),
+                ("/openapi/wiki/v1/get_knowledge_list", json!({"code":0,"data":{"knowledge_list":[{"media_id":"folder_child","media_type":99,"title":"子目录"}],"is_end":true}})),
+                ("/openapi/wiki/v1/get_knowledge_list", json!({"code":0,"data":{"knowledge_list":[{"media_id":"note","media_type":11,"title":"笔记"}],"is_end":true}})),
+                ("/openapi/wiki/v1/get_media_info", json!({"retcode":0,"data":{"media_type":11,"notebook_ext_info":{"notebook_id":"notebook"}}})),
+                ("/openapi/note/v1/get_doc_content", json!({"code":0,"data":{"content":"## 笔记正文"}})),
+            ],
+        ).await;
+        remote.connection.app_id = "client".into();
+        let library = remote.browse(None, None).await.unwrap();
+        let items = remote.items(&library.items[0].id).await.unwrap();
+        assert_eq!(items[0].folders, ["子目录"]);
+        assert!(items[0].version.is_empty());
+        let content = remote.fetch(&items[0]).await.unwrap();
+        assert_eq!(content.bytes, "## 笔记正文".as_bytes());
+        handler.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn github_rate_limits_are_distinct_from_permission_errors() {
+        let (mut remote, handler) = fixture_http(
+            Platform::Github,
+            false,
+            vec![
+                ("/branches?", "403 Forbidden", "X-GitHub-Request-Id: fixture\r\nX-RateLimit-Remaining: 0\r\nX-RateLimit-Reset: 4102444800\r\n", json!({"message":"API rate limit exceeded"})),
+                ("/branches?", "403 Forbidden", "X-GitHub-Request-Id: fixture\r\n", json!({"message":"You have exceeded a secondary rate limit"})),
+                ("/branches?", "429 Too Many Requests", "X-GitHub-Request-Id: fixture\r\nRetry-After: 10\r\n", json!({})),
+                ("/branches?", "403 Forbidden", "X-GitHub-Request-Id: fixture\r\nX-RateLimit-Remaining: 58\r\n", json!({"message":"Resource not accessible by integration"})),
+            ],
+        ).await;
+        remote.connection.address = "https://github.com/owner/repo".into();
+        let limited = |error: anyhow::Error| {
+            assert_eq!(error.to_string(), "GitHub 请求已达限额，请稍后重试。");
+            match error.downcast::<AccountLimit>().unwrap() {
+                AccountLimit::Rate { platform: Platform::Github, retry_at } => retry_at,
+                other => panic!("unexpected limit: {other:?}"),
+            }
+        };
+        let retry_at = limited(remote.browse(None, None).await.err().unwrap());
+        assert_eq!(retry_at, 4102444800);
+        let now = super::super::now();
+        assert!(limited(remote.browse(None, None).await.err().unwrap()) >= now + 60);
+        assert!(limited(remote.browse(None, None).await.err().unwrap()) >= now + 10);
+        let denied = remote.browse(None, None).await.err().unwrap();
+        assert_eq!(denied.to_string(), "授权失败或无权读取该资源");
+        handler.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn github_lists_and_selects_only_markdown_in_a_repository() {
+        let address = github_address("https://github.com/Owner/Repo.git/#user-guide").unwrap();
+        assert_eq!(address, "https://github.com/owner/repo");
+        assert!(github_address("https://github.com/owner/repo/tree/main").is_err());
+        let (mut remote, handler) = fixture_http(
+            Platform::Github,
+            false,
+            vec![
+                ("/repos/owner/repo/branches?page=1&per_page=100", "200 OK",
+                    "Link: <https://api.github.com/repos/owner/repo/branches?page=2>; rel=\"next\"\r\n",
+                    json!([{"name": "alpha"}, {"name": "main"}, {"name": "next"}])),
+                ("/repos/owner/repo/branches?page=2&per_page=100", "200 OK", "", json!([{"name": "release/docs"}])),
+                ("/repos/owner/repo/branches/release%2Fdocs ", "200 OK", "", json!({
+                    "commit": {"commit": {"tree": {"sha": "abcdef"}}}
+                })),
+                ("/repos/owner/repo/git/trees/abcdef?recursive=1", "200 OK", "", json!({
+                "truncated": false,
+                "tree": [
+                    {"path": "README.md", "sha": "aaa", "mode": "100644"},
+                    {"path": "docs/guide.markdown", "sha": "bbb", "mode": "100644"},
+                    {"path": "docs/nested/README", "sha": "ccc", "mode": "100644"},
+                    {"path": "docs-extra/intro.md", "sha": "ddd", "mode": "100644"},
+                    {"path": "docs/notes.txt", "sha": "eee", "mode": "100644"},
+                    {"path": "assets/alias.md", "sha": "fff", "mode": "120000"}
+                ]
+                })),
+                ("/repos/owner/repo/git/trees/HEAD?recursive=1", "200 OK", "", json!({
+                    "truncated": false,
+                    "tree": [{"path": "docs/guide.markdown", "sha": "default", "mode": "100644"}]
+                })),
+            ],
+        ).await;
+        remote.connection.address = address;
+        let first = remote.browse(None, None).await.unwrap();
+        assert_eq!(first.items.iter().map(|item| item.title.as_str()).collect::<Vec<_>>(), ["main", "alpha", "next"]);
+        assert_eq!(first.cursor.as_deref(), Some("2"));
+        let branches = remote.browse(None, first.cursor.as_deref()).await.unwrap();
+        assert_eq!(branches.items[0].id, "github:tree:release/docs:");
+        assert!(branches.cursor.is_none());
+        let root = remote.browse(Some(&branches.items[0].id), None).await.unwrap();
+        assert_eq!(
+            root.items.iter().map(|item| item.id.as_str()).collect::<Vec<_>>(),
+            ["github:tree:release/docs:docs", "github:tree:release/docs:docs-extra", "github:blob:release/docs:README.md"]
+        );
+        let browse = remote.browse(Some(&root.items[0].id), None).await.unwrap();
+        assert_eq!(browse.items[0].id, "github:tree:release/docs:docs/nested");
+        assert_eq!(browse.items[1].id, "github:blob:release/docs:docs/guide.markdown");
+        let selected = remote.items(&root.items[0].id).await.unwrap();
+        assert_eq!(selected.len(), 2);
+        assert_eq!(selected[0].id, "release/docs\0docs/guide.markdown");
+        assert_eq!(selected[0].version, "bbb");
+        assert_eq!(selected[1].folders, ["release/docs", "docs", "nested"]);
+        let single = remote.items("github:blob:release/docs:README.md").await.unwrap();
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].id, "release/docs\0README.md");
+        for resource in ["github:root", "github:folder:docs", "github:file:docs/guide.markdown"] {
+            let legacy = remote.items(resource).await.unwrap();
+            assert_eq!(legacy[0].id, "docs/guide.markdown");
+            assert_eq!(legacy[0].version, "default");
+            assert_eq!(legacy[0].folders, ["docs"]);
+        }
+        handler.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn github_pins_main_on_the_first_page_when_it_is_listed_later() {
+        let (mut remote, handler) = fixture_http(
+            Platform::Github,
+            false,
+            vec![
+                ("/branches?page=1", "200 OK",
+                    "Link: <https://api.github.com/repos/owner/repo/branches?page=2>; rel=\"next\"\r\n",
+                    json!([{"name":"feature"}])),
+                ("/branches/main ", "200 OK", "", json!({"name":"main"})),
+                ("/branches?page=1", "200 OK",
+                    "Link: <https://api.github.com/repos/owner/repo/branches?page=2>; rel=\"next\"\r\n",
+                    json!([{"name":"feature"}])),
+                ("/branches/main ", "404 Not Found", "", json!({"message":"Branch not found"})),
+            ],
+        ).await;
+        remote.connection.address = "https://github.com/owner/repo".into();
+        for expected in [vec!["main", "feature"], vec!["feature"]] {
+            let page = remote.browse(None, None).await.unwrap();
+            assert_eq!(page.items.iter().map(|item| item.title.as_str()).collect::<Vec<_>>(), expected);
+            assert_eq!(page.cursor.as_deref(), Some("2"));
+        }
+        handler.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn github_sync_nests_default_destinations_under_one_library_root() {
+        use super::super::{sync, Report};
+        use sag_protocol::online_import::{Schedule, Source};
+        use std::path::PathBuf;
+
+        let temp = tempfile::tempdir().unwrap();
+        let service = crate::service::Service::open(temp.path().join("data")).unwrap();
+        let documents = temp.path().join("Documents");
+        let library = documents.join("sag-wiki");
+        let default = library.join("data-sources/github/repository");
+        let custom = temp.path().join("custom/repository");
+        let resource = "github:blob:main:README.md";
+        let mut source = Source {
+            id: "default".into(),
+            name: "Repository".into(),
+            connection: Connection {
+                platform: Platform::Github,
+                address: "https://github.com/owner/repo".into(),
+                drive: false,
+                user_access: false,
+                app_id: String::new(),
+            },
+            resources: vec![resource.into()],
+            directory: default.to_string_lossy().into_owned(),
+            schedule: Schedule::Manual,
+            daily_time: "09:00".into(),
+            paused: false,
+            api: None,
+        };
+
+        for (directory, unchanged) in [
+            (&default, false),
+            (&default, true),
+            (&custom, false),
+            (&custom, true),
+        ] {
+            let mut routes = vec![
+                ("/repos/owner/repo/branches/main ", json!({"commit":{"commit":{"tree":{"sha":"tree"}}}})),
+                ("/repos/owner/repo/git/trees/tree?recursive=1", json!({"truncated":false,"tree":[{"path":"README.md","sha":"blob","mode":"100644"}]})),
+            ];
+            if !unchanged {
+                routes.push(("/repos/owner/repo/git/blobs/blob ", json!("test markdown")));
+            }
+            let (mut remote, server) = fixture(Platform::Github, false, routes).await;
+            remote.connection = source.connection.clone();
+            if unchanged {
+                let previous_root = if directory == &default { &library } else { &custom };
+                let canonical = previous_root.canonicalize().unwrap();
+                service.store.remove_root(canonical.to_str().unwrap()).unwrap();
+                if directory == &default {
+                    service.store.add_root(directory).unwrap();
+                }
+            } else if directory == &custom {
+                source.id = "custom".into();
+            }
+            source.directory = directory.to_string_lossy().into_owned();
+            if !unchanged {
+                service.store.connection().execute(
+                    "INSERT INTO online_sources(id,config) VALUES(?1,?2)",
+                    rusqlite::params![source.id, serde_json::to_string(&source).unwrap()],
+                ).unwrap();
+            }
+            let mut report = Report::default();
+            sync(&service, &source, 1, None, &mut report, &remote, Some(&documents)).await.unwrap();
+            server.await.unwrap();
+            let issues: Vec<_> = report.issues.iter().map(|issue| &issue.reason).collect();
+            assert!(issues.is_empty(), "{issues:?}");
+            assert_eq!(report.imported, usize::from(!unchanged));
+            assert_eq!(report.skipped, usize::from(unchanged));
+            let files: Vec<_> = std::fs::read_dir(directory.join("main"))
+                .unwrap()
+                .map(|entry| entry.unwrap().path())
+                .collect();
+            assert_eq!(files.len(), 1);
+            assert_eq!(std::fs::read_to_string(&files[0]).unwrap(), "\"test markdown\"");
+            let actual: Vec<_> = service.store.roots().unwrap().into_iter()
+                .map(|root| PathBuf::from(root.path)).collect();
+            let mut expected = vec![library.canonicalize().unwrap()];
+            if directory == &custom && !unchanged {
+                expected.push(custom.canonicalize().unwrap());
+            }
+            assert_eq!(actual, expected);
+        }
+        service.finish().await.unwrap();
+    }
+
     async fn fixture(
         platform: Platform,
         drive: bool,
@@ -1487,10 +1850,12 @@ mod tests {
                     request.lines().next().unwrap().contains(expected),
                     "{request}"
                 );
-                let header = if platform == Platform::Yuque {
-                    "x-auth-token: fixture-secret"
-                } else {
-                    "authorization: bearer fixture-secret"
+                let header = match platform {
+                    Platform::Yuque => "x-auth-token: fixture-secret",
+                    Platform::Gitlab => "private-token: fixture-secret",
+                    Platform::Dingtalk => "x-acs-dingtalk-access-token: fixture-secret",
+                    Platform::Ima => "ima-openapi-apikey: fixture-secret",
+                    _ => "authorization: bearer fixture-secret",
                 };
                 assert!(request.to_ascii_lowercase().contains(header));
                 let body = body.to_string();
@@ -1513,6 +1878,7 @@ mod tests {
             },
             token: "fixture-secret".into(),
             account_limits: Arc::default(),
+            github_files: Default::default(),
             test_origin,
         };
         (remote, handler)
@@ -1576,9 +1942,10 @@ mod tests {
             schedule: sag_protocol::online_import::Schedule::Manual,
             daily_time: "09:00".into(),
             paused: false,
+            api: None,
         };
         let mut report = Report::default();
-        let error = sync(&service, &source, 1, None, &mut report, &remote).await.unwrap_err();
+        let error = sync(&service, &source, 1, None, &mut report, &remote, None).await.unwrap_err();
         assert!(matches!(error.downcast_ref::<AccountLimit>(), Some(AccountLimit::Quota(Platform::Feishu))));
         assert!(!server.is_finished());
         assert!(report.issues.is_empty());

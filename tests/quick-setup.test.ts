@@ -112,7 +112,7 @@ it('does not save when the dialog is closed while a test is still running',async
  expect(onSave).not.toHaveBeenCalled();
 });
 
-it('shows the entry only while the answer model is unconfigured',async()=>{
+it('uses Quick setup in the model slot until an answer model is configured',async()=>{
  const load=(value:Settings)=>invoke.mockImplementation(async command=>{
   if(command==='get_settings')return value;
   if(command==='list_conversations')return [];
@@ -122,22 +122,30 @@ it('shows the entry only while the answer model is unconfigured',async()=>{
  load(settings);
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.welcome')).not.toBeNull());
- expect(document.querySelector('.quick-setup-action')?.textContent).toBe('快速配置');
- expect(document.querySelector('.setup-hint')?.textContent).toContain('尚未配置回答模型');
- expect([...document.querySelectorAll('.setup-hint button')].map(node=>node.textContent?.trim())).toEqual(['快速配置']);
+ expect(document.querySelector('.composer-model-controls .quick-setup-action')?.textContent).toBe('快速配置');
+ expect(document.querySelector('.composer-model-controls .reasoning-button')).toBeNull();
+ expect(document.querySelector('.welcome p, .welcome button')).toBeNull();
+ expect(document.querySelectorAll('.quick-setup-action')).toHaveLength(1);
+ expect(document.querySelector('.folder-empty-state button')?.textContent?.trim()).toBe('添加文件夹');
  await unmount(app);document.body.innerHTML='';
  load({...settings,answer:{...settings.answer,has_key:true}});
  app=mount(App,{target:document.body});
  await vi.waitFor(()=>expect(document.querySelector('.welcome')).not.toBeNull());
  expect(document.querySelector('.quick-setup-action')).toBeNull();
+ expect(document.querySelector('.composer-model-controls .reasoning-trigger-model')?.textContent).toBe(settings.answer.model);
  expect(document.querySelector('.setup-hint')?.textContent).toContain('未配置 Jev');
 });
 
-it('opens the dialog from the home entry and closes it after saving',async()=>{
+it('opens the dialog from the model slot and shows the configured model after saving',async()=>{
  localStorage.setItem('sag.onboarding.seen','1');
- invoke.mockImplementation(async command=>{
-  if(command==='get_settings')return settings;
+ let savedSettings=settings;
+ invoke.mockImplementation(async (command,args)=>{
+  if(command==='get_settings')return savedSettings;
   if(command==='list_conversations')return [];
+  if(command==='save_settings'){
+   const saved:Settings=args.settings;
+   savedSettings={...saved,answer:{...saved.answer,has_key:true},jev:{...saved.jev,has_key:true}};
+  }
   if(command==='test_model'||command==='test_mineru'||command==='save_settings')return '连接成功';
   return [];
  });
@@ -152,4 +160,6 @@ it('opens the dialog from the home entry and closes it after saving',async()=>{
  expect(args).toMatchObject({answerKey:'key-123',jevKey:'key-123',mineruKey:'key-123'});
  await vi.waitFor(()=>expect(document.querySelector('.quick-setup-dialog')).toBeNull());
  expect(document.querySelector('#notice')?.textContent).toContain('快速配置已完成');
+ expect(document.querySelector('.quick-setup-action')).toBeNull();
+ expect(document.querySelector('.composer-model-controls .reasoning-trigger-model')?.textContent).toBe('qwen3.8-flash');
 });

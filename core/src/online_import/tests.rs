@@ -1,5 +1,28 @@
 use super::*;
 
+#[test]
+fn github_reopens_with_the_narrowest_selected_scopes() {
+    let temp = tempfile::tempdir().unwrap();
+    let store = Store::open(&temp.path().join("index.sqlite")).unwrap();
+    let mut saved = example(temp.path());
+    saved.connection.platform = Platform::Github;
+    saved.resources = [
+        "github:tree:main:",
+        "github:tree:main:docs",
+        "github:blob:main:docs/README.md",
+        "github:blob:main:overview.md",
+        "github:tree:archive:docs",
+    ].into_iter().map(str::to_owned).collect();
+    store.connection().execute(
+        "INSERT INTO online_sources VALUES(?1,?2,NULL)",
+        params![saved.id, serde_json::to_string(&saved).unwrap()],
+    ).unwrap();
+    assert_eq!(
+        source(&store, &saved.id).unwrap().0.resources,
+        ["github:blob:main:docs/README.md", "github:blob:main:overview.md", "github:tree:archive:docs"]
+    );
+}
+
 fn example(directory: &Path) -> Source {
     Source {
         id: "fixture".into(),
@@ -16,6 +39,7 @@ fn example(directory: &Path) -> Source {
         schedule: Schedule::Manual,
         daily_time: "09:00".into(),
         paused: false,
+        api: None,
     }
 }
 

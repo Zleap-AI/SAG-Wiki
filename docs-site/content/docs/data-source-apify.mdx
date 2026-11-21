@@ -1,0 +1,25 @@
+---
+title: "Apify"
+description: "运行 Apify Actor，预览结果并选择要导入知识库的字段。"
+---
+
+Apify 是网页数据采集和自动化平台。你可以从 Apify Store 选择现成的采集或自动化程序（Actor），通过 SAG 运行并把结果导入知识库。[Apify 官网](https://apify.com/) · [Apify Store](https://apify.com/store)
+
+## 通过 Actor 导入
+
+![配置 Apify 网页爬虫，填写 Actor ID 和运行参数](/images/product-source-apify-cn.png)
+
+1. 打开 **设置 → 数据源 → Apify → 配置**。首次配置会直接打开新增表单。已有连接时，点 **添加连接**。填写连接名称。点 **查看 Actor** 可浏览热门 Actor，也可以按关键词搜索和翻页。选中后会自动填入 Actor ID 并加载参数。也可以粘贴 Apify Store 链接，或填写 Actor ID。可以用 `作者/名称`、`作者~名称`，也可以用 Apify 提供的内部 ID。粘贴链接后会读取参数，手动输入 ID 可点 **加载参数**。输入框为空时，按 Enter 或 Tab 可填入官方网页爬虫的示例 ID。
+2. 填写 [Apify API Token](https://console.apify.com/settings/integrations)，在 **运行参数** 里填写要传给 Actor 的参数。私有 Actor 需要先填 Token，再加载参数。可以切换到 JSON 编辑器填写复杂参数。
+3. 点 **保存并运行**。使用图中的官方网页爬虫时，点 **保存并导入**，SAG 会在运行完成后自动导入 Markdown。运行可能由 Apify 计费。运行时可以关闭窗口，继续使用 SAG。只要 SAG 保持打开，任务就会继续。重新打开 Apify，可在连接列表查看状态或取消运行。需要手动导入时，点 **结果预览** 查看记录，选择正文、标题、原文链接和唯一标识，再点 **导入** 保存为 Markdown。
+
+## 同步计划
+
+连接默认设为 **仅手动**。点击数据源列表中 Apify 旁的时钟，打开连接的 **配置 → 同步计划**。可选 **每 30 分钟**、**每小时**、**每 6 小时**、**每 12 小时**或**每天**。选择每天时可指定本机时间。官方网页爬虫可以直接设置计划。其他 Actor 先手动选字段并完成一次导入，后续按已保存的字段自动导入。
+
+SAG 后台服务运行期间会按计划启动 Actor 并导入结果，每次运行可能由 Apify 计费。连接列表会显示下次同步时间。可以暂停计划，也可以随时点 **立即同步**。这项设置在 SAG 中完成，无需在 Apify 控制台另外创建计划。
+
+SAG 读取 Actor 的默认 Dataset。Dataset 为空时，会尝试读取默认 Key-value Store 中名为 `OUTPUT` 的 JSON 或文本。连接可以先保存，再从列表点 **立即同步**。Token 随连接保存，再次配置时留空会沿用已有 Token。移除连接会保留已导入的文件。
+
+默认保存到文档目录的 `sag-wiki/data-sources/apify/` 下。桌面端可更改位置，导入后自动加入索引。有唯一标识或原文链接时，再次导入可以更新原文件。SAG 会保留已经在本地修改过的文档。
+

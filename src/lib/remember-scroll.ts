@@ -5,7 +5,12 @@ export function rememberScroll(node:HTMLElement,options:{key:string;enabled:bool
  node.addEventListener('scroll',save);
  restore();
  return{
-  update(next:typeof options){const wasEnabled=options.enabled;options=next;if(!wasEnabled&&options.enabled)restore()},
+  update(next:typeof options){
+   const wasEnabled=options.enabled,keyChanged=next.key!==options.key;
+   options=next;
+   if(keyChanged)position=Number(localStorage.getItem(options.key)??0);
+   if(keyChanged||!wasEnabled)restore();
+  },
   destroy(){node.removeEventListener('scroll',save)},
  };
 }

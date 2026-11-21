@@ -1,0 +1,12 @@
+---
+title: "GitLab"
+description: "Sync Markdown from selected GitLab branches."
+---
+
+GitLab is a platform for hosting Git repositories and developing software, available as a cloud service or a self-managed installation. [GitLab website](https://about.gitlab.com/)
+
+1. In **Settings → Data sources → GitLab → Configure**, enter the project's root HTTPS URL. Public projects can connect directly. For private projects, enter an access token with `read_api` scope and read access to the project.
+2. Click **Browse branches**, expand a branch, and select folders or individual documents. You can also select the entire branch. SAG imports README, `.md`, and `.markdown` files, including those in the selected folders' subfolders.
+3. Set the sync frequency and click **Save and import**. GitLab.com and self-managed GitLab instances reachable over public HTTPS are supported. The default destination is under `sag-wiki/data-sources/gitlab/`.
+
+![Select a folder or Markdown file in a GitLab branch](/images/product-source-gitlab-en.png)

@@ -1,0 +1,46 @@
+---
+title: "Lark"
+description: "导入 Lark 知识库与云盘中的文档。"
+---
+
+Lark 是协作办公平台，知识库用于组织团队文档，云盘用于存放和共享文件。[Lark 官网](https://www.larksuite.com/zh_cn/)
+
+1. 在 [Lark 开放平台](https://open.larksuite.com/app) 创建或打开 **企业自建应用**。复制下方对应的权限 JSON。
+2. 在 **权限管理 → 批量导入/导出权限 → 导入** 粘贴 JSON，确认权限添加到 **用户身份权限**。
+3. 在 **安全设置 → 重定向 URL** 添加 `http://127.0.0.1:24682/lark/oauth/callback`。若页面有用户凭证续期选项，将其开启。确认登录账号可以使用该应用，然后发布版本。
+4. 在 **设置 → 数据源 → Lark** 选择导入类型，填入 App ID 和 App Secret，点 **使用 Lark 账号授权**。授权后选好范围和同步频率，再点 **保存并导入**。
+
+![Lark 授权后选择云盘中的内容](/images/product-source-lark-cn.png)
+
+## 知识库 [#lark-wiki]
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "wiki:wiki:readonly",
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```
+
+## 云盘 [#lark-drive]
+
+```json
+{
+  "scopes": {
+    "tenant": [],
+    "user": [
+      "drive:drive:readonly",
+      "docx:document:readonly",
+      "drive:export:readonly",
+      "offline_access"
+    ]
+  }
+}
+```

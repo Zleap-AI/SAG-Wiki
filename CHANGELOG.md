@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.4.3
+
+- **在线数据源**新增 GitHub、GitLab、钉钉文档、腾讯 ima、API 请求和 Apify。GitHub 和 GitLab 可按分支、目录或单个 Markdown 文件同步。API 请求支持在桌面端和 Linux 网页端通过 GET 或 POST 获取 JSON，选择字段并定时追加到每日 Markdown，可在同一天内按记录 ID 去重，也可选用 AI 清洗。Apify 可在后台运行 Actor，将网页正文或选定字段导入为 Markdown，并按连接设置定时同步。
+- **导入入口**统一为「设置 → 数据源」，也可从文件页右键进入。首次在线导入成功后可直达保存目录，默认导入位置在 `sag-wiki/data-sources/` 下按平台和连接组织。
+- **网络代理**统一在「设置 → 网络代理」配置和测试。
+
+### English
+
+- **Online data sources** now include GitHub, GitLab, DingTalk Docs, Tencent ima, API requests, and Apify. Sync branches, folders, or individual Markdown files from GitHub and GitLab. On desktop and Linux web, use GET or POST to fetch JSON and append selected fields to daily Markdown files on a schedule, with optional same-day deduplication by record ID and AI cleanup. Apify can run Actors in the background and import web page content or selected fields as Markdown on a schedule for each connection.
+- **Data import** is available under **Settings → Data sources** and from the Files context menu. You can go straight to the destination after a first successful online import. Default destinations are grouped by platform and connection under `sag-wiki/data-sources/`.
+- **Network proxy** configuration and testing are available under **Settings → Network proxy**.
+
 ## 0.4.2
 
 - **快速配置**：未配置回答模型时，问答首页和快速入门提供「快速配置」入口。填入一个 302.AI API Key 并测试通过后，自动配好 qwen3.8-flash 回答模型、jev-latest 决策模型和 302.AI MinerU 解析。新安装的默认回答模型改为 qwen3.8-flash。([PR #188](https://github.com/Zleap-AI/SAG-Wiki/pull/188))

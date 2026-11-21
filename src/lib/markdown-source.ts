@@ -1,4 +1,8 @@
 export function splitFrontmatter(body:string):{prefix:string;body:string}{const match=body.match(/^(---\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)(?:\r?\n|$))/);return match?{prefix:match[0],body:body.slice(match[0].length)}:{prefix:'',body};}
+
+export function stripDocsScreenshots(body:string):string {
+ return body.replace(/^!\[[^\]\r\n]*\]\(\/images\/[^)\r\n]+\)[ \t]*\r?$/gm,'');
+}
 export function protectHtml(body:string,renderContent=false):string{
  const lines=body.split('\n'),out:string[]=[];let fence='';
  for(let i=0;i<lines.length;i++){
