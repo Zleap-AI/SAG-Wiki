@@ -7,6 +7,7 @@
  import './onboarding.css';
 
  export let onClose:()=>void;
+ export let onQuickSetup:(()=>void)|undefined=undefined;
  let page=0,track:HTMLDivElement,targetPage:number|null=null;
  let dragging=false,dragX=0,dragPage=0;
  let benchmarkOpen=false,indexBenchmarkOpen=false;
@@ -82,13 +83,14 @@
      {:else}
       <div class="onboarding-start">
        <div class="onboarding-start-brand onboarding-piece">{@html logo}</div>
-       {#each [['folder','添加本地文件夹','点击侧边栏的 +，选择你的资料。'],['settings','连接你的模型','在「设置 → 模型设置」中配置服务与密钥。'],['chat','开始搜索和问答','搜索原文，或让模型结合你的文件回答。']] as [glyph,title,detail],i}
+       {#each [['folder','添加本地文件夹','点击侧边栏的 +，选择你的资料。'],['settings','连接你的模型',onQuickSetup?'用一个 302.AI API Key 快速配置，或在设置中手动填写。':'在「设置 → 模型设置」中配置服务与密钥。'],['chat','开始搜索和问答','搜索原文，或让模型结合你的文件回答。']] as [glyph,title,detail],i}
         <div class="onboarding-start-row onboarding-piece" style={`--delay:${120+i*100}ms`}><span>{@html icon(glyph)}</span><div><strong>{$t(title)}</strong><p>{$t(detail)}</p></div><small>0{i+1}</small></div>
        {/each}
       </div>
      {/if}
     </div>
     <div class="onboarding-copy"><span class="onboarding-eyebrow">{$t(slide.label)}</span><h2>{$t(slide.title)}</h2><p>{$t(slide.description)}</p>
+     {#if index===slides.length-1&&onQuickSetup}<Button.Root class="onboarding-benchmark onboarding-quick-setup" onclick={()=>onQuickSetup?.()}>{$t('快速配置回答模型')}{@html icon('chevron')}</Button.Root>{/if}
      {#if index===0}
       <Tooltip.Provider delayDuration={220}><Tooltip.Root bind:open={indexBenchmarkOpen} disabled={page!==0} disableCloseOnTriggerClick>
        <Tooltip.Trigger class="onboarding-benchmark onboarding-index-speed" aria-label={$t('查看建库速度依据')} onclick={()=>indexBenchmarkOpen=true}>{$t('建库约 200 毫秒 / 百万字')}{@html icon('info')}</Tooltip.Trigger>

@@ -2,21 +2,23 @@
 
 ## 0.4.2
 
-- **探索模式**：修复 PDF、Office 等转换文档未出现在探索视图的问题；现在按原始文件所在文件夹归入探索范围，并保留文件夹、隐藏目录和排除规则。([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
-- **多轮问答回复格式**：历史工具调用改为按模型接口原生的工具调用与结果消息回放，最终回答保持纯文本，修复追问时模型模仿内部记录、输出 `{"answer":…}` JSON 的问题；服务拒绝该回放形式时改为纯文本重发一次。只含 answer、sources、tool_history 字段的包装回复会自动解包正文后再校验引用，用户要求的其他 JSON 结构保持原样。
-- **上下文压缩**：摘要分块上限提高到 32,768 tokens，默认预算下通常一到两批完成；进度显示“第 N/M 块”；摘要长度取服务返回的输出 token 与本地估算中的较小值，并修正中文分词估算偏高的问题。摘要失败时不再整轮失败，改为只保留最近一轮、本轮记录和此前已有的摘要继续回答，并在回答上方说明原因。
-- **空回答**：模型只返回空白时自动重答一次，仍为空则显示错误而不是空白的“完成”；历史中的空回答显示占位和重新生成入口；回答渲染出错时退化为纯文本显示。
-- **重复调用与工具上限**：同一轮内连续第三次参数完全相同的 SAG 工具调用不再执行，标为“已跳过”且不计入次数，连续第四次后停止调用并作答，模型仍继续重复时结束本轮并说明；调用当前未绑定的工具时把“工具未启用”返回给模型并继续，不再终止本轮。每轮工具调用上限默认改为 20，已保存为 0 的设置保持不限制。
-- **网络代理高级设置**：新增「设置 → 网络代理」页面，与通用设置中的代理弹窗编辑同一份配置，可选择跟随系统代理、自定义代理或不使用代理。自定义代理支持 SOCKS5 地址和 Basic 认证，密码与 API 密钥一样只保存在本机；测试连接改为请求已保存的模型服务地址并报告实际线路；stdio 方式启动的 MCP 服务也获得同样的代理环境变量。([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171)、[Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
+- **快速配置**：未配置回答模型时，问答首页和快速入门提供「快速配置」入口。填入一个 302.AI API Key 并测试通过后，自动配好 qwen3.8-flash 回答模型、jev-latest 决策模型和 302.AI MinerU 解析。新安装的默认回答模型改为 qwen3.8-flash。
+- **网络代理**：新增「设置 → 网络代理」页面，可选跟随系统、自定义或不使用代理。自定义代理支持 SOCKS5 和账号密码，密码只保存在本机；测试连接会报告实际走的线路。([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171)、[Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
+- **探索模式**：转换结果存放在应用数据目录时，PDF、Office 文档不再从探索视图中消失。([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
+- **问答回复格式**：多轮追问时不再出现 `{"answer":…}` 形式的 JSON 回答。
+- **上下文压缩**：压缩时显示“第 N/M 块”进度，不再像卡死；摘要失败时继续作答并说明原因，不再整轮失败。
+- **空回答**：模型只返回空白时自动重试一次，仍为空则明确报错，不再显示“已完成”却没有正文。
+- **工具调用**：同一轮内参数完全相同的重复检索自动跳过；每轮调用上限默认改为 20，已设为 0 的继续不限制。
 
 ### English
 
-- **Explore mode**: Show converted PDF and Office documents in the scope of their original source folder while preserving folder, hidden-directory, and exclusion rules. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
-- **Multi-turn reply format**: Replay earlier tool use as native tool-call and tool-result messages and keep final answers as plain text, so follow-up answers no longer imitate the internal record and come back as `{"answer":…}` JSON. A service that rejects that replay shape receives the records once more as plain text. Replies wrapped with only answer, sources and tool_history fields are unwrapped before citation checks; other JSON the user asked for is kept.
-- **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the smaller of the provider's output tokens and the local estimate, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange, this turn's records and any earlier summary, with the reason shown above the answer.
-- **Empty answers**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action, and an answer that fails to render falls back to plain text.
-- **Repeated calls and tool limit**: The third consecutive SAG tool call with identical arguments is skipped and marked "Skipped" without counting toward the limit, and a fourth ends tool use for the turn; a model that still repeats ends the turn with a note. A call to a tool that is no longer bound returns "tool not enabled" to the model instead of ending the turn. The default tool-call limit is now 20; a saved 0 stays unlimited.
-- **Advanced network proxy settings**: Add a **Settings → Network proxy** page that edits the same configuration as the proxy dialog in General settings, with a choice to follow the system proxy, use a custom proxy, or connect directly. A custom proxy accepts SOCKS5 addresses and Basic authentication, with the password stored locally like API keys. **Test connection** now requests the saved model service address and reports the route taken, and MCP servers started over stdio receive the same proxy environment. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
+- **Quick setup**: While no answer model is configured, the chat home and the quick-start guide offer **Quick setup**. Enter one 302.AI API key; once the tests pass, the app configures the qwen3.8-flash answer model, the jev-latest decision model and 302.AI MinerU parsing. New installs default to qwen3.8-flash.
+- **Network proxy**: Add a **Settings → Network proxy** page with follow-system, custom and direct modes. A custom proxy accepts SOCKS5 and username/password, the password stays on this device, and **Test connection** reports the route taken. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
+- **Explore mode**: PDF and Office documents no longer disappear from Explore when conversion results are stored in the application data directory. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
+- **Reply format**: Follow-up answers no longer come back as `{"answer":…}` JSON.
+- **Context compaction**: Compaction shows "part N of M" progress instead of looking stuck, and a failed summary no longer fails the turn; the answer continues with the reason shown.
+- **Empty answers**: A whitespace-only reply is retried once, then reported as an error instead of a "complete" turn with no text.
+- **Tool calls**: Repeated retrieval calls with identical arguments are skipped; the per-turn limit defaults to 20, and a saved 0 stays unlimited.
 
 ## 0.4.1
 
