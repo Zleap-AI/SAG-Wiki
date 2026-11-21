@@ -538,7 +538,8 @@ where
                 }
                 None => turn.text.clone(),
             };
-            if final_text.trim().is_empty() {
+            // Help answers fall back to documentation excerpts in the service; keep that path.
+            if final_text.trim().is_empty() && !message.help {
                 truncate_answer(message, answer_start);
                 progress("思考中", Some(AnswerDelta::Replace(&message.answer)), 0, None);
                 if empty_retried {
@@ -3488,6 +3489,25 @@ mod tests {
         assert!(retry.iter().all(|m| m["role"] != "tool"));
         assert!(chats[1]["messages"].to_string().contains("先前工具记录"));
         assert!(chats[1]["messages"].to_string().contains("早先的摘要"));
+    }
+
+    #[tokio::test]
+    async fn help_mode_keeps_an_empty_reply_for_the_excerpt_fallback() {
+        // The service replaces an unlabeled help answer with documentation excerpts, so an
+        // empty reply must come back as before instead of failing the turn.
+        let (config, requests) = server(vec![
+            call("h1", "如何添加文件夹"),
+            vec![json!({"content":"\n"})],
+            vec![json!({"content":"\n"})],
+        ]);
+        let mut m = message(); m.help = true;
+        answer(&reqwest::Client::new(), &config, "test", &mut m, &[], 16384, 512, 5, &CancellationToken::new(),
+            |_| async { Ok(SearchOutput { results: vec![candidate(1, "添加文件夹的说明")], trace: vec![] }) },
+            |_, _, _, _| {},
+        ).await.unwrap();
+        assert!(m.answer.trim().is_empty());
+        assert_eq!(m.evidence.len(), 1);
+        assert_eq!(requests.lock().unwrap().len(), 3, "复核一次后不再重试");
     }
 
     #[test]
