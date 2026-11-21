@@ -23,7 +23,11 @@ If the local service connection temporarily fails, the app reports the error and
 
 On the Q&A home, click **SAG Wiki Assistant** below the question box. The box shows a suggested question. When the box is empty, press Enter to send the suggestion or Tab to fill it in for editing.
 
-The assistant uses SAG2 to search the SAG Wiki documentation bundled with the app. When an answer model is configured, it calls `sag2_search` to find passages and can search again for missing evidence. Without an answer model, the app runs SAG2 and shows the relevant passages directly. When Jev is configured, it judges which passages provide relevant evidence. Otherwise, SAG2 ranks the passages and expands the search locally.
+The assistant uses SAG2 to search the bundled user guides and the Chinese and English changelogs. You can ask “What changed in 0.4.0?” When an answer model is configured, it calls `sag2_search` to find passages and can search again for missing evidence. Without an answer model, the app runs SAG2 and shows the relevant passages directly. When Jev is configured, it judges which passages provide relevant evidence. Otherwise, SAG2 ranks the passages and expands the search locally.
+
+Click the question mark in the lower-left corner to open the online documentation in the current interface language.
+
+The bundled changelogs are in Simplified Chinese and English. The assistant can also consult the English changelog in other interface languages. Links within the changelog open the corresponding pages on the official site.
 
 Click a citation number to open the full document in the app's right panel at the cited section. On the assistant home, click **Back to my files** below the question box to return to the Q&A home. In a conversation, use the back arrow in the upper-left corner.
 

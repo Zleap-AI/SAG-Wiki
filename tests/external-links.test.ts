@@ -52,13 +52,9 @@ it('打开浏览器失败时只提示错误并保留会话',async()=>{
  expect(document.querySelector('.user-message')?.textContent).toBe('参考资料');
 });
 
-it('收起侧栏后仍可打开内置助手，并从历史记录返回原会话',async()=>{
+it('从收起的侧栏打开在线文档并保留原会话',async()=>{
  document.querySelector<HTMLButtonElement>('[aria-label="收起侧边栏"]')!.click();await tick();
- document.querySelector<HTMLButtonElement>('.sidebar-help[aria-label="SAG Wiki 助手"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('h1')?.textContent).toBe('SAG Wiki 助手'));
- expect(invoke).not.toHaveBeenCalledWith('open_external_link',expect.anything());
- document.querySelector<HTMLButtonElement>('.help-entry button')!.click();
- await vi.waitFor(()=>expect(document.querySelector<HTMLButtonElement>('.recent-list [title="链接测试"]')).not.toBeNull());
- document.querySelector<HTMLButtonElement>('.recent-list [title="链接测试"]')!.click();
- await vi.waitFor(()=>expect(document.querySelector('.user-message')?.textContent).toBe('参考资料'));
+ document.querySelector<HTMLButtonElement>('.sidebar-help[aria-label="打开帮助文档"]')!.click();
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('open_external_link',{url:'https://sag-wiki.zleap.com/zh/docs'}));
+ expect(document.querySelector('.user-message')?.textContent).toBe('参考资料');
 });

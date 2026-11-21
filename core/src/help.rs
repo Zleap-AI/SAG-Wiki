@@ -5,16 +5,20 @@ use crate::{
     types::{Candidate, Document, Settings},
 };
 use anyhow::{Context, Result};
+use regex::Regex;
 use std::{
     collections::HashSet,
     fs,
     path::{Path, PathBuf},
+    sync::LazyLock,
 };
 use tokio::sync::OnceCell;
 use tokio_util::sync::CancellationToken;
 
 type HelpPage = (&'static str, &'static str, &'static str, &'static str);
 const PAGES: &[HelpPage] = &include!(concat!(env!("OUT_DIR"), "/help-documents.rs"));
+static VERSION_NUMBER: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"[0-9]+(?:\.[0-9]+){2,}").unwrap());
 
 pub(crate) struct HelpIndex {
     store: Store,
@@ -70,6 +74,32 @@ impl HelpSearch<'_> {
         );
         let english = index.root.join("en");
         let local = language != english;
+        let localized_changelog = language.join("updates.md");
+        let changelog = if localized_changelog.is_file() {
+            localized_changelog
+        } else {
+            english.join("updates.md")
+        };
+        let versions: HashSet<_> = VERSION_NUMBER
+            .find_iter(question)
+            .map(|version| version.as_str())
+            .collect();
+        let release_notes = if versions.is_empty() {
+            Vec::new()
+        } else {
+            if self.cancel.is_cancelled() {
+                anyhow::bail!("已停止");
+            }
+            index
+                .store
+                .reference_candidates(&[store::path_text(&changelog)?], i64::MAX as usize)?
+                .into_iter()
+                .filter(|candidate| {
+                    candidate.heading.split(" / ").nth(1)
+                        .is_some_and(|version| versions.contains(version))
+                })
+                .collect::<Vec<_>>()
+        };
         let mut options = settings.retrieval.clone();
         options.top_k = options.top_k.min(5);
         let mut question_terms = text::search_terms(question);
@@ -148,10 +178,27 @@ impl HelpSearch<'_> {
                 .await
             }
         };
-        let mut found = search(vec![language]).await?;
-        if local && found.results.is_empty() {
-            found = search(vec![english]).await?;
-        }
+        let mut found = if release_notes.is_empty() {
+            let mut scope = vec![language];
+            if changelog.starts_with(&english) && local {
+                scope.push(changelog);
+            }
+            let found = search(scope).await?;
+            if local && found.results.is_empty() {
+                search(vec![english]).await?
+            } else {
+                found
+            }
+        } else {
+            progress("正在检索原文", 0);
+            let trace = vec![retrieval::Trace {
+                hop: 0,
+                candidates: release_notes.iter().map(|candidate| candidate.id).collect(),
+                terms: vec![],
+                evidence: vec![],
+            }];
+            retrieval::SearchOutput { results: release_notes, trace }
+        };
         for candidate in &mut found.results {
             let (path, title) = index.source(&candidate.path)?;
             candidate.path = path;
@@ -267,6 +314,53 @@ mod tests {
                     .map(|r| (&r.path, &r.heading))
                     .collect::<Vec<_>>()
             );
+        }
+    }
+
+    #[tokio::test]
+    async fn help_finds_bilingual_release_notes_by_version() {
+        let index = OnceCell::new();
+        for (locale, question, notes_locale) in [
+            ("zh-CN", "0.4.0 更新了什么？", "zh-CN"),
+            ("en", "What changed in 0.4.0?", "en"),
+            ("zh-TW", "SAG Wiki 0.4.0 有什麼更新？", "en"),
+            ("ja", "SAG Wiki 0.4.0 では何が変わりましたか？", "en"),
+            ("ko", "SAG Wiki v0.4.0에서 무엇이 바뀌었나요?", "en"),
+            ("es", "¿Qué cambió en SAG Wiki 0.4.0?", "en"),
+        ] {
+            let settings = Settings {
+                language: locale.into(),
+                ..Default::default()
+            };
+            let output = HelpSearch {
+                index: &index,
+                settings: &settings,
+                jev: None,
+                cancel: &CancellationToken::new(),
+            }
+            .search(question, |_, _| {})
+            .await
+            .unwrap();
+            let path = format!("sag-help/{notes_locale}/updates.md");
+            let release_notes = document(&path).unwrap();
+            let evidence = output.results.iter().map(|result| {
+                assert_eq!(result.path, path);
+                assert!(result.heading.ends_with(" / 0.4.0"));
+                assert_eq!(result.hash, release_notes.hash);
+                result.content.as_str()
+            }).collect::<Vec<_>>().join("\n");
+            let (_, section) = release_notes.body.split_once("\n## 0.4.0\n").unwrap();
+            let labels: Vec<_> = section.lines().take_while(|line| !line.starts_with("## "))
+                .filter_map(|line| line.strip_prefix("- **")?.split_once("**").map(|(label, _)| label))
+                .collect();
+            assert_eq!(labels.len(), 9);
+            for label in labels {
+                assert!(evidence.contains(label), "{question}: {label}");
+            }
+            assert!(!release_notes.body.contains("data-docs-changelog-sha"));
+            assert!(!release_notes.body.contains("Generated from CHANGELOG.md"));
+            assert!(release_notes.body.contains("](https://sag-wiki.zleap.com/"));
+            assert!(!release_notes.body.contains("](/"));
         }
     }
 

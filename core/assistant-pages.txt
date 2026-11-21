@@ -1,5 +1,6 @@
 quick-start
 installation
+updates
 folders
 files
 search

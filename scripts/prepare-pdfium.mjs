@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs';
+import {mkdirSync, readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {spawnSync} from 'node:child_process';
@@ -19,17 +19,10 @@ export async function preparePdfium(destination, target = process.env.TAURI_ENV_
   const arch = /aarch64|arm64/.test(target) ? 'arm64' : /x86_64|x64/.test(target) ? 'x64' : '';
   const variant = `${platform}-${arch}`;
   if (!hashes[variant]) throw Error(`Unsupported PDFium target: ${target}`);
-  const cache = resolve('node_modules/.cache/pdfium', version);
   const name = `pdfium-${variant}.tgz`;
-  const archive = resolve(cache, name);
-  const bytes = existsSync(archive) ? readFileSync(archive) : await (async () => {
-    const response = await fetch(`https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/${version}/${name}`, {signal: AbortSignal.timeout(120_000)});
-    if (!response.ok) throw Error(`PDFium download: HTTP ${response.status}`);
-    return Buffer.from(await response.arrayBuffer());
-  })();
-  if (createHash('sha256').update(bytes).digest('hex') !== hashes[variant]) throw Error('PDFium checksum mismatch');
-  mkdirSync(cache, {recursive: true});
-  if (!existsSync(archive)) writeFileSync(archive, bytes);
+  const archive = new URL(`../third-party/pdfium/${version}/${name}`, import.meta.url);
+  const bytes = readFileSync(archive);
+  if (createHash('sha256').update(bytes).digest('hex') !== hashes[variant]) throw Error(`PDFium checksum mismatch: ${name}`);
   mkdirSync(destination, {recursive: true});
   const entry = {mac: 'lib/libpdfium.dylib', win: 'bin/pdfium.dll', linux: 'lib/libpdfium.so'}[platform];
   // GNU tar treats a Windows drive letter in the archive path as a remote host.

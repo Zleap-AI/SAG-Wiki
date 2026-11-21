@@ -1,6 +1,6 @@
 # 更新日志 / Changelog
 
-## 0.4.1
+## 0.4.2
 
 - **多轮问答回复格式**：历史工具调用改为按模型接口原生的工具调用与结果消息回放，最终回答保持纯文本，修复追问时模型模仿内部记录、输出 `{"answer":…}` JSON 的问题；服务拒绝该回放形式时改为纯文本重发一次。只含 answer、sources、tool_history 字段的包装回复会自动解包正文后再校验引用，用户要求的其他 JSON 结构保持原样。
 - **上下文压缩**：摘要分块上限提高到 32,768 tokens，默认预算下通常一到两批完成；进度显示“第 N/M 块”；摘要长度取服务返回的输出 token 与本地估算中的较小值，并修正中文分词估算偏高的问题。摘要失败时不再整轮失败，改为只保留最近一轮、本轮记录和此前已有的摘要继续回答，并在回答上方说明原因。
@@ -13,6 +13,18 @@
 - **Context compaction**: Raise the summary batch limit to 32,768 tokens so the default budget usually needs one or two batches, show progress as "part N of M", judge summary length by the smaller of the provider's output tokens and the local estimate, and correct the overestimated Chinese token count. A failed summary no longer fails the turn; the answer continues from the latest exchange, this turn's records and any earlier summary, with the reason shown above the answer.
 - **Empty answers**: Ask the model once more when it returns only whitespace, then report an error instead of an empty "complete" answer; stored empty answers show a placeholder with a regenerate action, and an answer that fails to render falls back to plain text.
 - **Repeated calls and tool limit**: The third consecutive SAG tool call with identical arguments is skipped and marked "Skipped" without counting toward the limit, and a fourth ends tool use for the turn; a model that still repeats ends the turn with a note. A call to a tool that is no longer bound returns "tool not enabled" to the model instead of ending the turn. The default tool-call limit is now 20; a saved 0 stays unlimited.
+
+## 0.4.1
+
+- **SAG Wiki 助手**：内置中英文更新日志。输入完整版本号即可检索该版本的改动，繁体中文、日语、韩语和西班牙语界面也可查阅英文日志。
+- **更新日志链接**：从助手的引用打开内置日志后，点击下载安装、文件夹管理等链接会跳转到官网对应页面。
+- **帮助入口**：左下角问号打开当前界面语言的在线文档，保留当前会话。问答首页仍可进入 SAG Wiki 助手。
+
+### English
+
+- **SAG Wiki Assistant**: Search the bundled Chinese and English changelogs by full version number. The English changelog is also available in the Traditional Chinese, Japanese, Korean, and Spanish interfaces.
+- **Changelog links**: Links such as installation and folder management open the corresponding pages on the official site when you read the changelog from an assistant citation.
+- **Help access**: The question mark in the lower-left corner opens the online documentation in the current interface language and keeps the conversation open. The assistant remains available from the Q&A home.
 
 ## 0.4.0
 
@@ -27,7 +39,6 @@
 - **Linux 文件监听**：达到监听上限时，CLI 和索引详情提示调高 inotify 配额并重启后台服务；已索引内容仍可搜索。([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
 
 ### English
-
 
 - **Online data import**: Connect Feishu, Lark, Notion, Yuque, and RSS or Atom feeds to import selected content into your library. Sync each connection manually or on a schedule. Unchanged items are skipped and local edits are preserved.
 - **Linux web workspace**: Create folders and upload individual files or entire directories from the browser. Uploaded files are indexed automatically. Web settings let you configure models, connect online sources, and manage API and MCP settings and keys.

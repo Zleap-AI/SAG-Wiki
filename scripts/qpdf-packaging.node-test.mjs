@@ -72,6 +72,7 @@ test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:window
  for(const file of ['scripts/package-npm-cli.mjs','scripts/prepare-qpdf.mjs','scripts/prepare-pdfium.mjs','npm/sag/bin/sag.cjs','npm/sag/package.json','npm/sag/README.md','cli/Cargo.toml']) {
   const destination=join(dir,file);mkdirSync(resolve(destination,'..'),{recursive:true});copyFileSync(join(root,file),destination);
  }
+ cpSync(join(root,'third-party/pdfium'),join(dir,'third-party/pdfium'),{recursive:true});
  writeFileSync(join(dir,'scripts/build-web-assets.mjs'),"export const buildWebAssets = () => 'unused-web-fixture';\n");
  const fake=join(dir,'fake-bin');mkdirSync(fake);
  writeFileSync(join(fake,'cargo'),'#!/bin/sh\nexit 0\n',{mode:0o755});
@@ -92,18 +93,31 @@ test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:window
  assert.match(launch.stdout,/qpdf version 12\.4\.2/);
 });
 
-test('Windows PDFium payload includes the DLL and license files', async t => {
+test('PDFium bundles the runtime and licenses from the repository for every target', async t => {
  // The release checkout can be on a different drive from the system temp directory.
  const dir = mkdtempSync(join(windows ? root : tmpdir(), 'sag-pdfium-package-'));
  t.after(() => rmSync(dir, {recursive: true, force: true}));
  const previous = process.cwd();
+ const fetch = t.mock.method(globalThis, 'fetch', () => { throw Error('PDFium must not download during packaging'); });
  try {
   process.chdir(dir);
-  const destination = join(dir, 'src-tauri', 'bin', 'pdfium');
-  await preparePdfium(destination, 'x86_64-pc-windows-msvc');
-  assert.equal(readFileSync(join(destination, 'pdfium.dll')).toString('ascii', 0, 2), 'MZ');
-  assert.ok(readFileSync(join(destination, 'LICENSE')).length > 0);
-  assert.ok(readdirSync(join(destination, 'licenses')).length > 0);
+  for (const [platform, library] of [
+   ['apple-darwin', 'libpdfium.dylib'],
+   ['pc-windows-msvc', 'pdfium.dll'],
+   ['unknown-linux-gnu', 'libpdfium.so'],
+  ]) {
+   for (const arch of ['x86_64', 'aarch64']) {
+    const target = `${arch}-${platform}`;
+    const destination = join(dir, target, 'pdfium');
+    await preparePdfium(destination, target);
+    const bytes = readFileSync(join(destination, library));
+    assert.ok(bytes.length > 0, target);
+    if (platform === 'pc-windows-msvc') assert.equal(bytes.toString('ascii', 0, 2), 'MZ', target);
+    assert.ok(readFileSync(join(destination, 'LICENSE')).length > 0, target);
+    assert.ok(readdirSync(join(destination, 'licenses')).length > 0, target);
+   }
+  }
+  assert.equal(fetch.mock.callCount(), 0);
  } finally {
   process.chdir(previous);
  }
