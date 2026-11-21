@@ -11,9 +11,11 @@
  $:running=states.includes('running');
  $:current=calls[states.indexOf('running')];
  $:failures=states.filter(state=>state==='failed').length;
- $:searches=calls.filter(call=>kind(call)==='search').length;
- $:reads=new Set(calls.filter(call=>kind(call)==='read').map(call=>String(args(call).path??call.id))).size;
- $:others=calls.length-searches-reads-calls.filter(call=>kind(call)==='list').length;
+ $:skipped=calls.filter(call=>call.skipped).length;
+ $:executed=calls.filter(call=>!call.skipped);
+ $:searches=executed.filter(call=>kind(call)==='search').length;
+ $:reads=new Set(executed.filter(call=>kind(call)==='read').map(call=>String(args(call).path??call.id))).size;
+ $:others=executed.length-searches-reads-executed.filter(call=>kind(call)==='list').length;
  $:total=calls.reduce((sum,call)=>sum+(call.elapsed_ms??0),0);
  $:summary=[searches?$t('检索 {value0} 次',{value0:searches}):'',reads?$t('阅读 {value0} 份资料',{value0:reads}):'',others>0?$t('调用工具 {value0} 次',{value0:others}):''].filter(Boolean).join(' · ')||$t('查阅资料');
 </script>
@@ -22,7 +24,7 @@
  <summary>
   <span class="tool-group-mark" aria-hidden="true">{#if running}<span class="tool-group-spinner"></span>{:else}{@html icon(failures?'alert':'check')}{/if}</span>
   {#if running}<span class="tool-group-title shimmer" role="status">{current?toolLabel(current,$t):$t('正在查阅资料')}</span>
-  {:else}<span class="tool-group-title">{summary}</span>{#if failures}<span class="tool-group-note">{$t('{value0} 次失败',{value0:failures})}</span>{/if}{#if total}<span class="tool-group-time">{total<1000?total+' ms':durationLabel(total)}</span>{/if}{/if}
+  {:else}<span class="tool-group-title">{summary}</span>{#if failures}<span class="tool-group-note">{$t('{value0} 次失败',{value0:failures})}</span>{/if}{#if skipped}<span class="tool-group-note">{$t('{value0} 次已跳过',{value0:skipped})}</span>{/if}{#if total}<span class="tool-group-time">{total<1000?total+' ms':durationLabel(total)}</span>{/if}{/if}
   <span class="tool-group-chevron" aria-hidden="true">{@html icon('chevron')}</span>
  </summary>
  <div class="tool-group-steps"><slot/></div>
