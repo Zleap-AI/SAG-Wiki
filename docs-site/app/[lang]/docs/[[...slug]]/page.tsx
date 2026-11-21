@@ -22,7 +22,10 @@ export default async function Page(props: Props) {
   const { page, lang } = await getPage(props);
   const MDX = page.data.body;
   const markdownUrl = ['/api/markdown', lang, ...page.slugs.map(encodeURIComponent)].join('/');
-  return <DocsPage toc={page.data.toc} full={page.data.full}>
+  const toc = page.slugs.join('/') === 'data-import'
+    ? page.data.toc.filter(item => item.depth <= 3)
+    : page.data.toc;
+  return <DocsPage toc={toc} full={page.data.full}>
     <div className="doc-title-row">
       <DocsTitle>{page.data.title}</DocsTitle>
       <MarkdownCopyButton markdownUrl={markdownUrl} title={translations.get(lang)['Copy Markdown(page actions)']} />

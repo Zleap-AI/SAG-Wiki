@@ -94,7 +94,7 @@ fn invalid_citations(text: &str, count: usize) -> Vec<String> {
         .filter(|id| !id.parse::<usize>().is_ok_and(|n| n > 0 && n <= count))
         .collect()
 }
-fn has_source_labels(text: &str) -> bool {
+pub(crate) fn has_source_labels(text: &str) -> bool {
     if let Ok(value) = serde_json::from_str::<Value>(text.trim()) {
         return value
             .get("sources")
@@ -326,7 +326,7 @@ where
             payload["tools"] = json!(request_tools);
             payload["tool_choice"] = json!(if !allow_tools {
                 "none"
-            } else if require_tool {
+            } else if require_tool && !message.help {
                 "required"
             } else {
                 "auto"
@@ -766,6 +766,7 @@ mod tests {
     };
     fn message() -> Message {
         Message {
+            help: false,
             created_at: None,
             question: "查询本地文件".into(),
             answer: String::new(),
@@ -935,11 +936,11 @@ mod tests {
             vec![json!({"tool_calls":calls})],
             vec![json!({"content":"已查询当前时间，计算结果为 9.3。"})],
         ]);
-        let mut session = McpSession::open(vec![], &tools.http.client().unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
+        let mut session = McpSession::open(vec![], &tools.http.client(&tools.settings.model_proxy).unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
         let mut message = message();
         message.question = "现在几点，81 的平方根加 0.1 再加 0.2 等于多少？".into();
-        super::answer(&tools.http.client().unwrap(), &config, "test", &mut message, &[], 16384, 512, 5, &tools.cancel,
+        super::answer(&tools.http.client(&tools.settings.model_proxy).unwrap(), &config, "test", &mut message, &[], 16384, 512, 5, &tools.cancel,
             AgentOptions { sag2_enabled:false, mcp:Some(&session), ..Default::default() },
             |_| async { panic!("No file retrieval is needed") },
             |_, _| async { panic!("Read-only built-in utilities need no approval") },
@@ -972,10 +973,10 @@ mod tests {
         let calls=[("g","sag2_grep",json!({"query":"needle","path":path,"length":1,"context_lines":0})),("r","sag2_read",json!({"path":path,"offset":4,"length":12}))]
             .into_iter().enumerate().map(|(index,(id,name,args))|json!({"index":index,"id":id,"type":"function","function":{"name":name,"arguments":args.to_string()}})).collect::<Vec<_>>();
         let (config,requests)=server(vec![vec![json!({"tool_calls":calls})],vec![json!({"content":"原文包含 needle a.b [1]"})]]);
-        let mut session=McpSession::open(vec![],&tools.http.client().unwrap(),5,&tools.cancel,&Default::default()).await.unwrap();
+        let mut session=McpSession::open(vec![],&tools.http.client(&tools.settings.model_proxy).unwrap(),5,&tools.cancel,&Default::default()).await.unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
         let mut message=message();
-        super::answer(&tools.http.client().unwrap(),&config,"test",&mut message,&[],16384,512,5,&tools.cancel,
+        super::answer(&tools.http.client(&tools.settings.model_proxy).unwrap(),&config,"test",&mut message,&[],16384,512,5,&tools.cancel,
             AgentOptions{sag2_enabled:false,mcp:Some(&session),..Default::default()},
             |_| async { panic!("Legacy search must not run") },|_,_| async { panic!("Read-only built-in tools need no approval") },|_,_,_,_|{}).await.unwrap();
         assert_eq!(message.evidence.len(),1);
@@ -1008,12 +1009,12 @@ mod tests {
             vec![json!({"tool_calls":[{"index":0,"id":"read-rtf","type":"function","function":{"name":"sag2_read","arguments":json!({"path":path,"length":2000}).to_string()}}]})],
             vec![json!({"content":"星河的发布验证码是 LYRA-73492 [1]。"})],
         ]);
-        let mut session = McpSession::open(vec![], &tools.http.client().unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
+        let mut session = McpSession::open(vec![], &tools.http.client(&tools.settings.model_proxy).unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
         let mut message = message();
         message.question = "星河的发布验证码是什么？".into();
         let mut streamed = String::new();
-        super::answer(&tools.http.client().unwrap(), &config, "test", &mut message, &[], 16384, 0, 5, &tools.cancel,
+        super::answer(&tools.http.client(&tools.settings.model_proxy).unwrap(), &config, "test", &mut message, &[], 16384, 0, 5, &tools.cancel,
             AgentOptions { sag2_enabled: false, mcp: Some(&session), ..Default::default() },
             |_| async { panic!("The model requested read only") }, |_, _| async { panic!("Read-only tools need no approval") },
             |_, delta, _, _| { if let Some(AnswerDelta::Append(text)) = delta { streamed.push_str(text); } }
@@ -1041,10 +1042,10 @@ mod tests {
             vec![json!({"tool_calls":[{"index":0,"id":"html","type":"function","function":{"name":"sag2_read","arguments":json!({"path":path,"length":10000}).to_string()}}]})],
             vec![json!({"content":"已读取正文 [1]。"})],
         ]);
-        let mut session = McpSession::open(vec![], &tools.http.client().unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
+        let mut session = McpSession::open(vec![], &tools.http.client(&tools.settings.model_proxy).unwrap(), 5, &tools.cancel, &Default::default()).await.unwrap();
         session.attach_sag(tools.clone()).await.unwrap();
         let mut current = message();
-        super::answer(&tools.http.client().unwrap(), &config, "test", &mut current, &[], 65536, 512, 5, &tools.cancel,
+        super::answer(&tools.http.client(&tools.settings.model_proxy).unwrap(), &config, "test", &mut current, &[], 65536, 512, 5, &tools.cancel,
             AgentOptions { sag2_enabled: false, mcp: Some(&session), ..Default::default() },
             |_| async { panic!("只读取已知文件") }, |_, _| async { Ok(true) }, |_, _, _, _| {},
         ).await.unwrap();
@@ -1063,9 +1064,9 @@ mod tests {
         let (_dir,tools,root)=crate::sag_mcp::tests::fixture();
         let path=root.join("long.txt");std::fs::write(&path,"长文内容。".repeat(10000)).unwrap();
         let (config,requests)=server(vec![vec![json!({"tool_calls":[{"index":0,"id":"long","type":"function","function":{"name":"sag2_read","arguments":json!({"path":path,"length":50000}).to_string()}}]})],vec![json!({"content":"已读取首段内容 [1]。"})]]);
-        let mut session=McpSession::open(vec![],&tools.http.client().unwrap(),5,&tools.cancel,&Default::default()).await.unwrap();session.attach_sag(tools.clone()).await.unwrap();
+        let mut session=McpSession::open(vec![],&tools.http.client(&tools.settings.model_proxy).unwrap(),5,&tools.cancel,&Default::default()).await.unwrap();session.attach_sag(tools.clone()).await.unwrap();
         let mut message=message();
-        super::answer(&tools.http.client().unwrap(),&config,"test",&mut message,&[],65536,512,5,&tools.cancel,
+        super::answer(&tools.http.client(&tools.settings.model_proxy).unwrap(),&config,"test",&mut message,&[],65536,512,5,&tools.cancel,
             AgentOptions{sag2_enabled:false,mcp:Some(&session),..Default::default()},
             |_|async {panic!()},|_,_|async {Ok(true)},|_,_,_,_|{}).await.unwrap();
         assert_eq!(message.evidence.len(), 1);

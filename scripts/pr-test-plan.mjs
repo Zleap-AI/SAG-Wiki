@@ -1,15 +1,21 @@
 import {execFileSync} from 'node:child_process';
-import {appendFileSync} from 'node:fs';
+import {appendFileSync,readFileSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
 
 const groups = ['client', 'cli', 'jev', 'http', 'web', 'qpdf', 'frontend'];
 const docs = /^(?:docs(?:-site)?\/|(?:README(?:\.[^/]*)?|CHANGELOG|CONTRIBUTING|AGENTS|LICENSE)\.md$)/;
+const bundledDocs = new Set(readFileSync(new URL('../core/assistant-pages.txt',import.meta.url),'utf8').trim().split(/\r?\n/));
 const web = /^(?:src\/|static\/|public\/|vite\.config\.|index\.html$|svelte\.config\.|tsconfig[^/]*\.json$)/;
 
 export function selectPrTests(paths) {
   const selected = new Set();
   const add = (...names) => names.forEach(name => selected.add(name));
   for (const path of paths) {
+    const bundledPage = /^docs-site\/content\/docs\/([^/.]+)(?:\.[^/.]+)?\.mdx$/.exec(path);
+    if (bundledPage && bundledDocs.has(bundledPage[1])) {
+      add('cli', 'jev', 'http', 'web');
+      continue;
+    }
     if (docs.test(path)) continue;
     // These two files are also compiled into sag-core.
     if (/^src\/lib\/(?:model-capabilities|sag-tools)\.json$/.test(path)) {
@@ -25,7 +31,7 @@ export function selectPrTests(paths) {
       add('jev', 'http', 'web');
     } else if (/^tests\/[^/]+\.test\.[cm]?[jt]s$/.test(path)) {
       add('frontend');
-    } else if (/^(?:scripts\/prepare-qpdf\.mjs|scripts\/qpdf-packaging\.node-test\.mjs)$/.test(path)) {
+    } else if (/^(?:scripts\/prepare-(?:qpdf|pdfium)\.mjs|scripts\/qpdf-packaging\.node-test\.mjs)$/.test(path)) {
       add('qpdf', 'cli', 'jev', 'http', 'web');
     } else if (/^(?:core|cli|protocol)\//.test(path)) {
       add('cli', 'jev', 'http', 'web');

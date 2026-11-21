@@ -1,14 +1,28 @@
 # 更新日志 / Changelog
 
-## 0.3.14
+## 0.4.0
 
-- **Linux 文件监听**：达到监听上限时，CLI 和索引详情提示调高 inotify 配额并重启后台服务；已索引内容仍可搜索。([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
+- **在线数据导入**：支持连接飞书、Lark、Notion、语雀和 RSS / Atom，按所选范围导入知识库。每个连接可手动或定时同步；未变化的内容会跳过，保留本地编辑。
+- **Linux 网页端**：可在浏览器创建文件夹、上传文件或整个目录，上传后自动索引。网页设置支持配置模型、连接在线数据源，以及管理 API、MCP 和密钥。
+- **PDF 和图片识别**：可选用支持图片输入的问答模型解析 PDF、PNG 和 JPEG，分别设置 PDF 和图片提示词。现有 Docling 和 MinerU 解析方式继续可用。
+- **网页远程访问**：CLI 可配置公网 IP 或 HTTPS 反向代理的外部地址，并控制网页访问码。Linux 新配置默认关闭访问码，已有设置保留；远程使用时可开启验证。
+- **聊天记录导入**：Claude Code 和 Codex 可分别设置定时导入，默认关闭。新增消息更新原 Markdown，未变化的会话会跳过。预览自动定位到最新消息。
 - **应用数据位置**：桌面端可迁移索引、配置、问答记录和应用内转换结果，并保留旧目录作为备份。桌面端与 CLI 共用新位置；远程服务自启和文件夹授权随迁移更新，数据目录不可用时可在启动时选择已有数据目录。([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
+- **SAG Wiki 助手**：可在问答首页直接查询内置使用指南，点击引用可定位原文。未配置回答模型时仍可检索并查看相关章节。
+- **统一代理**：问答模型、Jev、MinerU、应用更新、组件下载、分享和远程 HTTP MCP 共用代理设置。支持指定直连地址和在保存前测试连接。
+- **Linux 文件监听**：达到监听上限时，CLI 和索引详情提示调高 inotify 配额并重启后台服务；已索引内容仍可搜索。([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
 
 ### English
 
-- **Linux file monitoring**: When the watch limit is reached, CLI and indexing details explain how to raise the inotify quota and restart the background service. Indexed content remains searchable. ([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
+- **Online data import**: Connect Feishu, Lark, Notion, Yuque, and RSS or Atom feeds to import selected content into your library. Sync each connection manually or on a schedule. Unchanged items are skipped and local edits are preserved.
+- **Linux web workspace**: Create folders and upload individual files or entire directories from the browser. Uploaded files are indexed automatically. Web settings let you configure models, connect online sources, and manage API and MCP settings and keys.
+- **PDF and image recognition**: Use a vision-capable answer model to parse PDF, PNG, and JPEG files, with separate prompts for PDFs and images. Docling and MinerU remain available.
+- **Remote web access**: Use the CLI to set an external URL for access through a public IP or an HTTPS reverse proxy and control the web access code. New Linux setups start with the code disabled; existing settings are preserved. You can enable verification for remote access.
+- **Chat history import**: Schedule Claude Code and Codex imports separately. Scheduling is off by default. New messages update the existing Markdown file, unchanged chats are skipped, and previews open at the latest message.
 - **Application data location**: Move indexes, settings, conversations, and in-app conversion results from the desktop app while keeping the previous folder as a backup. Desktop and CLI share the new location, remote service autostart and folder permissions move with it, and startup recovery lets you choose an existing data folder if the saved location is unavailable. ([PR #176](https://github.com/Zleap-AI/SAG-Wiki/pull/176))
+- **SAG Wiki Assistant**: Search the built-in user guides from the chat home screen and follow citations to the relevant sections. You can still search and read matching sections without an answer model.
+- **Shared proxy settings**: Use one proxy configuration for answer models, Jev, MinerU, app updates, component downloads, sharing, and remote HTTP MCP. Set proxy bypass addresses and test the connection before saving.
+- **Linux file monitoring**: When the watch limit is reached, CLI and indexing details explain how to raise the inotify quota and restart the background service. Indexed content remains searchable. ([Issue #174](https://github.com/Zleap-AI/SAG-Wiki/issues/174), [PR #175](https://github.com/Zleap-AI/SAG-Wiki/pull/175))
 
 ## 0.3.13
 

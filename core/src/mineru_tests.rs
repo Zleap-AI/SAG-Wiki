@@ -467,29 +467,54 @@ impl Drop for Fixture {
 async fn connection_probe_uses_only_the_parser_endpoint_without_upload_or_dashboard() {
     let server=Fixture::new(|_|vec![Step{method:"GET",path:"/proxy/302/v2/mineru/task",status:422,body:vec![]}]);
     let config=MineruConfig{base_url:format!("{}/proxy/",server.base),..Default::default()};
-    let message=test_connection(&config,"secret").await.unwrap();assert!(message.contains("尚未验证"));server.finish(1);
+    let message=test_connection(&config,"secret", &ModelProxy::default()).await.unwrap();assert!(message.contains("尚未验证"));server.finish(1);
+}
+
+#[test]
+fn configured_proxy_handles_probe_upload_poll_and_connects_to_result_storage() {
+    let server = Fixture::new(|_| vec![
+        Step { method: "GET", path: "http://192.0.2.10/302/v2/mineru/task", status: 422, body: vec![] },
+        Step::json("POST", "http://192.0.2.10/302/upload-file", json!({"code":200,"data":"https://files.example.test/source.pdf"})),
+        Step::json("POST", "http://192.0.2.10/302/v2/mineru/task", json!({"code":200,"data":{"task_id":"proxy-task"}})),
+        Step::json("GET", "http://192.0.2.10/302/v2/mineru/task?task_id=proxy-task", json!({"code":200,"data":{"status":"completed","zip_url":"https://files.example.test/result.zip"}})),
+        Step { method: "CONNECT", path: "files.example.test:443", status: 403, body: vec![] },
+    ]);
+    let proxy = ModelProxy { url: server.base.clone(), bypass: String::new() };
+    let config = MineruConfig { base_url: "http://192.0.2.10".into(), ..Default::default() };
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+    assert!(runtime.block_on(test_connection(&config, "test-key", &proxy)).unwrap().contains("尚未验证"));
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("test.pdf");
+    std::fs::write(&source, pdf(1)).unwrap();
+    let mut phases = Vec::new();
+    let observed = std::cell::RefCell::new(&mut phases);
+    let error = convert_with_runtime(&source, &dir.path().join("out.md"), &config, "test-key", &RuntimeSettings::default(), &|| false, &|phase| observed.borrow_mut().push(phase.to_owned()), &proxy).unwrap_err();
+    assert!(error.to_string().contains("MinerU 网络请求失败"));
+    assert!(phases.iter().any(|phase| phase == "downloading"));
+    assert!(server.requests.lock().unwrap().last().unwrap().to_ascii_lowercase().find("authorization:").is_none());
+    server.finish(5);
 }
 #[tokio::test]
 async fn connection_probe_auth_failure_is_redacted() {
     let server=Fixture::new(|_|vec![Step{method:"GET",path:"/302/v2/mineru/task",status:401,body:b"secret".to_vec()}]);
-    let error=test_connection_at(&MineruConfig::default(),"secret",&server.base).await.unwrap_err().to_string();assert!(error.contains("HTTP 401"));assert!(!error.contains("secret"));server.finish(1);
+    let error=test_connection_at(&MineruConfig::default(),"secret",&server.base, &ModelProxy::default()).await.unwrap_err().to_string();assert!(error.contains("HTTP 401"));assert!(!error.contains("secret"));server.finish(1);
 }
 #[tokio::test]
 async fn connection_probe_forbidden_is_not_reported_as_invalid_key() {
     let server=Fixture::new(|_|vec![Step{method:"GET",path:"/302/v2/mineru/task",status:403,body:b"sensitive".to_vec()}]);
-    let error=test_connection_at(&MineruConfig::default(),"secret",&server.base).await.unwrap_err().to_string();assert!(error.contains("HTTP 403"));assert!(!error.contains("sensitive"));server.finish(1);
+    let error=test_connection_at(&MineruConfig::default(),"secret",&server.base, &ModelProxy::default()).await.unwrap_err().to_string();assert!(error.contains("HTTP 403"));assert!(!error.contains("sensitive"));server.finish(1);
 }
 #[tokio::test]
 async fn enterprise_direct_markdown_is_checkpointed_without_resubmitting() {
     let server=Fixture::new(|base|vec![Step::json("POST","/302/upload-file",json!({"code":200,"data":format!("{base}/pdf")})),Step::json("POST","/302/v2/mineru/task",json!(serde_json::to_string(&json!({"data":{"markdown":"# direct result"}})).unwrap()))]);
     let dir=tempfile::tempdir().unwrap();let path=dir.path().join("task.json");let part=Part{bytes:pdf(1),start:1,end:1,name:"test.pdf".into()};let config=MineruConfig::default();
-    for _ in 0..2 {let result=parse_part(&client(5).unwrap(),&server.base,&part,&path,&config,"key",false,&|_|{}).await.unwrap();assert_eq!(result,"# direct result");}
+    for _ in 0..2 {let result=parse_part(&client(5, &ModelProxy::default()).unwrap(),&server.base,&part,&path,&config,"key",false,&|_|{}).await.unwrap();assert_eq!(result,"# direct result");}
     server.finish(2);
 }
 #[tokio::test]
 async fn enterprise_poll_accepts_encoded_payload_and_downloaded_markdown() {
     let server=Fixture::new(|base|vec![Step::json("POST","/302/upload-file",json!({"code":200,"data":format!("{base}/pdf")})),Step::json("POST","/302/v2/mineru/task",json!({"data":{"taskId":"enterprise-task"}})),Step::json("GET","/302/v2/mineru/task?task_id=enterprise-task",json!(serde_json::to_string(&json!({"data":{"status":"finished","markdown_url":format!("{base}/result.md")}})).unwrap())),Step{method:"GET",path:"/result.md",status:200,body:b"# downloaded result".to_vec()}]);
-    let dir=tempfile::tempdir().unwrap();let part=Part{bytes:pdf(1),start:1,end:1,name:"test.pdf".into()};let result=parse_part(&client(5).unwrap(),&server.base,&part,&dir.path().join("task.json"),&MineruConfig::default(),"key",false,&|_|{}).await.unwrap();assert_eq!(result,"# downloaded result");server.finish(4);
+    let dir=tempfile::tempdir().unwrap();let part=Part{bytes:pdf(1),start:1,end:1,name:"test.pdf".into()};let result=parse_part(&client(5, &ModelProxy::default()).unwrap(),&server.base,&part,&dir.path().join("task.json"),&MineruConfig::default(),"key",false,&|_|{}).await.unwrap();assert_eq!(result,"# downloaded result");server.finish(4);
 }
 
 #[tokio::test]
@@ -498,7 +523,7 @@ async fn opensource_upload_create_poll_download_uses_version_and_method() {
     let server=Fixture::new(|base|vec![Step::json("POST","/302/upload-file",json!({"code":200,"data":format!("{base}/document.pdf")})),Step::json("POST","/302/v2/mineru/task",json!({"code":200,"data":{"task_id":"open-task"}})),Step::json("GET","/302/v2/mineru/task?task_id=open-task",json!({"code":200,"data":{"status":"completed","zip_url":format!("{base}/result.zip")}})),Step{method:"GET",path:"/result.zip",status:200,body:zip}]);
     let dir=tempfile::tempdir().unwrap();let part=Part{name:"test.pdf".into(),bytes:pdf(1),start:1,end:1};
     let config=MineruConfig{version:"2.0".into(),parse_method:"txt".into(),..Default::default()};
-    let result=parse_part(&client(5).unwrap(),&server.base,&part,&dir.path().join("task.json"),&config,"key",false,&|_|{}).await.unwrap();assert!(result.contains("open source result"));
+    let result=parse_part(&client(5, &ModelProxy::default()).unwrap(),&server.base,&part,&dir.path().join("task.json"),&config,"key",false,&|_|{}).await.unwrap();assert!(result.contains("open source result"));
     let requests=server.requests.lock().unwrap();assert!(requests[1].contains("\"version\":\"2.0\""));assert!(requests[1].contains("\"parse_method\":\"txt\""));assert!(!requests[1].contains("model_version"));drop(requests);server.finish(4);
 }
 
@@ -551,8 +576,8 @@ fn official_upload_resumes_task_and_never_sends_key_to_storage() {
         base_url: server.base.clone(),
         ..Default::default()
     };
-    convert_with_runtime(&source, &output, &config, "secret", &RuntimeSettings::default(), &|| false, &|_| {}).unwrap();
-    convert_with_runtime(&source, &output, &config, "secret", &RuntimeSettings::default(), &|| false, &|_| {}).unwrap();
+    convert_with_runtime(&source, &output, &config, "secret", &RuntimeSettings::default(), &|| false, &|_| {}, &ModelProxy::default()).unwrap();
+    convert_with_runtime(&source, &output, &config, "secret", &RuntimeSettings::default(), &|| false, &|_| {}, &ModelProxy::default()).unwrap();
     assert!(std::fs::read_to_string(output)
         .unwrap()
         .contains("# parsed"));
@@ -613,7 +638,7 @@ async fn timed_out_poll_can_resume_without_a_new_submission() {
         end: 1,
         name: "scan.pdf".into(),
     };
-    let http = client(5).unwrap();
+    let http = client(5, &ModelProxy::default()).unwrap();
     {
         let operation = parse_part(
             &http,
@@ -1046,11 +1071,11 @@ fn review_split_documents_serialize_shared_later_segment_before_submission() {
     std::thread::scope(|scope| {
         let first=scope.spawn(||convert_at_with_progress(&sources[0],&output_a,&config,"test-key",&||stop_a.load(Ordering::SeqCst),"http://127.0.0.1:1",&RuntimeSettings::default(),&|phase|{
             if phase=="uploading" {holding_tx.send(()).unwrap();while !stop_a.load(Ordering::SeqCst){std::thread::sleep(Duration::from_millis(1));}}
-        }));
+        }, &ModelProxy::default()));
         holding_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         let second=scope.spawn(||convert_at_with_progress(&sources[1],&output_b,&config,"test-key",&||stop_b.load(Ordering::SeqCst),"http://127.0.0.1:1",&RuntimeSettings::default(),&|phase|{
             if phase=="preparing"{ready_tx.send(()).unwrap();}if phase=="uploading"{let _=upload_tx.send(());}
-        }));
+        }, &ModelProxy::default()));
         ready_rx.recv_timeout(Duration::from_secs(5)).unwrap();let overlapped=upload_rx.recv_timeout(Duration::from_millis(500)).is_ok();
         stop_a.store(true,Ordering::SeqCst);stop_b.store(true,Ordering::SeqCst);
         assert!(first.join().unwrap().is_err());assert!(second.join().unwrap().is_err());
@@ -1115,7 +1140,7 @@ async fn resumed_expired_task_stops_pending_polling_but_can_recover_completed_re
         let result = tokio::time::timeout(
             Duration::from_millis(500),
             parse_part(
-                &client(5).unwrap(),
+                &client(5, &ModelProxy::default()).unwrap(),
                 &server.base,
                 &part,
                 &path,
@@ -1219,6 +1244,7 @@ fn segment_cloud_results_keep_original_page_offsets() {
         &|_| {},
         Some(51),
         None,
+        &ModelProxy::default(),
     )
     .unwrap();
     let text = std::fs::read_to_string(output).unwrap();
@@ -1318,7 +1344,7 @@ fn unknown_remote_status_pauses_new_parts_but_allows_journal_recovery() {
     let paused = AtomicBool::new(false);
     let config = MineruConfig {provider:MineruProvider::Official, ..Default::default()};
     let convert = || convert_range_at_with_progress(&source, &output, &config, "test-key", &|| false,
-        &server.base, &RuntimeSettings::default(), &|_| {}, Some(1), Some(&paused));
+        &server.base, &RuntimeSettings::default(), &|_| {}, Some(1), Some(&paused), &ModelProxy::default());
     assert!(convert().is_err());
     assert!(paused.load(Ordering::Acquire));
     assert!(convert().unwrap_err().to_string().contains("避免重复提交"));

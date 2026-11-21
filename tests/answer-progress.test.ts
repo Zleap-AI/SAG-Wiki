@@ -21,7 +21,8 @@ beforeEach(async()=>{
   return [];
  });
  app=mount(App,{target:document.body});await vi.waitFor(()=>expect(listeners.has('query-progress')).toBe(true));
- document.querySelector<HTMLButtonElement>('[title="已有对话"]')!.click();await tick();
+ document.querySelector<HTMLButtonElement>('[title="已有对话"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.user-message')?.textContent).toBe('上次问题'));
  const input=document.querySelector<HTMLTextAreaElement>('[aria-label="向你的文件提问"]')!;input.value='这次问题';input.dispatchEvent(new Event('input',{bubbles:true}));await tick();
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));await vi.waitFor(()=>expect(invoke.mock.calls.some(([name])=>name==='run_query')).toBe(true));
 });

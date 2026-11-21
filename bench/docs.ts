@@ -10,6 +10,7 @@ import '../src/components/ui/controls.css';
 import '../src/styles/search.css';
 import {setLanguage} from '../src/lib/i18n';
 import {version} from '../package.json';
+import type {ChatImportSchedule,ChatSource} from '../src/lib/types';
 const params=new URLSearchParams(location.search),en=params.get('lang')==='en';
 const text=(zh:string,eng:string)=>en?eng:zh;
 const root='/Documents/SAG Wiki/'+text('项目资料','Project notes');
@@ -54,11 +55,14 @@ const callbacks=new Map<number,(value:any)=>void>(),listeners=new Map<number,{ev
 const apiDemoKey={id:'demo-key',name:text('知识库助手','Knowledge assistant'),prefix:'sag_demo…0001',created_at:now,copyable:true};
 function fixtureEvent(event:string,payload:unknown){for(const [id,listener] of listeners)if(listener.event===event)callbacks.get(listener.handler)!({event,id,payload});}
 const chatSessions=[{id:'release-chat',title:text('确认发布检查流程','Confirm the release checklist'),project:'/Projects/Atlas',updated:'2026-11-15T01:00:00Z',paths:['/Example/transcripts/release.jsonl']},{id:'search-chat',title:text('搜索结果排序调整','Search ranking adjustments'),project:'/Projects/Atlas',updated:'2026-11-14T09:30:00Z',paths:['/Example/transcripts/search.jsonl']}];
+const schedules:Partial<Record<ChatSource,ChatImportSchedule>>={};
 const handlers:Record<string,(a:any)=>any>={
  browse_folders:({path})=>({path:path??'/Documents',parent:'/',home:'/Documents',folders:[{path:'/Documents/Project notes',name:text('项目资料','Project notes')},{path:'/Documents/Research',name:text('研究资料','Research')},{path:'/Documents/Archive',name:text('归档','Archive')}]}),
  list_chat_sessions:()=>({source_root:'/Example/transcripts',sessions:chatSessions,issues:[],total:2,page:0,page_size:50,projects:['/Projects/Atlas']}),
  preview_chat_import:(a)=>({title:chatSessions[0].title,body:text('# 确认发布检查流程\n\n## User\n\n发布前需要检查哪些内容？\n\n## Assistant\n\n先完成自动测试，再核对安装、搜索和文档阅读流程。\n\n1. 验证安装和启动。\n2. 导入示例文件，检查搜索结果。\n3. 核对中英文操作说明。',' # Confirm the release checklist\n\n## User\n\nWhat should we check before release?\n\n## Assistant\n\nRun automated tests, then check installation, search and document reading.\n\n1. Verify installation and startup.\n2. Import example files and inspect search results.\n3. Check the Chinese and English instructions.')+(a.includeTools?'\n\n## Tool\n\n```\nnpm test\n```':'')}),
  get_chat_import_folder:()=>chatImportFolder,
+ get_chat_import_schedule:({source}:{source:ChatSource})=>({schedule:schedules[source]??{enabled:false,time:'09:00',source_root:null,include_tools:false},last_run_at:null,last_run:null}),
+ save_chat_import_schedule:({source,schedule}:{source:ChatSource;schedule:ChatImportSchedule})=>{schedules[source]=schedule;},
  choose_chat_import_folder:()=>chatImportFolder='/Documents/'+text('自选聊天目录','Custom Chats'),
  import_chat_sessions:(a)=>a.sessions.map((s:any)=>({path:chatImportFolder+'/'+(a.source==='claude'?'claude code':'codex')+'/'+s.title+'.md',status:'imported',error:null})),
  list_answer_models:()=>['demo-model','demo-model-fast','demo-model-reasoning'],

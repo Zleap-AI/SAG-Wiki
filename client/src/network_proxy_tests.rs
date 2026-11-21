@@ -102,6 +102,68 @@ async fn record_request(status: &'static str) -> (String, JoinHandle<String>) {
     (address, task)
 }
 
+#[test]
+fn reads_saved_proxy_without_starting_a_service_or_creating_a_database() {
+    let data = tempfile::tempdir().unwrap();
+    let database = data.path().join("sag.sqlite");
+    assert!(saved_proxy(data.path()).unwrap().url.is_empty());
+    assert!(!database.exists());
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection.execute_batch("CREATE TABLE preferences(id INTEGER PRIMARY KEY, value TEXT NOT NULL);").unwrap();
+    connection.execute("INSERT INTO preferences VALUES(1, '{}')", []).unwrap();
+    assert!(saved_proxy(data.path()).unwrap().url.is_empty());
+    connection.execute("UPDATE preferences SET value=? WHERE id=1", [
+        r#"{"model_proxy":{"url":"http://proxy.example:8080","bypass":".internal.example"}}"#,
+    ]).unwrap();
+    let saved = saved_proxy(data.path()).unwrap();
+    assert_eq!(saved.url, "http://proxy.example:8080");
+    assert_eq!(saved.bypass, ".internal.example");
+}
+
+#[tokio::test]
+async fn proxy_test_tunnels_through_the_entered_address_and_reports_failure() {
+    let (address, request) = record_request("502 Bad Gateway").await;
+    let error = test_proxy_connection(&format!("http://{address}")).await.unwrap_err();
+    assert_eq!(error.to_string(), "无法通过代理访问 zleap.com");
+    assert_eq!(request.await.unwrap().trim_end(), "CONNECT zleap.com:443 HTTP/1.1");
+}
+
+#[test]
+fn docling_install_commands_get_the_custom_proxy_and_bypass_addresses() {
+    let mut command = Command::new("uv");
+    configure_download_command(&mut command, &ModelProxy {
+        url: "http://proxy.example:8080".into(),
+        bypass: ".internal.example, 192.0.2.5".into(),
+    }).unwrap();
+    for key in ["HTTP_PROXY", "HTTPS_PROXY"] {
+        assert!(command.get_envs().any(|(name, value)| name.eq_ignore_ascii_case(key) && value.unwrap() == "http://proxy.example:8080/"));
+    }
+    let (_, value) = command.get_envs().find(|(name, _)| name.eq_ignore_ascii_case("NO_PROXY")).unwrap();
+    let bypass = value.unwrap().to_str().unwrap().split(',').collect::<Vec<_>>();
+    for address in [".internal.example", "192.0.2.5", "localhost", "127.0.0.1"] {
+        assert!(bypass.contains(&address));
+    }
+}
+
+#[tokio::test]
+async fn custom_proxy_can_bypass_intranet_networks() {
+    timeout(Duration::from_secs(5), async {
+        let (proxy_address, proxied) = record_request("502 Bad Gateway").await;
+        let client = ModelHttp::default().client(&ModelProxy {
+            url: format!("http://{proxy_address}"),
+            bypass: "192.0.2.0/24".into(),
+        }).unwrap();
+        assert!(client.get("https://198.51.100.10/v1/models").send().await.is_err());
+        assert_eq!(proxied.await.unwrap().trim_end(), "CONNECT 198.51.100.10:443 HTTP/1.1");
+        let settings = ProxySettings::read(&ModelProxy {
+            url: format!("http://{proxy_address}"),
+            bypass: "192.0.2.0/24".into(),
+        }).unwrap();
+        assert!(Bypass::new(&[], &settings.env_bypass).unwrap()
+            .matches(&Url::parse("https://192.0.2.10/v1").unwrap()));
+    }).await.unwrap();
+}
+
 #[tokio::test]
 async fn switches_proxy_on_next_operation_and_keeps_loopback_direct() {
     timeout(Duration::from_secs(5), async {

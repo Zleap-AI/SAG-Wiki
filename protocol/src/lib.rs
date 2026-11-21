@@ -1,5 +1,6 @@
 pub mod about_links;
 pub mod chat_import;
+pub mod online_import;
 pub use chat_import::*;
 pub mod runtime;
 pub mod locales;
@@ -281,6 +282,7 @@ pub struct EventEnvelope {
 #[serde(tag = "operation", content = "args", rename_all = "snake_case")]
 pub enum Operation {
     Api { action: ApiAction },
+    OnlineImport { action: online_import::Action },
     DoclingStatus,
     InstallDocling,
     ImportDoclingComponent {
@@ -312,6 +314,9 @@ pub enum Operation {
     ReadDocument {
         path: String,
     },
+    ReadHelpDocument {
+        path: String,
+    },
     SaveDocument {
         path: String,
         body: String,
@@ -319,6 +324,8 @@ pub enum Operation {
     },
     GetChatImportFolder,
     SetChatImportFolder { path: String },
+    GetChatImportSchedule { source: ChatSource },
+    SaveChatImportSchedule { source: ChatSource, schedule: ChatImportSchedule },
     ListChatSessions { source: ChatSource, source_root: Option<String>, #[serde(default)] query: ChatListQuery },
     PreviewChatImport { source: ChatSource, source_root: String, paths: Vec<String>, include_tools: bool },
     ImportChatSessions { source: ChatSource, source_root: String, sessions: Vec<ChatSession>, include_tools: bool },
@@ -372,8 +379,14 @@ pub enum Operation {
     },
     GetSettings,
     RuntimeSchema,
+    TestProxyConnection { address: String },
     MineruSchema,
-    TestMineru { config: crate::mineru::MineruConfig, key: String },
+    TestMineru {
+        config: crate::mineru::MineruConfig,
+        key: String,
+        #[serde(default)]
+        model_proxy: Option<types::ModelProxy>,
+    },
     ClearMineruKey { config: crate::mineru::MineruConfig },
     RegisterDoclingComponent {
         path: String,
@@ -393,10 +406,14 @@ pub enum Operation {
         kind: String,
         config: ModelConfig,
         key: String,
+        #[serde(default)]
+        model_proxy: Option<types::ModelProxy>,
     },
     ListAnswerModels {
         config: ModelConfig,
         key: String,
+        #[serde(default)]
+        model_proxy: Option<types::ModelProxy>,
     },
     TestMcp {
         server: McpServer,
@@ -487,6 +504,7 @@ pub enum Operation {
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
 pub enum Output {
     ChatCatalog(ChatCatalog),
+    ChatImportSchedule(ChatImportScheduleStatus),
     ChatPreview(ChatPreview),
     ChatImports(Vec<ChatImportItem>),
     Api(serde_json::Value),

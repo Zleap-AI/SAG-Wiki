@@ -68,7 +68,7 @@ test('QPDF remains executable after its build cache is removed, including an old
 });
 test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:windows},async t=>{
  const dir=await fixture(t);
- for(const file of ['scripts/package-npm-cli.mjs','scripts/prepare-qpdf.mjs','npm/sag/bin/sag.cjs','npm/sag/package.json','npm/sag/README.md','cli/Cargo.toml']) {
+ for(const file of ['scripts/package-npm-cli.mjs','scripts/prepare-qpdf.mjs','scripts/prepare-pdfium.mjs','npm/sag/bin/sag.cjs','npm/sag/package.json','npm/sag/README.md','cli/Cargo.toml']) {
   const destination=join(dir,file);mkdirSync(resolve(destination,'..'),{recursive:true});copyFileSync(join(root,file),destination);
  }
  writeFileSync(join(dir,'scripts/build-web-assets.mjs'),"export const buildWebAssets = () => 'unused-web-fixture';\n");
@@ -84,6 +84,7 @@ test('npm tarball carries a relocatable QPDF beside the native CLI',{skip:window
  execFileSync('tar',['-xzf',archive,'-C',customer]);
  const helper=join(customer,'package/native',`${process.platform}-${process.arch}`,'qpdf/bin/qpdf');
  assert.ok(existsSync(helper),'npm package must contain its required PDF helper');
+ assert.ok(existsSync(join(helper,'../../../pdfium',process.platform==='darwin'?'libpdfium.dylib':'libpdfium.so')),'npm package must contain PDFium');
  renameSync(join(dir,'node_modules'),join(dir,'hidden-build-cache'));
  const launch=spawnSync(process.execPath,[join(customer,'package/bin/sag.cjs'),'--version'],{encoding:'utf8'});
  assert.equal(launch.status,0,launch.stderr);

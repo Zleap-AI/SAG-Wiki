@@ -8,7 +8,7 @@ import SettingsPanel from '../src/components/Settings.svelte';
 import RichEditor from '../src/components/RichEditor.svelte';
 import ToolCall from '../src/components/ToolCall.svelte';
 import {language,setLanguage,translate,type Language} from '../src/lib/i18n';
-import type {Settings} from '../src/lib/types';
+import type {ChatImportSchedule, ChatSource, Settings} from '../src/lib/types';
 const {invoke}=vi.hoisted(()=>({invoke:vi.fn(async (_command:string,_args?:Record<string,unknown>):Promise<any>=>({directory:'/Documents/sag-wiki/share',clipboard:false}))}));
 vi.mock('@tauri-apps/api/core',()=>({invoke}));
 vi.mock('@tauri-apps/api/event',()=>({listen:vi.fn(async()=>()=>{})}));
@@ -114,6 +114,7 @@ it('数据导入打开聊天窗口，关闭后保留设置，并保存新的导�
   if(command==='get_chat_import_folder')return '/Documents/AgentHistory';
   if(command==='choose_chat_import_folder')return '/Archive/Chats';
   if(command==='list_chat_sessions')return {source_root:'/transcripts',sessions:[],issues:[],total:0,page:0,page_size:50,projects:[]};
+  if(command==='get_chat_import_schedule')return {schedule:{enabled:false,time:'09:00',source_root:null,include_tools:false},last_run_at:null,last_run:null};
   return [];
  });
  const onSave=vi.fn();
@@ -132,4 +133,85 @@ it('数据导入打开聊天窗口，关闭后保留设置，并保存新的导�
  click('通用');await tick();click('保存设置');
  await vi.waitFor(()=>expect(onSave).toHaveBeenCalled());
  expect(onSave.mock.calls[0][0].chat_import_folder).toBe('/Archive/Chats');
+});
+
+it('定时导入共用聊天文件夹和工具开关，并按来源自动保存',async()=>{
+ setLanguage('zh-CN');
+ const schedules:Record<ChatSource,ChatImportSchedule>={
+  codex:{enabled:false,time:'09:00',source_root:null,include_tools:false},
+  claude:{enabled:true,time:'09:00',source_root:'/claude-chats',include_tools:true},
+ };
+ invoke.mockImplementation(async(command,args)=>{
+  const source=args?.source as ChatSource;
+  if(command==='get_chat_import_schedule')return {
+   schedule:schedules[source],last_run_at:null,last_run:null,
+  };
+  if(command==='save_chat_import_schedule')schedules[source]=args?.schedule as ChatImportSchedule;
+  if(command==='list_chat_sessions')return {source_root:args?.sourceRoot??'/transcripts',sessions:[],issues:[],total:0,page:0,page_size:50,projects:[]};
+  return null;
+ });
+ app=mount(SettingsPanel,{target:document.body,props:{value:settings,initial:'imports',onSave:vi.fn(),onClose:vi.fn()}});
+ await tick();
+ expect(document.querySelector('[aria-label="Codex 定时导入"]')).toBeNull();
+ click('导入 Codex 聊天记录');
+ const selector='.chat-import .chat-import-schedule';
+ const syncSwitch=()=>document.querySelector<HTMLButtonElement>(`${selector} [role="switch"]`)!;
+ await vi.waitFor(()=>expect(syncSwitch()?.disabled).toBe(false));
+ expect(invoke).toHaveBeenCalledWith('get_chat_import_schedule',{source:'codex'});
+ expect(syncSwitch().getAttribute('aria-checked')).toBe('false');
+ expect(document.querySelector(`${selector} select`)).toBeNull();
+ expect(document.querySelector(`${selector} input[type="time"]`)).toBeNull();
+ click('定时同步');
+ await vi.waitFor(()=>expect(schedules.codex.enabled).toBe(true));
+ await tick();
+ const chooseFrequency=(value:string)=>{
+  const select=document.querySelector<HTMLSelectElement>(`${selector} select`)!;
+  select.value=value;
+  select.dispatchEvent(new Event('change',{bubbles:true}));
+ };
+ const frequency=document.querySelector<HTMLSelectElement>(`${selector} select`)!;
+ expect(frequency.value).toBe('daily');
+ expect(Array.from(frequency.options,option=>option.textContent)).toEqual(['每 30 分钟','每小时','每 6 小时','每 12 小时','每天']);
+ chooseFrequency('30');
+ await vi.waitFor(()=>expect(schedules.codex).toEqual({enabled:true,time:'09:00',interval_minutes:30,source_root:'/transcripts',include_tools:false}));
+ await tick();
+ expect(document.querySelector(`${selector} input[type="time"]`)).toBeNull();
+ chooseFrequency('daily');
+ await vi.waitFor(()=>expect(schedules.codex.interval_minutes).toBeNull());
+ await tick();
+ const time=document.querySelector<HTMLInputElement>(`${selector} input[type="time"]`)!;
+ time.value='20:45';time.dispatchEvent(new Event('change',{bubbles:true}));
+ await vi.waitFor(()=>expect(schedules.codex.time).toBe('20:45'));
+ await tick();
+ const folder=document.querySelector<HTMLInputElement>('.chat-source-path input')!;
+ folder.value='/archive/chats';folder.dispatchEvent(new Event('input',{bubbles:true}));
+ expect(schedules.codex.source_root).toBe('/transcripts');
+ document.querySelector('.chat-source-path')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(schedules.codex.source_root).toBe('/archive/chats'));
+ await tick();
+ click('展示工具调用过程');
+ await vi.waitFor(()=>expect(schedules.codex.include_tools).toBe(true));
+ await tick();
+ expect(document.querySelectorAll(`${selector} button`)).toHaveLength(1);
+ click('关闭');
+ await vi.waitFor(()=>expect(document.querySelector(selector)).toBeNull());
+ click('导入 Codex 聊天记录');
+ await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>(`${selector} input[type="time"]`)?.value).toBe('20:45'));
+ expect(document.querySelector<HTMLInputElement>('.chat-source-path input')?.value).toBe('/archive/chats');
+ expect(document.querySelector('[aria-label="展示工具调用过程"]')?.getAttribute('aria-checked')).toBe('true');
+ await vi.waitFor(()=>expect(syncSwitch().disabled).toBe(false));
+ chooseFrequency('360');
+ await vi.waitFor(()=>expect(schedules.codex.interval_minutes).toBe(360));
+ await tick();
+ click('定时同步');
+ await vi.waitFor(()=>expect(schedules.codex.enabled).toBe(false));
+ await vi.waitFor(()=>expect(document.querySelector(`${selector} select`)).toBeNull());
+ expect(schedules.codex.interval_minutes).toBe(360);
+ await tick();
+ click('关闭');
+ await vi.waitFor(()=>expect(document.querySelector(selector)).toBeNull());
+ click('导入 Claude Code 聊天记录');
+ await vi.waitFor(()=>expect(document.querySelector<HTMLInputElement>(`${selector} input[type="time"]`)?.value).toBe('09:00'));
+ expect(invoke).toHaveBeenCalledWith('get_chat_import_schedule',{source:'claude'});
+ expect(invoke).toHaveBeenCalledWith('list_chat_sessions',{source:'claude',sourceRoot:'/claude-chats',query:{page:0,search:'',project:''}});
 });

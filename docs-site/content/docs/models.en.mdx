@@ -77,9 +77,11 @@ The answer-model test asks for a short reply; output length follows the model se
 3. Save, select that model in Q&A and ask a question with verifiable sources.
 4. Adjust prompts, reasoning or tool permissions under [Q&A settings](/en/docs/chat#qa-settings-in-detail).
 
-## Connection problems
+## Proxy settings
 
-Model requests from the desktop app and CLI follow the manual HTTP and HTTPS system proxy settings on Windows and macOS. `localhost`, loopback IPs, and addresses covered by the system bypass rules (such as listed intranet addresses) connect directly. A proxy change takes effect on the next model operation without a restart. When set, `HTTP_PROXY`, `HTTPS_PROXY`, and `ALL_PROXY` take precedence for their applicable requests, and `NO_PROXY` adds bypass addresses. PAC scripts and automatic proxy discovery are currently unsupported.
+Answer models, Jev, and MinerU share the [proxy in General settings](/en/docs/preferences#proxy-settings). MinerU uses it for connection tests, file uploads, progress checks, and result downloads.
+
+## Connection problems
 
 - Authentication failure: check the provider, key and expiry.
 - Unknown model: verify the exact ID and account access.

@@ -20,13 +20,28 @@ Location: **Settings → General**.
 | Start page | The first page shown when the app opens | Q&A by default; Q&A or Search |
 | Interface language | Language of menus, controls and messages | Simplified Chinese by default. Also available in Traditional Chinese, English, Japanese, Korean, and Spanish. |
 | After closing the window | Shows the window-close behavior | Continue running in the background |
+| Proxy settings | Configure the shared network proxy for SAG Wiki | Select Configure proxy |
 | Quick start | Reopen the folder, search and Q&A tutorial | Select View tutorial |
 
 The saved interface language also applies to the web workspace, Quick Search, and the desktop tray menu. Core guides are available in [Traditional Chinese](/zh-TW/docs), [Japanese](/ja/docs), [Korean](/ko/docs), and [Spanish](/es/docs).
 
 Reopen the app from the system tray or menu bar. On Windows, launching the desktop shortcut again restores the existing window instead of starting a second desktop instance. On macOS, pressing **⌘Q** or choosing **Quit SAG Wiki** exits only the desktop client; the service keeps running and CLI and MCP remain available. On Windows, choosing **Quit SAG Wiki** stops the standalone service and waits for cleanup before exiting the client. CLI and MCP connections close; reopening the desktop or running a CLI command that needs the service starts it on demand. If stopping fails, the client stays open and reports the error.
 
-![Start page, language and quick-start settings](/images/product-preferences-en.png)
+![Proxy settings entry in General settings](/images/product-preferences-en.png)
+
+### Proxy settings
+
+On the desktop, open **Settings → General → Configure proxy** and enter an HTTP or HTTPS proxy URL, such as `http://proxy.example.com:8080`. The configured address takes precedence over system and environment proxies. Leave it blank to use environment proxy variables and manual Windows or macOS system proxy settings. PAC and automatic proxy discovery are unsupported.
+
+Answer models, Jev, MinerU, app updates, Docling component downloads, sharing, and remote HTTP MCP use this setting. CLI sharing reads the saved configuration when it uses the same data directory.
+
+In **Bypass proxy for**, enter domains, IP addresses, or networks separated by commas, such as `.internal.example, 10.0.0.0/8`. Loopback addresses, `localhost`, and matches in `NO_PROXY` also connect directly. When Docling installs online through uv or Python, support for bypassing network ranges depends on the downloader. For internal mirrors, enter the domain or IP address.
+
+After entering a proxy URL, select **Test connection** to reach `zleap.com` through that proxy before saving. The test always uses the entered proxy URL and ignores bypass rules.
+
+Select **Done**, then **Save settings**. New requests use the new configuration without restarting the app.
+
+![Dialog for the proxy URL and bypass addresses](/images/product-model-proxy-en.png)
 
 ## Appearance
 

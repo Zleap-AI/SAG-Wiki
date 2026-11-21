@@ -5,16 +5,18 @@ use hyper::{
     body::{Bytes, Frame, Incoming},
     header, Method, Request, Response, StatusCode,
 };
-use sag_protocol::{Operation as Op, Output, ServiceEvent};
+use sag_protocol::{ApiAction, Operation as Op, Output, ServiceEvent};
 use serde_json::{json, Value};
 use std::{
     convert::Infallible,
     net::{IpAddr, SocketAddr},
-    sync::{Arc, Weak},
+    sync::Weak,
     time::Duration,
 };
 use subtle::ConstantTimeEq;
 use tokio_util::sync::CancellationToken;
+
+mod library;
 
 const ASSETS: &[(&str, &[u8])] = include!(concat!(env!("OUT_DIR"), "/web-assets.rs"));
 
@@ -22,10 +24,26 @@ pub(super) fn available() -> bool {
     !ASSETS.is_empty()
 }
 
+pub(super) fn external_origin(value: &str) -> anyhow::Result<String> {
+    let invalid = || anyhow::anyhow!("请输入完整的 HTTP 或 HTTPS 地址，且不包含路径、查询或账号");
+    let (scheme, authority) = value.trim().split_once("://").ok_or_else(invalid)?;
+    let authority = authority.strip_suffix('/').unwrap_or(authority);
+    if !matches!(scheme, "http" | "https") || authority.contains('@')
+        || authority.parse::<hyper::http::uri::Authority>().is_err()
+    {
+        return Err(invalid());
+    }
+    let url = reqwest::Url::parse(value.trim()).map_err(|_| invalid())?;
+    if url.path() != "/" || url.query().is_some() || url.fragment().is_some() || url.host().is_none() {
+        return Err(invalid());
+    }
+    Ok(url.origin().ascii_serialization())
+}
+
 pub(super) fn owns(path: &str) -> bool {
     matches!(
         path,
-        "/" | "/index.html" | "/favicon.png" | "/web/session" | "/web/operation" | "/web/events"
+        "/" | "/index.html" | "/favicon.png" | "/web/session" | "/web/operation" | "/web/events" | "/web/upload"
     ) || path.starts_with("/assets/")
         || path.starts_with("/textfold/")
 }
@@ -60,7 +78,7 @@ async fn route(
             "网页服务未开启或页面不存在",
         )
     };
-    let (authorized, closed) = {
+    let (authorized, access_code_required, external_url, closed) = {
         let config = api.config.lock().unwrap();
         let code = config.web_code.as_deref().ok_or_else(missing)?;
         let value = request
@@ -70,7 +88,7 @@ async fn route(
         let authorized = value
             .and_then(|v| v.strip_prefix("Bearer "))
             .is_some_and(|token| bool::from(token.as_bytes().ct_eq(code.as_bytes())));
-        (authorized, config.web_cancel.clone())
+        (authorized || config.web_allow_anonymous, !config.web_allow_anonymous, config.web_external_url.clone(), config.web_cancel.clone())
     };
     // A remote site cannot rebind its own domain to this listener and inherit its origin.
     let host = request
@@ -82,7 +100,12 @@ async fn route(
     let hostname = authority.host().trim_matches(['[', ']']);
     let host_matches = hostname.parse::<IpAddr>().is_ok_and(|ip| ip == local.ip())
         || (hostname.eq_ignore_ascii_case("localhost") && local.ip().is_loopback());
-    if !host_matches || authority.port_u16().unwrap_or(80) != local.port() {
+    let external = external_url.filter(|url| {
+        let (scheme, _) = url.split_once("://").expect("stored web origin is canonical");
+        external_origin(&format!("{scheme}://{host}")).is_ok_and(|origin| origin == *url)
+    });
+    let local_matches = host_matches && authority.port_u16().unwrap_or(80) == local.port();
+    if !local_matches && external.is_none() {
         return Err(ApiError::new(
             StatusCode::FORBIDDEN,
             "invalid_host",
@@ -90,7 +113,8 @@ async fn route(
         ));
     }
     if let Some(origin) = request.headers().get(header::ORIGIN) {
-        if origin.as_bytes() != format!("http://{host}").as_bytes() {
+        let local_origin_matches = local_matches && origin.as_bytes() == format!("http://{host}").as_bytes();
+        if !local_origin_matches && Some(origin.as_bytes()) != external.as_deref().map(str::as_bytes) {
             return Err(ApiError::new(
                 StatusCode::FORBIDDEN,
                 "invalid_origin",
@@ -138,7 +162,7 @@ async fn route(
     if path == "/web/session" && request.method() == Method::GET {
         return Ok(response(
             StatusCode::OK,
-            json!({"version":sag_protocol::BUILD_VERSION}),
+            json!({"version":sag_protocol::BUILD_VERSION,"access_code_required":access_code_required}),
         ));
     }
     let service = service.upgrade().ok_or_else(ApiError::stopped)?;
@@ -196,6 +220,14 @@ async fn route(
             .body(StreamBody::new(frames).boxed())
             .unwrap());
     }
+    if path == "/web/upload" && request.method() == Method::POST {
+        return tokio::select! {
+            _ = closed.cancelled() => Err(ApiError::unauthorized()),
+            _ = stop.cancelled() => Err(ApiError::stopped()),
+            _ = disconnected.cancelled() => Err(ApiError::stopped()),
+            result = library::upload(request, &service) => result,
+        };
+    }
     if path != "/web/operation" || request.method() != Method::POST {
         return Err(ApiError::new(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -220,6 +252,28 @@ async fn route(
     .map_err(ApiError::bad)?
     .to_bytes();
     let input: WebOperation = serde_json::from_slice(&bytes).map_err(ApiError::bad)?;
+    if let WebOperation::Service(Op::Api { action:
+        action @ (ApiAction::WebCode | ApiAction::WebRotateCode | ApiAction::WebSetAccessCode { .. }),
+    }) = &input {
+        let _gate = tokio::select! {
+            _ = stop.cancelled() => return Err(ApiError::stopped()),
+            _ = disconnected.cancelled() => return Err(ApiError::stopped()),
+            _ = closed.cancelled() => return Err(ApiError::unauthorized()),
+            gate = api.gate.lock() => gate,
+        };
+        if closed.is_cancelled() {
+            return Err(ApiError::unauthorized());
+        }
+        // The request that changes the code must receive its result even when it invalidates
+        // the session that authorized it. Other requests still use the usual cancellation path.
+        let code = match action {
+            ApiAction::WebCode => api.web_code().map(Some),
+            ApiAction::WebRotateCode => api.update_web_code(true, true),
+            ApiAction::WebSetAccessCode { required } => api.update_web_code(*required, false),
+            _ => unreachable!(),
+        }.map_err(ApiError::bad)?;
+        return Ok(response(StatusCode::OK, json!({"code": code})));
+    }
     let cancel = closed.child_token();
     let _guard = cancel.clone().drop_guard();
     let sink = EventSink {
@@ -230,6 +284,9 @@ async fn route(
     };
     let mut task = tokio::spawn(async move {
         match input {
+            WebOperation::Library(operation) => tokio::task::spawn_blocking(move || {
+                library::operate(operation, &service, &sink.cancel).map(Output::Text).map_err(|error| error.to_string())
+            }).await.map_err(|error| error.to_string())?,
             WebOperation::Appearance {
                 theme,
                 language,
@@ -265,9 +322,14 @@ async fn route(
                 ));
                 Ok(Output::Unit)
             }
-            WebOperation::Service(operation) => {
+            WebOperation::Service(mut operation) => {
                 if !allowed(&operation) {
-                    return Err("此操作需在桌面端完成".into());
+                    return Err("此操作需在主机上完成".into());
+                }
+                if let Op::OnlineImport { action: sag_protocol::online_import::Action::Save { source, .. } } = &mut operation {
+                    if source.id.is_empty() {
+                        source.directory.clear();
+                    }
                 }
                 if let Op::ReadDocument { path } = &operation {
                     let path = service
@@ -313,7 +375,7 @@ async fn route(
         settings.mcp_servers.clear();
         for profile in settings.model_profiles.values_mut() {
             profile.mcp_servers.clear();
-            profile.mcp_tools.clear();
+            profile.mcp_tools.retain(|id, _| id == crate::sag_mcp::ID);
         }
         return Ok(response(
             StatusCode::OK,
@@ -331,6 +393,7 @@ async fn route(
 #[serde(untagged)]
 enum WebOperation {
     Service(Op),
+    Library(library::Operation),
     Appearance {
         theme: String,
         language: String,
@@ -341,14 +404,55 @@ enum WebOperation {
 }
 
 fn allowed(op: &Op) -> bool {
+    use sag_protocol::online_import::Action;
+    if let Op::OnlineImport { action } = op {
+        return match action {
+            Action::AccountLogin { .. } | Action::AccountLoginStatus { .. } | Action::CancelAccountLogin { .. } => false,
+            Action::Browse { connection, auth_session, .. } => !connection.user_access && auth_session.is_none(),
+            Action::Save { source, auth_session, .. } => !source.connection.user_access && auth_session.is_none(),
+            _ => true,
+        };
+    }
+    if let Op::ClearModelKey { kind } = op {
+        return matches!(kind.as_str(), "answer" | "jev");
+    }
     matches!(
         op,
         Op::ListRoots
             | Op::ListEntries { .. }
             | Op::ListFiles
             | Op::ReadDocument { .. }
+            | Op::ReadHelpDocument { .. }
             | Op::SaveDocument { .. }
             | Op::GetSettings
+            | Op::SaveSettings { .. }
+            | Op::Info
+            | Op::RuntimeSchema
+            | Op::MineruSchema
+            | Op::TestMineru { .. }
+            | Op::ClearMineruKey { .. }
+            | Op::TestProxyConnection { .. }
+            | Op::TestModel { .. }
+            | Op::ListAnswerModels { .. }
+            | Op::GetAccess
+            | Op::SetAccess { .. }
+            | Op::Api { action: ApiAction::Status
+                | ApiAction::Start { host: None, port: None }
+                | ApiAction::Stop
+                | ApiAction::ListKeys
+                | ApiAction::CreateKey { .. }
+                | ApiAction::CreateScopedKey { .. }
+                | ApiAction::CopyKey { .. }
+                | ApiAction::UpdateKeyScope { .. }
+                | ApiAction::RevokeKey { .. } }
+            | Op::DoclingStatus
+            | Op::InstallDocling
+            | Op::InstallDoclingProfiles { .. }
+            | Op::CancelDoclingInstall
+            | Op::UninstallDocling
+            | Op::ClearConversations
+            | Op::RemoveAllRoots
+            | Op::ClearAllData
             | Op::LoadImage { .. }
             | Op::ListConversations
             | Op::EditConversation { .. }

@@ -55,6 +55,10 @@ struct Config {
     enabled: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     web_code: Option<String>,
+    #[serde(default)]
+    web_allow_anonymous: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    web_external_url: Option<String>,
     #[serde(skip)]
     api_cancel: CancellationToken,
     #[serde(skip)]
@@ -68,6 +72,8 @@ impl Default for Config {
         Self {
             enabled: false,
             web_code: None,
+            web_allow_anonymous: cfg!(target_os = "linux"),
+            web_external_url: None,
             api_cancel: CancellationToken::new(),
             web_cancel: CancellationToken::new(),
             host: "0.0.0.0".into(),
@@ -179,7 +185,7 @@ fn status_value(
     lan.sort();
     lan.dedup();
     Ok(
-        json!({"enabled":c.enabled,"running":c.enabled&&running,"web_enabled":c.web_code.is_some(),"web_running":c.web_code.is_some()&&running,"host":c.host,"port":c.port,"local_url":format!("http://{local}:{}",c.port),"lan_urls":lan,"key_count":c.keys.len(),"autostart":autostart,"last_error":last_error}),
+        json!({"enabled":c.enabled,"running":c.enabled&&running,"web_enabled":c.web_code.is_some(),"web_running":c.web_code.is_some()&&running,"web_access_code_required":!c.web_allow_anonymous,"web_external_url":c.web_external_url,"host":c.host,"port":c.port,"local_url":format!("http://{local}:{}",c.port),"lan_urls":lan,"key_count":c.keys.len(),"autostart":autostart,"last_error":last_error}),
     )
 }
 impl ApiService {
@@ -277,14 +283,20 @@ impl ApiService {
             Ok(())
         })
     }
-    pub(crate) async fn reset(&self) -> Result<()> {
+    pub(crate) async fn reset(&self, keep_web: bool) -> Result<()> {
         let _gate = self.gate.lock().await;
-        let keys = self.config.lock().unwrap().keys.clone();
-        self.save(Config::default())?;
-        for key in keys {
+        let old = self.config.lock().unwrap().clone();
+        let config = if keep_web {
+            Config { host: old.host, port: old.port, web_code: old.web_code, web_allow_anonymous: old.web_allow_anonymous, web_external_url: old.web_external_url, web_cancel: old.web_cancel, ..Config::default() }
+        } else {
+            Config::default()
+        };
+        self.save(config)?;
+        old.api_cancel.cancel();
+        for key in old.keys {
             key.cancel.cancel();
         }
-        self.shutdown().await?;
+        if !keep_web { self.shutdown().await?; }
         if crate::api_autostart::enabled(&self.data)? {
             let data = self.data.clone();
             tokio::task::spawn_blocking(move || {
@@ -301,6 +313,31 @@ impl ApiService {
             r.task.await.context("API 停止任务失败")?;
         }
         Ok(())
+    }
+    fn web_code(&self) -> Result<String> {
+        let config = self.config.lock().unwrap();
+        anyhow::ensure!(!config.web_allow_anonymous, "网页访问码已关闭");
+        config.web_code.clone().context("请先启用网页服务")
+    }
+    // Callers hold the management lock so checking the session and changing the code are atomic.
+    fn update_web_code(&self, required: bool, rotate: bool) -> Result<Option<String>> {
+        let mut config = self.config.lock().unwrap().clone();
+        let allow_anonymous = !required;
+        if rotate {
+            anyhow::ensure!(config.web_code.is_some(), "请先启用网页服务");
+            anyhow::ensure!(!config.web_allow_anonymous, "网页访问码已关闭");
+        } else if config.web_allow_anonymous == allow_anonymous {
+            return Ok(if required { config.web_code } else { None });
+        }
+        config.web_allow_anonymous = allow_anonymous;
+        if required && config.web_code.is_some() {
+            config.web_code = Some(uuid::Uuid::new_v4().simple().to_string());
+        }
+        let code = if required { config.web_code.clone() } else { None };
+        let cancel = std::mem::take(&mut config.web_cancel);
+        self.save(config)?;
+        cancel.cancel();
+        Ok(code)
     }
     pub async fn manage(
         self: &Arc<Self>,
@@ -339,17 +376,20 @@ impl ApiService {
                 *self.last_error.lock().unwrap() = None;
                 self.status()
             }
-            ApiAction::WebCode => {
-                let c = self.config.lock().unwrap();
-                Ok(json!({"code":c.web_code.as_deref().context("请先启用网页服务")?}))
-            }
+            ApiAction::WebCode => Ok(json!({"code":self.web_code()?})),
             ApiAction::WebRotateCode => {
-                let mut c = self.config.lock().unwrap().clone();
-                anyhow::ensure!(c.web_code.is_some(), "请先启用网页服务");
-                c.web_code = Some(uuid::Uuid::new_v4().simple().to_string());
-                let cancel = std::mem::take(&mut c.web_cancel);
-                self.save(c)?;
-                cancel.cancel();
+                self.update_web_code(true, true)?;
+                self.status()
+            }
+            ApiAction::WebSetAccessCode { required } => {
+                self.update_web_code(required, false)?;
+                self.status()
+            }
+            ApiAction::WebSetExternalUrl { url } => {
+                let url = url.as_deref().map(web::external_origin).transpose()?;
+                let mut config = self.config.lock().unwrap().clone();
+                config.web_external_url = url;
+                self.save(config)?;
                 self.status()
             }
             ApiAction::Configure { host, port } => {

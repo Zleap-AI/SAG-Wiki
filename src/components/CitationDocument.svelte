@@ -6,7 +6,7 @@
  import {icon} from '../lib/icons';
  import {t} from '../lib/i18n';
  import {api} from '../lib/api';
- import {isHtml,isMarkdown,readonlyHtml} from '../lib/domain';
+ import {isHelpDocument,isHtml,isMarkdown,readonlyHtml} from '../lib/domain';
  import {citationTerms,documentMatchIndex} from '../lib/search-highlights';
  import {legacyPreview} from '../lib/preview-mode';
  import type {Candidate,Document} from '../lib/types';
@@ -20,7 +20,8 @@
  async function load(candidate:Candidate){
   const request=++generation;largeTerms=[];const trace=beginDocumentTrace('reader');tracing=trace;
   const read=trace.stage('read-rpc');let document:Document;
-  try{document=await api<Document>('read_document',{path:candidate.path});}catch(e){trace.cancel();throw e;}finally{read();}
+  const help=isHelpDocument(candidate.path);
+  try{document=await api<Document>(help?'read_help_document':'read_document',{path:candidate.path});}catch(e){trace.cancel();throw e;}finally{read();}
   if(request!==generation){trace.cancel();return null;}
   if(isLargeMarkdown(document)){
    const done=trace.stage('component');
@@ -29,7 +30,7 @@
    }finally{done();}
   }
   trace.cancel();
-  if(isMarkdown(candidate.path)&&!legacyPreview()){
+  if(help||isMarkdown(candidate.path)&&!legacyPreview()){
    const [{markdownModel,candidateRanges,modelCitationTerms},{default:Reader}]=await Promise.all([import('../lib/document-model'),import('./MarkdownReader.svelte')]);
    const model=markdownModel(document),ranges=candidateRanges(model,candidate);
    return {document,terms:await modelCitationTerms(model,candidate,ranges),initialMatch:0,html:'',LargeReader:null,trace,reader:{Reader,model,ranges}};
@@ -55,7 +56,7 @@
    {:else}<HighlightedDocument html={result.html} terms={result.terms} path={source.path} initialMatch={result.initialMatch} showNavigation={!compact}/>{/if}
   </div>
  </div>
- {#if !compact}<div class="panel-footer"><span class="citation-hint">{$t('高亮为回答引用的段落')}</span><Button.Root class="primary citation-open" onclick={()=>onOpen(result.LargeReader?largeTerms:result.terms)}>{$t('打开当前文档')}{@html icon('forward')}</Button.Root></div>{/if}
+  {#if !compact&&!isHelpDocument(source.path)}<div class="panel-footer"><span class="citation-hint">{$t('高亮为回答引用的段落')}</span><Button.Root class="primary citation-open" onclick={()=>onOpen(result.LargeReader?largeTerms:result.terms)}>{$t('打开当前文档')}{@html icon('forward')}</Button.Root></div>{/if}
  {/if}
 {:catch error}
  <div class="context-body"><p class="form-error">{$t(String(error))}</p></div>

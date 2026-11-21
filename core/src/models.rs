@@ -27,6 +27,8 @@ fn credentials(dir: &std::path::Path) -> Result<std::collections::BTreeMap<Strin
         Err(e) => Err(e.into()),
     }
 }
+static CREDENTIALS_WRITE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn write_credentials(
     dir: &std::path::Path,
     values: &std::collections::BTreeMap<String, String>,
@@ -63,6 +65,7 @@ pub fn jev_secret(dir: &std::path::Path, config: &ModelConfig) -> Result<String>
     }
 }
 pub fn clear_secrets(dir: &std::path::Path) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     write_credentials(dir, &Default::default())
 }
 pub fn mcp_credentials(dir: &std::path::Path, id: &str) -> Result<crate::types::McpCredentials> {
@@ -76,6 +79,7 @@ pub fn save_mcp_credentials(
     id: &str,
     secret: &crate::types::McpCredentials,
 ) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     let mut values = credentials(dir)?;
     if secret.env.is_empty() && secret.headers.is_empty() {
         values.remove(&format!("mcp:{id}"));
@@ -91,14 +95,32 @@ pub fn save_secret(dir: &std::path::Path, kind: &str, key: &str) -> Result<()> {
     if !matches!(kind, "answer" | "jev" | "mineru:302" | "mineru:official") {
         bail!("模型类型不正确")
     }
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     let mut values = credentials(dir)?;
     values.insert(kind.into(), key.trim().into());
+    write_credentials(dir, &values)
+}
+
+pub(crate) fn online_secret(dir: &std::path::Path, id: &str) -> Result<Option<String>> {
+    Ok(credentials(dir)?.remove(&format!("online:{id}")))
+}
+
+pub(crate) fn save_online_secret(dir: &std::path::Path, id: &str, secret: Option<&str>) -> Result<()> {
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
+    let mut values = credentials(dir)?;
+    let key = format!("online:{id}");
+    if let Some(secret) = secret {
+        values.insert(key, secret.into());
+    } else {
+        values.remove(&key);
+    }
     write_credentials(dir, &values)
 }
 pub fn clear_secret(dir: &std::path::Path, kind: &str) -> Result<()> {
     if !matches!(kind, "answer" | "jev" | "mineru:302" | "mineru:official") {
         bail!("模型类型不正确")
     }
+    let _guard = CREDENTIALS_WRITE.lock().unwrap();
     let mut values = credentials(dir)?;
     values.remove(kind);
     write_credentials(dir, &values)
@@ -128,6 +150,41 @@ pub fn endpoint(config: &ModelConfig, jev: bool) -> String {
     };
     url.set_path(&normalized);
     url.into()
+}
+pub(crate) async fn recognize_image(
+    client: &Client, config: &ModelConfig, key: &str, image_url: &str, prompt: &str,
+    timeout: u64, runtime: &RuntimeSettings, cancel: &CancellationToken,
+) -> Result<String> {
+    let responses = responses::enabled(config);
+    let body = if responses {
+        json!({"model":config.model,"store":false,"input":[{"role":"user","content":[
+            {"type":"input_text","text":prompt},{"type":"input_image","image_url":image_url,"detail":"high"}
+        ]}]})
+    } else {
+        payload(config, vec![json!({"role":"user","content":[
+            {"type":"text","text":prompt},{"type":"image_url","image_url":{"url":image_url,"detail":"high"}}
+        ]})], false)?
+    };
+    let response = request_with_runtime(client, &endpoint(config, false), key, &body, timeout, runtime, cancel).await?;
+    let value: Value = tokio::select! {
+        _ = cancel.cancelled() => return Err(cancelled()),
+        result = response.json() => result.context("图片解析响应格式不正确")?,
+    };
+    if responses {
+        anyhow::ensure!(value["status"] == "completed", "模型未完整返回图片解析结果");
+        let parts: Vec<_> = value["output"].as_array().into_iter().flatten()
+            .filter(|item| item["type"] == "message")
+            .flat_map(|item| item["content"].as_array().into_iter().flatten())
+            .filter(|part| part["type"] == "output_text")
+            .filter_map(|part| part["text"].as_str())
+            .collect();
+        anyhow::ensure!(!parts.is_empty(), "模型未返回图片解析文本");
+        Ok(parts.join("\n"))
+    } else {
+        let choice = &value["choices"][0];
+        anyhow::ensure!(choice["finish_reason"] == "stop", "模型未完整返回图片解析结果");
+        Ok(choice["message"]["content"].as_str().context("模型未返回图片解析文本")?.into())
+    }
 }
 fn redact(message: &str, key: &str) -> String {
     if key.is_empty() { message.to_owned() } else { message.replace(key, "[已隐藏]") }
@@ -1044,6 +1101,7 @@ mod tests {
     fn answer_keeps_more_than_four_history_rounds_within_budget() {
         let history = (0..8)
             .map(|index| crate::types::Message {
+                help: false,
                 created_at: None,
                 question: format!("Earlier question {index}"),
                 answer: format!("Earlier answer {index}"),
@@ -1076,6 +1134,7 @@ mod tests {
     #[test]
     fn long_history_cannot_overflow_answer() {
         let old = crate::types::Message {
+            help: false,
             created_at: None,
             question: "old".repeat(10000),
             answer: "历史".repeat(10000),
