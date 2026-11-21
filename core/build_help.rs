@@ -21,6 +21,13 @@ pub fn bundle(out: &Path) {
                 .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
             let (title, markdown) =
                 markdown(&source).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+            let markdown = if slug == "updates" {
+                markdown
+                    .replace("](/zh/docs/", "](https://sag-wiki.zleap.com/zh/docs/")
+                    .replace("](/en/docs/", "](https://sag-wiki.zleap.com/en/docs/")
+            } else {
+                markdown
+            };
             let file = out.join(format!("help-{slug}-{locale}.md"));
             fs::write(&file, markdown).unwrap();
             entries.push_str(&format!(
@@ -63,6 +70,8 @@ fn markdown(source: &str) -> Result<(&str, String), &'static str> {
             continue;
         } else if trimmed == "</Callout>"
             || trimmed.starts_with("<ReleaseDownloads ")
+            || trimmed.starts_with("{/* Generated from CHANGELOG.md.")
+            || trimmed.starts_with("<span data-docs-changelog-sha=")
             || trimmed.starts_with("![")
         {
             continue;

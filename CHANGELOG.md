@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.4.1
+
+- **SAG Wiki 助手**：内置中英文更新日志。输入完整版本号即可检索该版本的改动，繁体中文、日语、韩语和西班牙语界面也可查阅英文日志。
+- **更新日志链接**：从助手的引用打开内置日志后，点击下载安装、文件夹管理等链接会跳转到官网对应页面。
+- **帮助入口**：左下角问号打开当前界面语言的在线文档，保留当前会话。问答首页仍可进入 SAG Wiki 助手。
+
+### English
+
+- **SAG Wiki Assistant**: Search the bundled Chinese and English changelogs by full version number. The English changelog is also available in the Traditional Chinese, Japanese, Korean, and Spanish interfaces.
+- **Changelog links**: Links such as installation and folder management open the corresponding pages on the official site when you read the changelog from an assistant citation.
+- **Help access**: The question mark in the lower-left corner opens the online documentation in the current interface language and keeps the conversation open. The assistant remains available from the Q&A home.
+
 ## 0.4.0
 
 - **在线数据导入**：支持连接飞书、Lark、Notion、语雀和 RSS / Atom，按所选范围导入知识库。每个连接可手动或定时同步；未变化的内容会跳过，保留本地编辑。
