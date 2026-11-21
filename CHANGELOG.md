@@ -1,5 +1,13 @@
 # 更新日志 / Changelog
 
+## 0.4.2
+
+- **探索模式**：修复 PDF、Office 等转换文档未出现在探索视图的问题；现在按原始文件所在文件夹归入探索范围，并保留文件夹、隐藏目录和排除规则。([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
+
+### English
+
+- **Explore mode**: Show converted PDF and Office documents in the scope of their original source folder while preserving folder, hidden-directory, and exclusion rules. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
+
 ## 0.4.1
 
 - **SAG Wiki 助手**：内置中英文更新日志。输入完整版本号即可检索该版本的改动，繁体中文、日语、韩语和西班牙语界面也可查阅英文日志。
