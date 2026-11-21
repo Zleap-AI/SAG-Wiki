@@ -2,20 +2,20 @@
 
 ## 0.4.2
 
-- **快速配置**：未配置回答模型时，问答首页和快速入门提供「快速配置」入口。填入一个 302.AI API Key 并测试通过后，自动配好 qwen3.8-flash 回答模型、jev-latest 决策模型和 302.AI MinerU 解析。新安装的默认回答模型改为 qwen3.8-flash。
-- **网络代理**：新增「设置 → 网络代理」页面，可选跟随系统、自定义或不使用代理。自定义代理支持 SOCKS5 和账号密码，密码只保存在本机；测试连接会报告实际走的线路。([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171)、[Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
-- **探索模式**：转换结果存放在应用数据目录时，PDF、Office 文档不再从探索视图中消失。([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
-- **问答回复格式**：多轮追问时不再出现 `{"answer":…}` 形式的 JSON 回答。
+- **快速配置**：未配置回答模型时，问答首页和快速入门提供「快速配置」入口。填入一个 302.AI API Key 并测试通过后，自动配好 qwen3.8-flash 回答模型、jev-latest 决策模型和 302.AI MinerU 解析。新安装的默认回答模型改为 qwen3.8-flash。([PR #188](https://github.com/Zleap-AI/SAG-Wiki/pull/188))
+- **网络代理**：新增「设置 → 网络代理」页面，可选跟随系统、自定义或不使用代理。自定义代理支持 SOCKS5 和账号密码，密码只保存在本机；测试连接会报告实际走的线路。([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171)、[Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125)、[PR #183](https://github.com/Zleap-AI/SAG-Wiki/pull/183))
+- **探索模式**：转换结果存放在应用数据目录时，PDF、Office 文档不再从探索视图中消失。([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185)、[PR #186](https://github.com/Zleap-AI/SAG-Wiki/pull/186))
+- **问答回复格式**：多轮追问时不再出现 `{"answer":…}` 形式的 JSON 回答。([PR #177](https://github.com/Zleap-AI/SAG-Wiki/pull/177))
 - **上下文压缩**：压缩时显示“第 N/M 块”进度，不再像卡死；摘要失败时继续作答并说明原因，不再整轮失败。
 - **空回答**：模型只返回空白时自动重试一次，仍为空则明确报错，不再显示“已完成”却没有正文。
 - **工具调用**：同一轮内参数完全相同的重复检索自动跳过；每轮调用上限默认改为 20，已设为 0 的继续不限制。
 
 ### English
 
-- **Quick setup**: While no answer model is configured, the chat home and the quick-start guide offer **Quick setup**. Enter one 302.AI API key; once the tests pass, the app configures the qwen3.8-flash answer model, the jev-latest decision model and 302.AI MinerU parsing. New installs default to qwen3.8-flash.
-- **Network proxy**: Add a **Settings → Network proxy** page with follow-system, custom and direct modes. A custom proxy accepts SOCKS5 and username/password, the password stays on this device, and **Test connection** reports the route taken. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125))
-- **Explore mode**: PDF and Office documents no longer disappear from Explore when conversion results are stored in the application data directory. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185))
-- **Reply format**: Follow-up answers no longer come back as `{"answer":…}` JSON.
+- **Quick setup**: While no answer model is configured, the chat home and the quick-start guide offer **Quick setup**. Enter one 302.AI API key; once the tests pass, the app configures the qwen3.8-flash answer model, the jev-latest decision model and 302.AI MinerU parsing. New installs default to qwen3.8-flash. ([PR #188](https://github.com/Zleap-AI/SAG-Wiki/pull/188))
+- **Network proxy**: Add a **Settings → Network proxy** page with follow-system, custom and direct modes. A custom proxy accepts SOCKS5 and username/password, the password stays on this device, and **Test connection** reports the route taken. ([Issue #171](https://github.com/Zleap-AI/SAG-Wiki/issues/171), [Issue #125](https://github.com/Zleap-AI/SAG-Wiki/issues/125), [PR #183](https://github.com/Zleap-AI/SAG-Wiki/pull/183))
+- **Explore mode**: PDF and Office documents no longer disappear from Explore when conversion results are stored in the application data directory. ([Issue #185](https://github.com/Zleap-AI/SAG-Wiki/issues/185), [PR #186](https://github.com/Zleap-AI/SAG-Wiki/pull/186))
+- **Reply format**: Follow-up answers no longer come back as `{"answer":…}` JSON. ([PR #177](https://github.com/Zleap-AI/SAG-Wiki/pull/177))
 - **Context compaction**: Compaction shows "part N of M" progress instead of looking stuck, and a failed summary no longer fails the turn; the answer continues with the reason shown.
 - **Empty answers**: A whitespace-only reply is retried once, then reported as an error instead of a "complete" turn with no text.
 - **Tool calls**: Repeated retrieval calls with identical arguments are skipped; the per-turn limit defaults to 20, and a saved 0 stays unlimited.
