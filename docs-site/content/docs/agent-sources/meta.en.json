@@ -1,5 +1,5 @@
 {
   "title": "Agent",
   "defaultOpen": false,
-  "pages": ["../import-claude-code", "../import-codex"]
+  "pages": ["../import-claude-code", "../import-claude-desktop", "../import-codex", "../import-workbuddy"]
 }

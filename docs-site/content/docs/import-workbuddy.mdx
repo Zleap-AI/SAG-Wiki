@@ -1,0 +1,17 @@
+---
+title: "WorkBuddy"
+description: "导入 WorkBuddy 的本地会话和交付文件。"
+---
+
+## 导入聊天记录
+
+1. 在桌面端[打开数据源](/zh/docs/data-sources#打开数据源)，点击 **WorkBuddy** 旁的 **导入聊天记录**。SAG 默认从 `~/.workbuddy/projects` 读取本地会话。也可输入其他聊天记录文件夹的完整路径，再点击 **读取**。
+2. 搜索或按项目筛选，预览并勾选会话，然后点击 **导入**。每个会话保存为一份 Markdown，默认放在系统文档目录的 `sag-wiki/agent-history/workbuddy/` 下。点击保存位置旁的 **更改** 可选择其他位置。
+
+**展示工具调用过程**和**定时同步**默认关闭。
+
+## 导入产物
+
+点击 **WorkBuddy** 旁的 **导入产物**。在 macOS 上，SAG 默认从 WorkBuddy 的产物清单读取仍在默认工作区里的文件。也可以手动选择交付目录。
+
+筛选文件类型、勾选文件后点击 **导入**。桌面端默认归档到系统文档目录的 `sag-wiki/agent-artifacts/workbuddy/`。开启 **自动同步** 后，SAG 会继续导入新增和更新的文件。也可以在[网页端选择服务器上的交付目录](/zh/docs/data-sources#在网页端选择交付目录)。
