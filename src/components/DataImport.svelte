@@ -1,9 +1,10 @@
 <script lang="ts">
  import {Button} from 'bits-ui';
  import {t} from '../lib/i18n';
- import type {ChatSource} from '../lib/types';
+ import {chatSources,type ArtifactSource,type ChatSource} from '../lib/types';
  import {noteSources,type NoteSource} from '../lib/note-import';
  import ChatImport from './ChatImport.svelte';
+ import AgentArtifacts from './AgentArtifacts.svelte';
  import NoteImport from './NoteImport.svelte';
  import ShareSettings from './ShareSettings.svelte';
  import ShareDialog from './ShareDialog.svelte';
@@ -14,6 +15,7 @@
  import {web} from '../lib/web-connection';
  import claudeLogo from '../assets/data-sources/claude.webp';
  import codexLogo from '../assets/data-sources/codex.webp';
+ import workbuddyLogo from '../assets/data-sources/workbuddy.png';
  import evernoteLogo from '../assets/data-sources/evernote.webp';
  import keepLogo from '../assets/data-sources/keep.webp';
  import appleLogo from '../assets/data-sources/apple.webp';
@@ -29,6 +31,7 @@
  export let showSharing=true;
  export let onShareReceived:((path:string)=>void)|undefined=undefined;
  let receiving=false;
+ let artifactSource:{id:ArtifactSource;name:string}|null=null;
  export let onImported:(()=>Promise<void>)|undefined=undefined;
  export let onOpenImportedFolder:((path:string)=>Promise<void>)|undefined=undefined;
  export let onDestinationChange:((folder:string)=>void)|undefined=undefined;
@@ -37,27 +40,42 @@
  const platformOrder:ScheduledPlatform[]=['notion','feishu','lark','yuque','github','gitlab','dingtalk','ima','rss','api','apify'];
  let onlinePlatform:ScheduledPlatform|null=null;
  const sourceLogos={
-  claude:claudeLogo,codex:codexLogo,evernote:evernoteLogo,keep:keepLogo,apple:appleLogo,
+  claude:claudeLogo,codex:codexLogo,claude_desktop:claudeLogo,workbuddy:workbuddyLogo,evernote:evernoteLogo,keep:keepLogo,apple:appleLogo,
   notion:notionLogo,feishu:feishuLogo,lark:larkLogo,yuque:yuqueLogo,github:githubLogo,gitlab:gitlabLogo,
   dingtalk:dingtalkLogo,ima:imaLogo,apify:apifyLogo,
  } satisfies Record<ChatSource|NoteSource|Exclude<OnlinePlatform,'rss'|'api'>|'apify',string>;
+ const agents:{id:ArtifactSource;name:string;chat:ChatSource}[]=[
+  {id:'claude-code',name:chatSources.claude.name,chat:'claude'},
+  {id:'claude-desktop',name:chatSources.claude_desktop.name,chat:'claude_desktop'},
+  {id:'codex',name:chatSources.codex.name,chat:'codex'},
+  {id:'workbuddy',name:chatSources.workbuddy.name,chat:'workbuddy'},
+ ];
  function openNotionZip(){onlinePlatform=null;noteSource='notion';}
 </script>
+ <h3 class="settings-section-title">Agent</h3>
+ <section class="data-import-sources">
+  {#each agents as item (item.id)}
+   <div class="data-import-row">
+    <div class="data-import-name">{@render sourceName(item.chat,item.name)}</div>
+    <div class="data-import-actions">
+     {#if !web}<Button.Root type="button" class="outline" aria-label={$t('导入 {value0} 聊天记录',{value0:item.name})} onclick={()=>chatSource=item.chat}>{$t('导入聊天记录')}</Button.Root>{/if}
+     <Button.Root type="button" class="outline" aria-label={$t('导入 {value0} 产物',{value0:item.name})} onclick={()=>artifactSource=item}>{$t('导入产物')}</Button.Root>
+    </div>
+   </div>
+  {/each}
+ </section>
+<h3 class="settings-section-title">{$t('在线数据源')}</h3>
+<section class="data-import-sources">
+ {#each platformOrder as platform}{@render onlineRow(platform)}{/each}
+</section>
 {#if !web}
  <h3 class="settings-section-title">{$t('第三方应用')}</h3>
  <section class="data-import-sources">
-  {#each [{source:'claude' as const,name:'Claude Code'},{source:'codex' as const,name:'Codex'}] as item}
-   <div class="data-import-row"><div class="data-import-name">{@render sourceName(item.source,item.name)}</div><Button.Root type="button" class="outline" aria-label={$t('导入 {value0} 聊天记录',{value0:item.name})} onclick={()=>chatSource=item.source}>{$t('导入聊天记录')}</Button.Root></div>
-  {/each}
   {#each Object.entries(noteSources).filter(([id])=>id!=='notion') as [id,item]}
    <div class="data-import-row"><div class="data-import-name">{@render sourceName(id as NoteSource,item.name)}</div><Button.Root type="button" class="outline" aria-label={$t('从 {value0} 导入',{value0:item.name})} onclick={()=>noteSource=id as NoteSource}>{$t('导入笔记')}</Button.Root></div>
   {/each}
  </section>
 {/if}
-<h3 class="settings-section-title">{$t('在线数据源')}</h3>
-<section class="data-import-sources">
- {#each platformOrder as platform}{@render onlineRow(platform)}{/each}
-</section>
 {#if showSharing&&!web}<ShareSettings onReceive={()=>receiving=true}/>{/if}
 {#snippet sourceName(source:keyof typeof sourceLogos|'rss'|'api',name:string)}
  {#if source==='rss'||source==='api'}
@@ -72,6 +90,7 @@
  <div class="data-import-row"><div class="data-import-name">{@render sourceName(platform,name)}<Button.Root type="button" class="data-import-clock" aria-label={$t('配置 {value0} 定时同步',{value0:name})} title={$t('支持定时同步')} onclick={()=>onlinePlatform=platform}>{@html icon('clock')}</Button.Root></div><Button.Root type="button" class="outline" aria-label={$t('配置 {value0}',{value0:name})} onclick={()=>onlinePlatform=platform}>{$t('配置')}</Button.Root></div>
 {/snippet}
 {#if receiving}<ShareDialog onClose={()=>receiving=false} onReceived={path=>onShareReceived?.(path)}/>{/if}
+{#if artifactSource}<AgentArtifacts agent={artifactSource.id} name={artifactSource.name} onClose={()=>artifactSource=null} {onImported}/>{/if}
 {#if chatSource}<ChatImport source={chatSource} onClose={()=>chatSource=null} onImported={async()=>{await onImported?.()}} {onDestinationChange}/>{/if}
 {#if noteSource}<NoteImport source={noteSource} onClose={()=>noteSource=null} onImported={async()=>{await onImported?.()}}/>{/if}
 {#if onlinePlatform==='apify'}<ApifyImport onClose={()=>onlinePlatform=null} {onImported}/>
@@ -83,6 +102,7 @@
  strong{font-size:var(--text-ui);font-weight:500;line-height:1.5}
  .data-import-row :global(button){flex-shrink:0}
  .data-import-name{display:flex;align-items:center;gap:6px}
+ .data-import-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}
  .data-import-logo{display:grid;place-items:center;flex:0 0 18px;width:18px;height:18px;margin-inline-end:3px;object-fit:contain;color:var(--color-secondary)}
  .data-import-logo :global(svg){width:16px;height:16px}
  :global([data-theme=dark]) .data-import-logo.monochrome{filter:invert(1)}

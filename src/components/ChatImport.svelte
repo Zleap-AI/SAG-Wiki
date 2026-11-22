@@ -10,6 +10,7 @@
  import {icon} from '../lib/icons';
  import {basename} from '../lib/domain';
  import {interfaceLocales,language,t} from '../lib/i18n';
+ import {chatSources} from '../lib/types';
  import type {ChatSource,ChatCatalog,ChatSession,ChatPreview,ChatImportItem,ChatImportSchedule,ChatImportScheduleStatus} from '../lib/types';
  export let source:ChatSource;
  export let onClose:()=>void;
@@ -32,8 +33,8 @@
  let previewPane:HTMLElement;
  let searchTimer:ReturnType<typeof setTimeout>;
  function filterChanged(){clearTimeout(searchTimer);searchTimer=setTimeout(()=>void load(false,0),250);}
- $:title=$t('导入 {value0} 聊天记录',{value0:source==='claude'?'Claude Code':'Codex'});
- $:destinationFolder=destination?`${destination.replace(/[\\/]$/, '')}${destination.includes('\\')?'\\':'/'}${source==='claude'?'claude code':'codex'}`:'';
+ $:title=$t('导入 {value0} 聊天记录',{value0:chatSources[source].name});
+ $:destinationFolder=destination?`${destination.replace(/[\\/]$/, '')}${destination.includes('\\')?'\\':'/'}${chatSources[source].folder}`:'';
  $:projects=catalog?.projects??[];
  $:projectOptions=[{value:'',label:$t('全部项目')},...projects.map(value=>({value,label:value?basename(value):$t('未知项目')}))];
  $:visible=catalog?.sessions??[];

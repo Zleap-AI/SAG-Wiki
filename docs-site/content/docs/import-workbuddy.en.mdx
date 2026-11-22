@@ -1,0 +1,17 @@
+---
+title: "WorkBuddy"
+description: "Import locally saved WorkBuddy sessions and deliverables."
+---
+
+## Import chat history
+
+1. In the desktop app, [open Data sources](/en/docs/data-sources#open-data-sources) and choose **Import chat history** next to **WorkBuddy**. SAG reads local sessions from `~/.workbuddy/projects` by default. To read sessions from another folder, enter its full path and click **Load**.
+2. Search or filter by project, preview and select the sessions, then click **Import**. Each session is saved as a Markdown file under `sag-wiki/agent-history/workbuddy/` in Documents by default. Click **Change** next to the save location to use another destination.
+
+**Show tool calls and results** and **Scheduled sync** are off by default.
+
+## Import artifacts
+
+Click **Import artifacts** next to **WorkBuddy**. On macOS, SAG uses WorkBuddy's artifact list by default and includes files that still exist in the default workspace. You can also choose an output folder manually.
+
+Filter by file type, select files, and click **Import**. On desktop, files are archived under `sag-wiki/agent-artifacts/workbuddy/` in Documents by default. Enable **Automatic sync** to import new and updated files. You can also [choose a server output folder in the web app](/en/docs/data-sources#choose-an-output-folder-in-the-web-app).

@@ -1,5 +1,6 @@
 mod conversion;
 mod help;
+mod agent_artifacts;
 mod chat_import;
 mod online_import;
 mod mineru;

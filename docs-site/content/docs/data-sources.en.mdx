@@ -3,11 +3,11 @@ title: "Connection and sync"
 description: "Import local content and sync online sources."
 ---
 
-Use Data sources to import chat history from [Claude Code](/en/docs/import-claude-code) or [Codex](/en/docs/import-codex) and notes from [Evernote](/en/docs/import-evernote), [Google Keep](/en/docs/import-google-keep), or [Apple Notes](/en/docs/import-apple-notes). You can also connect Notion, Feishu, or GitHub, choose what to import, and set a schedule for each connection. Imported content is added to your local knowledge base, where you can search it or reference it in Q&A.
+Use Data sources to import local chat history from [Claude Code](/en/docs/import-claude-code), [Claude Desktop](/en/docs/import-claude-desktop), [Codex](/en/docs/import-codex), or [WorkBuddy](/en/docs/import-workbuddy) and notes from [Evernote](/en/docs/import-evernote), [Google Keep](/en/docs/import-google-keep), or [Apple Notes](/en/docs/import-apple-notes). You can also connect Notion, Feishu, or GitHub, choose what to import, and set a schedule for each connection. Imported content is added to your local knowledge base, where you can search it or reference it in Q&A.
 
 ## Open Data sources
 
-In the desktop app, click the **Data sources** plug icon at the top right. You can also open **Settings → Data sources**.
+In the desktop app, click the **Data sources** plug icon at the top right or open **Settings → Data sources**. The page lists **Agent**, **Online sources**, and **Third-party apps** in that order.
 
 ### Right-click in Files
 
@@ -20,6 +20,26 @@ On desktop, open the **Indexed files** overview in **Files**, right-click an emp
 Click **+** in the sidebar or **Add folder** on the Files page. Switch to the **Import data** tab and choose a source.
 
 ![Import data tab in the Add folder window](/images/product-add-data-en.png)
+
+Click **Import chat history** next to Claude Desktop or WorkBuddy to preview and select sessions. Claude Desktop imports locally saved Chat and Cowork sessions. The selected chats are saved as Markdown in the `claude desktop` and `workbuddy` subfolders of your chat archive. Tool calls are hidden by default.
+
+## Agent Artifacts
+
+In the desktop app or [web app](/en/docs/remote-access), open **Settings → Data sources → Agent**. Click **Import artifacts** next to Claude Code, Claude Desktop, Codex, or WorkBuddy.
+
+In the desktop app, SAG reads final replies in Claude Code's local chat history. In a reply, list one file link or path per line under **Final deliverables** or **Delivered files**. SAG checks those paths for existing files and skips missing ones.
+
+For other apps, SAG discovers known output folders on macOS. For Codex, it scans files and HTML projects directly under task `outputs` folders. For WorkBuddy, it uses WorkBuddy's artifact list and includes files that still exist in the default workspace. Use **Choose folder** or **Change** to select an output folder manually, including on Windows.
+
+When configuration opens, SAG selects the artifacts it finds. You can clear individual files or the entire selection. HTML, PPT, Word, Excel / CSV, PDF, Markdown, and images are enabled by default. The format filter applies to both existing and future artifacts.
+
+Click **Import** to archive selected artifacts in a separate folder for each source. The desktop app defaults to `Documents/sag-wiki/agent-artifacts/`. An HTML project folder containing `index.html` or `index.htm` is copied together with its local assets.
+
+**Automatic sync** is off by default. Turn it on to import the selected artifacts immediately and sync new or updated output from that app while SAG is running. SAG skips unchanged files that you deselected when turning on sync or deleted from the archive. If you edit an archived copy, SAG saves later updates as separate files. After turning off sync, existing copies remain in [Files](/en/docs/files). Use **Open original file** from the context menu to open an archived copy in its default application. Search follows the file type and indexing settings.
+
+### Choose an output folder in the web app
+
+Under **Output folder**, select a connected folder on the server. SAG scans that folder and lists the files you can import. The **Save location** defaults to the `agent-artifacts` folder in the web library. You can select another connected folder. Select files and click **Import**, or enable **Automatic sync** to keep collecting new output.
 
 ## Online sources
 
@@ -40,4 +60,8 @@ Click the clock next to a source or choose **Configure**. In the dialog, click *
 - [API Request](/en/docs/data-source-api) · Fetch JSON from an API and import selected fields into daily Markdown files.
 
 See [Scheduled sync](/en/docs/data-source-scheduled-sync) to set a schedule for connections that support it.
+
+## Third-party apps
+
+Under **Online sources**, use **Third-party apps** to import notes from [Evernote](/en/docs/import-evernote), [Google Keep](/en/docs/import-google-keep), or [Apple Notes](/en/docs/import-apple-notes).
 

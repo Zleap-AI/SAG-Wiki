@@ -3,11 +3,11 @@ title: "连接与同步"
 description: "导入本地内容，连接并同步在线来源。"
 ---
 
-通过数据源，你可以导入 [Claude Code](/zh/docs/import-claude-code) 和 [Codex](/zh/docs/import-codex) 的聊天记录，以及 [Evernote](/zh/docs/import-evernote)、[Google Keep](/zh/docs/import-google-keep) 和 [Apple Notes](/zh/docs/import-apple-notes) 的笔记。也可以连接 Notion、飞书或 GitHub，选择要导入的内容，并为每个连接设置定时同步。导入的内容会加入本地知识库，可以搜索原文，也可以在问答中引用。
+通过数据源，你可以导入 [Claude Code](/zh/docs/import-claude-code)、[Claude Desktop](/zh/docs/import-claude-desktop)、[Codex](/zh/docs/import-codex) 和 [WorkBuddy](/zh/docs/import-workbuddy) 的本地聊天记录，以及 [Evernote](/zh/docs/import-evernote)、[Google Keep](/zh/docs/import-google-keep) 和 [Apple Notes](/zh/docs/import-apple-notes) 的笔记。也可以连接 Notion、飞书或 GitHub，选择要导入的内容，并为每个连接设置定时同步。导入的内容会加入本地知识库，可以搜索原文，也可以在问答中引用。
 
 ## 打开数据源
 
-在桌面端点击右上角的插头图标 **数据源**，也可以从 **设置 → 数据源** 进入。
+在桌面端点击右上角的插头图标 **数据源**，也可以从 **设置 → 数据源** 进入。页面依次显示 **Agent**、**在线数据源** 和 **第三方应用**。
 
 ### 在文件页右键
 
@@ -20,6 +20,26 @@ description: "导入本地内容，连接并同步在线来源。"
 点击侧栏的 **+** 或文件页的 **添加文件夹**，在窗口中切换到 **导入数据** 标签页，再选择来源。
 
 ![添加文件夹窗口中的导入数据标签页](/images/product-add-data-cn.png)
+
+在 Claude Desktop 或 WorkBuddy 对应行点击 **导入聊天记录**，预览并选择要保存的会话。Claude Desktop 读取本机留存的 Chat 和 Cowork 会话。导入后的 Markdown 按应用归档到聊天记录目录下的 `claude desktop` 和 `workbuddy` 子目录，工具调用默认隐藏。
+
+## Agent 产物
+
+在桌面端或[网页端](/zh/docs/remote-access)打开 **设置 → 数据源 → Agent**。在 Claude Code、Claude Desktop、Codex 或 WorkBuddy 对应行点击 **导入产物**。
+
+桌面端的 Claude Code 从本地聊天记录的最终回复识别交付文件。回复可用「最终产物」或「交付文件」列出文件链接或路径，每行一个。SAG 只检查这些路径指向的现存文件，找不到就跳过。
+
+其他应用可在 macOS 上检测已知的交付目录。Codex 默认只扫描任务 `outputs` 下的直接文件和 HTML 项目，WorkBuddy 只收录其产物清单中仍存在于默认工作区的文件。使用 **选择目录** 或 **更改** 可以手动指定交付目录，例如 Windows 上的自定义位置。
+
+打开配置后，SAG 默认勾选找到的产物。可取消勾选单个文件或清空选择。HTML、PPT、Word、Excel / CSV、PDF、Markdown 和图片默认启用。格式选项同时用于已有产物和后续自动收集。
+
+点击 **导入** 将所选产物按来源分目录归档。桌面端默认保存到 `文档/sag-wiki/agent-artifacts/`。HTML 项目中包含 `index.html` 或 `index.htm` 的文件夹会连同目录内资源一起复制。
+
+**自动同步**默认关闭。开启后立即导入当前勾选的产物，SAG 运行期间会继续同步该应用新产生或更新的产物。开启时取消勾选的文件，以及手动删除的归档文件，内容未变时会跳过。归档副本已被修改时，SAG 会另存新版。关闭自动同步后，已复制的文件仍可在[文件页](/zh/docs/files)查看。右键选择 **打开原文件** 可以用系统默认应用打开归档副本。搜索范围由文件类型和索引设置决定。
+
+### 在网页端选择交付目录
+
+在 **交付目录** 选择服务器上已接入的文件夹。选好后，SAG 扫描该目录并列出可导入的文件。**保存位置** 默认是网页文件库下的 `agent-artifacts` 文件夹，也可改为另一个已接入的文件夹。勾选文件后点击 **导入**，或打开 **自动同步** 继续收集。
 
 ## 在线数据源
 
@@ -40,4 +60,8 @@ description: "导入本地内容，连接并同步在线来源。"
 - [API 请求](/zh/docs/data-source-api) · 请求返回 JSON 的接口，选择字段后按天导入 Markdown。
 
 支持定时同步的来源可按连接[设置同步计划](/zh/docs/data-source-scheduled-sync)。
+
+## 第三方应用
+
+在「在线数据源」下方找到「第三方应用」，可以从 [Evernote](/zh/docs/import-evernote)、[Google Keep](/zh/docs/import-google-keep) 和 [Apple Notes](/zh/docs/import-apple-notes) 导入笔记。
 

@@ -165,6 +165,8 @@ it('定时导入共用聊天文件夹和工具开关，并按来源自动保存'
  const schedules:Record<ChatSource,ChatImportSchedule>={
   codex:{enabled:false,time:'09:00',source_root:null,include_tools:false},
   claude:{enabled:true,time:'09:00',source_root:'/claude-chats',include_tools:true},
+  claude_desktop:{enabled:false,time:'09:00',source_root:null,include_tools:false},
+  workbuddy:{enabled:false,time:'09:00',source_root:null,include_tools:false},
  };
  invoke.mockImplementation(async(command,args)=>{
   const source=args?.source as ChatSource;

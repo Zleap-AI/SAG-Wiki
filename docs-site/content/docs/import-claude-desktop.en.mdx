@@ -1,0 +1,17 @@
+---
+title: "Claude Desktop"
+description: "Import locally saved Claude Desktop sessions and deliverables."
+---
+
+## Import chat history
+
+1. In the desktop app, [open Data sources](/en/docs/data-sources#open-data-sources) and choose **Import chat history** next to **Claude Desktop**. SAG reads locally saved Chat and Cowork sessions.
+2. Search or filter by project, preview and select the sessions, then click **Import**. Each session is saved as a Markdown file under `sag-wiki/agent-history/claude desktop/` in Documents by default.
+
+To read sessions from another folder, enter its path and click **Load**. Click **Change** next to the save location to use another destination. **Show tool calls and results** and **Scheduled sync** are off by default.
+
+## Import artifacts
+
+Click **Import artifacts** next to **Claude Desktop**. On macOS, SAG looks for session `outputs` folders. If no output folder is found, click **Choose folder**.
+
+Filter by file type, select files, and click **Import**. On desktop, files are archived under `sag-wiki/agent-artifacts/claude-desktop/` in Documents by default. Enable **Automatic sync** to import new and updated files. You can also [choose a server output folder in the web app](/en/docs/data-sources#choose-an-output-folder-in-the-web-app).
