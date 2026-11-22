@@ -62,13 +62,13 @@ it('未保存索引设置或未添加目录时禁用按钮，启动错误可见'
   if(command==='reindex_all')throw new Error('索引启动失败');
  });
  app=mount(IndexSettings,{target:document.body});
- await vi.waitFor(()=>expect(document.body.textContent).toContain('添加文件夹后可重新索引。'));
+ await vi.waitFor(()=>expect(document.querySelector('.reindex-actions')?.textContent).toContain('添加文件夹后可重新索引。'));
  expect(button().disabled).toBe(true);
  await unmount(app);document.body.innerHTML='';
  roots=[{path:'/a',name:'A',status:'ready',count:1,error:null}];
  app=mount(IndexSettings,{target:document.body,props:{settingsChanged:true}});
  await tick();expect(button().disabled).toBe(true);
- expect(document.body.textContent).toContain('请先保存文件类型或排除目录的修改，再重新索引。');
+ expect(document.querySelector('.reindex-actions')?.textContent).toContain('请先保存文件类型或排除目录的修改，再重新索引。');
  await unmount(app);document.body.innerHTML='';
  app=mount(IndexSettings,{target:document.body});
  await vi.waitFor(()=>expect(button().disabled).toBe(false));button().click();

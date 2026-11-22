@@ -155,7 +155,7 @@
    ['api',$t('远程服务'),'network'],
    ['network',$t('网络代理'),'route'],
   ]},
-  {label:'',pages:[
+  {label:$t('其他'),pages:[
    ['privacy',$t('数据与隐私'),'globe'],
    ['about',$t('关于'),'info'],
   ]},
@@ -219,8 +219,8 @@
   <form on:submit|preventDefault={()=>{if(page!=='api'&&!dataDirectoryBusy)void save();}} class="settings-form">
    <nav class="settings-nav" aria-label={$t("设置分类")}>
     {#each pageGroups as group}
-     <div class="settings-nav-group" role={group.label?'group':undefined} aria-label={group.label||undefined}>
-      {#if group.label}<p class="settings-nav-heading" aria-hidden="true">{group.label}</p>{/if}
+     <div class="settings-nav-group" role="group" aria-label={group.label}>
+      <p class="settings-nav-heading" aria-hidden="true">{group.label}</p>
       {#each group.pages as [id,label,glyph] (id)}
        <Button.Root type="button" disabled={cliBusy||apiBusy||dataDirectoryBusy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
       {/each}
@@ -237,6 +237,10 @@
     {#if page==='general'}
      <section class="settings-group">
       {#if !web}<div class="setting-row"><div><strong>{$t("启动页面")}</strong><p>{$t("打开应用时首先显示的页面")}</p></div><Select label={$t("启动页面")} class="start-page-select" bind:value={settings.start_page} items={[{value:"ask",label:$t("问答")},{value:"search",label:$t("搜索")}]}/></div>{/if}
+      <div class="setting-row">
+       <strong>{$t('文档默认打开方式')}</strong>
+       <Select label={$t('文档默认打开方式')} value={settings.editor_open_mode??'edit'} onValueChange={mode=>settings.editor_open_mode=mode as Settings['editor_open_mode']} items={[{value:'edit',label:$t('编辑')},{value:'view',label:$t('查看')}]}/>
+      </div>
       <div class="setting-row"><div><strong>{$t("settings.interfaceLanguage")}</strong></div><Select label={$t("settings.interfaceLanguage")} value={settings.language} onValueChange={next=>{settings.language=resolveLanguage(next);setLanguage(settings.language)}} items={languageOptions}/></div>
       {#if !web}<div class="setting-row"><div><strong>{$t("关闭窗口后")}</strong><p>{$t("从托盘或菜单栏重新打开，也可在那里退出。")}</p></div><span class="setting-value">{$t("后台继续运行")}</span></div>{/if}
      </section>

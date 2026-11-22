@@ -39,7 +39,7 @@
 </div>
 
 <style>
- .document-question{position:absolute;right:24px;bottom:54px;z-index:2;}
+ .document-question{position:absolute;right:24px;bottom:var(--document-question-bottom,54px);z-index:2;}
  .document-question :global(.document-question-toggle){display:flex;align-items:center;gap:8px;min-height:42px;padding:10px 16px;border:1px solid var(--color-rule);border-radius:22px;background:var(--color-paper);color:var(--color-ink);box-shadow:0 4px 18px var(--color-shadow);font-size:var(--text-ui);}
  .document-question.open{position:relative;right:auto;bottom:auto;flex-shrink:0;width:100%;padding:0 24px 16px;}
  .document-question-form{display:flex;align-items:center;gap:8px;max-width:800px;height:52px;margin:0 auto;padding:8px 10px 8px 16px;border:1px solid var(--color-rule);border-radius:16px;background:var(--color-paper);box-shadow:0 4px 20px var(--color-shadow);}

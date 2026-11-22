@@ -70,7 +70,8 @@
  $:if(selected&&!librarySessions[selected])librarySessions={...librarySessions,[selected]:createLibrarySession()};
  let roots:Root[]=[],files:FileInfo[]=[],conversations:Conversation[]=[],settings:Settings|null=null,cache:Record<string,Entry[]>={},expanded=new Set<string>(JSON.parse(localStorage.getItem('sag.sidebar.expanded')??'[]'));
  let documentReadRequest=0;let documentTrace:DocumentTrace|undefined;
- let loadingDocument=0,documentReadSession=0,largeCandidate:Candidate|null=null,restoreDocumentScroll=false;
+ let loadingDocument=0,editorMode:'view'|'edit'|'edit-from-view'='edit';
+ $:editorViewing=editorMode==='view';
  let LargeReader:typeof import('./components/LargeDocumentReader.svelte').default;
  let previewTrace:DocumentTrace|undefined,suspendedPreview:Candidate|null=null;
  function nextDocumentReadRequest(){loadingDocument=0;cancelDocumentTrace();return ++documentReadRequest;}
@@ -373,7 +374,8 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  }
  async function edit(path:string,terms:string[]=[],origin='',citation?:Candidate,navigation:'context'|'library'='context'){
   const request=nextDocumentReadRequest();
-  const trace=beginDocumentTrace(isMarkdown(path)?'editor':'readonly');
+  const viewFirst=settings?.editor_open_mode==='view';
+  const trace=beginDocumentTrace(viewFirst||!isMarkdown(path)?'readonly':'editor');
   if(!await protect()||request!==documentReadRequest){trace.cancel();return;}
   loadingDocument=request;
   const previousView=view,previousSelected=selected,previousBody=draft?.body,previousName=draft?.name;
@@ -383,40 +385,23 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    const readDone=trace.stage('read-rpc');
    let doc:Document;try{doc=await api<Document>('read_document',{path});}finally{readDone();}
    if(!current()){trace.cancel();return;}
-   const large=isLargeMarkdown(doc);
-   trace.setRenderer(large?'reader':isMarkdown(doc.path)?'editor':'readonly');
+   const markdown=isMarkdown(doc.path);
+   trace.setRenderer(markdown&&!viewFirst?'editor':'readonly');
    const targetDone=trace.stage('target');
-   let initialMatch:number;try{initialMatch=target&&!large?await documentMatchIndex(doc.body,doc.path,terms,target):0;}finally{targetDone();}
+   let initialMatch:number;try{initialMatch=target?await documentMatchIndex(doc.body,doc.path,terms,target):0;}finally{targetDone();}
    const componentDone=trace.stage('component');
-   let editor:typeof import('./components/RichEditor.svelte').default|null;try{if(large){LargeReader=(await import('./components/LargeDocumentReader.svelte')).default;editor=null;}else editor=isMarkdown(doc.path)?(await import('./components/RichEditor.svelte')).default:null;}finally{componentDone();}
+   let editor:typeof import('./components/RichEditor.svelte').default|null;
+   try{editor=markdown?(await import('./components/RichEditor.svelte')).default:null;}finally{componentDone();}
    if(!current()){trace.cancel();return;}
    documentTrace=trace;
    documentInitialMatch=initialMatch;documentFromSearch=fromSearch;documentFromConversation=fromConversation;documentSearchScroll=scroll;documentConversationScroll=chatScroll;exploreReturn=origin;documentSearchTerms=terms;menu=null;
    if(!editor){
-    largeCandidate=large?target:null;restoreDocumentScroll=!largeCandidate;documentReadSession=request;readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(doc.source_path??path);view='document';source=null;
-    noteDetail=null;if(large&&isNote(doc.body))void loadNote(doc.path);else noteRequest++;
-    if(!large&&trace.enabled){await tick();void afterDocumentPaint(trace,()=>!appDisposed&&request===documentReadRequest&&readOnlyDoc===doc);}return;}
-   draft={...doc,is_new:false};dirty=false;selected=dirname(doc.source_path??path);EditorComponent=editor;view='editor';source=null;
+    readOnlyDoc=doc;draft=null;dirty=false;selected=dirname(doc.source_path??path);view='document';source=null;
+    noteDetail=null;noteRequest++;
+    if(trace.enabled){await tick();void afterDocumentPaint(trace,()=>!appDisposed&&request===documentReadRequest&&readOnlyDoc===doc);}return;}
+   editorMode=viewFirst?'view':'edit';draft={...doc,is_new:false};dirty=false;selected=dirname(doc.source_path??path);EditorComponent=editor;view='editor';source=null;
    noteDetail=null;if(isNote(doc.body))void loadNote(doc.path);else noteRequest++;
   }catch(e){trace.cancel();if(current())notify($t(String(e)))}
-  finally{if(request===documentReadRequest)loadingDocument=0;}
- }
- async function editLargeDocument(){
-  const doc=readOnlyDoc;if(!doc)return;
-  const request=nextDocumentReadRequest(),trace=beginDocumentTrace('editor');
-  loadingDocument=request;
-  try{
-   const done=trace.stage('component');
-   let editor:typeof import('./components/RichEditor.svelte').default;
-   try{editor=(await import('./components/RichEditor.svelte')).default;}finally{done();}
-   if(request!==documentReadRequest||view!=='document'||readOnlyDoc!==doc){trace.cancel();return;}
-   const targetDone=trace.stage('target');
-   let initial:number;
-   try{initial=largeCandidate&&documentSearchTerms.length?await documentMatchIndex(doc.body,doc.path,documentSearchTerms,largeCandidate):0;}finally{targetDone();}
-   if(request!==documentReadRequest||view!=='document'||readOnlyDoc!==doc){trace.cancel();return;}
-   documentInitialMatch=initial;documentTrace=trace;EditorComponent=editor;
-   draft={...doc,is_new:false};dirty=false;view='editor';readOnlyDoc=null;
-  }catch(e){trace.cancel();if(request===documentReadRequest)notify($t(String(e)));}
   finally{if(request===documentReadRequest)loadingDocument=0;}
  }
  async function loadNote(path:string){
@@ -472,7 +457,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   const request=nextDocumentReadRequest();const editor=(await import('./components/RichEditor.svelte')).default;
   if(request!==documentReadRequest||appDisposed)return;EditorComponent=editor;
   selected=folder;documentFromConversation=false;documentFromSearch=false;documentSearchTerms=[];
-  draft={path:(folder?folder+'/':'')+'.draft-'+requestId(),name:$t("未命名.md"),body:'',hash:'',is_new:true};dirty=false;view='editor';
+  editorMode='edit';draft={path:(folder?folder+'/':'')+'.draft-'+requestId(),name:$t("未命名.md"),body:'',hash:'',is_new:true};dirty=false;view='editor';
  }
  function draftFolder(value:Draft){return value.is_new&&value.path.startsWith('.draft-')?'':dirname(value.path)}
  function finishSaveFolder(folder:string|null){
@@ -487,7 +472,7 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
  }
  function changed(body:string){if(!draft)return;draft={...draft,body};dirty=true;clearTimeout(draftTimer);draftTimer=setTimeout(()=>{if(draft)api('put_draft',{draft}).catch(e=>notify($t('草稿保存失败：{value0}',{value0:$t(String(e))})))},500)}
  async function save(){
-  if(!draft||saving)return false;
+  if(!draft||saving||editorViewing)return false;
   saving=true;
   try{
    let folder=draftFolder(draft);
@@ -499,7 +484,22 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
     folder=await new Promise<string|null>(resolve=>chooseSaveFolder=resolve)??'';
     if(!folder)return false;
    }
-   const old=draft.path;const name=fileName(draft.name);const path=draft.is_new?folder+'/'+name:draft.path;const doc=await api<Document>('save_document',{path,body:draft.body,expectedHash:draft.is_new?null:draft.hash});clearTimeout(draftTimer);await api('delete_draft',{path:old});draft={path:doc.path,source_path:doc.source_path,name:doc.name,body:doc.body,hash:doc.hash,is_new:false};selected=dirname(doc.path);dirty=false;await refresh();notify($t("文件已保存，索引正在更新"));return true;
+   const written=draft;
+   const name=fileName(written.name),path=written.is_new?folder+'/'+name:written.path;
+   const doc=await api<Document>('save_document',{path,body:written.body,expectedHash:written.is_new?null:written.hash});
+   if(draft===written||written.is_new){
+    clearTimeout(draftTimer);
+    await api('delete_draft',{path:written.path});
+   }
+   if(draft?.path!==written.path)return false;
+   if(!written.is_new&&draft!==written){
+    draft={...draft,hash:doc.hash};
+    return false;
+   }
+   draft={path:doc.path,source_path:doc.source_path,name:doc.name,body:doc.body,hash:doc.hash,is_new:false};
+   selected=dirname(doc.source_path??doc.path);dirty=false;
+   if(editorMode==='edit-from-view')editorMode='view';
+   await refresh();notify($t("文件已保存，索引正在更新"));return true;
   }catch(e){notify($t(String(e)));return false}finally{saving=false}
  }
  function scopeShow(){scopeDraft=[...scope];scopeExpanded=new Set(expanded);scopeOpen=true;menu=null}
@@ -798,13 +798,14 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
   if(settings.search_summary_enabled===false)await stopSummary();cache={};await refresh();
   if(moving){
    const byOriginal=new Map(files.filter(file=>file.source_path).map(file=>[file.source_path!,file.path]));
-   if(draft?.source_path){const path=byOriginal.get(draft.source_path);if(path)draft={...draft,path};}
+   if(draft?.source_path){
+    const path=byOriginal.get(draft.source_path);
+    if(path&&path!==draft.path){draft={...draft,path};if(isNote(draft.body))void loadNote(path);}
+   }
    if(readOnlyDoc?.source_path){
     const path=byOriginal.get(readOnlyDoc.source_path);
     if(path&&path!==readOnlyDoc.path){
-     readOnlyDoc={...readOnlyDoc,path};restoreDocumentScroll=true;
-     if(largeCandidate)largeCandidate={...largeCandidate,path};
-     if(isNote(readOnlyDoc.body))void loadNote(path);
+     readOnlyDoc={...readOnlyDoc,path};
     }
    }
    results=results.map(candidate=>candidate.source_path&&byOriginal.has(candidate.source_path)?{...candidate,path:byOriginal.get(candidate.source_path)!}:candidate);
@@ -812,13 +813,13 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
    if(focused&&focused.path!==focus?.path)await focusResult(focused);
   }
  }
- async function keys(e:KeyboardEvent){if(onboardingOpen)return;if(e.key==='Escape'){if(view==='search'&&passagesOpen){e.preventDefault();closePassages();return;}if(view==='search'&&previewFindOpen){e.preventDefault();closePreviewFind();return;}if(view==='search'&&searchFocusMode){e.preventDefault();searchFocusMode=false;return;}if(leave||renameId||settingsOpen||quickSetupOpen||historySearchOpen||folderPickerOpen||chooseSaveFolder||menu||source||scopeOpen||toolApproval)return;if(narrowLayout&&mobileSidebarOpen&&!indexDetailsOpen){e.preventDefault();await toggleMobileSidebar(false);return;}if(mention){mention=false;return;}if(view==='search'&&focus&&showSummary&&!(e.target instanceof Element&&e.target.closest('input,textarea,[contenteditable=true],[role=listbox]:not(.search-results)'))){toggleSearchSummary()}return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();await openPreviewFind();return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='g'){e.preventDefault();previewFindOpen=true;await tick();document.querySelector<HTMLButtonElement>(`.search-preview ${e.shiftKey?'.match-previous':'.match-next'}`)?.click();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'&&view==='editor'){e.preventDefault();await save()}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();await navigate('search')}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='n'){e.preventDefault();await newChat()}}
+ async function keys(e:KeyboardEvent){if(onboardingOpen)return;if(e.key==='Escape'){if(view==='search'&&passagesOpen){e.preventDefault();closePassages();return;}if(view==='search'&&previewFindOpen){e.preventDefault();closePreviewFind();return;}if(view==='search'&&searchFocusMode){e.preventDefault();searchFocusMode=false;return;}if(leave||renameId||settingsOpen||quickSetupOpen||historySearchOpen||folderPickerOpen||chooseSaveFolder||menu||source||scopeOpen||toolApproval)return;if(narrowLayout&&mobileSidebarOpen&&!indexDetailsOpen){e.preventDefault();await toggleMobileSidebar(false);return;}if(mention){mention=false;return;}if(view==='search'&&focus&&showSummary&&!(e.target instanceof Element&&e.target.closest('input,textarea,[contenteditable=true],[role=listbox]:not(.search-results)'))){toggleSearchSummary()}return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='f'){e.preventDefault();await openPreviewFind();return;}if(view==='search'&&focus&&(e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='g'){e.preventDefault();previewFindOpen=true;await tick();document.querySelector<HTMLButtonElement>(`.search-preview ${e.shiftKey?'.match-previous':'.match-next'}`)?.click();return}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='s'&&view==='editor'&&!editorViewing){e.preventDefault();await save()}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();await navigate('search')}if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='n'){e.preventDefault();await newChat()}}
  onMount(()=>{
   const openLink=(event:Event)=>{void api('open_external_link',{url:(event as CustomEvent<string>).detail}).catch(e=>notify($t(String(e))));};
   window.addEventListener('open-external-link',openLink);
   return()=>window.removeEventListener('open-external-link',openLink);
  });
- onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};addCleanup(pollIndexStatus());void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<string>('app-error',e=>{if(loading)startupError=e.payload;else notify(e.payload)}));addCleanup(await listen<IndexProgress>('index-progress',e=>{refreshGeneration++;if(refreshRunning)refreshPending=true;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language);if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob&&e.payload.query_id!==cancellingAsk)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob||e.payload.id===cancellingAsk)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));await loadWorkspace();if(!web)await api('quick_search_main_ready');const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{draft=saved[0];dirty=true;selected=draftFolder(draft);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}}catch(e){startupError=String(e)}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;cancelDocumentTrace();refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
+ onMount(()=>{const cleanup:(()=>void)[]=[];let active=true;const addCleanup=(stop:()=>void)=>{if(active)cleanup.push(stop);else stop();};addCleanup(pollIndexStatus());void(async()=>{try{addCleanup(await listen('quit-requested',requestQuit));addCleanup(await listen<string>('app-error',e=>{if(loading)startupError=e.payload;else notify(e.payload)}));addCleanup(await listen<IndexProgress>('index-progress',e=>{refreshGeneration++;if(refreshRunning)refreshPending=true;indexProgress=e.payload;roots=roots.map(r=>r.path===e.payload.path?{...r,status:'indexing'}:r)}));addCleanup(await subscribeDataChanges(()=>{void refresh().catch(e=>notify($t(String(e))))}));addCleanup(await listen('history-changed',()=>history().catch(e=>notify($t(String(e))))));addCleanup(await listen('settings-changed',async()=>{try{settings=await api<Settings>('get_settings');setLanguage(settings.language);if(settings.search_summary_enabled===false)await stopSummary()}catch(e){notify($t(String(e)))}}));addCleanup(await listen<ToolApproval>('tool-approval',e=>{if(e.payload.query_id===askJob&&e.payload.query_id!==cancellingAsk)toolApproval=e.payload}));addCleanup(await listen<Progress>('query-progress',e=>{if(e.payload.id===summaryJob){if(e.payload.delta!==null)summaryText=e.payload.replace?e.payload.delta:summaryText+e.payload.delta;return;}if(e.payload.id===searchJob){searchStage=e.payload.stage;return;}if(e.payload.id!==askJob||e.payload.id===cancellingAsk)return;askStage=e.payload.stage;if(pending&&e.payload.tool){const {call,finished}=e.payload.tool;activeToolId=finished?'':call.id;pending={...pending,tool_calls:[...(pending.tool_calls||[]).filter(t=>t.id!==call.id),call]};}if(pending&&e.payload.reasoning_delta)pending={...pending,reasoning:(pending.reasoning||'')+e.payload.reasoning_delta};if(pending&&e.payload.reasoning_block){const block=e.payload.reasoning_block;const blocks=[...(pending.reasoning_blocks||[])];const last=blocks.at(-1);if(last&&last.answer_offset===block.answer_offset&&last.tool_count===block.tool_count)blocks[blocks.length-1]={...last,content:last.content+block.content};else blocks.push(block);pending={...pending,reasoning_blocks:blocks};}if(pending&&e.payload.delta!==null)pending={...pending,answer:e.payload.replace?e.payload.delta:pending.answer+e.payload.delta,reasoning_blocks:e.payload.replace?pending.reasoning_blocks?.map(block=>({...block,answer_offset:Math.min(block.answer_offset,e.payload.delta!.length)})):pending.reasoning_blocks};}));await loadWorkspace();if(!web)await api('quick_search_main_ready');const saved=await api<Draft[]>('list_drafts');if(saved.length){notify($t("有 {value0} 份未保存草稿",{value0:saved.length}),async()=>{editorMode='edit';draft=saved[0];dirty=true;selected=draftFolder(draft);EditorComponent=(await import('./components/RichEditor.svelte')).default;view='editor';closeNotice()})}}catch(e){startupError=String(e)}finally{if(active)loading=false}})();return()=>{active=false;appDisposed=true;cancelDocumentTrace();refreshGeneration++;clearTimeout(draftTimer);clearTimeout(noticeTimer);cleanup.forEach(fn=>fn())}});
 </script>
 <svelte:window on:focus={()=>void checkShareClipboard()} bind:innerWidth={viewportWidth} on:keydown={keys} on:click={searchOutside} on:contextmenu|preventDefault/>
 <div class="desktop-window real-client" class:windows-client={!web&&!mac} class:narrow-layout={narrowLayout} class:compact-sidebar={collapsed&&!narrowLayout} class:search-workbench={view==='search'} data-sidebar-motion={sidebarMotion}>
@@ -937,24 +938,8 @@ let previewDocument:Document|null=null,previewInitialMatch=0,previewLoading=fals
 {/if}
 {:else if !busy}<div class="search-empty">{@html icon('search')}<h2>{searchStopped?$t("已停止搜索"):searchError?$t("搜索未完成"):$t("没有找到相关文件")}</h2><p>{searchStopped?$t("可以重新搜索，或调整范围。"):searchError?$t("可以重试搜索，或切换搜索模式。"):$t("换一个关键词，或调整查询范围。")}</p><Button.Root class="outline" onclick={scopeShow}>{$t("选择范围")}</Button.Root></div>{/if}{/if}</section>
  {:else if view==='files'&&librarySessions[selected]}{#key selected}<LibraryWorkspace onBlankMenu={web?undefined:showBlankFileMenu} showIndexDetails={settings?.show_index_details??false} {conversionStates} {indexTasks} {indexPaused} scope={displayPath(selected)} parent={libraryParent} session={librarySessions[selected]} onModeChange={()=>librarySessions={...librarySessions}} entries={directoryEntries} totalFiles={files.length} indexedFiles={files} notes={noteSummaries} {roots} onIndexDetails={()=>indexDetailsOpen=true} onPauseChange={indexPauseChanged} oncreate={!web||roots.length?()=>create():undefined} onadd={web?undefined:add} webFolder={web&&webLibrary?{path:selected,canUpload:!!selected&&inside(selected,webLibrary)}:undefined} bind:creatingWebFolder onWebFolderCreated={openCreatedFolder} onWebUploaded={()=>refresh().catch(error=>notify($t(String(error))))} reading={!!selected&&readingFolder===selected} revision={libraryRevision} onbrowse={libraryBrowse} onopen={(path,terms)=>edit(path,terms,selected)} onmenu={showMenu} onSettings={()=>{settingsPage='files';settingsOpen=true}}/>{/key}
- {:else if view==='document'&&readOnlyDoc&&isLargeMarkdown(readOnlyDoc)&&LargeReader}
-  <section class="readonly-document large-document">
-   <div class="editor-head">
-    <Button.Root class="icon-button" title={$t(documentFromConversation?'返回会话':documentFromSearch?'返回搜索':'返回文件夹')} onclick={returnToFiles}>{@html icon('back')}</Button.Root>
-    <span title={readOnlyDoc.source_path??readOnlyDoc.path}>{readOnlyDoc.name}</span>
-    {#if !web&&readOnlyDoc.source_path}<Button.Root class="outline small" onclick={()=>api('open_source_file',{path:readOnlyDoc!.source_path}).catch(e=>notify($t(String(e))))}>{$t('打开原文件')}</Button.Root>{/if}
-    <Button.Root class="outline edit-large-document" onclick={editLargeDocument}>{$t('编辑文档')}</Button.Root>
-   </div>
-   {#if noteDetail&&noteDetail.summary.path===readOnlyDoc.path}<NoteStatus note={noteDetail} checking={noteChecking} onRecheck={recheckNote} onOpenSource={openNoteSource} onReask={reaskNote}/>{/if}
-   {#key documentReadSession}
-    {#key readOnlyDoc.path}
-     <svelte:component this={LargeReader} doc={readOnlyDoc} terms={documentSearchTerms} candidate={largeCandidate} deriveTerms={!!largeCandidate&&!documentSearchTerms.length} onTerms={value=>documentSearchTerms=value} showFind memoryKey="library" restoreScroll={restoreDocumentScroll} trace={documentTrace}/>
-    {/key}
-    <DocumentQuestion name={readOnlyDoc.name} onAsk={askDocument}/>
-   {/key}
-  </section>
  {:else if view==='document'&&readOnlyDoc}<section class="readonly-document"><div class="editor-head"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root><span>{readOnlyDoc.name}</span><span class="document-status">{#if isRtf(readOnlyDoc.path)}{$t("RTF 正文")} · {/if}{$t("只读")}</span><Button.Root class="outline" onclick={()=>api('reveal_path',{path:readOnlyDoc!.path}).catch(e=>notify($t(String(e))))}>{mac?$t("在 Finder 中打开"):$t("在文件资源管理器中打开")}</Button.Root></div><div class="source-path">{displayPath(readOnlyDoc.path)}</div>{#if isHtml(readOnlyDoc.path)}<HtmlDocument body={readOnlyDoc.body} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{:else}<HighlightedDocument html={readonlyHtml(readOnlyDoc.path,readOnlyDoc.body)} terms={documentSearchTerms} initialMatch={documentInitialMatch}/>{/if}{#key readOnlyDoc.path}<DocumentQuestion name={readOnlyDoc.name} onAsk={askDocument}/>{/key}</section>
- {:else if view==='editor'&&draft}<section class="editor wysiwyg-editor"><div class="editor-head"><div class="editor-location"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root>{#if selected}<Popover.Root><Popover.Trigger type="button" class="scope-info" title={displayPath(selected)} aria-label={$t("文件夹路径")}>{@html icon('folder')}<span>{basename(selected)}</span></Popover.Trigger><Popover.Portal><Popover.Content class="document-folder-path" aria-label={$t("文件夹路径")} side="bottom" align="start" sideOffset={8} collisionPadding={12}>{displayPath(selected)}</Popover.Content></Popover.Portal></Popover.Root>{/if}</div><div class="document-name-wrap"><Input class="document-name" aria-label={$t("文件名")} title={draft.name} bind:value={draft.name} readonly={!draft.is_new} oninput={()=>dirty=true}/></div><div class="editor-save-actions">{#if !web&&draft.source_path}<Button.Root type="button" class="outline small" onclick={()=>api('open_source_file',{path:draft!.source_path}).catch(e=>notify($t(String(e))))}>{$t('打开原文件')}</Button.Root>{/if}<span class="document-status">{dirty?$t("未保存"):draft.is_new?'':$t("已保存")}</span><Button.Root class="primary small" disabled={saving} onclick={save}>{$t("保存")}</Button.Root></div></div>{#if noteDetail&&noteDetail.summary.path===draft.path}<NoteStatus note={noteDetail} checking={noteChecking} onRecheck={recheckNote} onOpenSource={openNoteSource} onReask={reaskNote}/>{/if}{#if EditorComponent}{#key draft.path}<svelte:component this={EditorComponent} body={draft.body} path={draft.path} searchTerms={documentSearchTerms} initialMatch={documentInitialMatch} performanceTrace={documentTrace} onChange={changed}/>{/key}{/if}{#key draft.path}<DocumentQuestion name={draft.name} onAsk={askDocument}/>{/key}<div class="editor-footer">{draft.is_new?$t("保存后才创建文件并加入知识库。"):$t("修改后点击保存。")}</div></section>{/if}
+ {:else if view==='editor'&&draft}<section class="editor wysiwyg-editor" style:--document-question-bottom={editorViewing?'22px':undefined}><div class="editor-head"><div class="editor-location"><Button.Root class="icon-button" title={$t(documentFromConversation?"返回会话":documentFromSearch?"返回搜索":"返回文件夹")} onclick={returnToFiles}>{@html icon('back')}</Button.Root>{#if selected}<Popover.Root><Popover.Trigger type="button" class="scope-info" title={displayPath(selected)} aria-label={$t("文件夹路径")}>{@html icon('folder')}<span>{basename(selected)}</span></Popover.Trigger><Popover.Portal><Popover.Content class="document-folder-path" aria-label={$t("文件夹路径")} side="bottom" align="start" sideOffset={8} collisionPadding={12}>{displayPath(selected)}</Popover.Content></Popover.Portal></Popover.Root>{/if}</div><div class="document-name-wrap"><Input class="document-name" aria-label={$t("文件名")} title={draft.name} bind:value={draft.name} readonly={!draft.is_new} oninput={()=>dirty=true}/></div><div class="editor-save-actions">{#if !web&&draft.source_path}<Button.Root type="button" class="outline small" onclick={()=>api('open_source_file',{path:draft!.source_path}).catch(e=>notify($t(String(e))))}>{$t('打开原文件')}</Button.Root>{/if}{#if editorViewing}<Button.Root class="outline small edit-document" disabled={!!loadingDocument} onclick={()=>editorMode='edit-from-view'}>{$t('编辑')}</Button.Root>{:else}<span class="document-status">{dirty?$t("未保存"):draft.is_new?'':$t("已保存")}</span><Button.Root class="primary small" disabled={saving} onclick={save}>{$t("保存")}</Button.Root>{/if}</div></div>{#if noteDetail&&noteDetail.summary.path===draft.path}<NoteStatus note={noteDetail} checking={noteChecking} onRecheck={recheckNote} onOpenSource={openNoteSource} onReask={reaskNote}/>{/if}{#if EditorComponent}{#key draft.source_path??draft.path}<svelte:component this={EditorComponent} editable={!editorViewing} body={draft.body} path={draft.path} searchTerms={documentSearchTerms} initialMatch={documentInitialMatch} performanceTrace={documentTrace} onChange={changed}/>{/key}{/if}{#key draft.path}<DocumentQuestion name={draft.name} onAsk={askDocument}/>{/key}{#if !editorViewing}<div class="editor-footer">{draft.is_new?$t("保存后才创建文件并加入知识库。"):$t("修改后点击保存。")}</div>{/if}</section>{/if}
  {#if error&&view!=='search'&&!answerHasError}<p class="form-error">{$t(error)}</p>{/if}
  </div></main></div></div>
 {#if menu}<ActionMenu {menu} onClose={()=>menu=null}/>{/if}

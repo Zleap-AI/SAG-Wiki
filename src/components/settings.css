@@ -5,13 +5,12 @@
 .settings-window>.dialog-head .icon-button{width:28px;height:28px;border-radius:50%;color:var(--color-secondary)}
 .settings-window>.dialog-head .icon{width:15px;height:15px}
 .settings-window .settings-form{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
-.settings-window .settings-nav{padding:11px 10px;gap:9px;background:var(--color-sidebar);overflow:auto}
+.settings-window .settings-nav{padding:11px 10px;gap:28px;background:var(--color-sidebar);overflow:auto}
 .settings-window .settings-nav-group{display:flex;flex:none;flex-direction:column;gap:1px;padding:0}
-.settings-window .settings-nav-group:last-child{padding-top:7px;border-top:1px solid var(--color-rule)}
-.settings-window .settings-nav-heading{margin:0 0 2px;padding-inline:11px 6px;color:var(--color-secondary);font:550 var(--text-small)/16px var(--font-body);overflow-wrap:anywhere}
-.settings-window .settings-nav button{min-height:32px;height:auto;flex-shrink:0;margin:0;padding:5px 11px;gap:10px;border-radius:7px;font-size:var(--text-ui);font-weight:400;color:var(--color-secondary)}
+.settings-window .settings-nav-heading{margin:0 0 9px;padding-inline:11px 6px;color:color-mix(in srgb,var(--color-muted) 85%,var(--color-sidebar));font:500 var(--text-small)/16px var(--font-body);overflow-wrap:anywhere}
+.settings-window .settings-nav button{min-height:32px;height:auto;flex-shrink:0;margin:0;padding:5px 11px;gap:10px;border-radius:7px;font-size:var(--text-ui);font-weight:400;color:var(--color-muted)}
 .settings-window .settings-nav button span{min-width:0;white-space:normal;overflow-wrap:anywhere}
-.settings-window .settings-nav button .icon{width:17px;height:17px;flex-shrink:0}
+.settings-window .settings-nav button .icon{width:17px;height:17px;flex-shrink:0;color:inherit}
 .settings-window .settings-nav button.active{background:var(--color-selected);color:var(--color-ink);font-weight:550}
 .settings-window .settings-content{padding:28px 32px 32px;scrollbar-gutter:stable;overscroll-behavior:contain;background:var(--color-panel)}
 .settings-window .settings-page-heading{margin-bottom:24px}
@@ -136,6 +135,7 @@
 @media(max-width:540px){.settings-window .parser-setting{flex-wrap:wrap}.settings-window .parser-actions{flex:1;justify-content:flex-end}}
 .settings-window .reindex-settings .outline{flex-shrink:0}
 .settings-window .reindex-settings{border-bottom:1px solid var(--color-rule)}
+.settings-window .reindex-actions{border-bottom:0}
 .settings-window .reindex-status{padding:0 17px 15px;font-size:var(--text-caption);line-height:1.6}
 .settings-window .reindex-status p{margin:0 0 6px}
 .settings-window .reindex-status p:last-child{margin-bottom:0}

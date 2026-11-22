@@ -49,6 +49,7 @@ export const MermaidCodeBlock=CodeBlock.extend({addNodeView(){return ({node,edit
   preview.setAttribute('contenteditable','false');
   button.type='button';button.setAttribute('contenteditable','false');
   button.addEventListener('click',()=>{
+   if(!editor.isEditable)return;
    showSource(!editing);
    if(editing)editor.chain().focus().setTextSelection(getPos()!+1).run();
    else{editor.commands.setNodeSelection(getPos()!);button.focus();}

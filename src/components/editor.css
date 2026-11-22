@@ -136,3 +136,5 @@
   text-decoration-thickness: 1px;
   text-underline-offset: 3px;
 }
+
+#rich-editor .tiptap[contenteditable="false"] .mermaid-code-block>button{display:none}
