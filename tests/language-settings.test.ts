@@ -85,7 +85,7 @@ it('restores saved English across all settings pages and preserves original file
   ['Knowledge base',['Data sources','File settings','Web Clipper']],
   ['Search & Q&A',['Model settings','Chat settings','Search settings']],
   ['Connections & services',['CLI settings','Remote services','Network proxy']],
-  [null,['Data and privacy','About']],
+  ['Other',['Data and privacy','About']],
  ]);
  for(const page of ['General','Appearance','Data sources','File settings','Shortcuts','Model settings','Chat settings','Search settings','Data and privacy','About']){
   click(page,document.querySelector('.settings-nav')!);await tick();

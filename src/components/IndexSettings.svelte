@@ -38,11 +38,17 @@
 </script>
 
 <div class="reindex-settings">
- <div class="setting-row reindex-actions"><div><strong>{$t('重新索引')}</strong><p>{$t('按已保存的文件类型和排除目录检查全部文件，只更新变化的索引。')}</p></div><Button.Root type="button" class="outline" disabled={loading||submitting||indexing||status.paused||!roots.length||settingsChanged} onclick={reindex}>{$t(finishing?'正在暂停…':status.paused?'索引已暂停':submitting||indexing?"正在索引…":"重新索引")}</Button.Root></div>
- {#if settingsChanged||submitting||indexing||status.paused||started||failures.length||error||!loading&&!roots.length}
+ <div class="setting-row reindex-actions">
+  <div>
+   <strong>{$t('重新索引')}</strong>
+   <p>{$t('按已保存的文件类型和排除目录检查全部文件，只更新变化的索引。')}</p>
+   {#if settingsChanged}<p>{$t("请先保存文件类型或排除目录的修改，再重新索引。")}</p>{/if}
+   {#if !loading&&!roots.length}<p>{$t("添加文件夹后可重新索引。")}</p>{/if}
+  </div>
+  <Button.Root type="button" class="outline" disabled={loading||submitting||indexing||status.paused||!roots.length||settingsChanged} onclick={reindex}>{$t(finishing?'正在暂停…':status.paused?'索引已暂停':submitting||indexing?"正在索引…":"重新索引")}</Button.Root>
+ </div>
+ {#if submitting||indexing||status.paused||started||failures.length||error}
  <div class="reindex-status" aria-live="polite">
-  {#if settingsChanged}<p class="settings-help">{$t("请先保存文件类型或排除目录的修改，再重新索引。")}</p>{/if}
-  {#if !loading&&!roots.length}<p class="settings-help">{$t("添加文件夹后可重新索引。")}</p>{/if}
   {#if status.paused}<p>{$t(finishing?'正在暂停…':'索引已暂停')}</p>{/if}
   {#if current&&progress}<p>{$t("{value0}：已处理 {value1} / {value2} 个文件",{value0:current.name,value1:progress.count,value2:progress.total})}</p><progress aria-label={$t("索引进度")} value={progress.count} max={Math.max(1,progress.total)}></progress>
   {:else if !status.paused&&(submitting||indexing)}<p class="reindex-running"><span aria-hidden="true">{@html icon('refresh')}</span>{$t("正在检查文件…")}</p>
