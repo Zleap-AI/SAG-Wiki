@@ -1,4 +1,5 @@
 pub mod about_links;
+pub mod agent_artifacts;
 pub mod chat_import;
 pub mod online_import;
 pub use chat_import::*;
@@ -283,6 +284,7 @@ pub struct EventEnvelope {
 pub enum Operation {
     Api { action: ApiAction },
     OnlineImport { action: online_import::Action },
+    AgentArtifacts { action: agent_artifacts::Action },
     DoclingStatus,
     InstallDocling,
     ImportDoclingComponent {

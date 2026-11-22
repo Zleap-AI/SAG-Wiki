@@ -579,7 +579,11 @@ it('keeps Notion ZIP import accessible from the same row',async()=>{
  });
  mounted=mount(DataImport,{target:document.body});
  await tick();
- expect([...document.querySelectorAll('h3')].map(heading=>heading.textContent)).toEqual(['第三方应用','在线数据源','分享']);
+ expect([...document.querySelectorAll('h3')].map(heading=>heading.textContent)).toEqual(['Agent','在线数据源','第三方应用','分享']);
+ const groups=[...document.querySelectorAll('.data-import-sources')];
+ const names=(group:Element)=>[...group.querySelectorAll('.data-import-name strong')].map(item=>item.textContent);
+ expect(names(groups[0])).toEqual(['Claude Code','Claude Desktop','Codex','WorkBuddy']);
+ expect(names(groups[2])).toEqual(['Evernote','Google Keep','Apple Notes']);
  button('配置 Notion').click();
  await vi.waitFor(()=>expect(button('从导出文件导入')).toBeDefined());
  button('从导出文件导入').click();

@@ -7,7 +7,7 @@
 .settings-window .settings-form{grid-template-columns:184px minmax(0,1fr);grid-template-rows:minmax(0,1fr) auto}
 .settings-window .settings-nav{padding:11px 10px;gap:28px;background:var(--color-sidebar);overflow:auto}
 .settings-window .settings-nav-group{display:flex;flex:none;flex-direction:column;gap:1px;padding:0}
-.settings-window .settings-nav-heading{margin:0 0 9px;padding-inline:11px 6px;color:color-mix(in srgb,var(--color-muted) 85%,var(--color-sidebar));font:500 var(--text-small)/16px var(--font-body);overflow-wrap:anywhere}
+.settings-window .settings-nav-heading{margin:0 0 9px;padding-inline:11px 6px;color:color-mix(in srgb,var(--color-muted) 78%,var(--color-sidebar));font:500 var(--text-small)/16px var(--font-body);overflow-wrap:anywhere}
 .settings-window .settings-nav button{min-height:32px;height:auto;flex-shrink:0;margin:0;padding:5px 11px;gap:10px;border-radius:7px;font-size:var(--text-ui);font-weight:400;color:var(--color-muted)}
 .settings-window .settings-nav button span{min-width:0;white-space:normal;overflow-wrap:anywhere}
 .settings-window .settings-nav button .icon{width:17px;height:17px;flex-shrink:0;color:inherit}

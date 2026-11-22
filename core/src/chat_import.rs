@@ -1,5 +1,7 @@
 //! Local transcript import. Event names and Codex compressed-twin discovery
 //! adapted from claude-code-history-viewer 67979b4 (MIT); see third-party notice.
+mod claude_desktop;
+pub(crate) mod claude_deliverables;
 pub(crate) mod schedule;
 
 use crate::{
@@ -27,13 +29,17 @@ fn field<'a>(value: &'a Value, key: &str) -> &'a str {
 pub(crate) fn label(source: ChatSource) -> &'static str {
     match source {
         ChatSource::Claude => "Claude Code",
+        ChatSource::ClaudeDesktop => "Claude Desktop",
         ChatSource::Codex => "Codex",
+        ChatSource::WorkBuddy => "WorkBuddy",
     }
 }
 fn source_key(source: ChatSource) -> &'static str {
     match source {
         ChatSource::Claude => "claude",
+        ChatSource::ClaudeDesktop => "claude-desktop",
         ChatSource::Codex => "codex",
+        ChatSource::WorkBuddy => "workbuddy",
     }
 }
 
@@ -76,9 +82,13 @@ fn root(source: ChatSource, supplied: Option<&str>) -> Result<PathBuf> {
                         .join(".claude"),
                 )
                 .join("projects"),
+            ChatSource::ClaudeDesktop => dirs::data_dir().context("无法获取用户目录")?,
             ChatSource::Codex => std::env::var_os("CODEX_HOME")
                 .map(PathBuf::from)
                 .unwrap_or(dirs::home_dir().context("无法获取用户目录")?.join(".codex")),
+            ChatSource::WorkBuddy => dirs::home_dir()
+                .context("无法获取用户目录")?
+                .join(".workbuddy/projects"),
         },
     };
     ensure!(path.is_absolute(), "请选择绝对路径的聊天记录文件夹");
@@ -90,12 +100,21 @@ fn transcript(path: &Path, source: ChatSource) -> bool {
         ChatSource::Claude => {
             name.ends_with(".jsonl") && !name.starts_with("agent-") && name != "history.jsonl"
         }
+        ChatSource::ClaudeDesktop => name == "audit.jsonl" && claude_desktop::session_id(path).is_some(),
         ChatSource::Codex => {
             name.starts_with("rollout-")
                 && (name.ends_with(".jsonl") || name.ends_with(".jsonl.zst"))
                 && !(name.ends_with(".zst") && path.with_extension("").exists())
         }
+        ChatSource::WorkBuddy => name
+            .strip_suffix(".jsonl")
+            .is_some_and(|id| uuid::Uuid::parse_str(id).is_ok()),
     }
+}
+fn workbuddy_timestamp(value: &Value) -> String {
+    value["timestamp"].as_i64()
+        .and_then(chrono::DateTime::from_timestamp_millis)
+        .map_or_else(|| field(value, "timestamp").to_owned(), |time| time.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
 }
 fn checked_paths(source: ChatSource, source_root: &str, paths: &[String]) -> Result<Vec<PathBuf>> {
     ensure!(!paths.is_empty(), "请选择聊天记录");
@@ -172,7 +191,7 @@ fn clean_text(value: &str, role: &str) -> Result<String> {
                 "command-message" | "command-args" | "local-command-stdout" |
                 "local-command-stderr" | "task-notification" | "subagent_notification" |
                 "cross-session-message" | "system-reminder" | "in-app-browser-context" |
-                "external_codex_apps_open_page" => role == "user",
+                "external_codex_apps_open_page" | "uploaded_files" => role == "user",
                 "skill" => role == "user" && trimmed.starts_with("<skill>")
                     && trimmed.contains("<name>") && trimmed.contains("<path>"),
                 _ => role == "user" && tag.starts_with("external_codex_apps_selected_page_part_"),
@@ -318,6 +337,10 @@ fn catalog(source: ChatSource, supplied: Option<&str>) -> Result<ChatCatalog> {
     ensure!(root.is_dir(), "聊天记录文件夹不存在");
     let root = root.canonicalize()?;
     catalog.source_root = root.to_string_lossy().into();
+    if source == ChatSource::ClaudeDesktop {
+        claude_desktop::catalog(&root, &mut catalog);
+        return Ok(catalog);
+    }
     if source == ChatSource::Codex {
         if let Some(sessions) = codex_catalog(&root, None)? {
             catalog.sessions = sessions;
@@ -349,8 +372,16 @@ fn catalog(source: ChatSource, supplied: Option<&str>) -> Result<ChatCatalog> {
         let mut project = String::new();
         let mut updated = String::new();
         let mut started = String::new();
+        let mut workbuddy_title = String::new();
+        let mut workbuddy_has_messages = false;
         let result = visit(path, |v| {
-            let ts = field(&v, "timestamp");
+            let workbuddy_time;
+            let ts = if source == ChatSource::WorkBuddy {
+                workbuddy_time = workbuddy_timestamp(&v);
+                &workbuddy_time
+            } else {
+                field(&v, "timestamp")
+            };
             if started.is_empty() && !ts.is_empty() {
                 started = ts.into();
             }
@@ -358,7 +389,7 @@ fn catalog(source: ChatSource, supplied: Option<&str>) -> Result<ChatCatalog> {
                 updated = ts.into();
             }
             match source {
-                ChatSource::Claude => {
+                ChatSource::Claude | ChatSource::ClaudeDesktop => {
                     if id.is_empty() {
                         id = field(&v, "sessionId").into();
                     }
@@ -387,6 +418,25 @@ fn catalog(source: ChatSource, supplied: Option<&str>) -> Result<ChatCatalog> {
                         title = title_text(field(&v["payload"], "message"))?;
                     }
                 }
+                ChatSource::WorkBuddy => {
+                    let kind = field(&v, "type");
+                    let role = field(&v, "role");
+                    if id.is_empty() {
+                        id = field(&v, "sessionId").into();
+                    }
+                    if project.is_empty() {
+                        project = field(&v, "cwd").into();
+                    }
+                    if kind == "ai-title" {
+                        workbuddy_title = title_text(field(&v, "aiTitle"))?;
+                    } else if kind == "message" && matches!(role, "user" | "assistant") {
+                        let body = clean_text(&text(&v["content"]), role)?;
+                        workbuddy_has_messages |= !body.is_empty();
+                        if role == "user" && title.is_empty() {
+                            title = title_text(&body)?;
+                        }
+                    }
+                }
             }
             Ok(true)
         });
@@ -397,8 +447,11 @@ fn catalog(source: ChatSource, supplied: Option<&str>) -> Result<ChatCatalog> {
             });
             continue;
         }
-        if id.is_empty() {
+        if id.is_empty() || (source == ChatSource::WorkBuddy && !workbuddy_has_messages) {
             continue;
+        }
+        if !workbuddy_title.is_empty() {
+            title = workbuddy_title;
         }
         let file = path.to_string_lossy().into_owned();
         let session = groups.entry(id.clone()).or_insert_with(|| ChatSession {
@@ -541,8 +594,13 @@ fn blocks(
     Ok(output.join("\n\n"))
 }
 fn parse(source: ChatSource, path: &Path, include_tools: bool) -> Result<Parsed> {
+    let desktop = source == ChatSource::ClaudeDesktop;
     let mut out = Parsed {
-        id: String::new(),
+        id: if desktop {
+            claude_desktop::session_id(path).context("聊天记录缺少会话标识")?.to_owned()
+        } else {
+            String::new()
+        },
         title: String::new(),
         project: String::new(),
         messages: vec![],
@@ -552,9 +610,16 @@ fn parse(source: ChatSource, path: &Path, include_tools: bool) -> Result<Parsed>
     };
     let mut events = vec![];
     visit(path, |v| {
-        let timestamp = field(&v, "timestamp").to_owned();
+        let timestamp = if source == ChatSource::WorkBuddy {
+            workbuddy_timestamp(&v)
+        } else {
+            field(&v, "timestamp").to_owned()
+        };
         match source {
-            ChatSource::Claude => {
+            ChatSource::Claude | ChatSource::ClaudeDesktop => {
+                if desktop && !claude_desktop::primary_message(&v) {
+                    return Ok(true);
+                }
                 let id = field(&v, "uuid").to_owned();
                 if !id.is_empty() {
                     out.positions.insert(id.clone(), out.messages.len());
@@ -680,6 +745,42 @@ fn parse(source: ChatSource, path: &Path, include_tools: bool) -> Result<Parsed>
                     _ => {}
                 }
             }
+            ChatSource::WorkBuddy => {
+                if out.id.is_empty() {
+                    out.id = field(&v, "sessionId").into();
+                }
+                if out.project.is_empty() {
+                    out.project = field(&v, "cwd").into();
+                }
+                let kind = field(&v, "type");
+                let role = field(&v, "role");
+                let (role, body) = match kind {
+                    "ai-title" => {
+                        out.title = title_text(field(&v, "aiTitle"))?;
+                        return Ok(true);
+                    }
+                    "message" if matches!(role, "user" | "assistant") => {
+                        (role, blocks(&v["content"], role, include_tools, &mut out.assets)?)
+                    }
+                    "function_call" | "function_call_result" if include_tools => {
+                        let value = &v[if kind == "function_call" { "arguments" } else { "output" }];
+                        let body = match value.as_str() {
+                            Some(text) => text.to_owned(),
+                            None => serde_json::to_string_pretty(value)?,
+                        };
+                        ("tool", format!("### {} {}\n\n{}", kind, field(&v, "name"), fenced(&body)))
+                    }
+                    _ => return Ok(true),
+                };
+                if !body.is_empty() {
+                    out.messages.push(Message {
+                        id: field(&v, "id").to_owned(),
+                        role: role.into(),
+                        body,
+                        timestamp,
+                    });
+                }
+            }
         }
         Ok(true)
     })?;
@@ -716,7 +817,15 @@ fn load(source: ChatSource, root: &str, paths: &[String], include_tools: bool) -
     let mut seen_files = HashSet::new();
     let mut seen_messages = HashSet::new();
     for path in paths {
-        let mut chain = vec![(path.clone(), parse(source, &path, include_tools)?)];
+        let mut parsed = parse(source, &path, include_tools)?;
+        if source == ChatSource::ClaudeDesktop {
+            let details = claude_desktop::details(&path, &Path::new(root).canonicalize()?)?;
+            parsed.title = details.title;
+            if !details.project.is_empty() {
+                parsed.project = details.project;
+            }
+        }
+        let mut chain = vec![(path.clone(), parsed)];
         seen_files.insert(path.clone());
         if source == ChatSource::Claude {
             loop {
@@ -888,7 +997,9 @@ pub fn import(
         .unwrap_or_else(|| {
             folder.join(match source {
                 ChatSource::Claude => "claude code",
+                ChatSource::ClaudeDesktop => "claude desktop",
                 ChatSource::Codex => "codex",
+                ChatSource::WorkBuddy => "workbuddy",
             }).join(format!(
                 "{}-{}-{}.md",
                 source_key(source),
@@ -1565,3 +1676,41 @@ mod tests {
         assert_eq!(fs::read_to_string(&first.path).unwrap(), "用户手动编辑");
     }
 }
+    #[test]
+    fn workbuddy_exports_messages_and_only_includes_tools_when_requested() {
+        let temporary = tempfile::tempdir().unwrap();
+        let project = temporary.path().join("project");
+        fs::create_dir(&project).unwrap();
+        let session = "2c3eae79-dc96-496e-92f2-2895da3b2c08";
+        let file = project.join(format!("{session}.jsonl"));
+        let mut rows = [
+            serde_json::json!({"type":"session-meta","meta":{"secret":"hidden-settings"}}),
+            serde_json::json!({"type":"message","id":"system","role":"system","content":"hidden-system"}),
+            serde_json::json!({"type":"message","id":"question","role":"user","content":[{"type":"input_text","text":"<system-reminder>hidden-reminder</system-reminder>\n实际提问"}]}),
+            serde_json::json!({"type":"reasoning","content":"hidden-reasoning"}),
+            serde_json::json!({"type":"function_call","id":"call","name":"present_files","arguments":"tool-input","providerData":"hidden-provider-data"}),
+            serde_json::json!({"type":"function_call_result","id":"result","name":"present_files","output":[{"text":"tool-output"}]}),
+            serde_json::json!({"type":"message","id":"answer","role":"assistant","content":[{"type":"output_text","text":"实际回答"}]}),
+            serde_json::json!({"type":"ai-title","aiTitle":"任务名称"}),
+        ];
+        for row in &mut rows {
+            row["sessionId"] = serde_json::json!(session);
+            row["timestamp"] = serde_json::json!(1_700_000_000_000_i64);
+            row["cwd"] = serde_json::json!("/demo/project");
+        }
+        fs::write(&file, rows.iter().map(ToString::to_string).collect::<Vec<_>>().join("\n")).unwrap();
+        let root = temporary.path().to_str().unwrap();
+        let catalog = list(ChatSource::WorkBuddy, Some(root)).unwrap();
+        assert_eq!(catalog.total, 1);
+        let chat = &catalog.sessions[0];
+        assert_eq!(chat.title, "任务名称");
+        assert_eq!(chat.updated, "2023-11-14T22:13:20.000Z");
+        for include_tools in [false, true] {
+            let preview = preview(ChatSource::WorkBuddy, root, &chat.paths, include_tools).unwrap();
+            assert_eq!(preview.title, chat.title);
+            assert!(preview.body.contains("实际提问") && preview.body.contains("实际回答"));
+            assert_eq!(preview.body.contains("tool-input"), include_tools);
+            assert_eq!(preview.body.contains("tool-output"), include_tools);
+            assert!(!preview.body.contains("hidden-"));
+        }
+    }

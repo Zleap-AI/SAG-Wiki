@@ -64,6 +64,7 @@ pub struct Service {
     approvals: Mutex<HashMap<(String, String), tokio::sync::oneshot::Sender<bool>>>,
     pub(crate) scan: mpsc::Sender<IndexRequest>,
     chat_import_access: Arc<Mutex<()>>,
+    pub(crate) agent_artifacts: crate::agent_artifacts::Jobs,
     pub data_dir: PathBuf,
     pub events: broadcast::Sender<(Option<String>, EventEnvelope)>,
     pub stop: CancellationToken,
@@ -1460,6 +1461,7 @@ impl Service {
             approvals: Mutex::new(HashMap::new()),
             scan: tx,
             chat_import_access: Arc::new(Mutex::new(())),
+            agent_artifacts: Default::default(),
             data_dir: data,
             events,
             stop,
@@ -1501,11 +1503,15 @@ impl Service {
         })
     }
     pub(crate) fn model_http(&self) -> Arc<crate::model_http::ModelHttp> { self.model_http.clone() }
+    pub(crate) fn notify_artifacts_changed(&self) {
+        let app = EventSink { owner: String::new(), request_id: None, cancel: self.stop.clone(), bus: self.events.clone() };
+        emit(&app, "data-changed", ());
+    }
     pub(crate) fn run_chat_import_schedules(&self) {
         use crate::chat_import::{label, schedule::run_due};
         use sag_protocol::ChatSource;
         let app = EventSink { owner: String::new(), request_id: None, cancel: self.stop.clone(), bus: self.events.clone() };
-        for source in [ChatSource::Claude, ChatSource::Codex] {
+        for source in [ChatSource::Claude, ChatSource::ClaudeDesktop, ChatSource::Codex, ChatSource::WorkBuddy] {
             if self.stop.is_cancelled() { break; }
             let _access = self.chat_import_access.lock().unwrap();
             match run_due(&self.store, &self.scan, source, chrono::Local::now(), &self.stop) {
@@ -1599,6 +1605,11 @@ impl Service {
                 Out::Text(path)
             }
             Op::OnlineImport { action } => Out::Api(crate::online_import::handle(self, action).await.map_err(error)?),
+            Op::AgentArtifacts { action } => {
+                let service = self.clone();
+                Out::Api(tokio::task::spawn_blocking(move || crate::agent_artifacts::handle(&service, action))
+                    .await.map_err(error)?.map_err(error)?)
+            }
             Op::GetChatImportSchedule { source } => Out::ChatImportSchedule(crate::chat_import::schedule::status(&self.store, source).map_err(error)?),
             Op::SaveChatImportSchedule { source, schedule } => {
                 let state = self.clone();
@@ -1802,9 +1813,13 @@ impl Service {
                     .map_err(|_| "请先停止正在进行的问答，再清除所有数据".to_string())?;
                 let store = self.store.clone();
                 let access = self.chat_import_access.clone();
+                let service = self.clone();
                 tokio::task::spawn_blocking(move || {
                     let _access = access.lock().unwrap();
-                    store.clear_all_data().map_err(error)
+                    let mut artifacts = service.agent_artifacts.scan.lock().unwrap();
+                    store.clear_all_data().map_err(error)?;
+                    artifacts.clear();
+                    Ok::<_, String>(())
                 })
                     .await.map_err(error)??;
                 self.scan.send(IndexRequest::SyncWatches).map_err(error)?;

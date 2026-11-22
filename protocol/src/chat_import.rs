@@ -4,7 +4,10 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum ChatSource {
     Claude,
+    ClaudeDesktop,
     Codex,
+    #[serde(rename = "workbuddy")]
+    WorkBuddy,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
