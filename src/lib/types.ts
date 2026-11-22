@@ -2,7 +2,14 @@ export type MineruConfig={enabled:boolean;provider:'302'|'official';base_url?:st
 import type {ReasoningEffort} from './reasoning';
 import type {Language} from './i18n';
 export type Root={path:string;name:string;status:string;count:number;error:string|null};
-export type ChatSource='claude'|'codex';
+export const chatSources={
+ claude:{name:'Claude Code',folder:'claude code'},
+ claude_desktop:{name:'Claude Desktop',folder:'claude desktop'},
+ codex:{name:'Codex',folder:'codex'},
+ workbuddy:{name:'WorkBuddy',folder:'workbuddy'},
+} as const;
+export type ChatSource=keyof typeof chatSources;
+export type ArtifactSource='claude-code'|'codex'|'claude-desktop'|'workbuddy';
 export type ChatSession={id:string;title:string;project:string;updated:string;paths:string[]};
 export type ChatCatalog={source_root:string;sessions:ChatSession[];issues:{path:string;error:string}[];total:number;page:number;page_size:number;projects:string[]};
 export type ChatPreview={title:string;body:string};

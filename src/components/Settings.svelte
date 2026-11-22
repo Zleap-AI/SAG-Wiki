@@ -155,7 +155,7 @@
    ['api',$t('远程服务'),'network'],
    ['network',$t('网络代理'),'route'],
   ]},
-  {label:'',pages:[
+  {label:$t('其他'),pages:[
    ['privacy',$t('数据与隐私'),'globe'],
    ['about',$t('关于'),'info'],
   ]},
@@ -219,8 +219,8 @@
   <form on:submit|preventDefault={()=>{if(page!=='api'&&!dataDirectoryBusy)void save();}} class="settings-form">
    <nav class="settings-nav" aria-label={$t("设置分类")}>
     {#each pageGroups as group}
-     <div class="settings-nav-group" role={group.label?'group':undefined} aria-label={group.label||undefined}>
-      {#if group.label}<p class="settings-nav-heading" aria-hidden="true">{group.label}</p>{/if}
+     <div class="settings-nav-group" role="group" aria-label={group.label}>
+      <p class="settings-nav-heading" aria-hidden="true">{group.label}</p>
       {#each group.pages as [id,label,glyph] (id)}
        <Button.Root type="button" disabled={cliBusy||apiBusy||dataDirectoryBusy} aria-current={page===id?'page':undefined} class={page===id?'active':''} onclick={()=>{page=id;status='';error=''}}>{@html icon(glyph)}<span>{label}</span></Button.Root>
       {/each}

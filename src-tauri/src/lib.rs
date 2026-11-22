@@ -430,6 +430,18 @@ remote!(remove_all_roots() => RemoveAllRoots);
 remote!(save_document(path:String,body:String,expected_hash:Option<String>) => SaveDocument);
 remote!(get_chat_import_folder() => GetChatImportFolder);
 remote!(online_import(action:sag_protocol::online_import::Action) => OnlineImport);
+remote!(agent_artifacts(action:sag_protocol::agent_artifacts::Action) => AgentArtifacts);
+#[tauri::command]
+async fn choose_artifact_directory(app: tauri::AppHandle, title: String) -> CommandResult<Option<String>> {
+    use tauri_plugin_dialog::DialogExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(folder) = app.dialog().file().set_title(title).blocking_pick_folder() else {
+            return Ok(None);
+        };
+        let path = folder.into_path().map_err(error)?.canonicalize().map_err(error)?;
+        Ok(Some(path.to_string_lossy().into_owned()))
+    }).await.map_err(error)?
+}
 remote!(get_chat_import_schedule(source:sag_protocol::ChatSource) => GetChatImportSchedule);
 remote!(save_chat_import_schedule(source:sag_protocol::ChatSource,schedule:sag_protocol::ChatImportSchedule) => SaveChatImportSchedule);
 #[tauri::command]
@@ -839,6 +851,8 @@ pub fn run() {
             remove_all_roots,
             save_document,
             get_chat_import_folder,
+            agent_artifacts,
+            choose_artifact_directory,
             get_chat_import_schedule,
             save_chat_import_schedule,
             choose_chat_import_folder,

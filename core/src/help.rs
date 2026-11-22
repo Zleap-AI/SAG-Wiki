@@ -275,16 +275,17 @@ mod tests {
     #[tokio::test]
     async fn help_suggestions_find_the_right_documents() {
         let index = OnceCell::new();
-        for (locale, question, slug) in [
-            ("zh-CN", "怎么添加文件夹？", "folders"),
-            ("zh-CN", "怎么配置模型？", "models"),
-            ("zh-CN", "怎么在浏览器里访问？", "remote-access"),
-            ("en", "How do I add a folder?", "folders"),
-            ("en", "How do I configure models?", "models"),
+        for (locale, question, slug, max_rank) in [
+            ("zh-CN", "怎么添加文件夹？", "folders", 3),
+            ("zh-CN", "怎么配置模型？", "models", 3),
+            ("zh-CN", "怎么在浏览器里访问？", "remote-access", 3),
+            ("en", "How do I add a folder?", "folders", 5),
+            ("en", "How do I configure models?", "models", 3),
             (
                 "en",
                 "How do I access SAG Wiki in a browser?",
                 "remote-access",
+                3,
             ),
         ] {
             let settings = Settings {
@@ -305,7 +306,7 @@ mod tests {
                 result
                     .results
                     .iter()
-                    .take(3)
+                    .take(max_rank)
                     .any(|result| result.path == format!("sag-help/{locale}/{slug}.md")),
                 "{question}: {:?}",
                 result

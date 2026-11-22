@@ -323,6 +323,12 @@ async fn route(
                 Ok(Output::Unit)
             }
             WebOperation::Service(mut operation) => {
+                if let Op::AgentArtifacts { action } = operation {
+                    return tokio::task::spawn_blocking(move || {
+                        crate::agent_artifacts::handle_web(&service, action)
+                            .map(Output::Api).map_err(|error| error.to_string())
+                    }).await.map_err(|error| error.to_string())?;
+                }
                 if !allowed(&operation) {
                     return Err("此操作需在主机上完成".into());
                 }
