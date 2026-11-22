@@ -237,6 +237,10 @@
     {#if page==='general'}
      <section class="settings-group">
       {#if !web}<div class="setting-row"><div><strong>{$t("启动页面")}</strong><p>{$t("打开应用时首先显示的页面")}</p></div><Select label={$t("启动页面")} class="start-page-select" bind:value={settings.start_page} items={[{value:"ask",label:$t("问答")},{value:"search",label:$t("搜索")}]}/></div>{/if}
+      <div class="setting-row">
+       <strong>{$t('文档默认打开方式')}</strong>
+       <Select label={$t('文档默认打开方式')} value={settings.editor_open_mode??'edit'} onValueChange={mode=>settings.editor_open_mode=mode as Settings['editor_open_mode']} items={[{value:'edit',label:$t('编辑')},{value:'view',label:$t('查看')}]}/>
+      </div>
       <div class="setting-row"><div><strong>{$t("settings.interfaceLanguage")}</strong></div><Select label={$t("settings.interfaceLanguage")} value={settings.language} onValueChange={next=>{settings.language=resolveLanguage(next);setLanguage(settings.language)}} items={languageOptions}/></div>
       {#if !web}<div class="setting-row"><div><strong>{$t("关闭窗口后")}</strong><p>{$t("从托盘或菜单栏重新打开，也可在那里退出。")}</p></div><span class="setting-value">{$t("后台继续运行")}</span></div>{/if}
      </section>

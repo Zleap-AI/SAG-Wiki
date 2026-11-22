@@ -12,9 +12,9 @@ vi.mock('@tauri-apps/plugin-dialog',()=>({open:vi.fn()}));
 let app:ReturnType<typeof mount>;
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
 const hits:Candidate[]=[1,2].map(id=>({id,document_id:id,path:`/files/file-${id}.txt`,title:`file-${id}.txt`,heading:'',content:`文件 ${id} 的 octx 正文。`,start_line:1,end_line:1,source_ranges:[[1,1]],source_spans:[],bm25:-1,score:0,order:id,hash:'same'}));
-async function setup(candidates=hits,bodies:Record<string,string>={}){
+async function setup(candidates=hits,bodies:Record<string,string>={},editorOpenMode?:'view'){
  invoke.mockImplementation(async(command,args)=>{
-  if(command==='get_settings')return{theme:'light',start_page:'search',editor_size:15,answer:{model:'test',models:['test']}};
+  if(command==='get_settings')return{theme:'light',start_page:'search',editor_open_mode:editorOpenMode,editor_size:15,answer:{model:'test',models:['test']}};
   if(command==='run_query')return{results:candidates,terms:['octx'],elapsed_ms:24,trace:[],conversation:null};
   if(command==='read_document'){const hit=candidates.find(hit=>hit.path===args.path)!;return{id:hit.id,path:hit.path,name:hit.title,body:bodies[hit.path]??hit.content,hash:'same'}}
   return[];
@@ -103,11 +103,11 @@ it('切换文档后，较早的读取结果不会覆盖当前预览',async()=>{
  finish({id:2,path:hits[1].path,name:hits[1].title,body:'迟到的错误文档',hash:'same'});await tick();await tick();
  expect(document.querySelector('.search-preview-body')!.textContent).toContain('文件 1 的 octx');
 });
-it('large search results target the cited source and use the same bounded reader for full-document find',async()=>{
+it('large search previews find across the full document and keep the selected match in View mode',async()=>{
  const path='/files/large.md',filler=('A filler paragraph. '.repeat(220)+'\n\n').repeat(30),paragraph='A **formatted octx** result.';
  const body=filler+paragraph;
  const hit={...hits[0],path,title:'large.md',content:paragraph,start_line:61,end_line:61};
- await setup([hit],{[path]:body});
+ await setup([hit],{[path]:body},'view');
  await vi.waitFor(()=>expect(document.querySelector('.search-preview .large-document-reader strong .search-hit.active')?.textContent).toBe('formatted octx'));
  expect(document.querySelectorAll('.search-preview .reader-piece').length).toBeLessThanOrEqual(12);
  document.querySelector<HTMLButtonElement>('.search-find-trigger')!.click();
@@ -117,9 +117,9 @@ it('large search results target the cited source and use the same bounded reader
  field.form!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(document.querySelector('.match-navigation')?.textContent).toContain('1 / 1'));
  openDocument();
- await vi.waitFor(()=>expect(document.querySelector('.large-document .search-hit.active')?.textContent).toBe('octx'));
+ await vi.waitFor(()=>expect(document.querySelector('#rich-editor .search-hit.active')?.textContent).toBe('octx'));
  expect(document.querySelector('[contenteditable=true]')).toBeNull();
- document.querySelector<HTMLButtonElement>('.large-document [title="返回搜索"]')!.click();
+ document.querySelector<HTMLButtonElement>('.wysiwyg-editor [title="返回搜索"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.search-preview .match-navigation')?.textContent).toContain('1 / 1'));
  expect(document.querySelector<HTMLInputElement>('#preview-find')!.value).toBe('formatted octx');
  const restored=document.querySelector<HTMLInputElement>('#preview-find')!;

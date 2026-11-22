@@ -1,5 +1,15 @@
 # 更新日志 / Changelog
 
+## 0.4.5
+
+- **文档查看模式**可在「设置 → 通用」设为 Markdown 的默认打开方式，初始设置为编辑。在查看模式下点击右上角的「编辑」可原地修改，保存后回到查看模式。长 Markdown 和 PDF 的 Markdown 转换稿也适用。
+- **修复 SAG Wiki 助手的回答流式输出**。配置回答模型后，回答会在生成过程中实时显示。
+
+### English
+
+- **Document view mode** can be set as the default for Markdown in **Settings → General**. Edit mode is the initial default. In view mode, click **Edit** to make changes in place, then save to return to view mode. This also applies to long Markdown documents and Markdown converted from PDFs.
+- **Fixed streaming output in SAG Wiki Assistant**. With an answer model configured, the assistant displays the response as it is generated.
+
 ## 0.4.4
 
 - **新增 Agent 产物导入功能**，支持归档 Claude Code、Claude Desktop、Codex 和 WorkBuddy 生成的文件。可按文件类型筛选、勾选文件，并为各应用单独开启自动同步。

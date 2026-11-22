@@ -41,6 +41,21 @@ it('shows project and company links in About and opens them outside the app',asy
  }
 });
 
+it('defaults to Edit and saves View as the document opening preference',async()=>{
+ setLanguage('zh-CN');
+ const onSave=vi.fn();
+ app=mount(SettingsPanel,{target:document.body,props:{value:settings,onSave,onClose:vi.fn()}});
+ await tick();
+ const control=document.querySelector<HTMLButtonElement>('[aria-label="文档默认打开方式"]')!;
+ expect(control.textContent?.trim()).toBe('编辑');
+ control.focus();control.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+ await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="view"]')).not.toBeNull());
+ document.querySelector('[role=option][data-value="view"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
+ click('保存设置');
+ await vi.waitFor(()=>expect(onSave.mock.calls[0][0].editor_open_mode).toBe('view'));
+ expect(settings.editor_open_mode).toBeUndefined();
+});
+
 it.each(['en','ja','zh-TW','ko','es'] as const)('previews %s immediately, persists it on save, and restores Chinese on cancel',async(locale)=>{
  const heading=translate('通用',locale),saveLabel=translate('保存设置',locale);
  expect(heading).not.toBe('通用');

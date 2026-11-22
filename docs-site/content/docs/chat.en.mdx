@@ -27,7 +27,7 @@ The assistant home lists and searches assistant conversations. Switch back to yo
 
 On the Q&A home, click **SAG Wiki Assistant** below the question box. The box shows a suggested question. When the box is empty, press Enter to send the suggestion or Tab to fill it in for editing.
 
-The assistant uses SAG2 to search the bundled user guides and the Chinese and English changelogs. You can ask “What changed in 0.4.0?” When an answer model is configured, it calls `sag2_search` to find passages and can search again for missing evidence. Without an answer model, the app runs SAG2 and shows the relevant passages directly. When Jev is configured, it judges which passages provide relevant evidence. Otherwise, SAG2 ranks the passages and expands the search locally.
+The assistant uses SAG2 to search the bundled user guides and the Chinese and English changelogs. You can ask “What changed in 0.4.0?” When an answer model is configured, it calls `sag2_search` to find passages and can search again for missing evidence. The assistant streams its answers. Without an answer model, the app runs SAG2 and shows the relevant passages directly. When Jev is configured, it judges which passages provide relevant evidence. Otherwise, SAG2 ranks the passages and expands the search locally.
 
 Click the question mark in the lower-left corner to open the online documentation in the current interface language.
 

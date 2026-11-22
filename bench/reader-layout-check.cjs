@@ -26,9 +26,10 @@ function fixture(folder){
  const page=await browser.newPage({viewport:{width:1280,height:850},deviceScaleFactor:2});
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.route('**/__document-image/*',async route=>{await new Promise(r=>setTimeout(r,1800));await route.continue();});
- await page.goto('http://127.0.0.1:'+port+'/bench/document.html');
- await page.waitForFunction(()=>window.__SAG_DOCUMENT_BENCHMARK__?.ready);
- await page.evaluate(()=>{window.__anchorRunPromise=window.__SAG_DOCUMENT_BENCHMARK__.run();return true;});
+ await page.goto('http://127.0.0.1:'+port+'/bench/document.html?search-preview');
+ const query=page.locator('.search-entry input');
+ await query.fill('fixture');
+ await query.press('Enter');
  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.large-document-reader p')).some(p=>p.textContent.startsWith('word0000')));
  const before=await page.evaluate(async()=>{
   const host=document.querySelector('.large-document-reader .markdown-reader');
@@ -40,7 +41,7 @@ function fixture(folder){
   return {top:range.getBoundingClientRect().top-host.getBoundingClientRect().top,scrollTop:host.scrollTop,width:host.clientWidth};
  });
  await page.waitForFunction(()=>Array.from(document.querySelectorAll('.large-document-reader img')).some(i=>i.complete&&i.naturalHeight===600));
- const image=await page.evaluate(async()=>{await window.__anchorRunPromise;await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return {top:window.__anchorRange.getBoundingClientRect().top-window.__anchorHost.getBoundingClientRect().top,scrollTop:window.__anchorHost.scrollTop};});
+ const image=await page.evaluate(async()=>{await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return {top:window.__anchorRange.getBoundingClientRect().top-window.__anchorHost.getBoundingClientRect().top,scrollTop:window.__anchorHost.scrollTop};});
  const resize=await page.evaluate(async()=>{
   const range=window.__anchorRange,host=window.__anchorHost;
   const beforeTop=range.getBoundingClientRect().top-host.getBoundingClientRect().top;

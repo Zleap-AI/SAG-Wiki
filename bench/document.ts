@@ -12,7 +12,7 @@ import '../src/components/settings.css';
 import '../src/components/ui/controls.css';
 
 const root='/benchmark',path=root+'/fixture.md';
-const settings:Settings={theme:'light',language:'zh-CN',start_page:'files',editor_size:15,
+const settings:Settings={theme:'light',language:'zh-CN',start_page:new URLSearchParams(location.search).has('search-preview')?'search':'files',editor_open_mode:new URLSearchParams(location.search).get('mode')==='view'?'view':'edit',editor_size:15,
  search_summary_enabled:false,answer:{model:'benchmark',models:[],url:'',has_key:false},jev:{model:'',models:[],url:'',has_key:false},
  retrieval:{candidate_k:50,seed_k:10,expansion_term_limit:8,max_hops:2,top_k:50,chunk_chars:1200},watch:false,show_hidden:false,excluded:[],timeout_secs:60,answer_context_tokens:8000,answer_output_tokens:2000};
 let fixture:{bytes:number;sha256:string}|null=null;
@@ -22,6 +22,7 @@ let invocation={run:0,read:0,sidebarClicks:0,trustedSidebarClicks:0};
 document.addEventListener('click',event=>{if((event.target as Element).closest<HTMLButtonElement>('.tree .tree-name')?.title===path){invocation.sidebarClicks++;if(event.isTrusted)invocation.trustedSidebarClicks++;}},true);
 const handlers:Record<string,(args:Record<string,unknown>)=>unknown>={
  get_settings:()=>settings,list_roots:()=>[{path:root,name:'Benchmark',status:'ready',count:1,error:null}],
+ run_query:()=>({results:[{id:1,document_id:1,path,title:'fixture.md',heading:'',content:'',start_line:1,end_line:1,source_ranges:[],bm25:0,score:0,order:0,hash:''}],terms:[],trace:[],conversation:null}),
  list_files:()=>[{id:1,path,name:'fixture.md'}],get_index_status:()=>({paused:false,tasks:[]}),
  list_conversations:()=>[],list_drafts:()=>[],list_removed_directories:()=>[],list_notes:()=>[],get_index_history:()=>[],
  list_entries:()=>[{path,name:'fixture.md',directory:false,symlink:false}],

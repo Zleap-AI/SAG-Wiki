@@ -899,17 +899,25 @@ async fn execute_query(
     }
     let result = async {
         let notify =
-            |stage: &str, delta: Option<&str>, count, tool: Option<(&ToolCallRecord, bool)>| {
+            |stage: &str, delta: Option<agent::AnswerDelta<'_>>, count, tool: Option<(&ToolCallRecord, bool)>| {
+                let (delta, reasoning_delta, reasoning_block, replace) = match delta {
+                    Some(agent::AnswerDelta::Append(text)) => (Some(text.into()), None, None, false),
+                    Some(agent::AnswerDelta::Replace(text)) => (Some(text.into()), None, None, true),
+                    Some(agent::AnswerDelta::Reasoning(text, block)) => {
+                        (None, Some(text.into()), Some(block.clone()), false)
+                    }
+                    None => (None, None, None, false),
+                };
                 emit(
                     app,
                     "query-progress",
                     Progress {
-                        replace: false,
+                        replace,
                         id: q.id.clone(),
                         stage: stage.into(),
-                        delta: delta.map(String::from),
-                        reasoning_delta: None,
-                        reasoning_block: None,
+                        delta,
+                        reasoning_delta,
+                        reasoning_block,
                         count,
                         tool: tool.map(|(call, finished)| ToolProgress {
                             call: call.clone(),
@@ -958,7 +966,7 @@ async fn execute_query(
                         search.search(&question, |stage, count| notify(stage, None, count, None)).await
                     },
                     |_, _| async { Ok(false) },
-                    |stage, _, count, tool| notify(stage, None, count, tool),
+                    notify,
                 ).await?
             } else {
                 let found = search.search(&q.question, |stage, count| notify(stage, None, count, None)).await?;
@@ -1081,46 +1089,7 @@ async fn execute_query(
                 },
                 |_| async { anyhow::bail!("本地工具应通过内置 SAG MCP 调用") },
                 |tool, arguments| request_tool_approval(state, app, &q.id, tool, arguments, cancel),
-                |stage, delta, count, tool| match delta {
-                    Some(agent::AnswerDelta::Replace(text)) => emit(
-                        app,
-                        "query-progress",
-                        Progress {
-                            id: q.id.clone(),
-                            stage: stage.into(),
-                            delta: Some(text.into()),
-                            reasoning_delta: None,
-                        reasoning_block: None,
-                            replace: true,
-                            count,
-                            tool: None,
-                        },
-                    ),
-                    Some(agent::AnswerDelta::Reasoning(text, block)) => emit(
-                        app,
-                        "query-progress",
-                        Progress {
-                            id: q.id.clone(),
-                            stage: stage.into(),
-                            delta: None,
-                            reasoning_delta: Some(text.into()),
-                            reasoning_block: Some(block.clone()),
-                            replace: false,
-                            count,
-                            tool: None,
-                        },
-                    ),
-                    other => notify(
-                        stage,
-                        other.map(|d| match d {
-                            agent::AnswerDelta::Append(text) => text,
-                            agent::AnswerDelta::Replace(_) => unreachable!(),
-                            agent::AnswerDelta::Reasoning(_, _) => unreachable!(),
-                        }),
-                        count,
-                        tool,
-                    ),
-                },
+                notify,
             )
             .await?;
             message.status = "complete".into();

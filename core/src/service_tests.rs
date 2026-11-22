@@ -522,12 +522,32 @@ async fn help_uses_only_bundled_documents_and_reads_citations_by_path() {
     assert!(output.results.is_empty());
     assert!(output.conversation.unwrap().messages[0].evidence.is_empty());
 
-    let (url, model) = model_server(false, Arc::new(AtomicBool::new(false)), Arc::new(AtomicUsize::new(0))).await;
+    let hold = Arc::new(AtomicBool::new(false));
+    let (url, model) = model_server(false, hold.clone(), Arc::new(AtomicUsize::new(0))).await;
     configure(&client, url, true).await;
     request.id = "help-with-model".into();
     request.model = "test".into();
     request.question = "how do I add a folder? (built-in help fixture)".into();
-    let Output::Query(output) = call(&client, Operation::RunQuery { query: request.clone() }).await else {
+    let mut events = client.subscribe();
+    let caller = client.clone();
+    let query = request.clone();
+    let active = tokio::spawn(async move { call(&caller, Operation::RunQuery { query }).await });
+    let first_text = tokio::time::timeout(Duration::from_secs(2), async {
+        loop {
+            if let ServiceEvent::QueryProgress(progress) = events.recv().await.unwrap().event {
+                if progress.id == "help-with-model" && progress.delta.is_some() {
+                    break progress;
+                }
+            }
+        }
+    }).await;
+    let finished = active.is_finished();
+    hold.store(false, Ordering::SeqCst);
+    let first_text = first_text.expect("help must send answer text before the model finishes");
+    assert!(!finished);
+    assert_eq!(first_text.delta.as_deref(), Some("添加文件夹 [1]"));
+    assert!(!first_text.replace);
+    let Output::Query(output) = active.await.unwrap() else {
         panic!("query output")
     };
     let message = &output.conversation.unwrap().messages[0];
@@ -795,13 +815,19 @@ async fn model_server(
                 } else {
                     serde_json::json!({"content":"完成"})
                 };
-                let data = format!(
-                    "data: {}\n\ndata: {}\n\ndata: [DONE]\n\n",
-                    serde_json::json!({"choices":[{"delta":delta}]}),
-                    serde_json::json!({"choices":[],"usage":{"prompt_tokens":742,"completion_tokens":18}})
-                );
-                let response=format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",data.len(),data);
+                let help_answer = delta["content"] == "添加文件夹 [1]";
+                let first_event = format!("data: {}\n\n", serde_json::json!({"choices":[{"delta":delta}]}));
+                let end = format!("data: {}\n\ndata: [DONE]\n\n",
+                    serde_json::json!({"choices":[],"usage":{"prompt_tokens":742,"completion_tokens":18}}));
+                if help_answer {
+                    hold.store(true, Ordering::SeqCst);
+                }
+                let response=format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",first_event.len() + end.len(),first_event);
                 let _ = stream.write_all(response.as_bytes()).await;
+                while help_answer && hold.load(Ordering::SeqCst) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+                let _ = stream.write_all(end.as_bytes()).await;
             });
         }
     });

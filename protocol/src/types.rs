@@ -384,6 +384,14 @@ impl From<ModelProxyWire> for ModelProxy {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EditorOpenMode {
+    #[default]
+    Edit,
+    View,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -413,6 +421,7 @@ pub struct Settings {
     pub theme: String,
     pub language: String,
     pub start_page: String,
+    pub editor_open_mode: EditorOpenMode,
     pub editor_size: usize,
     pub show_hidden: bool,
     pub show_index_details: bool,
@@ -465,6 +474,7 @@ impl Default for Settings {
             theme: "light".into(),
             language: crate::locales::default_interface_language().into(),
             start_page: "ask".into(),
+            editor_open_mode: EditorOpenMode::default(),
             editor_size: 15,
             show_hidden: false,
             show_index_details: false,
@@ -663,6 +673,14 @@ mod default_tests {
         assert!(!Settings::default().show_index_details);
         assert!(!serde_json::from_str::<Settings>("{}").unwrap().show_index_details);
         assert!(serde_json::from_str::<Settings>(r#"{"show_index_details":true}"#).unwrap().show_index_details);
+    }
+    #[test]
+    fn editor_opens_to_edit_by_default_and_remembers_view() {
+        let old: Settings = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.editor_open_mode, EditorOpenMode::Edit);
+        let viewing: Settings = serde_json::from_str(r#"{"editor_open_mode":"view"}"#).unwrap();
+        assert_eq!(viewing.editor_open_mode, EditorOpenMode::View);
+        assert_eq!(serde_json::to_value(viewing).unwrap()["editor_open_mode"], "view");
     }
     #[test]
     fn tool_call_limit_defaults_to_twenty_and_keeps_explicit_values() {
