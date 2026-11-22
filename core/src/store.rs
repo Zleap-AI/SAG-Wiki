@@ -381,6 +381,8 @@ impl Store {
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
  CREATE TABLE IF NOT EXISTS chat_imports(identity TEXT PRIMARY KEY,path TEXT NOT NULL,output_hash TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS agent_artifact_settings(id INTEGER PRIMARY KEY CHECK(id=1), value TEXT NOT NULL);
+ CREATE TABLE IF NOT EXISTS agent_artifact_items(id TEXT PRIMARY KEY, stamp TEXT NOT NULL, digest TEXT, path TEXT, archive_digest TEXT);
  CREATE TABLE IF NOT EXISTS online_sources(id TEXT PRIMARY KEY, config TEXT NOT NULL, next_at INTEGER);
  CREATE TABLE IF NOT EXISTS online_items(source TEXT NOT NULL REFERENCES online_sources(id) ON DELETE CASCADE, id TEXT NOT NULL, version TEXT NOT NULL, files TEXT NOT NULL, PRIMARY KEY(source,id));
  CREATE TABLE IF NOT EXISTS online_api_records(
@@ -865,6 +867,8 @@ impl Store {
             DELETE FROM drafts;
             DELETE FROM preferences;
             DELETE FROM chat_imports;
+            DELETE FROM agent_artifact_settings;
+            DELETE FROM agent_artifact_items;
             DELETE FROM online_sources;
             DELETE FROM chat_import_schedules;
             INSERT INTO preferences VALUES(1,'{\"conversion_storage\":{\"mode\":\"app_data\"},\"update_source_migrated\":true}');

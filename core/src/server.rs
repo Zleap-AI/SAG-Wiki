@@ -75,7 +75,14 @@ pub async fn run_until(data: PathBuf, shutdown: CancellationToken) -> Result<()>
                 _ = scheduler_service.stop.cancelled() => break Ok::<(), tokio::task::JoinError>(()),
                 _ = interval.tick() => {
                     let service = scheduler_service.clone();
-                    tokio::task::spawn_blocking(move || service.run_chat_import_schedules()).await?;
+                    tokio::task::spawn_blocking(move || {
+                        service.run_chat_import_schedules();
+                        if !service.stop.is_cancelled() {
+                            if let Err(error) = crate::agent_artifacts::run_scheduled(&service) {
+                                eprintln!("Agent 产物：{error:#}");
+                            }
+                        }
+                    }).await?;
                 }
             }
         }

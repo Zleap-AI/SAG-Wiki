@@ -3349,7 +3349,7 @@ checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "sag-cli"
-version = "0.4.3"
+version = "0.4.4"
 dependencies = [
  "anyhow",
  "clap",
@@ -3436,8 +3436,10 @@ dependencies = [
  "objc2-foundation",
  "pdf-inspector",
  "pdfium-render",
+ "percent-encoding",
  "png",
  "portable-pty",
+ "pulldown-cmark",
  "quick-xml",
  "regex",
  "regex-syntax",

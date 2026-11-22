@@ -1,5 +1,5 @@
 {
   "title": "第三方应用",
   "defaultOpen": false,
-  "pages": ["../import-claude-code", "../import-codex", "../import-evernote", "../import-google-keep", "../import-apple-notes"]
+  "pages": ["../import-evernote", "../import-google-keep", "../import-apple-notes"]
 }
