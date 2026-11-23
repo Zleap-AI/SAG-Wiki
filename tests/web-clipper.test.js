@@ -1,4 +1,5 @@
 import {readFileSync} from 'node:fs';
+import {buildSync} from 'esbuild';
 import {JSDOM} from 'jsdom';
 import {expect,it,vi} from 'vitest';
 
@@ -40,7 +41,8 @@ function extension(browser, options={}) {
  };
  if(browser==='chrome')api.downloads={download:vi.fn(async()=>42),search:vi.fn(async()=>[{id:42,state,filename:'/Downloads/网页剪辑/article.md',error:state==='interrupted'?'USER_CANCELED':undefined}]),onChanged:{addListener:fn=>downloadChanged=fn}};
  const fetch=vi.fn(()=>{throw new Error('No server should be contacted');});
- new Function('globalThis','fetch',readFileSync(`browser-extension/build/${browser}/background.js`,'utf8'))({chrome:api},fetch);
+ const background=buildSync({entryPoints:['browser-extension/src/background.js'],bundle:true,format:'iife',define:{__SAFARI__:String(browser==='safari')},write:false}).outputFiles[0].text;
+ new Function('globalThis','fetch',background)({chrome:api},fetch);
  const message=request=>new Promise(resolve=>receiver(request,{url:'chrome-extension://test/popup.html'},resolve));
  return {api,data,fetch,message,send:async()=>{const result=await message({type:'preview',tabId:7});return message({type:'save',clip:result.clip});},open:()=>contextClicked({menuItemId:'save-page'},{id:7,windowId:3}),change:storageChanged,complete:async()=>{state='complete';await downloadChanged({id:42,state:{current:'complete'}});}};
 }
@@ -123,11 +125,33 @@ it('uses the bundled Safari extension helper without SAG Wiki or an HTTP connect
  expect(ext.fetch).not.toHaveBeenCalled();
 });
 
+it('reports a completed Safari save even when extension storage has reached its quota',async()=>{
+ const ext=extension('safari');
+ ext.data.destination='default';
+ const quota=new Error('Invalid call to browser.storage.local.set(). Exceeded storage quota.');
+ ext.api.storage.local.set.mockRejectedValueOnce(quota);
+ const result=await ext.send();
+ expect(ext.api.runtime.sendNativeMessage).toHaveBeenCalledOnce();
+ expect(result).toMatchObject({ok:true,state:'complete',path:'/Users/test/Downloads/网页剪辑/article.md'});
+ expect(ext.api.storage.local.set).not.toHaveBeenCalled();
+});
+
 
 it('translates native save errors into the chosen extension language',async()=>{
  const ext=extension('safari',{language:'zh-CN',nativeResult:{error:'File already exists.',code:'file-exists'}});
  expect(await ext.send()).toMatchObject({ok:false,error:'文件已存在，请重新保存以生成新文件名。'});
  expect(ext.data.lastError).toBe('文件已存在，请重新保存以生成新文件名。');
+});
+
+it('returns the original Safari save error if extension storage cannot record it',async()=>{
+ const ext=extension('safari',{language:'zh-CN',nativeResult:{error:'File access denied.',code:'permission-denied'}});
+ const quota=new Error('Exceeded storage quota.');
+ ext.api.storage.local.set.mockRejectedValueOnce(quota);
+ const warn=vi.spyOn(console,'warn').mockImplementation(()=>{});
+ try {
+  expect(await ext.send()).toMatchObject({ok:false,error:'无法写入此文件夹，请重新选择文件夹并保存设置。'});
+  expect(warn).toHaveBeenCalledWith('Could not store the clipping error:',quota);
+ } finally {warn.mockRestore();}
 });
 
 it('removes the toolbar entry and clears its obsolete setting on upgrade',async()=>{
