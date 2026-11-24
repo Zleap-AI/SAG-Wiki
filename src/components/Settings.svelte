@@ -52,7 +52,7 @@
  async function removeRoots(){removingRoots=true;removeRootsError='';try{await api('remove_all_roots');onFoldersRemoved?.();confirmRemoveRoots=false;status=$t("所有文件夹及索引已移除，本地文件已保留。")}catch(e){removeRootsError=$t(String(e))}finally{removingRoots=false}}
  async function clearConversations(){clearing=true;clearError='';try{await api('clear_conversations');onConversationsCleared?.();confirmClear=false;status=$t("所有对话和日志已永久清空")}catch(e){clearError=$t(String(e))}finally{clearing=false}}
  export let value:Settings;export let initial='general';export let onClose:()=>void;export let onSave:(settings:Settings,answer:string,jev:string,credentials?:Record<string,McpCredentials>,mineruKey?:string)=>Promise<void>;
- let settings={...structuredClone(value),model_proxy:normalizeModelProxy(value.model_proxy),show_index_details:value.show_index_details??false,runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:resolveLanguage(value.language),max_tool_calls:value.max_tool_calls??20,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??defaultConversionWorkers,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
+ let settings={...structuredClone(value),model_proxy:normalizeModelProxy(value.model_proxy),show_index_details:value.show_index_details??false,show_answer_sources:value.show_answer_sources??true,runtime:{office_text_only:false,...structuredClone(value.runtime??{})},notes:{folder:(value.notes?.folder??'') as string|null,ask_location:value.notes?.ask_location??false},updates:structuredClone(value.updates??defaultUpdateSettings),convert_other_formats:value.convert_other_formats??false,search_summary_enabled:value.search_summary_enabled??true,search_summary_model:value.search_summary_model??'',search_summary_sources:value.search_summary_sources??10,language:resolveLanguage(value.language),max_tool_calls:value.max_tool_calls??20,index_workers:value.index_workers??8,conversion_workers:value.conversion_workers??defaultConversionWorkers,file_types:{markdown:true,text:true,code:false,config:false,...value.file_types},model_profiles:structuredClone(value.model_profiles??{}),mcp_servers:structuredClone(value.mcp_servers??[])},profileModel=value.answer.model,mcpDrafts:Record<string,string>={},page=initial==='jev'?'models':initial,answerKey='',jevKey='',mineruKey='',models=settings.answer.models.join('\n'),error='',status='',busy=false,showAnswer=false,showJev=false,mcpTesting='',mcpErrors:Record<string,string>={};
  let cliAccess:CliAccess|undefined=undefined,cliBusy=false,apiBusy=false;
  let dataDirectoryBusy=false;
  let serviceInfo:{data_directory:string;version:string|null}|null=null;
@@ -239,7 +239,7 @@
       {#if !web}<div class="setting-row"><div><strong>{$t("启动页面")}</strong><p>{$t("打开应用时首先显示的页面")}</p></div><Select label={$t("启动页面")} class="start-page-select" bind:value={settings.start_page} items={[{value:"ask",label:$t("问答")},{value:"search",label:$t("搜索")}]}/></div>{/if}
       <div class="setting-row">
        <strong>{$t('文档默认打开方式')}</strong>
-       <Select label={$t('文档默认打开方式')} value={settings.editor_open_mode??'edit'} onValueChange={mode=>settings.editor_open_mode=mode as Settings['editor_open_mode']} items={[{value:'edit',label:$t('编辑')},{value:'view',label:$t('查看')}]}/>
+       <Select label={$t('文档默认打开方式')} value={settings.editor_open_mode??'view'} onValueChange={mode=>settings.editor_open_mode=mode as Settings['editor_open_mode']} items={[{value:'edit',label:$t('编辑')},{value:'view',label:$t('查看')}]}/>
       </div>
       <div class="setting-row"><div><strong>{$t("settings.interfaceLanguage")}</strong></div><Select label={$t("settings.interfaceLanguage")} value={settings.language} onValueChange={next=>{settings.language=resolveLanguage(next);setLanguage(settings.language)}} items={languageOptions}/></div>
       {#if !web}<div class="setting-row"><div><strong>{$t("关闭窗口后")}</strong><p>{$t("从托盘或菜单栏重新打开，也可在那里退出。")}</p></div><span class="setting-value">{$t("后台继续运行")}</span></div>{/if}
@@ -319,6 +319,9 @@
      {/each}
      <RuntimeSettings group="models" bind:value={settings.runtime}/>
     {:else if page==='answer'}
+     <section class="settings-group">
+      <div class="setting-row"><div><strong>{$t('显示回答底部来源卡片')}</strong><p>{$t('仅控制回答下方的来源卡片；正文中的引用和模型生成的来源文字不受影响。')}</p></div><Switch bind:checked={settings.show_answer_sources} label={$t('显示回答底部来源卡片')}/></div>
+     </section>
      <h3 class="settings-section-title">{$t('提示词')}</h3>
      <section class="settings-group settings-fields model-profile-settings">
      <div class="answer-model-selection">
