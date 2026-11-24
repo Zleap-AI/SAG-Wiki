@@ -18,7 +18,7 @@ Location: **Settings → General**.
 | Setting | Purpose | Default or choices |
 | --- | --- | --- |
 | Start page | The first page shown when the app opens | Q&A by default; Q&A or Search |
-| Default document mode | Choose how existing Markdown files open | View by default; select **Edit** in the upper right to edit. Edit is also available; an explicitly saved Edit preference is preserved. New documents always start in Edit mode. |
+| Default document mode | Choose how existing Markdown files open | View when no mode is stored. Upgrading keeps the stored mode. Choose View or Edit. New documents open in Edit mode. |
 | Interface language | Language of menus, controls and messages | Simplified Chinese by default. Also available in Traditional Chinese, English, Japanese, Korean, and Spanish. |
 | After closing the window | Shows the window-close behavior | Continue running in the background |
 | Quick start | Reopen the folder, search and Q&A tutorial | Select View tutorial |
@@ -97,7 +97,7 @@ Click **?** at the bottom of the sidebar to open the [SAG Wiki documentation](ht
 | Data sources | [Import chats and notes, connect online sources](/en/docs/data-sources), [share and receive](/en/docs/file-sharing) |
 | File settings and folder indexing | [Folders and indexing](/en/docs/folders#file-settings-in-detail) |
 | Model settings | [Model connections](/en/docs/models) |
-| Q&A settings | [Q&A parameters](/en/docs/chat#qa-settings-in-detail) |
+| Chat settings | [Q&A parameters](/en/docs/chat#qa-settings-in-detail) |
 | Search settings | [Retrieval parameters](/en/docs/search#search-settings-in-detail) |
 | CLI settings | [Agent integration](/en/docs/agents#cli-settings-in-the-desktop-app) |
 | Remote services | [Web service](/en/docs/remote-access), [API overview](/en/docs/api-guide) |
@@ -116,7 +116,7 @@ File, Model, Search and Q&A settings each expose their runtime parameters. Commo
 | File settings | Built-in/Docling timeout, input/output limits, threads, OCR/table options and batches, page limits, memory, text limits and watcher debounce; separate parameters under Configure MinerU |
 | Model settings | Retry count, initial/maximum backoff, total deadline |
 | Search settings | Decision model concurrency/context, local query workers and query/corpus caches |
-| Q&A settings | Folding concurrency and units per batch |
+| Chat settings | Folding concurrency and units per batch |
 
 Built-in conversion defaults to 120 seconds; Docling defaults to 1800 seconds with 60 extra seconds for process cleanup. Converted text defaults to 16 MiB, matching the downstream indexing input limit. Raise the output, index input, decoded/prepared text and total preparation budget together when larger text is needed. Memory per job set to 0 means automatic. Actual concurrency also respects conversion workers and reserved memory.
 
