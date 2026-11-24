@@ -1,0 +1,3 @@
+-r requirements.in
+# Native PDF resources must load from Unicode Windows user directories (docling-parse #468).
+docling-parse==7.27.1

@@ -171,6 +171,8 @@ Windows 上识别进程在启动阶段超过内存上限时，会报告内存不
 
 Windows 安装验收若提示无法读取 `additional.dat` 或 `tm_config.json`，且路径以 `\\?\` 开头，请更新桌面端后重试安装。桌面端会统一处理文档组件的资源、模型和转换文件路径；验收失败时保留原组件。
 
+Windows x64 上，如果验收日志在含中文的用户目录下报错找不到 `glyphs/standard/additional.dat`，请使用含 `docling-parse` 7.27.1 的文档组件。通过命令行安装时，桌面端须包含新版依赖；手动导入时，请选择 Windows x64 的 `2.140.0-documents.2` 或同系列更新的完整组件。
+
 ![文件解析格式和 Docling 安装入口](/images/product-docling-formats-cn.png)
 
 ### 手动导入离线文档组件

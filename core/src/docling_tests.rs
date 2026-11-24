@@ -583,6 +583,103 @@ fn real_online_installation_passes_the_offline_ocr_probe() {
     assert!(crate::docling_component::active(&converter.home).is_ok());
 }
 
+#[cfg(windows)]
+fn scanned_ocr_fixture(path: &Path) {
+    use lopdf::{dictionary, Document, Stream};
+
+    // The existing OCR fixture supplies the only page content. In particular
+    // this PDF has no font, text operators, or hidden text layer.
+    let decoder = png::Decoder::new(std::io::Cursor::new(include_bytes!("../assets/image-probe.png")));
+    let mut reader = decoder.read_info().unwrap();
+    let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+    let image = reader.next_frame(&mut pixels).unwrap();
+    assert_eq!(image.color_type, png::ColorType::Rgb);
+    assert_eq!(image.bit_depth, png::BitDepth::Eight);
+    pixels.truncate(image.buffer_size());
+
+    let mut pdf = Document::with_version("1.4");
+    let pages = pdf.new_object_id();
+    let image = pdf.add_object(Stream::new(dictionary! {
+        "Type" => "XObject",
+        "Subtype" => "Image",
+        "Width" => image.width,
+        "Height" => image.height,
+        "ColorSpace" => "DeviceRGB",
+        "BitsPerComponent" => 8,
+    }, pixels));
+    let content = pdf.add_object(Stream::new(dictionary! {}, b"q 480 0 0 125 10 10 cm /Scan Do Q".to_vec()));
+    let page = pdf.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages,
+        "MediaBox" => vec![0.into(), 0.into(), 500.into(), 145.into()],
+        "Resources" => dictionary! { "XObject" => dictionary! { "Scan" => image } },
+        "Contents" => content,
+    });
+    pdf.objects.insert(pages, dictionary! {
+        "Type" => "Pages",
+        "Kids" => vec![page.into()],
+        "Count" => 1,
+    }.into());
+    let catalog = pdf.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages });
+    pdf.trailer.set("Root", catalog);
+    pdf.compress();
+    pdf.save(path).unwrap();
+}
+
+#[cfg(windows)]
+#[test]
+#[ignore = "run by the Windows Docling acceptance workflow on a clean non-ASCII user profile"]
+fn real_windows_unicode_profile_installs_and_reads_scanned_pdf() {
+    let user = std::env::var("USERNAME").unwrap();
+    assert!(!user.is_ascii(), "test must run as a non-ASCII Windows user");
+    let profile = PathBuf::from(std::env::var_os("USERPROFILE").unwrap());
+    let appdata = PathBuf::from(std::env::var_os("APPDATA").unwrap());
+    assert_eq!(profile.file_name(), Some(std::ffi::OsStr::new(&user)));
+    assert!(appdata.starts_with(&profile));
+    let phase = std::env::var("SAG_TEST_WINDOWS_DOCLING_PHASE").unwrap();
+    assert!(matches!(phase.as_str(), "online" | "offline"));
+    let data = appdata.join("sag-docling-acceptance").join(&phase);
+    assert!(!data.exists(), "use a clean test data directory");
+
+    let converter = Arc::new(Docling::new(&data));
+    if phase == "online" {
+        assert!(std::env::var_os("SAG_DOCLING_COMPONENT_DIR").is_none());
+        converter.start(ModelProxy::default()).unwrap();
+    } else {
+        let component = PathBuf::from(std::env::var_os("SAG_TEST_WINDOWS_DOCLING_PACKAGE").unwrap());
+        converter.import_component(component, ModelProxy::default()).unwrap();
+    }
+    let deadline = std::time::Instant::now() + Duration::from_secs(2400);
+    loop {
+        let status = converter.status();
+        if !status.running {
+            assert_eq!(status.stage, "done", "{:?}", status.error);
+            assert!(status.installed);
+            break;
+        }
+        if std::time::Instant::now() >= deadline {
+            converter.cancel();
+            panic!("timed out waiting for Docling {phase} installation");
+        }
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    let runtime = crate::docling_component::active(&converter.home).unwrap();
+    assert!(runtime.root.starts_with(&data));
+    let lock = document_requirements().unwrap();
+    let parse = lock.lines().find_map(|line| line.strip_prefix("docling-parse==")).unwrap();
+    let version = parse.split_whitespace().next().unwrap();
+    assert!(runtime.site_packages.join(format!("docling_parse-{version}.dist-info")).is_dir());
+    println!("{phase}: installed docling-parse {version} under the non-ASCII profile");
+
+    let source = data.join("扫描件.pdf");
+    let output = data.join("识别结果.md");
+    scanned_ocr_fixture(&source);
+    converter.convert(&source, &output).unwrap();
+    let body = fs::read_to_string(&output).unwrap().to_ascii_lowercase();
+    assert!(body.contains("sag") && body.contains("probe"), "{body}");
+    println!("{phase}: recognized the expected text in the image-only PDF");
+}
+
 #[test]
 #[ignore = "validates an explicitly prepared real UV-managed Python tree without model downloads"]
 fn real_managed_python_links_can_be_manifested_without_weakening_boundaries() {

@@ -6,9 +6,11 @@ not a virtualenv. Inference acceptance is performed by SAG before activation.
 """
 import argparse
 import hashlib
+from importlib.metadata import Distribution
 import json
 import os
 from pathlib import Path, PurePosixPath
+import re
 import shutil
 import stat
 import subprocess
@@ -17,7 +19,10 @@ import tempfile
 
 
 COMPONENT_VERSION = "2.140.0-documents.1"
-PLATFORMS = {"macos-aarch64": "python/bin/python3.12", "windows-x86_64": "python/python.exe"}
+WINDOWS_COMPONENT_VERSION = "2.140.0-documents.2"
+WINDOWS_PLATFORM = "windows-x86_64"
+WINDOWS_PARSER_MINIMUM = (7, 27, 0)
+PLATFORMS = {"macos-aarch64": "python/bin/python3.12", WINDOWS_PLATFORM: "python/python.exe"}
 
 
 def digest(path):
@@ -65,14 +70,29 @@ def payload_files(root):
     return sorted(files)
 
 
+def verify_windows_parser(root):
+    requirements = (root / "requirements.txt").read_text(encoding="utf-8")
+    versions = re.findall(r"(?m)^docling-parse==([0-9]+\.[0-9]+\.[0-9]+)(?=[ \t]|$)", requirements)
+    if len(versions) != 1 or tuple(map(int, versions[0].split("."))) < WINDOWS_PARSER_MINIMUM:
+        raise ValueError("Windows component lock must pin docling-parse 7.27.0 or newer")
+
+    metadata = list((root / "site-packages").glob("docling_parse-*.dist-info"))
+    if len(metadata) != 1 or Distribution.at(metadata[0]).version != versions[0]:
+        raise ValueError("Installed docling-parse does not match the Windows component lock")
+
+
 def verify(root):
     root = root.resolve(strict=True)
     manifest = json.loads((root / "manifest.json").read_text())
     if manifest.get("schema") != 1 or manifest.get("profile") != "documents":
         raise ValueError("Unsupported document component schema/profile")
-    if manifest.get("component_version") != COMPONENT_VERSION or manifest.get("platform") not in PLATFORMS:
+    platform = manifest.get("platform")
+    version = manifest.get("component_version")
+    fixed_windows = platform == WINDOWS_PLATFORM and version == WINDOWS_COMPONENT_VERSION
+    # Continue to verify already distributed revision 1 components.
+    if platform not in PLATFORMS or (version != COMPONENT_VERSION and not fixed_windows):
         raise ValueError("Unsupported document component version/platform")
-    if manifest.get("python") != PLATFORMS[manifest["platform"]]:
+    if manifest.get("python") != PLATFORMS[platform]:
         raise ValueError("Unexpected component interpreter")
     seen = set()
     for entry in manifest["files"]:
@@ -90,6 +110,8 @@ def verify(root):
     actual = {path.relative_to(root).as_posix() for path in payload_files(root)}
     if actual != seen or manifest["python"] not in seen:
         raise ValueError("Component manifest does not cover the complete payload")
+    if fixed_windows:
+        verify_windows_parser(root)
     return manifest
 
 
@@ -127,8 +149,9 @@ def assemble(args):
             ], capture_output=True, text=True)
             if compiled.returncode:
                 raise ValueError(f"Component bytecode compilation failed: {compiled.stdout}\n{compiled.stderr}")
+        version = WINDOWS_COMPONENT_VERSION if args.platform == WINDOWS_PLATFORM else COMPONENT_VERSION
         manifest = {
-            "schema": 1, "component_version": COMPONENT_VERSION,
+            "schema": 1, "component_version": version,
             "profile": "documents", "platform": args.platform,
             "python": PLATFORMS[args.platform], "site_packages": "site-packages", "models": "models",
             "requirements_sha256": digest(root / "requirements.txt"),

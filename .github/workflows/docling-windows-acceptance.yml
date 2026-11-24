@@ -1,0 +1,81 @@
+name: Windows Docling acceptance
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/docling-windows-unicode]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-docling-acceptance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-docling:
+    runs-on: windows-2025
+    timeout-minutes: 65
+    env:
+      CARGO_INCREMENTAL: '0'
+      CARGO_TARGET_DIR: ${{ github.workspace }}/src-tauri/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.13.9'
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: '1.98.1'
+      - name: Restore Windows Rust dependencies
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            src-tauri/target/debug/.fingerprint/*
+            src-tauri/target/debug/build/*
+            src-tauri/target/debug/deps/*.rlib
+            src-tauri/target/debug/deps/*.rmeta
+            src-tauri/target/debug/deps/*.lib
+            src-tauri/target/debug/deps/*.dll
+            !src-tauri/target/debug/.fingerprint/sag-*
+            !src-tauri/target/debug/build/sag-*
+            !src-tauri/target/debug/deps/libsag_*
+          key: rust-v2-${{ runner.os }}-${{ runner.arch }}-x86_64-pc-windows-msvc-1.98.1-debug-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml', '**/.cargo/config.toml') }}
+          restore-keys: |
+            rust-v2-${{ runner.os }}-${{ runner.arch }}-x86_64-pc-windows-msvc-1.98.1-debug-
+      - name: Build the Docling acceptance test
+        id: build
+        shell: pwsh
+        run: |
+          $records = cargo test --locked --manifest-path core/Cargo.toml --lib --no-run --message-format=json
+          if ($LASTEXITCODE -ne 0) { throw 'Building sag-core tests failed.' }
+          $exe = $records | ForEach-Object { ConvertFrom-Json -InputObject $_ } |
+            Where-Object { $_.reason -eq 'compiler-artifact' -and $_.target.name -eq 'sag_core' -and $_.profile.test } |
+            Select-Object -ExpandProperty executable
+          if (@($exe).Count -ne 1) { throw 'Expected one sag-core test executable.' }
+          "test_executable=$exe" >> $env:GITHUB_OUTPUT
+      - name: Install both components and OCR a scanned PDF as a Chinese Windows user
+        shell: pwsh
+        env:
+          TEST_EXECUTABLE: ${{ steps.build.outputs.test_executable }}
+        run: ./scripts/test-windows-docling.ps1 -TestExecutable $env:TEST_EXECUTABLE
+      - name: Upload diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-docling-acceptance-logs
+          path: qa/windows-docling-acceptance/*.log
+          retention-days: 7
+      - name: Upload the verified offline Windows component
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: windows-docling-offline-component
+          path: qa/windows-docling-acceptance/*.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
