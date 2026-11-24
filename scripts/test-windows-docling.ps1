@@ -32,7 +32,20 @@ function Invoke-DoclingAcceptance([string]$Phase) {
 if ($Worker) {
     try {
         Start-Transcript -Path (Join-Path $Root 'diagnostics/profile.log') | Out-Null
-        $identity = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+        $account = [Security.Principal.WindowsIdentity]::GetCurrent()
+        $identity = $account.Name
+        # Secondary logon loads the account profile but can inherit the runner's environment.
+        $profileKey = "HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList\$($account.User.Value)"
+        $env:USERPROFILE = Get-ItemPropertyValue -LiteralPath $profileKey -Name ProfileImagePath
+        $env:USERNAME = $identity.Split('\')[-1]
+        $env:APPDATA = Join-Path $env:USERPROFILE 'AppData\Roaming'
+        $env:LOCALAPPDATA = Join-Path $env:USERPROFILE 'AppData\Local'
+        $env:TEMP = Join-Path $env:LOCALAPPDATA 'Temp'
+        $env:TMP = $env:TEMP
+        if (-not (Test-Path -LiteralPath (Join-Path $env:USERPROFILE 'NTUSER.DAT'))) {
+            throw 'Windows did not provision the new account profile.'
+        }
+        New-Item -ItemType Directory -Path $env:TEMP -Force | Out-Null
         $ansi = (Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\Nls\CodePage').ACP
         Write-Host "Account: $identity, profile: $env:USERPROFILE, AppData: $env:APPDATA, ANSI code page: $ansi"
         if ($identity.Split('\')[-1] -cne $env:USERNAME -or $env:USERNAME -notmatch '[^\x00-\x7F]' -or $ansi -eq '65001') {
@@ -54,6 +67,7 @@ if ($Worker) {
         $zip = "$bundle.zip"
         & $Python -m zipfile -c $zip $bundle
         if ($LASTEXITCODE -ne 0) { throw 'Offline component ZIP creation failed.' }
+        Remove-Item -LiteralPath $bundle -Recurse -Force
         $unpacked = Join-Path $Root 'unpacked'
         & $Python -m zipfile -e $zip $unpacked
         if ($LASTEXITCODE -ne 0) { throw 'Offline component ZIP extraction failed.' }
@@ -81,7 +95,6 @@ $Root = Join-Path "$env:SystemDrive\" "sag-docling-$id"
 $Python = (Get-Command python.exe).Source
 $username = '扫描测试' + $id
 $password = 'T9!a' + [guid]::NewGuid().ToString('N')
-$taskName = "sag-docling-acceptance-$id"
 $output = Join-Path $PWD 'qa/windows-docling-acceptance'
 New-Item -ItemType Directory -Path (Join-Path $Root 'diagnostics'), $output -Force | Out-Null
 
@@ -97,31 +110,26 @@ try {
     Copy-Item -LiteralPath $PSCommandPath -Destination (Join-Path $Root 'worker.ps1')
     Copy-Item -LiteralPath 'scripts/package-docling-component.py' -Destination $Root
 
-    $task = New-ScheduledTaskAction -Execute (Get-Command pwsh.exe).Source `
-        -Argument "-NoLogo -NoProfile -File `"$Root\worker.ps1`" -Worker -Root `"$Root`" -Python `"$Python`""
-    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Minutes 45)
-    Register-ScheduledTask -TaskName $taskName -Action $task -Settings $settings `
-        -User "$env:COMPUTERNAME\$username" -Password $password -RunLevel Limited | Out-Null
-    $previousRun = (Get-ScheduledTaskInfo -TaskName $taskName).LastRunTime
-    Start-ScheduledTask -TaskName $taskName
-    $deadline = (Get-Date).AddMinutes(45)
-    do {
-        Start-Sleep -Seconds 5
-        $info = Get-ScheduledTaskInfo -TaskName $taskName
-        $state = (Get-ScheduledTask -TaskName $taskName).State
-        if ((Get-Date) -ge $deadline) { throw 'Windows Docling acceptance timed out.' }
-    } until ($info.LastRunTime -gt $previousRun -and $state -notin @('Queued', 'Running'))
-
-    if ($info.LastTaskResult -ne 0) {
-        throw ('Windows Docling acceptance exited with Task Scheduler result 0x{0:X}.' -f $info.LastTaskResult)
+    $credentials = [Management.Automation.PSCredential]::new(
+        "$env:COMPUTERNAME\$username", (ConvertTo-SecureString $password -AsPlainText -Force))
+    $arguments = "-NoLogo -NoProfile -File `"$Root\worker.ps1`" -Worker -Root `"$Root`" -Python `"$Python`""
+    $process = Start-Process -FilePath (Get-Command pwsh.exe).Source -ArgumentList $arguments `
+        -WorkingDirectory $Root -Credential $credentials -LoadUserProfile -UseNewEnvironment -PassThru
+    try {
+        if (-not $process.WaitForExit(45 * 60 * 1000)) {
+            throw 'Windows Docling acceptance timed out.'
+        }
+        if ($process.ExitCode -ne 0) {
+            throw "Windows Docling acceptance process exited with code $($process.ExitCode)."
+        }
+    } finally {
+        if (-not $process.HasExited) {
+            $process.Kill($true)
+        }
     }
     Get-ChildItem -Path $Root -File -Filter '*.zip' |
         Move-Item -Destination $output
 } finally {
-    if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
-        Stop-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-        Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-    }
     Get-ChildItem -Path (Join-Path $Root 'diagnostics') -File | ForEach-Object {
         $content = Get-Content -LiteralPath $_.FullName -Raw
         if ($content) {
