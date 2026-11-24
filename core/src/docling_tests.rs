@@ -672,7 +672,7 @@ fn real_windows_unicode_profile_installs_and_reads_scanned_pdf() {
     println!("{phase}: installed docling-parse {version} under the non-ASCII profile");
 
     let source = data.join("扫描件.pdf");
-    let output = data.join("识别结果.md");
+    let output = output_path(&data, &source).unwrap();
     scanned_ocr_fixture(&source);
     converter.convert(&source, &output).unwrap();
     let body = fs::read_to_string(&output).unwrap().to_ascii_lowercase();
