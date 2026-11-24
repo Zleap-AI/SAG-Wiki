@@ -91,7 +91,7 @@ try {
     if ($account.SID.Value -notin (Get-LocalGroupMember -SID $users).SID.Value) {
         Add-LocalGroupMember -SID $users -Member $account
     }
-    & icacls $Root /grant "*$($account.SID.Value):(OI)(CI)M" /quiet
+    & icacls $Root /grant "*$($account.SID.Value):(OI)(CI)M" /q
     if ($LASTEXITCODE -ne 0) { throw 'Could not grant the test account access to the fixture workspace.' }
     Copy-Item -LiteralPath $TestExecutable -Destination (Join-Path $Root 'docling-test.exe')
     Copy-Item -LiteralPath $PSCommandPath -Destination (Join-Path $Root 'worker.ps1')
