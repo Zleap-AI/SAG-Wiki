@@ -2,8 +2,6 @@ name: Windows Docling acceptance
 
 on:
   workflow_dispatch:
-  push:
-    branches: [feat/docling-windows-unicode]
 
 permissions:
   contents: read
