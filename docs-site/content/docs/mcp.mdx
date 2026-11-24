@@ -32,6 +32,8 @@ description: "为每个问答模型选择内置工具和外部 MCP 服务。"
 
 点击 **添加服务**，或 **添加 DeepWiki 示例** 查看一个预设连接。在弹窗中填写连接信息后点击“添加服务”；请求头、环境变量和“调用前确认”位于“高级设置”。示例仍需测试连接。
 
+**添加 AI/ML API 示例** 会填入 `https://mcp.aimlapi.com/mcp`（Streamable HTTP），并默认开启“调用前确认”。在“高级设置”的请求头中填写 `{"Authorization": "Bearer <API Key>"}`，API Key 可在 https://aimlapi.com/app/keys 获取。查询模型和账户免费；生成、对话、嵌入和工具运行按次计入 AI/ML API 账户。
+
 ![添加 MCP 服务的连接配置窗口](/images/product-mcp-add-cn.png)
 
 | 字段 | 填写内容 |

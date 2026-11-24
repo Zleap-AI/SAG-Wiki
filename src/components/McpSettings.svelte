@@ -46,7 +46,9 @@
  async function reveal(id:string){await tick();cards.get(id)?.scrollIntoView?.({block:'nearest',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});cards.get(id)?.querySelector<HTMLButtonElement>('.model-tool-refresh')?.focus({preventScroll:true});}
  function checkName(name:string){if(servers.some(server=>server.name.trim().toLowerCase()===name.trim().toLowerCase()))throw Error($t('已存在同名服务“{value0}”，请修改名称后导入。',{value0:name}));}
  $:for(const server of servers)if(!(server.id in drafts))drafts[server.id]='';
- function add(example=false){addDraft={id:crypto.randomUUID(),name:example?'DeepWiki':'',transport:'http',url:example?'https://mcp.deepwiki.com/mcp':'',command:'',args:[],require_confirmation:!example,has_credentials:false,tools:null};}
+ // Built-in examples. AI/ML API tools can run paid generations, so calls still ask for confirmation.
+ const examples={deepwiki:{name:'DeepWiki',url:'https://mcp.deepwiki.com/mcp',require_confirmation:false},aimlapi:{name:'AI/ML API',url:'https://mcp.aimlapi.com/mcp',require_confirmation:true}};
+ function add(example?:keyof typeof examples){const preset=example?examples[example]:{name:'',url:'',require_confirmation:true};addDraft={id:crypto.randomUUID(),...preset,transport:'http',command:'',args:[],has_credentials:false,tools:null};}
  function confirmAdd(server:McpServer,credentials:string){checkName(server.name);drafts={...drafts,[server.id]:credentials};servers=[...servers,server];addDraft=null;active='';markAdded([server]);showStatus($t('{value0} 添加成功，请测试连接。',{value0:server.name}),false,true);void reveal(server.id);}
  function confirmRemove(){
   if(!removing||testing===removing.id)return;
@@ -76,7 +78,7 @@
  function connectionChanged(id:string,fields:Partial<McpServer>={}){servers=servers.map(server=>server.id===id?{...server,...fields,tools:null}:server);}
 </script>
 <p class="settings-help">{$t("添加或导入 MCP 服务，测试连接后为当前模型启用并选择工具。")}</p>
-<div class="mcp-toolbar"><Button.Root type="button" class="outline" onclick={()=>add()}>{$t("添加服务")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>{importOpen=true;importError=''}}>{$t("导入 JSON")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>add(true)}>{$t("添加 DeepWiki 示例")}</Button.Root></div>
+<div class="mcp-toolbar"><Button.Root type="button" class="outline" onclick={()=>add()}>{$t("添加服务")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>{importOpen=true;importError=''}}>{$t("导入 JSON")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>add('deepwiki')}>{$t("添加 DeepWiki 示例")}</Button.Root><Button.Root type="button" class="outline" onclick={()=>add('aimlapi')}>{$t("添加 AI/ML API 示例")}</Button.Root></div>
 {#if status}<div class="mcp-feedback" class:mcp-feedback-error={statusError} role="status" out:fade={feedbackFade}><span>{#if !statusError}{@html icon('check')}{/if}{status}</span></div>{/if}
 {#if removed&&removalNoticeVisible}<div class="mcp-feedback" role="status" out:fade={feedbackFade}><span>{@html icon('check')}{$t('已移除 {value0}，保存设置后生效。',{value0:removed.server.name})}</span><Button.Root type="button" class="settings-text-button" onclick={undoRemove}>{$t('撤销移除')}</Button.Root></div>{/if}
 {#key model}<SagTools {profile} onChange={value=>profile=value}/>{/key}

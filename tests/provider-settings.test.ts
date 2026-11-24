@@ -155,11 +155,30 @@ it('获取问答模型列表后可筛选并追加，保留已有模型直到保�
  await tick();await save();
  expect(onSave.mock.calls[0][0].answer.models).toEqual(['first','second','demo-fast']);
 });
-it('LLM 六个供应商自动填入地址，自定义地址与模型列表可以保存',async()=>{
+it('LLM 七个供应商自动填入地址，自定义地址与模型列表可以保存',async()=>{
  const onSave=await setup();
  for(const provider of providers.answer.filter(provider=>provider.value!=='custom')){await choose('answer',provider.value);expect(address('answer').value).toBe(provider.value==='302'?value.answer.url:provider.url);}
  await choose('answer','custom');await input(address('answer'),'https://proxy.example/v1');await save();
  expect(onSave.mock.calls[0][0].answer).toMatchObject({url:'https://proxy.example/v1',model:'first',models:['first','second']});
+});
+it('AI/ML API 预设填入官方地址，密钥只用于 api.aimlapi.com',async()=>{
+ expect(providers.answer.map(provider=>provider.label)).toEqual(['OpenAI','DeepSeek','GLM','OpenRouter','302.AI','AI/ML API','自定义']);
+ expect(providers.jev.map(provider=>provider.value)).not.toContain('aimlapi');
+ const onSave=await setup();api.mockResolvedValue('连接成功');
+ await choose('answer','aimlapi');expect(address('answer').value).toBe('https://api.aimlapi.com/v1');expect(trigger('answer').textContent).toContain('AI/ML API');
+ await input(key('answer'),'test-aiml-key');
+ await input(address('answer'),'https://api.aimlapi.com.other.example/v1');expect(key('answer').value).toBe('');expect(trigger('answer').textContent).not.toContain('AI/ML API');
+ await choose('answer','aimlapi');await input(key('answer'),'test-aiml-key');
+ card('answer').querySelector<HTMLButtonElement>('.settings-model-test')!.click();
+ await vi.waitFor(()=>expect(api).toHaveBeenCalledWith('test_model',expect.objectContaining({kind:'answer',key:'test-aiml-key',config:expect.objectContaining({url:'https://api.aimlapi.com/v1'})})));
+ await choose('answer','openrouter');expect(key('answer').value).toBe('');
+ await choose('answer','aimlapi');await input(key('answer'),'test-aiml-key');await save();
+ expect(onSave.mock.calls[0][0].answer.url).toBe('https://api.aimlapi.com/v1');expect(onSave.mock.calls[0][1]).toBe('test-aiml-key');
+});
+it('只有 api.aimlapi.com 识别为 AI/ML API',()=>{
+ expect(providerFor('answer','https://api.aimlapi.com/v1/')).toBe('aimlapi');
+ for(const url of ['https://aimlapi.com/v1','https://mcp.aimlapi.com/mcp','https://api.aimlapi.com.other.example/v1','https://other.example/api.aimlapi.com/v1'])expect(providerFor('answer',url)).toBe('custom');
+ expect(providerFor('jev','https://api.aimlapi.com/v1')).toBe('custom');
 });
 it('Jev 预设供应商填入对应评分接口，并提供自定义选项',async()=>{
  expect(providers.jev.map(provider=>provider.label)).toEqual(['Zleap','OpenAI','302.AI','OpenRouter','Typesafe','自定义']);

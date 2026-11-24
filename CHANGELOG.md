@@ -1,5 +1,15 @@
 # 更新日志 / Changelog
 
+## 0.4.7
+
+- **AI/ML API 问答供应商**：「设置 → 模型设置」的问答模型供应商新增 AI/ML API，选择后填入 `https://api.aimlapi.com/v1`。已有的供应商、地址和密钥保持不变。
+- **AI/ML API MCP 示例**：MCP 设置新增「添加 AI/ML API 示例」，填入 `https://mcp.aimlapi.com/mcp` 并默认开启调用前确认。在请求头中填写 API Key 后测试连接；生成和工具运行按次计费，不会自动绑定到模型。
+
+### English
+
+- **AI/ML API answer provider**: **Settings → Model settings** now lists AI/ML API as an answer model provider and fills in `https://api.aimlapi.com/v1`. Existing providers, endpoints and keys are unchanged.
+- **AI/ML API MCP example**: MCP settings add **Add AI/ML API example**, which fills in `https://mcp.aimlapi.com/mcp` with confirmation before calls turned on. Add your API key as a request header, then test the connection. Generation and tool runs are billed per use, and the server is not bound to any model automatically.
+
 ## 0.4.6
 
 - **文档默认查看**：配置中没有记录打开方式时，已有文档默认进入查看模式。升级后沿用旧版记录的模式，可在“设置 → 通用”切换。新建文档直接编辑；从查看进入编辑后，保存会返回查看。转换文档的编辑入口标注为“编辑转换稿”。

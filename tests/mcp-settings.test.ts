@@ -191,6 +191,25 @@ it('移除服务清理所有模型的服务绑定和工具选择',async()=>{
  expect(onSave.mock.calls[0][0].mcp_servers).toEqual([]);expect(onSave.mock.calls[0][0].model_profiles.first).toEqual({system_prompt:'',mcp_servers:[],mcp_tools:{}});
  expect(onSave.mock.calls[0][0].model_profiles.second).toEqual({system_prompt:'second',mcp_servers:[],mcp_tools:{}});
 });
+it('AI/ML API 示例使用官方 MCP 地址，调用前确认，密钥只随该服务保存',async()=>{
+ const onSave=vi.fn().mockResolvedValue(undefined);api.mockResolvedValue(tools);
+ app=mount(SettingsPanel,{target:document.body,props:{value:{...value,mcp_servers:[server]},initial:'answer',onClose:()=>{},onSave}});
+ await vi.waitFor(()=>expect(button('添加 AI/ML API 示例')).toBeDefined());
+ button('添加 AI/ML API 示例').click();await tick();
+ const dialog=document.querySelector<HTMLElement>('.mcp-dialog')!;
+ expect(dialog.querySelector<HTMLInputElement>('[aria-label="MCP 服务名称"]')!.value).toBe('AI/ML API');
+ expect(dialog.querySelector<HTMLInputElement>('[aria-label="MCP 服务地址"]')!.value).toBe('https://mcp.aimlapi.com/mcp');
+ expect(dialog.querySelector('[aria-label="MCP 调用前确认"]')!.getAttribute('aria-checked')).toBe('true');
+ const credentials=dialog.querySelector<HTMLTextAreaElement>('[aria-label="MCP 凭据"]')!;credentials.value='{"Authorization":"Bearer fixture-aiml"}';credentials.dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ button('添加服务',dialog).click();await tick();
+ expect(api.mock.calls.filter(([command])=>command!=='runtime_schema')).toHaveLength(0);
+ await submit();const [saved,,,sent]=onSave.mock.calls[0];
+ const added=saved.mcp_servers.find((item:McpServer)=>item.name==='AI/ML API');
+ expect(added).toMatchObject({transport:'http',url:'https://mcp.aimlapi.com/mcp',require_confirmation:true});
+ expect(saved.model_profiles.first?.mcp_servers??[]).not.toContain(added.id);
+ expect(JSON.stringify(saved)).not.toContain('fixture-aiml');
+ expect(Object.keys(sent)).toEqual([added.id]);expect(sent[added.id].headers.Authorization).toBe('Bearer fixture-aiml');
+});
 it('取消添加和取消导入不创建服务，普通添加表单不沿用示例',async()=>{
  const onSave=vi.fn();app=mount(SettingsPanel,{target:document.body,props:{value:{...value,mcp_servers:[]},initial:'answer',onClose:()=>{},onSave}});
  await tick();button('添加 DeepWiki 示例').click();await tick();

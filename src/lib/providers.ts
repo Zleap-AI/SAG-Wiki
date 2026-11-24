@@ -8,6 +8,7 @@ export const providers: Record<ModelKind, Provider[]> = {
   {value:'glm',label:'GLM',url:'https://open.bigmodel.cn/api/paas/v4'},
   {value:'openrouter',label:'OpenRouter',url:'https://openrouter.ai/api/v1'},
   {value:'302',label:'302.AI',url:'https://api.302ai.cn/v1'},
+  {value:'aimlapi',label:'AI/ML API',url:'https://api.aimlapi.com/v1'},
   {value:'custom',label:'自定义',url:''},
  ],
  jev: [
