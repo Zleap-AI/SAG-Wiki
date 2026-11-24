@@ -171,7 +171,9 @@ Completed document component downloads are cached after verification. If extract
 
 If Windows installation verification cannot read `additional.dat` or `tm_config.json` and the path starts with `\\?\`, update the desktop app and retry installation. The desktop app handles document component resource paths, model paths and conversion file paths consistently. Failed verification keeps the previous component.
 
-On Windows x64, if the install log reports that `glyphs/standard/additional.dat` cannot be found under a user folder with Chinese characters, use a document component with `docling-parse` 7.27.1. For command-line installation, use a desktop build that includes the updated dependency. For manual import, use the complete Windows x64 component `2.140.0-documents.2` or a newer revision in the same series.
+On Windows x64, if the installation log reports a missing `glyphs/standard/additional.dat` under a user folder with Chinese characters, select **Install via command line** in SAG Wiki 0.4.6 to install `docling-parse 7.27.1`. The **Install** button downloads the package currently recommended by the resource site. If the recommended Windows package is still `2.140.0-documents.1`, select **Install via command line** instead.
+
+App updates keep the active component. To replace an active older component, uninstall it under **Configure Docling**, then install the new one. Uninstalling removes local Docling components and the download cache. Reinstall any audio and video components you use.
 
 ![File formats and Docling installation options](/images/product-docling-formats-en.png)
 
