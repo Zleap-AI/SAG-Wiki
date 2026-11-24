@@ -387,8 +387,8 @@ impl From<ModelProxyWire> for ModelProxy {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EditorOpenMode {
-    #[default]
     Edit,
+    #[default]
     View,
 }
 
@@ -422,6 +422,7 @@ pub struct Settings {
     pub language: String,
     pub start_page: String,
     pub editor_open_mode: EditorOpenMode,
+    pub show_answer_sources: bool,
     pub editor_size: usize,
     pub show_hidden: bool,
     pub show_index_details: bool,
@@ -475,6 +476,7 @@ impl Default for Settings {
             language: crate::locales::default_interface_language().into(),
             start_page: "ask".into(),
             editor_open_mode: EditorOpenMode::default(),
+            show_answer_sources: true,
             editor_size: 15,
             show_hidden: false,
             show_index_details: false,
@@ -675,9 +677,21 @@ mod default_tests {
         assert!(serde_json::from_str::<Settings>(r#"{"show_index_details":true}"#).unwrap().show_index_details);
     }
     #[test]
-    fn editor_opens_to_edit_by_default_and_remembers_view() {
+    fn answer_sources_default_to_visible_and_remember_hidden() {
+        assert!(Settings::default().show_answer_sources);
+        assert!(serde_json::from_str::<Settings>("{}").unwrap().show_answer_sources);
+        let hidden: Settings = serde_json::from_str(r#"{"show_answer_sources":false}"#).unwrap();
+        assert!(!hidden.show_answer_sources);
+        assert_eq!(serde_json::to_value(hidden).unwrap()["show_answer_sources"], false);
+    }
+    #[test]
+    fn editor_opens_to_view_by_default_and_remembers_explicit_edit() {
         let old: Settings = serde_json::from_str("{}").unwrap();
-        assert_eq!(old.editor_open_mode, EditorOpenMode::Edit);
+        assert_eq!(old.editor_open_mode, EditorOpenMode::View);
+        assert_eq!(Settings::default().editor_open_mode, EditorOpenMode::View);
+        let editing: Settings = serde_json::from_str(r#"{"editor_open_mode":"edit"}"#).unwrap();
+        assert_eq!(editing.editor_open_mode, EditorOpenMode::Edit);
+        assert_eq!(serde_json::to_value(editing).unwrap()["editor_open_mode"], "edit");
         let viewing: Settings = serde_json::from_str(r#"{"editor_open_mode":"view"}"#).unwrap();
         assert_eq!(viewing.editor_open_mode, EditorOpenMode::View);
         assert_eq!(serde_json::to_value(viewing).unwrap()["editor_open_mode"], "view");

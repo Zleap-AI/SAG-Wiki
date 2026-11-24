@@ -29,7 +29,8 @@ it('keeps the current reader while another file loads, without painting the fold
 it('a slower previous file cannot replace the latest selection',async()=>{await openFirst();click('b.pdf');await vi.waitFor(()=>expect(pending.has('/notes/b.pdf')).toBe(true));click('c.pdf');await vi.waitFor(()=>expect(pending.has('/notes/c.pdf')).toBe(true));resolve('c.pdf');await vi.waitFor(()=>expect(document.querySelector('.readonly-document .editor-head')?.textContent).toContain('c.pdf'));resolve('b.pdf');await tick();await tick();expect(document.querySelector('.readonly-document .editor-head')?.textContent).toContain('c.pdf');});
 it('a failed read keeps the original reader and reports the failure',async()=>{await openFirst();click('b.pdf');await vi.waitFor(()=>expect(pending.has('/notes/b.pdf')).toBe(true));pending.get('/notes/b.pdf')!.reject('read failed');await vi.waitFor(()=>expect(document.querySelector('#notice')?.textContent).toContain('read failed'));expect(document.querySelector('.readonly-document .editor-head')?.textContent).toContain('a.pdf');});
 it('returning to the same folder cancels a pending file navigation',async()=>{await openFirst();document.querySelector<HTMLButtonElement>('.sidebar .tree-name[title="/notes"]')!.click();await vi.waitFor(()=>expect(document.querySelector('.folder-browser')).not.toBeNull());click('b.pdf');await vi.waitFor(()=>expect(pending.has('/notes/b.pdf')).toBe(true));document.querySelector<HTMLButtonElement>('.sidebar .tree-name[title="/notes"]')!.click();await vi.waitFor(()=>expect(document.querySelector('.folder-browser')).not.toBeNull());resolve('b.pdf');await tick();await tick();expect(document.querySelector('.folder-browser')).not.toBeNull();expect(document.querySelector('.readonly-document')).toBeNull();});
-it('opens Markdown directly in the editor and keeps it editable after saving',async()=>{
+it('honors explicit Edit and keeps the document editable after saving',async()=>{
+ editorOpenMode='edit';
  await openLibrary();click('notes.md');
  await vi.waitFor(()=>expect(pending.has('/notes/notes.md')).toBe(true));resolve('notes.md');
  await import('../src/components/RichEditor.svelte');
@@ -39,8 +40,7 @@ it('opens Markdown directly in the editor and keeps it editable after saving',as
  expect(document.querySelector('#rich-editor .tiptap[contenteditable=true]')).not.toBeNull();
  expect(document.querySelector('.edit-document')).toBeNull();
 });
-it('edits and saves from View mode without remounting the document',async()=>{
- editorOpenMode='view';
+it('defaults old settings to View and edits and saves without remounting the document',async()=>{
  await openLibrary();click('notes.md');
  await vi.waitFor(()=>expect(pending.has('/notes/notes.md')).toBe(true));resolve('notes.md');
  await import('../src/components/RichEditor.svelte');
@@ -109,6 +109,7 @@ it('shows cancellable loading, opens large converted Markdown in reading mode an
  expect(document.querySelector('[contenteditable=true]')).toBeNull();
  const original=[...document.querySelectorAll('button')].find(node=>node.textContent==='打开原文件');
  original!.click();expect(invoke).toHaveBeenCalledWith('open_source_file',{path:'/notes/b.pdf'});
+ expect(document.querySelector('.edit-document')?.textContent).toBe('编辑转换稿');
  document.querySelector<HTMLButtonElement>('.edit-document')!.click();
  await import('../src/components/RichEditor.svelte');
  await vi.waitFor(()=>expect(document.querySelector('[contenteditable=true]')?.textContent).toContain('END-OF-DOCUMENT'));

@@ -72,10 +72,14 @@ async function testIntake(browser){
   }
   await page.getByRole('button',{name:'发布流程.md',exact:true}).click();
   await page.locator('#rich-editor').getByText('Vega release checklist VX-417').waitFor();
+  assert.equal(await page.locator('#rich-editor [contenteditable=true], #rich-editor[contenteditable=true]').count(),0,'existing documents open in view mode');
+  await page.getByRole('button',{name:'编辑',exact:true}).click();
   const editor=page.locator('#rich-editor [contenteditable=true], #rich-editor[contenteditable=true]').first();
   await editor.press('End');await editor.press('Enter');await editor.pressSequentially('Browser edit marker');
   await page.getByRole('button',{name:'保存',exact:true}).click();
-  await page.getByText('已保存',{exact:true}).waitFor();
+  await page.getByRole('button',{name:'编辑',exact:true}).waitFor();
+  assert.equal(await editor.count(),0,'saving returns the document to view mode');
+  await page.locator('#rich-editor').getByText('Browser edit marker',{exact:false}).waitFor();
   await page.locator('.workspace-switch').getByText('搜索',{exact:true}).click();
   await page.locator('.search-entry input').fill('release');
   await page.locator('.search-entry input').press('Enter');

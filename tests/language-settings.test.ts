@@ -41,19 +41,40 @@ it('shows project and company links in About and opens them outside the app',asy
  }
 });
 
-it('defaults to Edit and saves View as the document opening preference',async()=>{
+it('defaults to View and saves explicit Edit as the document opening preference',async()=>{
  setLanguage('zh-CN');
  const onSave=vi.fn();
  app=mount(SettingsPanel,{target:document.body,props:{value:settings,onSave,onClose:vi.fn()}});
  await tick();
  const control=document.querySelector<HTMLButtonElement>('[aria-label="文档默认打开方式"]')!;
- expect(control.textContent?.trim()).toBe('编辑');
+ expect(control.textContent?.trim()).toBe('查看');
  control.focus();control.dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
- await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="view"]')).not.toBeNull());
- document.querySelector('[role=option][data-value="view"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
+ await vi.waitFor(()=>expect(document.querySelector('[role=option][data-value="edit"]')).not.toBeNull());
+ document.querySelector('[role=option][data-value="edit"]')!.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,pointerType:'mouse'}));await tick();
  click('保存设置');
- await vi.waitFor(()=>expect(onSave.mock.calls[0][0].editor_open_mode).toBe('view'));
+ await vi.waitFor(()=>expect(onSave.mock.calls[0][0].editor_open_mode).toBe('edit'));
  expect(settings.editor_open_mode).toBeUndefined();
+});
+
+it('saves source-card visibility and restores it when settings reopen',async()=>{
+ setLanguage('zh-CN');
+ const onSave=vi.fn();
+ app=mount(SettingsPanel,{target:document.body,props:{value:settings,initial:'answer',onSave,onClose:vi.fn()}});
+ await tick();
+ const toggle=document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="显示回答底部来源卡片"]')!;
+ expect(toggle.getAttribute('aria-checked')).toBe('true');
+ toggle.click();await tick();
+ click('保存设置');
+ await vi.waitFor(()=>expect(onSave.mock.calls[0][0].show_answer_sources).toBe(false));
+ expect(settings.show_answer_sources).toBeUndefined();
+ const saved=onSave.mock.calls[0][0];
+ await unmount(app);
+ app=mount(SettingsPanel,{target:document.body,props:{value:saved,initial:'answer',onSave,onClose:vi.fn()}});
+ await tick();
+ expect(document.querySelector('[role="switch"][aria-label="显示回答底部来源卡片"]')?.getAttribute('aria-checked')).toBe('false');
+ document.querySelector<HTMLButtonElement>('[role="switch"][aria-label="显示回答底部来源卡片"]')!.click();await tick();
+ click('保存设置');
+ await vi.waitFor(()=>expect(onSave.mock.calls[1][0].show_answer_sources).toBe(true));
 });
 
 it.each(['en','ja','zh-TW','ko','es'] as const)('previews %s immediately, persists it on save, and restores Chinese on cancel',async(locale)=>{
