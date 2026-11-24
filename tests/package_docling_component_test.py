@@ -3,6 +3,7 @@ import hashlib
 import json
 import marshal
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -25,13 +26,41 @@ class ComponentPackagingTests(unittest.TestCase):
         (self.root / "models/layout/model.bin").write_bytes(b"fixture model")
         (self.root / "requirements.txt").write_text("example==1.0\n")
 
-    def package(self, output="component", *extra):
+    def package(self, output="component", *extra, platform="macos-aarch64"):
         return subprocess.run([
             sys.executable, str(SCRIPT), "--python-runtime", str(self.root / "python"),
             "--site-packages", str(self.root / "packages"), "--models", str(self.root / "models"),
             "--requirements-lock", str(self.root / "requirements.txt"),
-            "--platform", "macos-aarch64", "--output", str(self.root / output), *extra,
+            "--platform", platform, "--output", str(self.root / output), *extra,
         ], capture_output=True, text=True)
+
+    def windows_payload(self, locked, installed):
+        (self.root / "python/python.exe").write_bytes(b"fixture Windows interpreter")
+        (self.root / "requirements.txt").write_text(f"docling-parse=={locked}\n")
+        metadata = self.root / "packages" / f"docling_parse-{installed}.dist-info"
+        metadata.mkdir()
+        (metadata / "METADATA").write_text(
+            f"Metadata-Version: 2.1\nName: docling-parse\nVersion: {installed}\n"
+        )
+        return metadata
+
+    def test_windows_component_has_distinct_revision(self):
+        self.windows_payload("7.27.1", "7.27.1")
+        result = self.package(platform="windows-x86_64")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = json.loads((self.root / "component/manifest.json").read_text())
+        self.assertEqual(manifest["component_version"], "2.140.0-documents.2")
+
+    def test_windows_component_rejects_stale_or_mismatched_dependency(self):
+        for locked, installed in [("7.22.3", "7.22.3"), ("7.27.1", "7.27.0")]:
+            with self.subTest(locked=locked, installed=installed):
+                metadata = self.windows_payload(locked, installed)
+                output = f"component-{installed}"
+                result = self.package(output, platform="windows-x86_64")
+                shutil.rmtree(metadata)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("docling-parse", result.stderr)
+                self.assertFalse((self.root / output).exists())
 
     def test_component_is_relocatable_and_every_payload_file_has_a_digest(self):
         result = self.package()
@@ -40,6 +69,7 @@ class ComponentPackagingTests(unittest.TestCase):
         manifest = json.loads((output / "manifest.json").read_text())
         self.assertEqual(manifest["schema"], 1)
         self.assertEqual(manifest["profile"], "documents")
+        self.assertEqual(manifest["component_version"], "2.140.0-documents.1")
         self.assertEqual(manifest["python"], "python/bin/python3.12")
         self.assertNotIn(str(self.root), json.dumps(manifest))
         self.assertFalse((output / "python/bin/python3").is_symlink())

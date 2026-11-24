@@ -10,6 +10,9 @@ use std::{
     io::{Read, Write},
     path::{Component, Path, PathBuf},
 };
+#[cfg(windows)]
+pub const VERSION: &str = "2.140.0-documents.2";
+#[cfg(not(windows))]
 pub const VERSION: &str = "2.140.0-documents.1";
 pub const PROFILE: &str = "documents";
 pub const MEDIA_VERSION: &str = "2.140.0-media.1";
