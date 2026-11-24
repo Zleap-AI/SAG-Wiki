@@ -26,6 +26,39 @@ beforeEach(async()=>{
  document.querySelector<HTMLButtonElement>('.source-chip')!.click();await vi.waitFor(()=>expect(document.querySelector('[role=dialog][aria-label="引用原文"]')).not.toBeNull());
 });
 afterEach(async()=>{await unmount(app);document.body.innerHTML='';vi.clearAllMocks()});
+it.each([false,true])('restores source visibility %s for history while preserving inline citations and model text',async(visible)=>{
+ await unmount(app);
+ const savedConversation={...conversation,messages:[{...conversation.messages[0],answer:conversation.messages[0].answer+'\n\n来源：模型生成的文字'}]};
+ const base=invoke.getMockImplementation()!;
+ invoke.mockImplementation(async(command,args)=>command==='get_settings'?{...await base(command,args),show_answer_sources:visible}:command==='list_conversations'?[savedConversation]:base(command,args));
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('[title="引用测试"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[title="引用测试"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.answer-text .citation')).toHaveLength(4));
+ expect(document.querySelectorAll('.source-chip')).toHaveLength(visible?2:0);
+ expect(document.querySelector('.answer-text')?.textContent).toContain('来源：模型生成的文字');
+ document.querySelector<HTMLButtonElement>('.answer-text [data-citation="1"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('.source-panel .search-hit.active')?.textContent).toBe('同一文件的第二处原文'));
+ expect(document.querySelector('.source-panel .source-path')?.textContent).toBe('/files/notes.md');
+});
+
+it('shows original names for converted PDFs and keeps real Markdown extensions',async()=>{
+ await unmount(app);
+ const convertedSources=[
+  {...evidence,path:'/files/.sag-converted/guide.pdf.md',source_path:'/files/guide.pdf',title:'guide.pdf.md'},
+  {...evidence,id:2,path:'/files/.sag-converted/legacy.pdf.md',title:'legacy.pdf.md',hash:'legacy'},
+  {...evidence,id:3,hash:'markdown'},
+ ];
+ const savedConversation={...conversation,messages:[{...conversation.messages[0],answer:'文档 [1] [2] [3]',evidence:convertedSources}]};
+ const base=invoke.getMockImplementation()!;
+ invoke.mockImplementation((command,args)=>command==='list_conversations'?[savedConversation]:base(command,args));
+ app=mount(App,{target:document.body});
+ await vi.waitFor(()=>expect(document.querySelector('[title="引用测试"]')).not.toBeNull());
+ document.querySelector<HTMLButtonElement>('[title="引用测试"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelectorAll('.source-chip')).toHaveLength(3));
+ expect([...document.querySelectorAll('.source-chip span')].map(node=>node.textContent)).toEqual(['guide.pdf','legacy.pdf','notes.md']);
+});
+
 describe('引用原文弹出层',()=>{
  it('渲染 Markdown 全文并高亮引用段落',async()=>{
   await vi.waitFor(()=>expect(document.querySelector('.source-panel h1')?.textContent).toBe('完整文档'));

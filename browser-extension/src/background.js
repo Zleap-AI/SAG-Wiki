@@ -53,9 +53,7 @@ async function save(clip) {
  if(isSafari) {
   const result = await api.runtime.sendNativeMessage('com.sag.webclipper',{action:'save',folder,filename,content,destination:settings.destination,useDownloads:settings.destination==='downloads'});
   if(result.error) throw new Error(errorMessage(result,t));
-  const saved = {state:'complete',url:clip.url,path:result.path};
-  await report(saved);
-  return saved;
+  return {state:'complete',url:clip.url,path:result.path};
  }
  if(settings.destination!=='downloads') {
   const handle=await getDirectory(settings.destination);
@@ -65,8 +63,7 @@ async function save(clip) {
   const file=await handle.getFileHandle(filename,{create:true});
   const writer=await file.createWritable();
   await writer.write(content);await writer.close();
-  const saved={state:'complete',url:clip.url,path:`${handle.name}/${filename}`};
-  await report(saved);return saved;
+  return {state:'complete',url:clip.url,path:`${handle.name}/${filename}`};
  }
  const path = folder ? `${folder}/${filename}` : filename;
  const id = await api.downloads.download({url:`data:text/markdown;charset=utf-8,${encodeURIComponent(content)}`,filename:path,conflictAction:'uniquify',saveAs:settings.saveAs});
@@ -79,7 +76,8 @@ async function save(clip) {
  return (await api.storage.local.get('lastResult')).lastResult;
 }
 async function fail(error) {
- await api.storage.local.set({lastError:String(error.message)});
+ try {await api.storage.local.set({lastError:String(error.message)});}
+ catch(storageError) {console.warn('Could not store the clipping error:',storageError);}
 }
 async function openPreview(tab) {
  try {

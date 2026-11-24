@@ -31,6 +31,7 @@ async function openEditor(create=false){
  await vi.waitFor(()=>expect(document.querySelector('.simple-file-list [title="/notes/doc.md"]')).not.toBeNull());
  document.querySelector<HTMLButtonElement>(create?'.library-folder-action':'.simple-file-list [title="/notes/doc.md"]')!.click();
  await vi.waitFor(()=>expect(document.querySelector('.tiptap')).not.toBeNull());await tick();
+ if(!create){document.querySelector<HTMLButtonElement>('.edit-document')!.click();await tick();}
  await new Promise(resolve=>setTimeout(resolve,150));
 }
 async function leaveEditor(){

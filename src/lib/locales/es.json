@@ -2507,5 +2507,8 @@
   "扫描结果已变化，请重新扫描": "Los resultados cambiaron. Vuelve a escanear.",
   "请至少选择一个 Agent": "Selecciona al menos un agente",
   "自动收集尚未开启": "La recopilación automática aún no se ha iniciado",
-  "文件仍在写入，将在下次扫描后收集": "El archivo se está escribiendo. Se volverá a intentar en el siguiente escaneo."
+  "文件仍在写入，将在下次扫描后收集": "El archivo se está escribiendo. Se volverá a intentar en el siguiente escaneo.",
+  "编辑转换稿": "Editar texto convertido",
+  "显示回答底部来源卡片": "Mostrar tarjetas de fuentes debajo de las respuestas",
+  "仅控制回答下方的来源卡片；正文中的引用和模型生成的来源文字不受影响。": "Solo controla las tarjetas de fuentes debajo de las respuestas. Las citas en el texto y las fuentes generadas por el modelo no cambian."
 }

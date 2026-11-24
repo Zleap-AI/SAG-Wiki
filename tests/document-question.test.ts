@@ -96,6 +96,7 @@ it('中文输入确认和 Shift+Enter 不发送，普通 Enter 发送',async()=>
 });
 it('存在未保存修改时取消离开，保留文档和问题；保存后才发送',async()=>{
  await start();await openDocument();
+ document.querySelector<HTMLButtonElement>('.edit-document')!.click();await tick();
  const paste=new Event('paste',{bubbles:true,cancelable:true});Object.defineProperty(paste,'clipboardData',{value:{getData:(format:string)=>format==='text/plain'?'新补充内容':''}});
  await vi.waitFor(()=>expect(document.querySelector('.tiptap')).not.toBeNull());document.querySelector('.tiptap')!.dispatchEvent(paste);await tick();
  await expand();await typeQuestion();submit();await tick();
