@@ -39,7 +39,8 @@
   resetting=true;clearTimeout(resetTimer);
   resetTimer=setTimeout(()=>resetting=false,still()?0:RESET_MS);
   onChange(null);onCommit();
-  if(keyboard.current)thumb?.focus();
+  // The button unmounts after its spin; keep focus inside the panel on the slider.
+  thumb?.focus();
  }
  function chooseModel(name:string){onModelChange(name);open=false}
 </script>
@@ -67,7 +68,7 @@
      <p class="reasoning-current">{label}</p>
      {#if models.length}<div class="reasoning-model-row"><Button.Root class="reasoning-model-button" type="button" aria-label={$t("选择问答模型")} onclick={showModels} onkeydown={(event:KeyboardEvent)=>{if(event.key==='ArrowDown'){event.preventDefault();showModels()}}}>{model}{@html icon('chevron')}</Button.Root></div>{:else}<p class="reasoning-model">{model}</p>{/if}
      {#if levels.length>1}
-      <Slider.Root type="single" class={`reasoning-slider ${index===0?'reasoning-slider-empty':''} ${resetting?'reasoning-slider-resetting':''}`} min={0} max={levels.length-1} step={1} value={index} onValueChange={i=>onChange(levels[i].value)} onValueCommit={()=>onCommit()}>
+      <Slider.Root type="single" class={`reasoning-slider ${index===0?'reasoning-slider-empty':''} ${resetting?'reasoning-slider-resetting':''}`} min={0} max={levels.length-1} step={1} value={index} onValueChange={i=>{resetting=false;clearTimeout(resetTimer);onChange(levels[i].value)}} onValueCommit={()=>onCommit()}>
        <Slider.Range class="reasoning-slider-range">
         <span class="reasoning-bubbles" aria-hidden="true">
          {#each bubbles as bubble}<span class="reasoning-bubble" style={`--bubble-y:${bubble.y}%;--bubble-size:${bubble.size}px;--bubble-duration:${bubble.duration}s;--bubble-delay:${bubble.delay}s;--bubble-opacity:${bubble.opacity};--bubble-rest:${bubble.rest}%`}></span>{/each}
