@@ -2,15 +2,19 @@
 
 ## 0.4.7
 
-- **思考强度浮层**：恢复默认按钮只在选了其他档位或出现“未适配”时显示，点击后转动一圈，滑块回到“默认”。滑块白点改为内嵌在轨道中，蓝色填充与白点同心，默认档不显示填充，圆角处不再露出蓝边。
-- **添加文件夹时切换磁盘**：路径栏左侧新增位置菜单，可跳到用户目录、桌面、文档、下载及本机各磁盘。Windows 在盘符根目录点击“返回上层”会列出全部磁盘。路径栏可直接粘贴带引号的路径，只输入 `D:` 时打开该盘根目录。
-- **CLI 多目录搜索**：`sag` 可重复使用 `--path`，多个目录合并为一次搜索并统一排序，`-m` 是整次搜索的上限，`--exclude` 按各目录的相对路径生效。语义搜索和 `-E` / `-F` 都支持；任一目录无法搜索时整条命令报错（#196）。
+- **表格与公式检索**：Markdown 和 HTML 表格按完整行索引并保留表头，点击表格引用可高亮对应行；多行公式保持完整，阅读器支持 `align`、`equation` 等公式块。升级后会在后台重建 Markdown 和 HTML 索引。
+- **Agent 聊天记录搜索**：命中导入的提问时，直接定位到同一轮的回答。
+- **添加文件夹时切换磁盘**：新增位置菜单，可快速跳到常用目录和本机各磁盘，路径栏支持直接粘贴路径。
+- **CLI 多目录搜索**：`sag` 可重复使用 `--path`，一次搜索多个目录并统一排序（#196）。
+- **思考强度浮层**：优化滑块样式，恢复默认按钮只在需要时显示，点击有动画反馈。
 
 ### English
 
-- **Reasoning effort panel**: The reset button appears only after you choose another level or when the saved level is unsupported, and spins once as the slider returns to Default. The slider knob now sits inside the track with a concentric blue fill. Default shows no fill, and no blue edge shows at the rounded ends.
-- **Switching drives when adding folders**: A location menu next to the path field jumps to Home, Desktop, Documents, Downloads and every drive on this computer. On Windows, **Back to parent folder** at a drive root lists all drives. The path field accepts pasted paths wrapped in quotes, and a bare `D:` opens the root of that drive.
-- **Search several folders from the CLI**: Repeat `--path` to search several directories as one search with a single ranking. `-m` limits the whole search, and `--exclude` applies relative to each directory. Semantic search and `-E` / `-F` both support it; the command fails if any directory cannot be searched (#196).
+- **Table and formula search** indexes Markdown and HTML tables by complete rows with their headers, and table citations highlight the cited row. Multiline formulas stay intact, and the reader renders `align`, `equation` and similar blocks. Markdown and HTML indexes are rebuilt in the background after upgrading.
+- **Agent chat search** opens the reply from the same turn when a search matches an imported question.
+- **The Add folder dialog** has a location menu for common folders and every drive on this computer, and the path field accepts pasted paths.
+- **`sag` searches several directories at once** when `--path` is repeated, with a single ranking (#196).
+- **The reasoning effort panel** has a refined slider, and its reset button appears only when needed and animates when clicked.
 
 ## 0.4.6
 

@@ -7,13 +7,15 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="9df8826a871a65eef7f75bbadf3f02e64ad8d929cf816a0ca5e781d8b8c33d45" aria-hidden="true" />
+<span data-docs-changelog-sha="e58060971c74ee4450f76840652252d775c9e08f7aa52acd1fed90ea5633bba8" aria-hidden="true" />
 
 ## 0.4.7
 
-- **Reasoning effort panel**: The reset button appears only after you choose another level or when the saved level is unsupported, and spins once as the slider returns to Default. The slider knob now sits inside the track with a concentric blue fill. Default shows no fill, and no blue edge shows at the rounded ends.
-- **Switching drives when adding folders**: A location menu next to the path field jumps to Home, Desktop, Documents, Downloads and every drive on this computer. On Windows, **Back to parent folder** at a drive root lists all drives. The path field accepts pasted paths wrapped in quotes, and a bare `D:` opens the root of that drive.
-- **Search several folders from the CLI**: Repeat `--path` to search several directories as one search with a single ranking. `-m` limits the whole search, and `--exclude` applies relative to each directory. Semantic search and `-E` / `-F` both support it; the command fails if any directory cannot be searched (#196).
+- **Table and formula search** indexes Markdown and HTML tables by complete rows with their headers, and table citations highlight the cited row. Multiline formulas stay intact, and the reader renders `align`, `equation` and similar blocks. Markdown and HTML indexes are rebuilt in the background after upgrading.
+- **Agent chat search** opens the reply from the same turn when a search matches an imported question.
+- **The Add folder dialog** has a location menu for common folders and every drive on this computer, and the path field accepts pasted paths.
+- **`sag` searches several directories at once** when `--path` is repeated, with a single ranking (#196).
+- **The reasoning effort panel** has a refined slider, and its reset button appears only when needed and animates when clicked.
 
 ## 0.4.6
 
