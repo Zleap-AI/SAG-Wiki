@@ -1,5 +1,17 @@
 # 更新日志 / Changelog
 
+## 0.4.7
+
+- **思考强度浮层**：恢复默认按钮只在选了其他档位或出现“未适配”时显示，点击后转动一圈，滑块回到“默认”。滑块白点改为内嵌在轨道中，蓝色填充与白点同心，默认档不显示填充，圆角处不再露出蓝边。
+- **添加文件夹时切换磁盘**：路径栏左侧新增位置菜单，可跳到用户目录、桌面、文档、下载及本机各磁盘。Windows 在盘符根目录点击“返回上层”会列出全部磁盘。路径栏可直接粘贴带引号的路径，只输入 `D:` 时打开该盘根目录。
+- **CLI 多目录搜索**：`sag` 可重复使用 `--path`，多个目录合并为一次搜索并统一排序，`-m` 是整次搜索的上限，`--exclude` 按各目录的相对路径生效。语义搜索和 `-E` / `-F` 都支持；任一目录无法搜索时整条命令报错（#196）。
+
+### English
+
+- **Reasoning effort panel**: The reset button appears only after you choose another level or when the saved level is unsupported, and spins once as the slider returns to Default. The slider knob now sits inside the track with a concentric blue fill. Default shows no fill, and no blue edge shows at the rounded ends.
+- **Switching drives when adding folders**: A location menu next to the path field jumps to Home, Desktop, Documents, Downloads and every drive on this computer. On Windows, **Back to parent folder** at a drive root lists all drives. The path field accepts pasted paths wrapped in quotes, and a bare `D:` opens the root of that drive.
+- **Search several folders from the CLI**: Repeat `--path` to search several directories as one search with a single ranking. `-m` limits the whole search, and `--exclude` applies relative to each directory. Semantic search and `-E` / `-F` both support it; the command fails if any directory cannot be searched (#196).
+
 ## 0.4.6
 
 - **文档默认查看**：配置中没有记录打开方式时，已有文档默认进入查看模式。升级后沿用旧版记录的模式，可在“设置 → 通用”切换。新建文档直接编辑；从查看进入编辑后，保存会返回查看。转换文档的编辑入口标注为“编辑转换稿”。
