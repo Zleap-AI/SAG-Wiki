@@ -63,6 +63,7 @@ sag remove /path/to/project --json
 sag "Where are permissions checked after login?"
 sag -c "How does configuration affect request retries?" ./src -m 5
 sag "Where is the connection pool initialized?" --path ./server --json
+sag "How is single sign-on configured?" --path ./docs/product --path ./docs/engineering -m 10
 sag -c "How are tasks cancelled?" --timeout 900 --json
 sag -E -c '^(ERROR|WARN) [0-9]+' ./logs
 sag -F -c 'validatePermission(' ./src --json
@@ -87,7 +88,7 @@ sag uninstall cli
 
 Search requires no `search` subcommand: run `sag "search query"` directly. `add`, `remove`, `list`, `check`, `status`, `config`, `service`, `install` and `uninstall` are reserved management commands. Use `--` when searching those literal words or queries beginning with `-`, for example `sag -c -- "status"`.
 
-Search defaults to the current working directory. A positional path and `--path` cannot be combined. Semantic search uses up to 10 retrieved candidates to assemble the output by default. Set `-m` to a value from 1 to 100. The per-round candidate setting can lower the number used. `-c` changes output only, without changing recall or ranking. Paths resolve relative to the command's working directory. JSON includes absolute paths, line numbers, actual ranges and truncation flags. Only `-c` returns `content`. Output is grouped by file path and heading. Overlapping or adjacent source ranges are merged, and disjoint ranges are returned separately.
+Search defaults to the current working directory. A positional path and `--path` cannot be combined. Repeat `--path` to search several directories, including their subdirectories, as one search: a repeated directory or one inside another selected directory is searched once, results are ranked together across directories, and `-m` limits the whole search. If any directory is missing, has no indexed content or is not ready, the command fails and names that directory instead of skipping it or widening the scope. Semantic search uses up to 10 retrieved candidates to assemble the output by default. Set `-m` to a value from 1 to 100. The per-round candidate setting can lower the number used. `-c` changes output only, without changing recall or ranking. Paths resolve relative to the command's working directory. JSON includes absolute paths, line numbers, actual ranges and truncation flags; `scopes` lists every directory searched and `scope` is the first of them. Only `-c` returns `content`. Output is grouped by file path and heading. Overlapping or adjacent source ranges are merged, and disjoint ranges are returned separately.
 
 ### Regular-expression and fixed-string matching
 
@@ -230,7 +231,7 @@ Skill installation is currently provided for Claude Code, Codex and OpenCode.
 
 For development, builds and code checks, see the [development guide](/en/docs/development).
 
-Search defaults to the current working directory; `--path` overrides it. Semantic search and `-E` / `-F` accept repeated `--exclude` patterns relative to the search root, e.g. `sag "aberration" --path "F:/docs" --exclude "archive/**" --exclude "backup/"`. Exclusions apply before candidate retrieval and JEV scoring, without deleting files or indexes. Excluding everything returns no results. Patterns without slashes also match file names. Converted documents in semantic search are matched by their original relative paths and extensions.
+Search defaults to the current working directory; `--path` overrides it. Semantic search and `-E` / `-F` accept repeated `--exclude` patterns relative to the search root. With several `--path` values, patterns apply relative to each directory, as with `paths` in the HTTP API, e.g. `sag "aberration" --path "F:/docs" --exclude "archive/**" --exclude "backup/"`. Exclusions apply before candidate retrieval and JEV scoring, without deleting files or indexes. Excluding everything returns no results. Patterns without slashes also match file names. Converted documents in semantic search are matched by their original relative paths and extensions.
 
 For semantic searches with exclusions, each search uses the files allowed when filtering runs; newly added files are included on the next search.
 

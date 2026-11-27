@@ -42,6 +42,45 @@ fn fixed_and_regex_modes_match_lines_without_model_configuration() {
 }
 
 #[test]
+fn repeated_paths_search_several_folders_as_one_scope() {
+    let dir = tempfile::tempdir().unwrap();
+    let _cleanup = support::ServiceCleanup(dir.path().join("data"));
+    let root = dir.path().join("workspace");
+    for (folder, file) in [("docs/product", "plan.md"), ("docs/engineering", "design.md"), ("docs/private", "notes.md")] {
+        fs::create_dir_all(root.join(folder)).unwrap();
+        fs::write(root.join(folder).join(file), "single sign-on needle\n").unwrap();
+    }
+    fs::create_dir(dir.path().join("outside")).unwrap();
+    let run = |args: &[&str]| Command::new(env!("CARGO_BIN_EXE_sag"))
+        .env("SAG_DATA_DIR", dir.path().join("data")).current_dir(&root).args(args).output().unwrap();
+    let json = |output: Output| -> serde_json::Value {
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    let paths = |json: &serde_json::Value| {
+        let mut paths: Vec<_> = json["results"].as_array().unwrap().iter()
+            .map(|r| Path::new(r["path"].as_str().unwrap()).to_path_buf()).collect();
+        paths.sort();
+        paths
+    };
+    assert!(run(&["add"]).status.success());
+    // A repeated directory is searched once; relative paths follow the working directory.
+    let both = json(run(&["-F", "needle", "--path", "./docs/product", "--path", "docs/engineering", "--path", "docs/product", "--json"]));
+    assert_eq!(paths(&both), [Path::new("./docs/engineering/design.md"), Path::new("./docs/product/plan.md")]);
+    assert_eq!(both["scopes"].as_array().unwrap().len(), 2);
+    let limited = json(run(&["-F", "needle", "--path", "docs/product", "--path", "docs/engineering", "-m", "1", "--json"]));
+    assert_eq!(limited["results"].as_array().unwrap().len(), 1);
+    let excluded = json(run(&["-F", "needle", "--path", "docs/product", "--path", "docs/engineering", "--exclude", "design.md", "--json"]));
+    assert_eq!(paths(&excluded), [Path::new("./docs/product/plan.md")]);
+    // The whole search fails when one directory cannot be searched.
+    let outside = dir.path().join("outside");
+    let failed = run(&["-F", "needle", "--path", "docs/product", "--path", outside.to_str().unwrap()]);
+    assert!(!failed.status.success());
+    assert!(String::from_utf8_lossy(&failed.stderr).contains("无法搜索目录"), "{}", String::from_utf8_lossy(&failed.stderr));
+    assert_eq!(run(&["-F", "needle", "docs", "--path", "docs/product"]).status.code(), Some(2));
+}
+
+#[test]
 fn local_matches_follow_ignore_rules_and_removed_subdirectories() {
     let dir = tempfile::tempdir().unwrap();
     let _cleanup = support::ServiceCleanup(dir.path().join("data"));

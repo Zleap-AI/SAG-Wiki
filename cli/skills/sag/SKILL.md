@@ -28,7 +28,7 @@ Start with 3–5 results per query. Merge and deduplicate the evidence, and trac
 
 If results are empty or unrelated, check indexing and exclusions for the intended source directory before concluding the content is absent or changing the query. Successful command execution alone does not establish a successful search.
 
-Each search accepts **one directory**, never a file path or several directories. `-m` accepts **1–100** (default 10); narrow the scope before increasing it. Avoid vague keyword-only semantic queries, broad symbol lists and rereading overlapping code.
+Each search accepts directories, never file paths: one positional directory, or one or more `--path` values searched together as one ranked search. `-m` accepts **1–100** (default 10); narrow the scope before increasing it. Avoid vague keyword-only semantic queries, broad symbol lists and rereading overlapping code.
 
 ## Read only when needed
 

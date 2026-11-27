@@ -39,9 +39,10 @@ struct Args {
     matching: MatchingArgs,
     #[arg(conflicts_with = "path")]
     directory: Option<PathBuf>,
-    #[arg(long)]
-    path: Option<PathBuf>,
-    /// 排除搜索目录下的相对路径（glob），可重复使用。
+    /// 搜索指定目录，可重复使用；多个目录合并为一次搜索并统一排序。
+    #[arg(long, value_name = "DIRECTORY")]
+    path: Vec<PathBuf>,
+    /// 排除各搜索目录下的相对路径（glob），可重复使用。
     #[arg(long)]
     exclude: Vec<String>,
     /// 最多选择的语义证据块（各段完整返回）；-E/-F 为匹配行数。默认 10，--count 默认统计全部。
@@ -319,8 +320,8 @@ fn main() {
     args.matching.filters = filters.into_iter().map(|(_, filter)| filter).collect();
     let explicit_patterns = !args.matching.patterns.is_empty() || !args.matching.pattern_files.is_empty();
     if explicit_patterns {
-        if args.directory.is_some() || args.query.is_some() && args.path.is_some() {
-            Args::command().error(clap::error::ErrorKind::ArgumentConflict, "使用 -e/-f 时只可指定一个搜索目录").exit();
+        if args.directory.is_some() || args.query.is_some() && !args.path.is_empty() {
+            Args::command().error(clap::error::ErrorKind::ArgumentConflict, "使用 -e/-f 时只可用一个位置参数指定目录，或用 --path 指定一个或多个目录").exit();
         }
         args.directory = args.query.take().map(PathBuf::from);
     }
@@ -426,6 +427,12 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         } else { patterns.push(args.query.clone().expect("a bare invocation returns before matching")); }
         Some(patterns)
     } else { None };
+    // Relative directories resolve against the working directory; the service
+    // checks each one and reports the first that cannot be searched.
+    let mut scopes: Vec<PathBuf> = args.path.iter().map(|path| cwd.join(path)).collect();
+    if scopes.is_empty() { scopes.push(cwd.join(args.directory.clone().unwrap_or_default())); }
+    let search_path = scopes[0].clone();
+    let search_paths = if scopes.len() > 1 { scopes } else { vec![] };
     let (command, path, json, timeout) = match args.command {
         Some(CliCommand::Install { .. } | CliCommand::Uninstall { .. } | CliCommand::Service{..} | CliCommand::Api{..} | CliCommand::Download{..} | CliCommand::Share{..} | CliCommand::ShareHistory{..} | CliCommand::CancelShare{..}) => unreachable!(),
         Some(CliCommand::Status) => (Command::Status, cwd.clone(), false, 10),
@@ -453,6 +460,7 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
         ),
         None => (
             if args.extended_regexp || args.fixed_strings { Command::Match(MatchRequest {
+                paths: search_paths,
                 patterns: patterns.unwrap(),
                 mode: if args.fixed_strings { MatchMode::Fixed } else { MatchMode::Regex },
                 max_results: if args.matching.count { args.max_results.map(usize::from) } else { Some(args.max_results.unwrap_or(10).into()) },
@@ -466,13 +474,14 @@ fn run(args: Args, interrupted: Arc<Interrupt>) -> Result<i32> {
                         else if args.matching.files_with_matches { MatchOutputMode::Files } else if args.matching.only_matching { MatchOutputMode::OnlyMatching } else { MatchOutputMode::Lines },
                     filters: args.matching.filters },
             }) } else { Command::Search {
+                paths: search_paths,
                 exclude: args.exclude,
                 query: args.query.expect("a bare invocation returns before search"),
                 max_results: args.max_results.unwrap_or(10).into(),
                 content: true,
                 timeout: args.timeout,
             } },
-            cwd.join(args.path.or(args.directory).unwrap_or_default()),
+            search_path,
             args.json,
             args.timeout,
         ),
