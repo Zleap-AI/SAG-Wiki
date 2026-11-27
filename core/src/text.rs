@@ -668,12 +668,10 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
             length = body_limit;
             continue;
         }
-        if atom.is_some() {
+        // An oversized formula is split like ordinary text instead of failing the file.
+        if atom.is_some() && end - start <= MAX_INDEX_LINE_BYTES {
             let part = &content[start..end];
             if let Some(limit) = byte_limit {
-                if part.len() > MAX_INDEX_LINE_BYTES {
-                    return Err(ResourceLimit("单个块级公式不得超过 256 KiB".into()));
-                }
                 charge(&mut result_bytes, part.len() + heading.len() + std::mem::size_of::<Chunk>()
                     + std::mem::size_of::<crate::types::SourceSpan>() + std::mem::size_of::<(usize, usize)>(), limit)?;
             }
@@ -1076,6 +1074,26 @@ mod tests {
         }
         assert_eq!(chunks.iter().filter(|chunk| chunk.content.contains("x_{k+1}")).count(), 1);
         assert_eq!(math::blocks("```tex\n$$x=1$$\n```\n\n\\[1,2\\]\n\n$$ no closer").len(), 0);
+    }
+
+    #[test]
+    fn numbered_one_line_formulas_do_not_absorb_the_following_text() {
+        let source = "$$ y = f(x) $$ (1)\n\nProse between formulas.\n\n$$\nz = 1\n$$\n\n\\[ a = b \\] (2)\n\nMore prose.\n\n\\begin{equation} c = d \\end{equation} (3)\n\nLast prose.\n\n\\begin{align}\nz\n\\end{align}\n";
+        let found = math::blocks(source).into_iter().map(|span| &source[span]).collect::<Vec<_>>();
+        assert_eq!(found, [
+            "$$ y = f(x) $$", "$$\nz = 1\n$$", "\\[ a = b \\]",
+            "\\begin{equation} c = d \\end{equation}", "\\begin{align}\nz\n\\end{align}",
+        ]);
+    }
+
+    #[test]
+    fn oversized_display_formulas_fall_back_to_regular_splitting() {
+        let formula = format!("$$\n{}$$", "a = b + c \\\\\n".repeat(MAX_INDEX_LINE_BYTES / 10));
+        assert!(formula.len() > MAX_INDEX_LINE_BYTES);
+        let source = format!("Before.\n\n{formula}\n\nAfter.");
+        let chunks = chunks_for_index(&source, 512, std::path::Path::new("paper.md"), 64 * 1024 * 1024).unwrap();
+        assert!(chunks.len() > 2);
+        assert!(chunks.iter().all(|chunk| chunk.content.len() <= MAX_INDEX_LINE_BYTES));
     }
 
     #[test]

@@ -6,15 +6,19 @@ pub(super) fn blocks(source: &str) -> Vec<Range<usize>> {
     if !source.contains("$$") && !source.contains("\\[") && !source.contains("\\begin{") {
         return vec![];
     }
-    static DOLLARS: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?m)^ {0,3}\$\$([\s\S]*?)\$\$[ \t]*\r?$").unwrap());
-    static BRACKETS: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"(?m)^ {0,3}\\\[([\s\S]*?)\\\][ \t]*\r?$").unwrap());
+    // A formula may close on its opening line, as in `$$ y = f(x) $$ (1)`. Otherwise
+    // it runs to the first later line that ends with the closing delimiter.
+    static DOLLARS: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?m)^ {0,3}\$\$(?:((?:[^\n$]|\$[^$\n])*?)\$\$|((?:[^\n$]|\$[^$\n])*\n[\s\S]*?)\$\$[ \t]*\r?$)").unwrap()
+    });
+    static BRACKETS: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(?m)^ {0,3}\\\[(?:((?:[^\n\\]|\\[^\]\n])*?)\\\]|((?:[^\n\\]|\\[^\]\n])*\n[\s\S]*?)\\\][ \t]*\r?$)").unwrap()
+    });
     static BRACKET_NUMBER: LazyLock<Regex> =
         LazyLock::new(|| Regex::new(r"^[0-9\s,.–—-]+$").unwrap());
     static ENVIRONMENT: LazyLock<Regex> = LazyLock::new(|| {
         Regex::new(
-        r"(?m)^ {0,3}\\begin\{((?:equation|align|alignat|gather|multline)\*?)\}|\\end\{((?:equation|align|alignat|gather|multline)\*?)\}[ \t]*\r?$"
+        r"(?m)^ {0,3}\\begin\{((?:equation|align|alignat|gather|multline)\*?)\}|\\end\{((?:equation|align|alignat|gather|multline)\*?)\}([ \t]*\r?$)?"
     ).unwrap()
     });
     let options = Options::ENABLE_YAML_STYLE_METADATA_BLOCKS
@@ -42,13 +46,17 @@ pub(super) fn blocks(source: &str) -> Vec<Range<usize>> {
                 let end = cursor + range.start + part[range.clone()].trim_end_matches('\r').len();
                 matches.push(cursor + range.start..end);
             };
+            let body = |formula: &regex::Captures| {
+                formula.get(1).or_else(|| formula.get(2)).map_or("", |body| body.as_str()).to_owned()
+            };
             for formula in DOLLARS.captures_iter(part) {
-                if !formula[1].trim().is_empty() {
+                if !body(&formula).trim().is_empty() {
                     push(formula.get(0).unwrap().range());
                 }
             }
             for formula in BRACKETS.captures_iter(part) {
-                if !formula[1].trim().is_empty() && !BRACKET_NUMBER.is_match(&formula[1]) {
+                let inner = body(&formula);
+                if !inner.trim().is_empty() && !BRACKET_NUMBER.is_match(&inner) {
                     push(formula.get(0).unwrap().range());
                 }
             }
@@ -57,8 +65,12 @@ pub(super) fn blocks(source: &str) -> Vec<Range<usize>> {
                 let range = delimiter.get(0).unwrap().range();
                 if let Some(name) = delimiter.get(1) {
                     opened.entry(name.as_str()).or_insert(range.start);
-                } else if let Some(start) = opened.remove(&delimiter[2]) {
-                    push(start..range.end);
+                } else if let Some(&start) = opened.get(&delimiter[2]) {
+                    // Close at a line end, or anywhere on the opening line itself.
+                    if delimiter.get(3).is_some() || !part[start..range.start].contains('\n') {
+                        opened.remove(&delimiter[2]);
+                        push(start..range.end);
+                    }
                 }
             }
         }

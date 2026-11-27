@@ -93,7 +93,8 @@ export function* scanMarkdown(text:string,target=4000,semanticCuts=false,definit
    if(open){
     const rest=line.slice(open[0].length);
     const close=open[1]==='$$'?'$$':open[1]==='\\['?'\\]':`\\end{${open[1]}}`;
-    if(!rest.trimEnd().endsWith(close))math=close;
+    // `$$ y = f(x) $$ (1)` closes on its opening line even with a trailing tag.
+    if(!rest.includes(close))math=close;
    }
   }
   const fenceMatch=html||math?null:marker;
