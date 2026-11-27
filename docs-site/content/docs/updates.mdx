@@ -7,7 +7,15 @@ description: "按版本查看主要功能与改进。"
 
 按版本记录主要变化，详细操作见对应功能文档。安装包见[下载安装](/zh/docs/installation)。
 
-<span data-docs-changelog-sha="d46f941f0ce33ae1b2d24ca9f089c0c48fc2153f2cc67db0d20369a8f5898a5a" aria-hidden="true" />
+<span data-docs-changelog-sha="1eec81239a3d50dd13eec5823239f2e8d72727a8ae3b1a4cbfe96ce71bbcdcea" aria-hidden="true" />
+
+## 0.4.7
+
+- **表格检索与引用**支持 Markdown 和 HTML 表格。短表尽量整张索引，长表按完整行切分，每段保留表头。HTML 表格保留合并单元格与行、列的对应关系。点击问答中的表格引用可查看并高亮对应行。
+- **公式检索与显示**保留完整的 Markdown 多行公式，即使超过常规切分长度。阅读器支持独立的 `align`、`equation` 等 LaTeX 公式块。
+- **Agent 聊天记录搜索**命中导入的提问时，如果同一轮有已索引的回答，快速搜索会定位到回答原文。
+- **长文档预览**修复了分段加载时搜索命中位置偏移的问题。
+- **索引迁移**会为已有 Markdown 和 HTML 文档重建索引，让已收录的表格和公式使用新的切分规则。
 
 ## 0.4.6
 

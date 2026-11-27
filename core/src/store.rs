@@ -250,10 +250,15 @@ pub fn hash(bytes: &[u8]) -> String {
 fn body(path: &Path, bytes: &[u8]) -> Result<String> {
     Ok(crate::document_text::read(path, bytes)?)
 }
+struct IndexedSource {
+    body: String,
+    tables: Vec<text::table::Table>,
+}
+
 fn candidate_from_row(
     r: &rusqlite::Row<'_>,
     order: usize,
-    documents: &mut HashMap<i64, Option<String>>,
+    documents: &mut HashMap<i64, Option<IndexedSource>>,
 ) -> Result<Option<Candidate>> {
     hydrate_candidate(candidate_metadata(r, order)?, documents)
 }
@@ -261,6 +266,7 @@ fn candidate_from_row(
 fn candidate_metadata(r: &rusqlite::Row<'_>, order: usize) -> Result<Candidate> {
     Ok(Candidate {
             previous_score: None,
+            table_row: false,
         id: r.get(0)?,
         document_id: r.get(1)?,
         path: r.get(2)?,
@@ -308,13 +314,24 @@ fn read_indexed_source(path: &str, expected: &str) -> Option<String> {
 }
 fn hydrate_candidate(
     mut candidate: Candidate,
-    documents: &mut HashMap<i64, Option<String>>,
+    documents: &mut HashMap<i64, Option<IndexedSource>>,
 ) -> Result<Option<Candidate>> {
     let source = match documents.entry(candidate.document_id) {
         MapEntry::Occupied(entry) => entry.into_mut(),
-        MapEntry::Vacant(entry) => entry.insert(read_indexed_source(&candidate.path, &candidate.hash)),
+        MapEntry::Vacant(entry) => entry.insert(read_indexed_source(&candidate.path, &candidate.hash).map(|body| {
+            let tables = text::table::parse(&body, Path::new(&candidate.path));
+            IndexedSource { body, tables }
+        })),
     };
-    let Some(source) = source else { return Ok(None) };
+    let Some(IndexedSource { body: source, tables }) = source else { return Ok(None) };
+    if let [span] = candidate.source_spans.as_slice() {
+        if let Some(table) = text::table::Table::find(tables, span.start_byte) {
+            if let Some(rows) = table.exact_rows(span.start_byte, span.end_byte) {
+                candidate.content = table.content(source, rows);
+                return Ok(Some(candidate));
+            }
+        }
+    }
     let lines: Vec<&str> = source
         .split('\n')
         .map(|l| l.trim_end_matches('\r'))
@@ -330,6 +347,47 @@ fn hydrate_candidate(
     };
     Ok(Some(candidate))
 }
+fn related_chat_answer(
+    connection: &Connection,
+    expression: &str,
+    question: &Candidate,
+    documents: &mut HashMap<i64, Option<IndexedSource>>,
+) -> Result<Option<Candidate>> {
+    let Some(source) = documents.get(&question.document_id).and_then(Option::as_ref) else {
+        return Ok(None);
+    };
+    let (Some(first), Some(last)) = (question.source_spans.first(), question.source_spans.last()) else {
+        return Ok(None);
+    };
+    let Some(answer) = crate::chat_import::answer_range_for_question(&source.body, first.start_byte..last.end_byte) else {
+        return Ok(None);
+    };
+    let bounds = text::Lines::new(&source.body).span(&source.body, answer.start, answer.end);
+    // Keep the document's original score and position. Within the answer use
+    // the best matching existing passage, or its first passage on a zero match.
+    let mut statement = connection.prepare_cached("WITH passages AS MATERIALIZED (
+        SELECT id,start_line FROM chunks WHERE document_id=?2 AND start_line>=?3 AND end_line<=?4
+    ), matching AS MATERIALIZED (
+        SELECT p.id,bm25(chunk_fts,2,2,1) AS score
+        FROM chunk_fts JOIN passages p ON p.id=chunk_fts.rowid WHERE chunk_fts MATCH ?1
+    )
+    SELECT c.id,d.id,d.path,d.name,c.heading,c.start_line,c.end_line,c.ranges,?5,d.hash,c.spans,?6
+    FROM passages p JOIN chunks c ON c.id=p.id JOIN documents d ON d.id=c.document_id
+    LEFT JOIN matching m ON m.id=p.id
+    ORDER BY m.score IS NULL,m.score,p.start_line,c.id")?;
+    let mut rows = statement.query(params![expression, question.document_id, bounds.start_line,
+        bounds.end_line, question.bm25, question.source_path.as_deref()])?;
+    while let Some(row) = rows.next()? {
+        let candidate = candidate_metadata(row, question.order)?;
+        if !candidate.source_spans.is_empty() && candidate.source_spans.iter()
+            .all(|span| span.start_byte >= answer.start && span.end_byte <= answer.end)
+        {
+            return hydrate_candidate(candidate, documents);
+        }
+    }
+    Ok(None)
+}
+
 unsafe extern "C" {
     fn sag_register_rank(db: *mut rusqlite::ffi::sqlite3) -> std::os::raw::c_int;
 }
@@ -358,6 +416,8 @@ fn follows_official_update_language(config: &UpdateSettings) -> bool {
         && is_official_update_repository(&config.github_url)
 }
 
+const INDEX_SCHEMA_VERSION: i64 = 12;
+
 impl Store {
     pub fn open(path: &Path) -> Result<Self> {
         if let Some(parent) = path.parent() {
@@ -376,7 +436,7 @@ impl Store {
                     INSERT OR IGNORE INTO preferences VALUES(1,'{\"conversion_storage\":{\"mode\":\"library\"}}');")?;
             }
         }
-        anyhow::ensure!(schema_version <= 10, "索引数据库版本 {schema_version} 高于当前支持的版本 10，请使用更新版本的应用");
+        anyhow::ensure!(schema_version <= INDEX_SCHEMA_VERSION, "索引数据库版本 {schema_version} 高于当前支持的版本 {INDEX_SCHEMA_VERSION}，请使用更新版本的应用");
         register_rank(&db)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS roots(path TEXT PRIMARY KEY,name TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'pending',error TEXT);
@@ -488,13 +548,13 @@ impl Store {
         if schema_version > 0 && schema_version < 7 {
             db.execute_batch("BEGIN; DELETE FROM chunk_fts; DELETE FROM chunks; UPDATE documents SET hash=''; UPDATE roots SET status='pending',error=NULL; UPDATE metadata SET version=version+1; COMMIT;")?;
         }
-        if schema_version < 10 && db.query_row(
+        if schema_version < INDEX_SCHEMA_VERSION && db.query_row(
             "SELECT EXISTS(SELECT 1 FROM documents WHERE lower(path) GLOB '*.html' OR lower(path) GLOB '*.htm' OR lower(path) GLOB '*.md' OR lower(path) GLOB '*.markdown')",
             [], |row| row.get::<_, bool>(0),
         )? {
-            // Refresh document indexes for the expanded embedded-resource filter.
+            // Refresh document indexes for table slicing and embedded-resource filtering.
             // Source files and indexes for other file types remain intact.
-            db.execute_batch("BEGIN;
+            db.execute_batch(&format!("BEGIN;
                 CREATE TEMP TABLE resource_refresh AS SELECT id FROM documents WHERE lower(path) GLOB '*.html' OR lower(path) GLOB '*.htm' OR lower(path) GLOB '*.md' OR lower(path) GLOB '*.markdown';
                 DELETE FROM chunk_fts WHERE rowid IN (SELECT id FROM chunks WHERE document_id IN (SELECT id FROM resource_refresh));
                 DELETE FROM chunks WHERE document_id IN (SELECT id FROM resource_refresh);
@@ -504,10 +564,10 @@ impl Store {
                 UPDATE roots SET status='pending',error=NULL WHERE path IN (SELECT root FROM documents WHERE id IN (SELECT id FROM resource_refresh));
                 DROP TABLE resource_refresh;
                 UPDATE metadata SET version=version+1;
-                PRAGMA user_version=10;
-                COMMIT;")?;
-        } else if schema_version < 10 {
-            db.pragma_update(None, "user_version", 10)?;
+                PRAGMA user_version={INDEX_SCHEMA_VERSION};
+                COMMIT;"))?;
+        } else if schema_version < INDEX_SCHEMA_VERSION {
+            db.pragma_update(None, "user_version", INDEX_SCHEMA_VERSION)?;
         }
         let storage = if schema_version == 0 { ConversionStorage::AppData } else { ConversionStorage::Library };
         let transaction = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
@@ -2579,6 +2639,10 @@ impl Store {
         let mut skipped = 0;
         while let Some(row) = rows.next()? {
             match candidate_from_row(row, results.len(), &mut documents)? {
+                Some(candidate) if candidate.heading.contains("User · ") && text::is_markdown(Path::new(&candidate.path)) => {
+                    let answer = related_chat_answer(&connection, &expression, &candidate, &mut documents)?;
+                    results.push(answer.unwrap_or(candidate));
+                }
                 Some(candidate) => results.push(candidate),
                 None => skipped += 1,
             }
@@ -3270,6 +3334,40 @@ mod tests {
         let notes = notes.canonicalize().unwrap();
         (dir, db, notes)
     }
+    #[test]
+    fn quick_search_opens_the_indexed_reply_from_the_same_chat_turn() {
+        let (_dir, store, root) = setup();
+        let chat = root.join("moved-transcript.md");
+        let transcript = concat!(
+            "# Conversation\n\nCodex · search-suite\n\n",
+            "## User · 2026-01-01T00:00:00Z\n\nFind quartzmarker.\n\n",
+            "## Assistant · 2026-01-01T00:00:01Z\n\nProgress message.\n\n",
+            "## Tool · 2026-01-01T00:00:02Z\n\nTool output.\n\n",
+            "## Assistant · 2026-01-01T00:00:03Z\n\nThe approved answer is in the archive.\n\n",
+            "## User · 2026-01-01T00:00:04Z\n\nQuestion with noanswerneedle.\n\n",
+            "## User · 2026-01-01T00:00:05Z\n\nAnother question.\n\n",
+            "## Assistant · 2026-01-01T00:00:06Z\n\nUnrelated answer.\n"
+        );
+        fs::write(&chat, transcript).unwrap();
+        let notes = root.join("ordinary-notes.md");
+        fs::write(&notes, transcript.replace("Codex · search-suite", "Notes")).unwrap();
+        let normal = root.join("manual.md");
+        fs::write(&normal, "# Normal result\n\nquartzmarker in ordinary notes.").unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+        let count_before = store.chunk_count().unwrap();
+
+        let hits = store.search_files("quartzmarker", &[], 10).unwrap();
+        let reply = hits.iter().find(|hit| Path::new(&hit.path) == chat).unwrap();
+        assert_eq!(reply.content.trim(), "The approved answer is in the archive.");
+        assert_eq!(text::source_content(transcript, &reply.source_spans).trim(), reply.content.trim());
+        assert!(hits.iter().find(|hit| Path::new(&hit.path) == notes).unwrap().content.contains("quartzmarker"));
+        assert!(hits.iter().any(|hit| Path::new(&hit.path) == normal));
+
+        let unanswered = store.search_files("noanswerneedle", &[path_text(&chat).unwrap()], 10).unwrap();
+        assert_eq!(unanswered[0].content.trim(), "Question with noanswerneedle.");
+        assert_eq!(store.chunk_count().unwrap(), count_before);
+    }
+
     #[test]
     fn search_exclude_paths_filter_before_candidate_limit() {
         let (_dir, store, root) = setup();
@@ -5776,6 +5874,33 @@ while [ ! -f "$(dirname "$0")/release" ]; do sleep 0.02; done
         let reopened = Store::open(&dir.path().join("app/db.sqlite")).unwrap();
         assert_eq!(reopened.chunk_count().unwrap(), count);
         assert_eq!(reopened.roots().unwrap()[0].status, "ready");
+    }
+
+    #[test]
+    fn search_hydrates_html_table_and_formula_with_original_source_spans() {
+        let (_dir, store, root) = setup();
+        let mut settings = store.settings().unwrap();
+        settings.file_types.code = true;
+        store.save_settings(&settings).unwrap();
+        let row = "<tr><td><strong>tablemarker</strong></td><td>37</td></tr>";
+        let html = format!("<h1>Report</h1><table><tr><th>Item</th><th>Count</th></tr>{row}</table>");
+        fs::write(root.join("report.html"), &html).unwrap();
+        let formula = format!("$$\n\\text{{formulastart}} + {}\n\n+ \\text{{formulaend}}\n$$", " x +".repeat(170));
+        let markdown = format!("Before.\n\n{formula}\n\nAfter.");
+        fs::write(root.join("formula.md"), &markdown).unwrap();
+        store.scan(root.to_str().unwrap(), |_| {}).unwrap();
+
+        let tables = store.search_files("tablemarker", &[], 10).unwrap();
+        assert_eq!(tables.len(), 1);
+        let table = &tables[0];
+        assert!(table.content.contains("<th>Count</th>"));
+        assert!(table.content.contains(row));
+        assert_eq!(text::source_content(&html, &table.source_spans), row);
+
+        let formulas = store.search_files("formulaend", &[], 10).unwrap();
+        assert_eq!(formulas.len(), 1);
+        assert_eq!(formulas[0].content, formula);
+        assert_eq!(text::source_content(&markdown, &formulas[0].source_spans), formula);
     }
 
     #[test]

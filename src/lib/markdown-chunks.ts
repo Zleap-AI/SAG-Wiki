@@ -17,6 +17,7 @@ function listContentIndent(line:string){
 }
 const thematicBreak=/^ {0,3}(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$/;
 const definitionStart=/^\[(?:\\[\s\S]|[^\]\\]){1,999}\]:/;
+export const displayEnvironment=/^ {0,3}\\begin\{((?:equation|align|alignat|gather|multline)\*?)\}/;
 const htmlBlocks:[RegExp,RegExp][]=[
  [/^ {0,3}<table(?:\s|>|$)/i,/<\/table\s*>/i],
  [/^ {0,3}<p(?:\s|>|$)/i,/<\/p\s*>/i],
@@ -85,17 +86,17 @@ export function* scanMarkdown(text:string,target=4000,semanticCuts=false,definit
   // A display formula owns its blank lines: `aligned`/`cases` blocks often contain
   // them, and splitting there would turn one formula into several paragraphs.
   if(math){
-   if((math==='$$'&&/\$\$[ \t]*$/.test(line))||(math==='\\['&&/\\\][ \t]*$/.test(line)))math='';
+   if(line.trimEnd().endsWith(math))math='';
   }
   else if(!fence&&!html){
-   const open=/^ {0,3}(\$\$|\\\[)/.exec(line);
+   const open=/^ {0,3}(\$\$|\\\[)/.exec(line)||displayEnvironment.exec(line);
    if(open){
     const rest=line.slice(open[0].length);
-    const closed=open[1]==='$$'?/\$\$/.test(rest):/\\\]/.test(rest);
-    if(!closed)math=open[1];
+    const close=open[1]==='$$'?'$$':open[1]==='\\['?'\\]':`\\end{${open[1]}}`;
+    if(!rest.trimEnd().endsWith(close))math=close;
    }
   }
-  const fenceMatch=html?null:marker;
+  const fenceMatch=html||math?null:marker;
   if(fenceMatch){
    if(!fence){if(fenceMatch[1][0]==='~'||!fenceMatch[2].includes('`'))fence=fenceMatch[1]}
    else if(fenceMatch[1][0]===fence[0]&&fenceMatch[1].length>=fence.length&&/^ *$/.test(fenceMatch[2]))fence='';

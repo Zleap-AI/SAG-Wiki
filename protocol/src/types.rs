@@ -152,6 +152,8 @@ pub struct Candidate {
     pub source_ranges: Vec<(usize, usize)>,
     #[serde(default)]
     pub source_spans: Vec<SourceSpan>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub table_row: bool,
     pub bm25: f64,
     pub score: f64,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -22,6 +22,7 @@ use tokio_util::sync::CancellationToken;
 use walkdir::WalkDir;
 
 pub const ID: &str = "builtin:sag";
+const TABLE_CITATIONS: &str = "表格行有各自的 source_id。核对工作表或表名、行名和列名，引用直接包含所用数值的行。";
 pub const NAMES: [&str; 6] = ["search", "list", "read", "grep", "getTime", "calculate"];
 const TEXT_LIMIT: usize = 2_000;
 const READ_LIMIT: usize = 10_000;
@@ -274,6 +275,7 @@ impl SagTools {
         Candidate {
             source_path: document.source_path.clone(),
             previous_score: None,
+            table_row: false,
             id: -i64::from_str_radix(&key[..15], 16).unwrap() - 1,
             document_id: document.id,
             path: document.path.clone(),
@@ -290,7 +292,14 @@ impl SagTools {
             hash: document.hash.clone(),
         }
     }
-    fn read(&self, args: ReadArgs) -> Result<Output> {
+    fn table_row(document: &Document, lines: &text::Lines, table: &text::table::Table, index: usize) -> Candidate {
+        let range = &table.rows[index];
+        let mut value = Self::candidate(document, lines, vec![(range.start, range.end)]);
+        value.table_row = true;
+        value.content = table.content(&document.body, index..index+1);
+        value
+    }
+    fn read(&self, args: ReadArgs, table_rows: bool) -> Result<Output> {
         if args.length == 0 {
             bail!("length 必须大于 0")
         }
@@ -326,6 +335,47 @@ impl SagTools {
             cursor = end;
             if end < to { break; }
         }
+        if table_rows && text::table::supports(&path) && !ranges.is_empty() {
+            let tables = text::table::parse(&document.body, &path);
+            let lines = text::Lines::new(&document.body);
+            let mut sources = vec![];
+            let mut size = 0;
+            let mut has_rows = false;
+            'ranges: for &(from, to) in &ranges {
+                let mut start = from;
+                let rows = tables.iter().flat_map(|table| {
+                    let first = table.rows.partition_point(|row| row.start < from);
+                    table.rows[first..].iter().enumerate().take_while(move |(_, row)| row.end <= to)
+                        .map(move |(index, _)| (table, first + index))
+                });
+                for (table, index) in rows {
+                    let row = &table.rows[index];
+                    if start < row.start && !document.body[start..row.start].trim().is_empty() {
+                        sources.push(Self::candidate(&document, &lines, vec![(start,row.start)]));
+                    }
+                    let evidence = Self::table_row(&document, &lines, table, index);
+                    size += evidence.content.len().saturating_sub(row.len()) + 256;
+                    if has_rows && size > READ_LIMIT {
+                        cursor = row.start;
+                        break 'ranges;
+                    }
+                    sources.push(evidence);
+                    has_rows = true;
+                    start = row.end;
+                }
+                if start < to && !document.body[start..to].trim().is_empty() {
+                    sources.push(Self::candidate(&document, &lines, vec![(start,to)]));
+                }
+            }
+            if has_rows {
+                let more = allowed.iter().any(|&(_, end)| end > cursor);
+                let read_length: usize = ranges.iter().take_while(|&&(from,_)| from < cursor)
+                    .map(|&(from,to)| document.body[from..to.min(cursor)].chars().count()).sum();
+                return Ok(Output::new(json!({"path":document.path,"offset":args.offset,"length":read_length,
+                    "total_characters":total,"has_more":more,"next_offset":more.then(|| document.body[..cursor].chars().count()),
+                    "version":document.hash,"table_citation_instruction":TABLE_CITATIONS}),sources));
+            }
+        }
         let more = allowed.iter().any(|&(_, end)| end > cursor);
         let sources = if ranges.is_empty() {
             vec![]
@@ -337,7 +387,7 @@ impl SagTools {
             sources,
         ))
     }
-    fn grep(&self, args: GrepArgs) -> Result<Output> {
+    fn grep(&self, args: GrepArgs, table_rows: bool) -> Result<Output> {
         if args.query.is_empty() || args.query.chars().count() > TEXT_LIMIT || args.length == 0 {
             bail!("query 长度必须为 1–2000 字符，length 必须大于 0")
         }
@@ -360,6 +410,7 @@ impl SagTools {
                 allowed.iter().any(|&(start, end)| regex.is_match(&body[start..end]))
             })? else { return Ok(true); };
             let lines = text::Lines::new(&document.body);
+            let tables = if table_rows { text::table::parse(&document.body, path) } else { Vec::new() };
             let starts=lines.spans.iter().map(|(start,_)|*start).collect::<Vec<_>>();
             for (allowed_start, allowed_end) in allowed {
                 for found in regex.find_iter(&document.body[allowed_start..allowed_end]) {
@@ -372,6 +423,20 @@ impl SagTools {
                     if matched_characters > remaining { more=true; return Ok(false) }
                     let line = starts.partition_point(|start| *start<=match_start)-1;
                     let last = starts.partition_point(|start| *start<match_end).saturating_sub(1);
+                    if let Some(table) = text::table::Table::find(&tables, match_start) {
+                        if let Some(index) = table.row_at(match_start, match_end) {
+                            let row_range = &table.rows[index];
+                            if row_range.start >= allowed_start && row_range.end <= allowed_end {
+                                let row = Self::table_row(&document, &lines, table, index);
+                                let cost = row.content.chars().count();
+                                if cost > remaining { more = true; return Ok(false); }
+                                remaining -= cost;
+                                matches.push(json!({"path":document.path,"line":line+1,"offset":document.body[..match_start].chars().count(),"length":matched_characters,"context_offset":document.body[..row_range.start].chars().count(),"truncated":false,"source_index":sources.len()}));
+                                sources.push(row);
+                                continue;
+                            }
+                        }
+                    }
                     let line_start = starts[line.saturating_sub(args.context_lines)];
                     let line_end = starts.get(last.saturating_add(args.context_lines).saturating_add(1)).copied().unwrap_or(document.body.len());
                     let context_budget = remaining - matched_characters;
@@ -399,12 +464,12 @@ impl SagTools {
         ))
     }
     pub(crate) async fn execute(&self, name: &str, arguments: Value) -> Result<Output> {
-        self.execute_with_scope(name, arguments, false).await
+        self.execute_with_scope(name, arguments, false, false).await
     }
     pub(crate) async fn execute_with_file_scope(&self, name: &str, arguments: Value) -> Result<Output> {
-        self.execute_with_scope(name, arguments, true).await
+        self.execute_with_scope(name, arguments, true, false).await
     }
-    async fn execute_with_scope(&self, name: &str, arguments: Value, files_only: bool) -> Result<Output> {
+    async fn execute_with_scope(&self, name: &str, arguments: Value, files_only: bool, table_rows: bool) -> Result<Output> {
         if !self.enabled.iter().any(|enabled| enabled == name) {
             bail!("当前模型未启用 SAG / {name}")
         }
@@ -482,27 +547,57 @@ impl SagTools {
             )
             .await?;
             let mut locations = vec![];
-            for (index, candidate) in output.results.iter().enumerate() {
-                let document = self.store.document(Path::new(&candidate.path))?;
+            let mut sources = vec![];
+            let mut documents = std::collections::HashMap::new();
+            for candidate in output.results {
+                let (document, tables, lines) = match documents.entry(candidate.path.clone()) {
+                    std::collections::hash_map::Entry::Occupied(entry) => entry.into_mut(),
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        let path = Path::new(&candidate.path);
+                        let document = self.store.document(path)?;
+                        let tables = if table_rows { text::table::parse(&document.body, path) } else { Vec::new() };
+                        let lines = (!tables.is_empty()).then(|| text::Lines::new(&document.body));
+                        entry.insert((document,tables,lines))
+                    }
+                };
                 if document.hash != candidate.hash {
                     bail!("文件已修改，请重新搜索：{}", candidate.path)
                 }
-                let start = candidate.source_spans.first().unwrap().start_byte;
-                let end = candidate.source_spans.last().unwrap().end_byte;
-                locations.push(json!({"source_index":index,"path":candidate.path,"offset":document.body[..start].chars().count(),"length":document.body[start..end].chars().count()}));
+                let mut cited = vec![];
+                if let [span] = candidate.source_spans.as_slice() {
+                    if let Some(table) = text::table::Table::find(tables, span.start_byte) {
+                        if let Some(rows) = table.exact_rows(span.start_byte, span.end_byte) {
+                            for index in rows {
+                                let mut row = Self::table_row(document, lines.as_ref().unwrap(), table, index);
+                                row.heading = candidate.heading.clone();
+                                row.score = candidate.score;
+                                row.bm25 = candidate.bm25;
+                                row.order = candidate.order;
+                                cited.push(row);
+                            }
+                        }
+                    }
+                }
+                if cited.is_empty() { cited.push(candidate); }
+                for source in cited {
+                    let start = source.source_spans.first().unwrap().start_byte;
+                    let end = source.source_spans.last().unwrap().end_byte;
+                    locations.push(json!({"source_index":sources.len(),"path":source.path,"offset":document.body[..start].chars().count(),"length":document.body[start..end].chars().count()}));
+                    sources.push(source);
+                }
             }
-            return Ok(Output {
-                data: json!({"query":args.query,"locations":locations}),
-                sources: output.results,
-                trace: output.trace,
-            });
+            let mut data = json!({"query":args.query,"locations":locations});
+            if sources.iter().any(|source| source.table_row) {
+                data["table_citation_instruction"] = json!(TABLE_CITATIONS);
+            }
+            return Ok(Output { data, sources, trace: output.trace });
         }
         let this = self.clone();
         let name = name.to_owned();
         tokio::task::spawn_blocking(move || match name.as_str() {
             "list" => this.list(serde_json::from_value(arguments).context("list 参数无效")?),
-            "read" => this.read(serde_json::from_value(arguments).context("read 参数无效")?),
-            "grep" => this.grep(serde_json::from_value(arguments).context("grep 参数无效")?),
+            "read" => this.read(serde_json::from_value(arguments).context("read 参数无效")?,table_rows),
+            "grep" => this.grep(serde_json::from_value(arguments).context("grep 参数无效")?,table_rows),
             "getTime" => crate::utility_tools::get_time(arguments).map(|data| Output::new(data, vec![])),
             "calculate" => crate::utility_tools::calculate(arguments).map(|data| Output::new(data, vec![])),
             _ => bail!("未知 SAG 工具：{name}"),
@@ -537,9 +632,11 @@ impl ServerHandler for SagTools {
         _: RequestContext<RoleServer>,
     ) -> std::result::Result<CallToolResponse, ErrorData> {
         let result = self
-            .execute(
+            .execute_with_scope(
                 &request.name,
                 Value::Object(request.arguments.unwrap_or_default()),
+                false,
+                true,
             )
             .await;
         Ok(match result {
@@ -716,6 +813,22 @@ pub(crate) mod tests {
         assert_eq!(grep.sources[0].content, body[span.start_byte..span.end_byte]);
         assert!(tools.execute("grep", json!({"path":path,"query":"imagepayloadmarker"})).await.unwrap().sources.is_empty());
         assert_eq!(fs::read_to_string(&path).unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn html_table_grep_cites_the_matching_row_with_its_header() {
+        let (_dir, tools, root) = fixture();
+        let path = root.join("report.html");
+        let row = "<tr>\n<td>matchingrow</td>\n<td>42</td></tr>";
+        let body = format!("<table><tr><th>Item</th><th>Count</th></tr>{row}<tr><td>otherrow</td><td>17</td></tr></table>");
+        fs::write(&path, &body).unwrap();
+        let result = tools.execute_with_scope("grep", json!({"path":path,"query":"matchingrow"}), false, true).await.unwrap();
+        assert_eq!(result.sources.len(), 1);
+        let source = &result.sources[0];
+        assert!(source.table_row);
+        assert!(source.content.contains("<th>Count</th>"));
+        assert!(!source.content.contains("otherrow"));
+        assert_eq!(text::source_content(&body, &source.source_spans), row);
     }
 
     #[tokio::test]
@@ -959,6 +1072,7 @@ pub(crate) mod tests {
                 item.as_object_mut().unwrap().remove("modified_ms");
             }
         }
+
         assert_eq!(joined, expected);
         let code = tools
             .execute("list", json!({"pattern":"**/*.rs"}))
