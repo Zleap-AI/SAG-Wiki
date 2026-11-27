@@ -54,6 +54,63 @@ it.each([
  input.closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
  await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('browse_folders',{path:shown,showHidden:false}));
 });
+async function openLocations(){
+ const trigger=document.querySelector<HTMLButtonElement>('[aria-label="切换位置"]')!;
+ trigger.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(document.querySelector('.folder-location-menu')).not.toBeNull());
+ return [...document.querySelectorAll<HTMLElement>('.folder-location-item')];
+}
+function pathField(){return document.querySelector<HTMLInputElement>('[aria-label="文件夹路径"]')!}
+it('Windows 位置菜单切换磁盘，盘符根目录返回上层进入磁盘列表',async()=>{
+ const home='C:\\Users\\PC',data='D:\\资料';
+ const listings:Record<string,{path:string;parent:string|null;folders:{path:string;name:string}[]}>={
+  [home]:{path:'\\\\?\\'+home,parent:'\\\\?\\C:\\Users',folders:[]},
+  'C:\\':{path:'\\\\?\\C:\\',parent:null,folders:[{path:'\\\\?\\C:\\Users',name:'Users'}]},
+  'D:\\':{path:'\\\\?\\D:\\',parent:null,folders:[{path:'\\\\?\\'+data,name:'资料'}]},
+  [data]:{path:'\\\\?\\'+data,parent:'\\\\?\\D:\\',folders:[]},
+ };
+ invoke.mockImplementation(async(command,args)=>{
+  if(command==='folder_locations')return{places:[{kind:'home',path:home},{kind:'downloads',path:home+'\\Downloads'}],volumes:[{kind:'fixed',path:'C:\\'},{kind:'fixed',path:'D:\\',name:'Data'},{kind:'network',path:'Z:\\'}]};
+  if(command==='browse_folders'){const listing=listings[args.path??home];if(!listing)throw Error('无法读取目录');return{...listing,home:'\\\\?\\'+home}}
+  throw Error(command);
+ });
+ app=mount(FolderPicker,{target:document.body,props:{roots:[],onAdd,onClose}});
+ await vi.waitFor(()=>expect(document.querySelector('.folder-location')?.textContent).toBe('本地磁盘 (C:)'));
+ expect(pathField().placeholder).toBe('输入或粘贴路径，例如 D:\\资料');
+ const items=await openLocations();
+ expect(items.map(item=>item.textContent)).toEqual(['用户目录','下载','本地磁盘 (C:)','Data (D:)','网络驱动器 (Z:)']);
+ expect(items[2].querySelectorAll('svg')).toHaveLength(2);
+ items[3].click();
+ await vi.waitFor(()=>expect(pathField().value).toBe('D:\\'));
+ expect(invoke).toHaveBeenCalledWith('browse_folders',{path:'D:\\',showHidden:false});
+ expect(document.querySelector('.folder-location')?.textContent).toBe('Data (D:)');
+ await click('返回上级文件夹');
+ expect(document.querySelector('.folder-location')?.textContent).toBe('所有磁盘');
+ expect(pathField().value).toBe('');
+ expect(document.querySelector('[aria-label="选择当前文件夹"]')).toBeNull();
+ expect(document.querySelector('[aria-label="返回上级文件夹"]')).toBeNull();
+ const volumes=[...document.querySelectorAll<HTMLButtonElement>('.folder-picker-folder')];
+ expect(volumes.map(volume=>volume.textContent)).toEqual(['本地磁盘 (C:)','Data (D:)','网络驱动器 (Z:)']);
+ expect(document.querySelectorAll('.folder-picker-list [role="checkbox"]')).toHaveLength(0);
+ volumes[0].click();
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 Users"]')).not.toBeNull());
+ expect(pathField().value).toBe('C:\\');
+ // Explorer's "Copy as path" adds quotes.
+ pathField().value=`"${data}"`;pathField().dispatchEvent(new Event('input',{bubbles:true}));await tick();
+ pathField().closest('form')!.dispatchEvent(new Event('submit',{bubbles:true,cancelable:true}));
+ await vi.waitFor(()=>expect(invoke).toHaveBeenCalledWith('browse_folders',{path:data,showHidden:false}));
+});
+it('无法读取位置列表时菜单仍可回到用户目录',async()=>{
+ await start();
+ document.querySelector<HTMLButtonElement>('[title="/home/projects"]')!.click();
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 client"]')).not.toBeNull());
+ expect(document.querySelector('.folder-location')?.textContent).toBe('位置');
+ const items=await openLocations();
+ expect(items.map(item=>item.textContent)).toEqual(['用户目录']);
+ items[0].click();
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="选择 docs"]')).not.toBeNull());
+ expect(invoke).toHaveBeenLastCalledWith('browse_folders',{path:'/home',showHidden:false});
+});
 it('应用内跨目录多选，一次提交所选文件夹，不自动加入浏览过的目录',async()=>{
  await start();
  expect(document.querySelector<HTMLButtonElement>('[aria-label="选择 added"]')!.disabled).toBe(true);

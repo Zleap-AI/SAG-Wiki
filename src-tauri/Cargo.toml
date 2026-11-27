@@ -33,7 +33,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = ["NSWork
 tauri = { version = "2", features = ["test"] }
 [target.'cfg(windows)'.dependencies]
 tauri-plugin-single-instance = "=2.5.4"
-windows = { version = "0.62", features = ["Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
+windows = { version = "0.62", features = ["Win32_Storage_FileSystem", "Win32_System_Diagnostics_Debug", "Win32_System_LibraryLoader", "Win32_UI_WindowsAndMessaging"] }
 [profile.release]
 strip = true
 lto = true

@@ -58,6 +58,7 @@ const chatSessions=[{id:'release-chat',title:text('确认发布检查流程','Co
 const schedules:Partial<Record<ChatSource,ChatImportSchedule>>={};
 const handlers:Record<string,(a:any)=>any>={
  browse_folders:({path})=>({path:path??'/Documents',parent:'/',home:'/Documents',folders:[{path:'/Documents/Project notes',name:text('项目资料','Project notes')},{path:'/Documents/Research',name:text('研究资料','Research')},{path:'/Documents/Archive',name:text('归档','Archive')}]}),
+ folder_locations:()=>({places:[{kind:'home',path:'/Documents'}],volumes:[{kind:'system',path:'/'},{kind:'volume',path:'/Volumes/Archive',name:text('移动硬盘','External drive')}]}),
  list_chat_sessions:()=>({source_root:'/Example/transcripts',sessions:chatSessions,issues:[],total:2,page:0,page_size:50,projects:['/Projects/Atlas']}),
  preview_chat_import:(a)=>({title:chatSessions[0].title,body:text('# 确认发布检查流程\n\n## User\n\n发布前需要检查哪些内容？\n\n## Assistant\n\n先完成自动测试，再核对安装、搜索和文档阅读流程。\n\n1. 验证安装和启动。\n2. 导入示例文件，检查搜索结果。\n3. 核对中英文操作说明。',' # Confirm the release checklist\n\n## User\n\nWhat should we check before release?\n\n## Assistant\n\nRun automated tests, then check installation, search and document reading.\n\n1. Verify installation and startup.\n2. Import example files and inspect search results.\n3. Check the Chinese and English instructions.')+(a.includeTools?'\n\n## Tool\n\n```\nnpm test\n```':'')}),
  get_chat_import_folder:()=>chatImportFolder,

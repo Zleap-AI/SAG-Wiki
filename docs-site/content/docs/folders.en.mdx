@@ -7,6 +7,8 @@ description: "Control search scope, file types and ignore rules."
 
 Click **+** in the sidebar, select directories in **Add folder**, then click **Add to knowledge base**. You can select multiple folders across directories.
 
+The location menu next to the path field shows the current drive. Use it to jump to Home, Desktop, Documents or Downloads, or to switch to another drive on this computer: drive letters on Windows, external disks and mounted disk images on macOS, and mount points under `/media` and `/mnt` on Linux. At the root of a drive, **Back to parent folder** lists all drives. You can also type or paste a path in the path field, such as `D:\Docs`; quotes added by **Copy as path** in File Explorer are removed.
+
 ![Select folders to add to the knowledge base](/images/product-add-folder-en.png)
 
  SAG Wiki indexes the selected file types while applying ignore rules. Later changes trigger incremental indexing. Indexing runs in the background: adding a large folder returns immediately, progress appears at the bottom of the sidebar, and search and Q&A stay available during indexing. During file-monitor setup, a preparation status is shown; large folders may take a few minutes before file scanning starts. If file monitoring fails, scanning continues and the completed index retains a warning that automatic updates are limited. Rebuild the index in indexing settings to retry. Explicitly adding a folder again resets its previous monitor before registering a new one. After the directory is restored, new file changes continue to update the index automatically.
