@@ -267,7 +267,9 @@ impl CliService {
         let mut resolved = Vec::with_capacity(paths.len());
         for path in paths {
             if !path.is_absolute() { bail!("请求路径必须是完整路径") }
-            resolved.push(self.indexed_scopes(path).with_context(|| format!("无法搜索目录：{}", path.display()))?);
+            // One message, not an error chain: the service reports only the top
+            // message to the CLI, which must still say why the directory was rejected.
+            resolved.push(self.indexed_scopes(path).map_err(|error| anyhow::anyhow!("无法搜索目录：{}。{error:#}", path.display()))?);
         }
         let mut selected = Vec::with_capacity(resolved.len());
         for (index, (path, scopes)) in resolved.iter().enumerate() {

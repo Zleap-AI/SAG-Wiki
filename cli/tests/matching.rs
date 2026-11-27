@@ -76,7 +76,8 @@ fn repeated_paths_search_several_folders_as_one_scope() {
     let outside = dir.path().join("outside");
     let failed = run(&["-F", "needle", "--path", "docs/product", "--path", outside.to_str().unwrap()]);
     assert!(!failed.status.success());
-    assert!(String::from_utf8_lossy(&failed.stderr).contains("无法搜索目录"), "{}", String::from_utf8_lossy(&failed.stderr));
+    let message = String::from_utf8_lossy(&failed.stderr);
+    assert!(message.contains("无法搜索目录") && message.contains("没有已索引目录"), "{message}");
     assert_eq!(run(&["-F", "needle", "docs", "--path", "docs/product"]).status.code(), Some(2));
 }
 
