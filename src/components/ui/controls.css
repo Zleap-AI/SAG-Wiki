@@ -47,8 +47,8 @@
 .reasoning-popover,.context-popover,.reasoning-model-picker,.document-folder-path{z-index:80;width:250px;max-width:calc(100vw - 24px);padding:14px;border:1px solid var(--color-window-border);border-radius:12px;background:var(--color-paper);color:var(--color-ink);box-shadow:0 8px 32px var(--color-control-shadow);outline:none;font:400 var(--text-ui)/1.5 var(--font-body);transform-origin:var(--bits-popover-content-transform-origin)}
 .document-folder-path{width:420px;color:var(--color-secondary);overflow-wrap:anywhere;user-select:text}
 .context-popover>strong{font-weight:600}
-.reasoning-popover{--reasoning-accent:#3a83f7;position:relative;width:256px;padding:10px 12px 11px;border-radius:18px;box-shadow:0 3px 7px var(--color-control-shadow),0 12px 28px var(--color-shadow)}
-.reasoning-reset{position:absolute;right:10px;top:8px;display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:5px;border:0;border-radius:6px;background:transparent;color:var(--color-muted);cursor:pointer}
+.reasoning-popover{--reasoning-accent:#3a83f7;position:relative;width:256px;padding:10px 11px 11px;border-radius:24px;box-shadow:0 3px 7px var(--color-control-shadow),0 12px 28px var(--color-shadow)}
+.reasoning-reset{position:absolute;right:11px;top:8px;display:flex;align-items:center;justify-content:center;width:24px;height:24px;padding:5px;border:0;border-radius:50%;background:transparent;color:var(--color-muted);cursor:pointer}
 .reasoning-reset>.icon{width:14px;height:14px;stroke-width:1.5}
 .reasoning-current{margin:0 24px;text-align:center;color:var(--reasoning-accent);font-size:14px;font-weight:600;line-height:18px}
 .reasoning-model{margin:0 24px;text-align:center;color:var(--color-muted);font-size:12px;line-height:16px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -64,17 +64,21 @@
 .reasoning-model-option>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .reasoning-model-option>.icon{width:14px;height:14px;flex-shrink:0;color:var(--color-muted)}
 .reasoning-slider{position:relative;display:flex;align-items:center;height:26px;margin:12px 0 0;border-radius:13px;background:var(--color-hover);touch-action:none;user-select:none}
-.reasoning-slider-range{position:absolute;height:26px;border-radius:13px;background:var(--reasoning-accent)}
-.reasoning-slider-tick{position:absolute;width:3px;height:3px;border-radius:50%;background:var(--color-muted);opacity:.45;pointer-events:none}
+/* The fill reaches the thumb's outer edge, so its rounded end stays concentric with the knob. */
+.reasoning-slider-range{position:absolute;height:26px;margin-right:-13px;border-radius:13px;background:var(--reasoning-accent)}
+.reasoning-slider-empty .reasoning-slider-range{opacity:0}
+.reasoning-slider-resetting :is(.reasoning-slider-range,.reasoning-slider-thumb){transition:left 280ms cubic-bezier(.2,.8,.2,1),right 280ms cubic-bezier(.2,.8,.2,1),opacity 160ms ease 200ms}
+.reasoning-slider-tick{position:absolute;width:3px;height:3px;border-radius:50%;background:var(--color-muted);opacity:.45;pointer-events:none;translate:-50% 0!important}
 .reasoning-slider-tick[data-bounded]{opacity:0}
 .reasoning-bubbles{position:absolute;inset:0;overflow:hidden;border-radius:inherit;pointer-events:none}
 .reasoning-bubble{position:absolute;top:var(--bubble-y);left:0;width:100%;height:var(--bubble-size);opacity:var(--bubble-opacity);animation:reasoning-bubble-flow var(--bubble-duration) linear var(--bubble-delay) infinite;pointer-events:none}
 .reasoning-bubble::after{content:'';display:block;width:var(--bubble-size);height:var(--bubble-size);border-radius:50%;background:#fff}
 @keyframes reasoning-bubble-flow{from{transform:translateX(100%)}to{transform:translateX(-4px)}}
-@media(prefers-reduced-motion:reduce){.reasoning-bubble{animation:none;transform:translateX(var(--bubble-rest))}}
-.reasoning-slider-thumb{display:block;width:26px;height:26px;border:1px solid var(--color-rule);border-radius:50%;background:var(--color-paper);box-shadow:0 1px 3px var(--color-control-shadow);cursor:grab}
+@media(prefers-reduced-motion:reduce){.reasoning-bubble{animation:none;transform:translateX(var(--bubble-rest))}.reasoning-slider-resetting :is(.reasoning-slider-range,.reasoning-slider-thumb){transition:none}}
+.reasoning-slider-thumb{display:block;width:26px;height:26px;border-radius:50%;cursor:grab}
+.reasoning-slider-thumb::before{content:'';position:absolute;inset:3px;border-radius:50%;background:#fff;box-shadow:0 0 0 .5px #0000001a,0 1px 3px #00000033}
 .reasoning-slider-thumb:active{cursor:grabbing}
-.reasoning-slider-thumb:focus-visible{outline:2px solid var(--color-focus);outline-offset:3px}
+.reasoning-slider-thumb:focus-visible{outline:2px solid var(--color-focus);outline-offset:1px}
 .reasoning-help,.context-popover>p{margin:10px 0 0;color:var(--color-secondary);font-size:var(--text-caption)}
 .context-popover>small{display:block;margin-top:6px;color:var(--color-secondary);font-size:var(--text-caption);line-height:1.6}
 .context-ring{display:block;width:15px;height:15px;border-radius:50%;background:conic-gradient(var(--color-secondary) var(--context-fill),var(--color-rule) 0);mask:radial-gradient(transparent 5px,#000 5.5px);-webkit-mask:radial-gradient(transparent 5px,#000 5.5px)}

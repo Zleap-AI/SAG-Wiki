@@ -2,6 +2,7 @@
  import {t} from '../lib/i18n';
  import {Popover,Slider,Command,Button,IsUsingKeyboard} from 'bits-ui';
  import {tick} from 'svelte';
+ import type {TransitionConfig} from 'svelte/transition';
  import {icon} from '../lib/icons';
  import {surface} from '../lib/motion';
  import {reasoningLevels,type ReasoningEffort} from '../lib/reasoning';
@@ -9,6 +10,9 @@
  let open=$state(false);
  let panel=$state<'reasoning'|'models'>('reasoning');
  let modelList=$state<HTMLDivElement|null>(null);
+ let thumb=$state<HTMLElement|null>(null);
+ let resetting=$state(false);
+ let resetTimer:ReturnType<typeof setTimeout>|undefined;
  const keyboard=new IsUsingKeyboard();
  const levels=$derived(reasoningLevels(model,endpoint));
  const index=$derived(Math.max(0,levels.findIndex(level=>level.value===value)));
@@ -20,6 +24,23 @@
   opacity:.25+Math.random()*.4,rest:Math.random()*96,
  }));
  async function showModels(){panel='models';await tick();modelList?.focus()}
+ const RESET_MS=480;
+ const still=()=>window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+ // The round reset button turns once while it fades, so the click visibly lands before it leaves.
+ function spinAway(_node:Element):TransitionConfig{
+  if(still())return {duration:0};
+  return {duration:RESET_MS,easing:t=>(1-Math.cos(Math.PI*t))/2,css:t=>`transform:rotate(${(1-t)*360}deg);opacity:${Math.min(1,t/.4)}`};
+ }
+ function appear(_node:Element):TransitionConfig{
+  return still()?{duration:0}:{duration:140,css:t=>`opacity:${t};transform:scale(${.85+.15*t})`};
+ }
+ function reset(){
+  // Only the reset glides the thumb back; dragging and keys keep snapping instantly.
+  resetting=true;clearTimeout(resetTimer);
+  resetTimer=setTimeout(()=>resetting=false,still()?0:RESET_MS);
+  onChange(null);onCommit();
+  if(keyboard.current)thumb?.focus();
+ }
  function chooseModel(name:string){onModelChange(name);open=false}
 </script>
 <Popover.Root bind:open onOpenChange={isOpen=>{if(isOpen)panel='reasoning'}}>
@@ -42,18 +63,18 @@
        </Command.Root>
       </div>
      {:else}<div {...props} class="reasoning-popover" in:surface|global={{keyboard:keyboard.current}}>
-     <button class="reasoning-reset" type="button" aria-label={$t("恢复默认思考强度")} title={$t("恢复默认")} onclick={()=>{onChange(null);onCommit()}}>{@html icon('refresh')}</button>
+     {#if value!==null}<button class="reasoning-reset" type="button" aria-label={$t("恢复默认思考强度")} title={$t("恢复默认")} onclick={reset} in:appear out:spinAway>{@html icon('refresh')}</button>{/if}
      <p class="reasoning-current">{label}</p>
      {#if models.length}<div class="reasoning-model-row"><Button.Root class="reasoning-model-button" type="button" aria-label={$t("选择问答模型")} onclick={showModels} onkeydown={(event:KeyboardEvent)=>{if(event.key==='ArrowDown'){event.preventDefault();showModels()}}}>{model}{@html icon('chevron')}</Button.Root></div>{:else}<p class="reasoning-model">{model}</p>{/if}
      {#if levels.length>1}
-      <Slider.Root type="single" class="reasoning-slider" min={0} max={levels.length-1} step={1} value={index} onValueChange={i=>onChange(levels[i].value)} onValueCommit={()=>onCommit()}>
+      <Slider.Root type="single" class={`reasoning-slider ${index===0?'reasoning-slider-empty':''} ${resetting?'reasoning-slider-resetting':''}`} min={0} max={levels.length-1} step={1} value={index} onValueChange={i=>onChange(levels[i].value)} onValueCommit={()=>onCommit()}>
        <Slider.Range class="reasoning-slider-range">
         <span class="reasoning-bubbles" aria-hidden="true">
          {#each bubbles as bubble}<span class="reasoning-bubble" style={`--bubble-y:${bubble.y}%;--bubble-size:${bubble.size}px;--bubble-duration:${bubble.duration}s;--bubble-delay:${bubble.delay}s;--bubble-opacity:${bubble.opacity};--bubble-rest:${bubble.rest}%`}></span>{/each}
         </span>
        </Slider.Range>
        {#each levels as level,i}<Slider.Tick index={i} class="reasoning-slider-tick" aria-hidden="true"/>{/each}
-       <Slider.Thumb index={0} class="reasoning-slider-thumb" aria-label={$t("模型思考强度")} aria-valuetext={label}/>
+       <Slider.Thumb bind:ref={thumb} index={0} class="reasoning-slider-thumb" aria-label={$t("模型思考强度")} aria-valuetext={label}/>
       </Slider.Root>
      {:else if !unsupported}<p class="reasoning-help">{$t("此服务与模型暂未适配强度设置，沿用默认值。")}</p>{/if}
      {#if unsupported}<p class="reasoning-help">{$t("当前服务与模型不支持已保存的档位，请重新选择或恢复默认。")}</p>{/if}
