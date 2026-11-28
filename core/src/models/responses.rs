@@ -321,6 +321,7 @@ mod tests {
         let mut message:crate::types::Message=serde_json::from_value(json!({"question":"查询本地文件","answer":"","reasoning":"","evidence":[],"model":"gpt-6-astra","scope":["/allowed"],"references":[],"status":"running","error":null,"retrieval_question":""})).unwrap();
         let candidate = Candidate {
             previous_score: None,
+            table_row: false,
             id: 1,
             document_id: 1,
             path: "/allowed/1.md".into(), source_path: None,

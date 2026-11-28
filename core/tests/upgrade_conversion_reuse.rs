@@ -36,14 +36,14 @@ fn newer_schema_is_rejected_before_database_or_journal_mutation() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("future.sqlite");
     let db = Connection::open(&path).unwrap();
-    db.execute_batch("CREATE TABLE future_payload(value TEXT); INSERT INTO future_payload VALUES('keep'); PRAGMA user_version=11;").unwrap();
+    db.execute_batch("CREATE TABLE future_payload(value TEXT); INSERT INTO future_payload VALUES('keep'); PRAGMA user_version=13;").unwrap();
     drop(db);
     let bytes = fs::read(&path).unwrap();
     let error = match Store::open(&path) {
         Ok(_) => panic!("a newer schema must not be opened or downgraded"),
         Err(error) => format!("{error:#}"),
     };
-    assert!(error.contains("11") && error.contains("10"), "{error}");
+    assert!(error.contains("13") && error.contains("12"), "{error}");
     assert_eq!(
         fs::read(&path).unwrap(),
         bytes,

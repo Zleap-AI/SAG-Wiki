@@ -80,6 +80,19 @@ describe('display math', () => {
   expect(render('$$x^2$$').querySelector('.math-block')).not.toBeNull();
  });
 
+ it('renders a standalone align environment as one display formula', () => {
+  const tex=String.raw`\begin{align*}
+x &= 1 \\
+
+y &= 2
+\end{align*}`;
+  const doc=render(tex);
+  const block=doc.querySelector('.math-block');
+  expect(block?.getAttribute('data-tex')).toBe(tex);
+  expect(block?.querySelector('.katex-display')).not.toBeNull();
+  expect(block?.querySelector('.katex-error')).toBeNull();
+ });
+
  it(`keeps escaped citation brackets as text (${B}[1${B}], ${B}[2,3${B}])`, () => {
   expect(render(`${B}[1${B}]`).querySelector('.math-block')).toBeNull();
   expect(render(`${B}[2,3${B}]`).querySelector('.math-block')).toBeNull();

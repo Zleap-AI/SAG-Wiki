@@ -1003,6 +1003,7 @@ mod tests {
         Candidate {
             source_path: None,
             previous_score: None,
+            table_row: false,
             id,
             document_id: 1,
             path: format!("/test/{id}.md"),
@@ -1432,6 +1433,7 @@ mod tests {
     fn payload_contract() {
         let c = Candidate {
             previous_score: None,
+            table_row: false,
             id: 7,
             document_id: 1,
             path: "/test".into(), source_path: None,

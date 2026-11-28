@@ -165,6 +165,10 @@
    for(let piece=counts.length-1;piece>=0;piece--){
     if(counts[piece]){activate({piece,local:counts[piece]!-1},!userMoved);break}
    }
+  }else if(current&&!userMoved){
+   // Loading earlier pieces can clamp the initial scroll. Restore the match
+   // after layout settles, unless the reader has taken control.
+   activate(current);
   }else updatePosition();
  }
 

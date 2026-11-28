@@ -434,6 +434,7 @@ mod tests {
         Candidate {
             source_path: None,
             previous_score: None,
+            table_row: false,
             id,
             document_id: id,
             path: String::new(),

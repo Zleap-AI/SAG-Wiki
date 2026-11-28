@@ -469,6 +469,9 @@ pub(crate) fn chunks_for_index(content: &str, max_chars: usize, path: &std::path
     build_chunks(content, max_chars, path, Some(byte_limit))
 }
 
+pub(crate) mod table;
+mod math;
+
 fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_limit: Option<usize>) -> Result<Vec<Chunk>, ResourceLimit> {
     let markdown = is_markdown(path);
     let code = matches!(file_kind(path), Some(FileKind::Code | FileKind::Config));
@@ -486,6 +489,21 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
             }
         }
     }
+    let tables = table::parse_in_ranges(content, path, &ranges);
+    let mut atoms: Vec<_> = tables.iter().map(|table| (table.start..table.end, Some(table))).collect();
+    if markdown {
+        for span in math::blocks(content) {
+            let i = tables.partition_point(|table| table.end <= span.start);
+            if tables.get(i).is_none_or(|table| table.start >= span.end) {
+                atoms.push((span, None));
+            }
+        }
+        atoms.sort_unstable_by_key(|(span, _)| span.start);
+    }
+    atoms.retain(|(span, _)| {
+        let i = ranges.partition_point(|&(_, end)| end <= span.start);
+        ranges.get(i).is_some_and(|&(start, end)| start <= span.start && span.end <= end)
+    });
     let lines = Lines::new(content);
     let heading_re = Regex::new(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$").unwrap();
     let fence_re = Regex::new(r"^\s{0,3}(`{3,}|~{3,})").unwrap();
@@ -523,12 +541,18 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
             blocks.push((current_heading.clone(), 0, content.len(), code));
         }
     } else {
+        let mut atom = 0;
         for (i, (s, e)) in lines.spans.iter().enumerate() {
             let line = &content[*s..*e];
             if front {
                 if i > 0 && matches!(line.trim(), "---" | "...") {
                     front = false;
                 }
+                continue;
+            }
+            while atoms.get(atom).is_some_and(|(span, _)| span.end <= *s) { atom += 1; }
+            if fence.is_none() && atoms.get(atom).is_some_and(|(span, _)| span.start < *e) {
+                start.get_or_insert(i);
                 continue;
             }
             if let Some(m) = fence_re.captures(line) {
@@ -601,7 +625,61 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
             (start < end).then(|| (heading.clone(), start, end, code))
         })
     });
-    for (heading, start, end, code) in blocks {
+    for (heading, start, end, code, atom) in blocks.flat_map(|(heading, start, end, code)| {
+        let mut segments = vec![];
+        let mut cursor = start;
+        if !markdown || !code {
+            let first = atoms.partition_point(|(span, _)| span.start < start);
+            for (span, table) in atoms[first..].iter().take_while(|(span, _)| span.start < end) {
+                if span.end > end { break; }
+                if cursor < span.start {
+                    segments.push((heading.clone(), cursor, span.start, code, None));
+                }
+                segments.push((heading.clone(), span.start, span.end, code, Some(*table)));
+                cursor = span.end;
+            }
+        }
+        if cursor < end { segments.push((heading, cursor, end, code, None)); }
+        segments
+    }) {
+        if let Some(Some(table)) = atom {
+            let table_heading = match &table.caption {
+                Some(caption) if !heading.is_empty() => format!("{heading} / {caption}"),
+                Some(caption) => caption.clone(),
+                None => heading.to_string(),
+            };
+            for rows in table.batches(content, max_chars) {
+                let first = table.rows[rows.start].start;
+                let last = table.rows[rows.end - 1].end;
+                let passage = table.index_content(content, rows);
+                if let Some(limit) = byte_limit {
+                    if passage.len() > MAX_INDEX_LINE_BYTES {
+                        return Err(ResourceLimit("单个表格片段不得超过 256 KiB".into()));
+                    }
+                    charge(&mut result_bytes, passage.len() + table_heading.len() + std::mem::size_of::<Chunk>() + std::mem::size_of::<crate::types::SourceSpan>() + std::mem::size_of::<(usize, usize)>(), limit)?;
+                }
+                let span = lines.span(content, first, last);
+                result.push(Chunk {
+                    heading: table_heading.clone(), content: passage,
+                    ranges: vec![(span.start_line, span.end_line)], spans: vec![span],
+                });
+                sentences.push(vec![]);
+            }
+            length = body_limit;
+            continue;
+        }
+        // An oversized formula is split like ordinary text instead of failing the file.
+        if atom.is_some() && end - start <= MAX_INDEX_LINE_BYTES {
+            let part = &content[start..end];
+            if let Some(limit) = byte_limit {
+                charge(&mut result_bytes, part.len() + heading.len() + std::mem::size_of::<Chunk>()
+                    + std::mem::size_of::<crate::types::SourceSpan>() + std::mem::size_of::<(usize, usize)>(), limit)?;
+            }
+            result.push(chunk_from_ranges(content, &lines, heading.to_string(), &[(start, end)]));
+            sentences.push(vec![]);
+            length = body_limit;
+            continue;
+        }
         for (s, e) in split_block(content, start, end, body_limit, code, byte_limit.is_some()) {
             let part = &content[s..e];
             if byte_limit.is_some() && part.len() > MAX_INDEX_LINE_BYTES {
@@ -647,7 +725,7 @@ fn build_chunks(content: &str, max_chars: usize, path: &std::path::Path, byte_li
     }
     // Work backwards so every prefix comes from the original, non-overlapping chunk.
     for i in (1..result.len()).rev() {
-        if overlap == 0 || result[i - 1].heading != result[i].heading { continue; }
+        if overlap == 0 || sentences[i].is_empty() || sentences[i - 1].is_empty() || result[i - 1].heading != result[i].heading { continue; }
         let mut used = 0;
         let mut prefix = vec![];
         for &(start, end) in sentences[i - 1].iter().rev() {
@@ -915,17 +993,107 @@ mod tests {
     }
 
     #[test]
-    fn tables_use_the_normal_budget_without_repeating_headers() {
-        let header = "| Model | Score | Notes |\r\n| --- | ---: | --- |";
-        let row = format!("| long-row | 1 | {} |", "x".repeat(1400));
-        let body = format!("{header}\r\n{row}");
-        let source = format!("# Benchmark\r\n{body}");
-        let chunks = chunks_for_file(&source, 512, std::path::Path::new("document.md"));
+    fn short_tables_stay_together_and_long_tables_repeat_the_header_at_row_boundaries() {
+        let header = "| Model | Score | Notes |\n| --- | ---: | --- |";
+        let rows: Vec<_> = (0..6).map(|i| format!("| Model {i} | {i} | {} |", "x".repeat(155))).collect();
+        let path = std::path::Path::new("table.md");
+        let source = format!("# Benchmark\n{header}\n{}", rows[..3].join("\n"));
+        let chunks = chunks_for_file(&source, 512, path);
         assert_eq!(chunks.len(), 1);
-        assert_eq!(chunks[0].content, body);
-        assert_eq!(chunks.iter().filter(|chunk| chunk.content.starts_with(header)).count(), 1);
-        assert_eq!(unique_content(&source, &chunks), body);
-        assert!(chunks.iter().all(|chunk| chunk.heading == "Benchmark"));
+        assert_eq!(chunks[0].content, format!("{header}\n{}", rows[..3].join("\n")));
+        assert_eq!(source_content(&source, &chunks[0].spans), rows[..3].join("\n"));
+
+        let source = format!("# Benchmark\r\n{header}\r\n{}", rows.join("\r\n"));
+        let chunks = chunks_for_file(&source, 512, path);
+        assert!(chunks.len() > 1);
+        let mut indexed_rows = vec![];
+        for chunk in chunks {
+            assert!(chunk.content.starts_with(header));
+            assert_eq!(chunk.spans.len(), 1);
+            indexed_rows.extend(source_content(&source, &chunk.spans).lines().map(str::to_owned));
+        }
+        assert_eq!(indexed_rows, rows);
+    }
+
+    #[test]
+    fn html_table_chunks_keep_headers_and_cells_spanning_the_cut() {
+        let head = "<table><caption>Regional sales</caption><thead>\n<tr><th rowspan='2'>Region</th><th colspan='2'>Sales</th></tr>\n\n<tr><th>January</th><th>February</th></tr>\n</thead><tbody>";
+        let rows: Vec<_> = (0..6).map(|i| format!(
+            "<tr>{}<td>{i} {}</td>\n<td>Feb{i}</td></tr>",
+            if i == 0 { "<th rowspan='6'>West &amp; Central</th>" } else { "" },
+            "x".repeat(175),
+        )).collect();
+        for path in ["table.md", "table.htm"] {
+            let path = std::path::Path::new(path);
+            let short = format!("{head}{}</tbody></table>", rows[..3].join("\n"));
+            assert_eq!(chunks_for_file(&short, 512, path).len(), 1);
+            let source = format!("{head}{}\n</tbody></table>", rows.join("\n"));
+            let chunks = chunks_for_file(&source, 512, path);
+            assert_eq!(chunks.len(), 3);
+            let tables = table::parse(&source, path);
+            for (i, chunk) in chunks.iter().enumerate() {
+                assert_eq!(chunk.heading, "Regional sales");
+                assert!(chunk.content.contains("Region"));
+                assert!(chunk.content.contains("Sales"));
+                assert!(chunk.content.contains("January"));
+                assert!(chunk.content.contains("February"));
+                assert!(chunk.content.contains("West & Central"));
+                assert_eq!(source_content(&source, &chunk.spans), rows[i*2..i*2+2].join("\n"));
+                let span = &chunk.spans[0];
+                let range = tables[0].exact_rows(span.start_byte, span.end_byte).unwrap();
+                let excerpt = tables[0].content(&source, range);
+                assert!(excerpt.contains("<th rowspan=\"2\">West &amp; Central</th>"));
+                assert!(excerpt.contains("<th colspan=\"2\">Sales</th>"));
+            }
+        }
+    }
+
+    #[test]
+    fn html_table_examples_and_unclosed_tags_do_not_become_tables() {
+        let source = "Inline `<table><tr><td>inline</td></tr></table>`\n\n```html\n<table><tr><td>example</td></tr></table>\n```\n\n<!-- <table><tr><td>hidden</td></tr></table> -->\n\n<table><tr><td>unfinished</td>";
+        assert!(table::parse(source, std::path::Path::new("example.md")).is_empty());
+        let html = "<script>let hidden='<table><tr><td>example</td></tr></table>'; let flag=a<b && c;</script><table><tr><td>visible</td></tr></table>";
+        let tables = table::parse(html, std::path::Path::new("example.html"));
+        assert_eq!(tables.len(), 1);
+        assert_eq!(&html[tables[0].rows[0].clone()], "<tr><td>visible</td></tr>");
+    }
+
+    #[test]
+    fn long_display_formulas_keep_exact_spans_without_splitting_or_overlap() {
+        let texture = "x_{k+1} = x_k + \\alpha \\\\".repeat(32);
+        let dollar = format!("$$\r\n\\begin{{aligned}}\r\n{texture}\r\n\r\n    q = x_n\r\n\\end{{aligned}}\r\n$$");
+        let bracket = "\\[\r\n  a = b + c\r\n\\]";
+        let align = "\\begin{align*}\r\n z &= 0 \\\\\r\n\r\n t &= 1\r\n\\end{align*}";
+        let source = format!("# Results\r\nBefore.\r\n\r\n{dollar}\r\n\r\nBetween.\r\n\r\n{bracket}\r\n\r\n{align}\r\n\r\nAfter.");
+        let chunks = chunks_for_file(&source, 512, std::path::Path::new("results.md"));
+        for formula in [&dollar, bracket, align] {
+            let chunk = chunks.iter().find(|chunk| chunk.content == formula).unwrap();
+            assert_eq!(chunk.spans.len(), 1);
+            assert_eq!(source_content(&source, &chunk.spans), formula);
+            assert_eq!(chunk.heading, "Results");
+        }
+        assert_eq!(chunks.iter().filter(|chunk| chunk.content.contains("x_{k+1}")).count(), 1);
+        assert_eq!(math::blocks("```tex\n$$x=1$$\n```\n\n\\[1,2\\]\n\n$$ no closer").len(), 0);
+    }
+
+    #[test]
+    fn numbered_one_line_formulas_do_not_absorb_the_following_text() {
+        let source = "$$ y = f(x) $$ (1)\n\nProse between formulas.\n\n$$\nz = 1\n$$\n\n\\[ a = b \\] (2)\n\nMore prose.\n\n\\begin{equation} c = d \\end{equation} (3)\n\nLast prose.\n\n\\begin{align}\nz\n\\end{align}\n";
+        let found = math::blocks(source).into_iter().map(|span| &source[span]).collect::<Vec<_>>();
+        assert_eq!(found, [
+            "$$ y = f(x) $$", "$$\nz = 1\n$$", "\\[ a = b \\]",
+            "\\begin{equation} c = d \\end{equation}", "\\begin{align}\nz\n\\end{align}",
+        ]);
+    }
+
+    #[test]
+    fn oversized_display_formulas_fall_back_to_regular_splitting() {
+        let formula = format!("$$\n{}$$", "a = b + c \\\\\n".repeat(MAX_INDEX_LINE_BYTES / 10));
+        assert!(formula.len() > MAX_INDEX_LINE_BYTES);
+        let source = format!("Before.\n\n{formula}\n\nAfter.");
+        let chunks = chunks_for_index(&source, 512, std::path::Path::new("paper.md"), 64 * 1024 * 1024).unwrap();
+        assert!(chunks.len() > 2);
+        assert!(chunks.iter().all(|chunk| chunk.content.len() <= MAX_INDEX_LINE_BYTES));
     }
 
     #[test]
