@@ -65,7 +65,7 @@ async fn send(
     serde_json::from_str(&line).unwrap()
 }
 fn search(content: bool) -> Command {
-    Command::Search { exclude: vec![],
+    Command::Search { paths: vec![], exclude: vec![],
         query: "authenticate permission\n中文".into(),
         max_results: 10,
         content,
@@ -152,7 +152,7 @@ async fn status_contains_only_service_configuration_and_does_not_require_a_direc
 #[tokio::test]
 async fn local_matching_socket_needs_no_model_and_keeps_access_checks() {
     let (_dir, service, root) = fixture();
-    let command = || Command::Match(MatchRequest {
+    let command = || Command::Match(MatchRequest { paths: vec![],
         patterns: vec![ r"^fn auth.*\(\) \{$".into()], mode: MatchMode::Regex,
         max_results: Some(10), content: true, timeout: 3, options: MatchOptions::default(),
     });
@@ -205,7 +205,7 @@ async fn converted_sources_are_counted_and_matched_within_their_source_scope() {
     };
     let search = |path: PathBuf, pattern: &str, mode: MatchMode| {
         let service = service.clone();
-        let command = Command::Match(MatchRequest {
+        let command = Command::Match(MatchRequest { paths: vec![],
             patterns: vec![pattern.into()], mode,
             max_results: Some(10), content: true, timeout: 3, options: MatchOptions::default(),
         });
@@ -363,7 +363,7 @@ async fn search_exclude_never_sends_excluded_passages_to_jev() {
     service.store.save_settings(&settings).unwrap();
     models::save_secret(&service.data, "jev", "fixture-only").unwrap();
     let target = service.clone(); let scope = root.clone();
-    let search = tokio::spawn(async move { send(&target, &scope, Command::Search { exclude: vec!["archive/**".into()], query:"authenticate permission".into(), max_results:10, content:true, timeout:5 }, None).await });
+    let search = tokio::spawn(async move { send(&target, &scope, Command::Search { paths: vec![], exclude: vec!["archive/**".into()], query:"authenticate permission".into(), max_results:10, content:true, timeout:5 }, None).await });
     let (mut stream, _) = tokio::time::timeout(Duration::from_secs(5), listener.accept()).await.unwrap().unwrap();
     let payload = model_request(&mut stream).await;
     assert!(!payload.to_string().contains("private_excluded_marker"));
@@ -372,7 +372,7 @@ async fn search_exclude_never_sends_excluded_passages_to_jev() {
     stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",body.len()).as_bytes()).await.unwrap();
     let Response::Search(result) = search.await.unwrap() else {panic!("search failed")};
     assert!(result.results.iter().all(|r| !r.path.contains("archive")));
-    let Response::Search(empty) = send(&service,&root,Command::Search {exclude:vec!["**".into()],query:"authenticate".into(),max_results:10,content:true,timeout:5},None).await else {panic!("empty search failed")};
+    let Response::Search(empty) = send(&service,&root,Command::Search {paths:vec![],exclude:vec!["**".into()],query:"authenticate".into(),max_results:10,content:true,timeout:5},None).await else {panic!("empty search failed")};
     assert!(empty.results.is_empty());
     service.shutdown();
 }
@@ -391,7 +391,7 @@ async fn standalone_search_rechecks_access_changed_by_another_core() {
     settings.retrieval.max_hops = 0;
     service.store.save_settings(&settings).unwrap();
     models::save_secret(dir.path(), "jev", "test-only").unwrap();
-    let task = tokio::spawn(async move { service.run_local(root, Command::Search { exclude: vec![],
+    let task = tokio::spawn(async move { service.run_local(root, Command::Search { paths: vec![], exclude: vec![],
         query: "How does session authentication check permissions?".into(),
         max_results: 1, content: true, timeout: 3,
     }, CancellationToken::new()).await });
@@ -430,7 +430,7 @@ async fn semantic_limit_keeps_every_source_span_of_selected_evidence() {
         }
     });
     for content in [true, false] {
-        let response = send(&service, &root, Command::Search { exclude: vec![],
+        let response = send(&service, &root, Command::Search { paths: vec![], exclude: vec![],
             query: "How does session authentication check permission and report denied access?".into(),
             max_results: 1, content, timeout: 3,
         }, None).await;
@@ -467,7 +467,7 @@ async fn semantic_results_keep_headings_without_repeating_overlap() {
         let body = json!({"answers":answers}).to_string();
         stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
     });
-    let Response::Search(output) = send(&service, &root, Command::Search { exclude: vec![],query:"Session production permission".into(),max_results:100,content:true,timeout:3}, None).await else { panic!("search failed") };
+    let Response::Search(output) = send(&service, &root, Command::Search { paths: vec![], exclude: vec![],query:"Session production permission".into(),max_results:100,content:true,timeout:3}, None).await else { panic!("search failed") };
     model.await.unwrap();
     assert!(output.results.iter().all(|r| r.heading == "Deploy / Production" && r.path == "./session.md"));
     let shown = output.results.iter().map(|r| r.content.as_deref().unwrap()).collect::<Vec<_>>().join("\n");
@@ -586,7 +586,7 @@ async fn disconnect_and_timeout_only_cancel_their_own_parallel_queries() {
     let cli = send(
         &service,
         &root,
-        Command::Search { exclude: vec![],
+        Command::Search { paths: vec![], exclude: vec![],
             query: "authenticate".into(),
             max_results: 10,
             content: false,
@@ -938,4 +938,154 @@ async fn invalid_local_jev_cli_configuration_preserves_the_previous_key() {
     assert!(matches!(result, Err(_) | Ok(Response::Error(_))));
     assert_eq!(models::secret(dir.path(), "jev").unwrap(), "previous-jev-key");
     assert_eq!(service.store.settings().unwrap().jev.auth_mode, crate::types::ModelAuthMode::Bearer);
+}
+
+fn second_root(dir: &Path, service: &CliService) -> PathBuf {
+    let second = dir.join("second");
+    fs::create_dir_all(second.join("archive")).unwrap();
+    fs::write(second.join("guide.rs"), "fn authenticate() {\n    validate_permission(); // second_marker\n}\n").unwrap();
+    fs::write(second.join("archive/old.rs"), "fn authenticate() {\n    validate_permission(); // archived_marker\n}\n").unwrap();
+    let second = second.canonicalize().unwrap();
+    let registered = service.store.add_root(&second).unwrap();
+    service.store.scan(&registered, |_| {}).unwrap();
+    second
+}
+
+#[tokio::test]
+async fn search_combines_several_directories_into_one_ranked_request() {
+    let (dir, service, root) = fixture();
+    let second = second_root(dir.path(), &service);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let mut settings = service.store.settings().unwrap();
+    settings.jev.url = format!("http://{}/decisions", listener.local_addr().unwrap());
+    settings.retrieval.max_hops = 0;
+    service.store.save_settings(&settings).unwrap();
+    models::save_secret(&service.data, "jev", "test-only").unwrap();
+    let payloads = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let seen = payloads.clone();
+    let model = tokio::spawn(async move {
+        loop {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let payload = model_request(&mut stream).await;
+            seen.lock().unwrap().push(payload.to_string());
+            let answers: serde_json::Map<String, Value> = payload["questions"].as_object().unwrap()
+                .keys().map(|key| (key.clone(), json!({"type":"noul","noul":0.9}))).collect();
+            let body = json!({"answers":answers}).to_string();
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        }
+    });
+    let search = |paths: Vec<PathBuf>, exclude: Vec<String>, max_results: usize| Command::Search {
+        paths, exclude, query: "authenticate permission".into(), max_results, content: true, timeout: 5,
+    };
+    // A repeated directory and one inside another requested directory are searched once.
+    let request = search(vec![root.clone(), second.clone(), second.join("archive"), root.clone()], vec!["archive/**".into()], 10);
+    let Response::Search(output) = send(&service, &root, request, None).await else { panic!("search failed") };
+    let text = |path: &Path| store::path_text(path).unwrap();
+    assert_eq!(output.scope, text(&root));
+    assert_eq!(output.scopes, [text(&root), text(&second)]);
+    let mut found = output.results.iter().map(|r| (r.path.clone(), r.absolute_path.clone())).collect::<Vec<_>>();
+    found.sort();
+    found.dedup();
+    assert_eq!(found, [
+        ("./guide.rs".to_string(), text(&second.join("guide.rs"))),
+        ("./session.rs".to_string(), text(&root.join("session.rs"))),
+    ]);
+    // Exclusions are relative to each requested directory and apply before JEV.
+    assert!(payloads.lock().unwrap().iter().all(|payload| !payload.contains("archived_marker")));
+    assert!(payloads.lock().unwrap().iter().any(|payload| payload.contains("second_marker")));
+    // -m limits the whole search, not each directory.
+    let Response::Search(limited) = send(&service, &root, search(vec![root.clone(), second.clone()], vec![], 1), None).await else { panic!("limited search failed") };
+    let files = limited.results.iter().map(|r| r.absolute_path.as_str()).collect::<std::collections::HashSet<_>>();
+    assert_eq!(files.len(), 1);
+    model.abort();
+    service.shutdown();
+}
+
+#[tokio::test]
+async fn several_search_directories_fail_together_when_one_is_unusable() {
+    let (dir, service, root) = fixture();
+    let plain = dir.path().join("plain");
+    fs::create_dir(&plain).unwrap();
+    let missing = dir.path().join("missing");
+    let search = |paths: Vec<PathBuf>| Command::Search { paths, exclude: vec![], query: "authenticate".into(), max_results: 10, content: true, timeout: 3 };
+    let matching = |paths: Vec<PathBuf>| Command::Match(MatchRequest {
+        paths, patterns: vec!["authenticate".into()], mode: MatchMode::Fixed,
+        max_results: Some(10), content: false, timeout: 3, options: MatchOptions::default(),
+    });
+    for (path, reason) in [(&plain, "没有已索引目录"), (&missing, "")] {
+        for command in [search(vec![root.clone(), path.clone()]), matching(vec![path.clone(), root.clone()])] {
+            match send(&service, &root, command, None).await {
+                Response::Error(error) => {
+                    assert!(error.contains(&format!("无法搜索目录：{}", path.display())), "{error}");
+                    assert!(error.contains(reason), "{error}");
+                }
+                response => panic!("{response:?}"),
+            }
+        }
+    }
+    match send(&service, &root, search(vec![root.clone(), PathBuf::from("relative")]), None).await {
+        Response::Error(error) => assert!(error.contains("完整路径"), "{error}"),
+        response => panic!("{response:?}"),
+    }
+    service.store.connection().execute("UPDATE roots SET status='indexing'", []).unwrap();
+    let second = dir.path().join("ready");
+    fs::create_dir(&second).unwrap();
+    match send(&service, &root, search(vec![second.clone(), root.clone()]), None).await {
+        Response::Error(error) => assert!(error.contains("无法搜索目录"), "{error}"),
+        response => panic!("{response:?}"),
+    }
+    service.store.add_root(&second.canonicalize().unwrap()).unwrap();
+    service.store.connection().execute("UPDATE roots SET status='ready' WHERE path<>?", [root.to_str().unwrap()]).unwrap();
+    match send(&service, &root, search(vec![second.clone(), root.clone()]), None).await {
+        Response::Error(error) => assert!(error.contains(&format!("目录索引未就绪：{}", store::path_text(&root).unwrap())), "{error}"),
+        response => panic!("{response:?}"),
+    }
+    // Disabled access is reported once instead of blamed on a directory.
+    service.configure(Access { enabled: false }).unwrap();
+    match send(&service, &root, search(vec![root.clone(), plain.clone()]), None).await {
+        Response::Error(error) => { assert!(error.contains("未启用"), "{error}"); assert!(!error.contains("无法搜索目录"), "{error}"); }
+        response => panic!("{response:?}"),
+    }
+    service.shutdown();
+}
+
+#[test]
+fn single_directory_requests_keep_their_wire_format() {
+    let search = serde_json::to_value(search(true)).unwrap();
+    assert!(search.get("paths").is_none());
+    let matching = serde_json::to_value(MatchRequest {
+        paths: vec![], patterns: vec!["x".into()], mode: MatchMode::Fixed,
+        max_results: None, content: false, timeout: 3, options: MatchOptions::default(),
+    }).unwrap();
+    assert!(matching.get("paths").is_none());
+    let old: Command = serde_json::from_value(json!({"command":"search","query":"x","max_results":1,"content":false,"timeout":1})).unwrap();
+    assert!(matches!(old, Command::Search { paths, .. } if paths.is_empty()));
+}
+
+#[tokio::test]
+async fn local_matching_spans_several_directories_with_paths_relative_to_each() {
+    let (dir, service, root) = fixture();
+    let second = second_root(dir.path(), &service);
+    let matching = |paths: Vec<PathBuf>, max_results: Option<usize>, filters: Vec<MatchFilter>| Command::Match(MatchRequest {
+        paths, patterns: vec!["fn authenticate".into()], mode: MatchMode::Fixed,
+        max_results, content: false, timeout: 3, options: MatchOptions { filters, ..MatchOptions::default() },
+    });
+    let found = |command: Command| {
+        let service = service.clone();
+        let root = root.clone();
+        async move {
+            let Response::Matches(output) = send(&service, &root, command, None).await else { panic!("match failed") };
+            let mut paths = output.results.iter().map(|r| r.path.clone()).collect::<Vec<_>>();
+            paths.sort();
+            (output.scopes, paths)
+        }
+    };
+    let text = |path: &Path| store::path_text(path).unwrap();
+    let (scopes, paths) = found(matching(vec![second.join("archive"), root.clone(), second.clone()], Some(10), vec![])).await;
+    assert_eq!(scopes, [text(&root), text(&second)]);
+    assert_eq!(paths, ["./archive/old.rs", "./guide.rs", "./session.rs"]);
+    let exclude = vec![MatchFilter { include: false, pattern: "archive/**".into() }];
+    assert_eq!(found(matching(vec![root.clone(), second.clone()], Some(10), exclude)).await.1, ["./guide.rs", "./session.rs"]);
+    assert_eq!(found(matching(vec![root.clone(), second.clone()], Some(1), vec![])).await.1.len(), 1);
+    service.shutdown();
 }

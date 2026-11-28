@@ -2,19 +2,19 @@
 
 ## 0.4.7
 
-- **表格检索与引用**支持 Markdown 和 HTML 表格。短表尽量整张索引，长表按完整行切分，每段保留表头。HTML 表格保留合并单元格与行、列的对应关系。点击问答中的表格引用可查看并高亮对应行。
-- **公式检索与显示**保留完整的 Markdown 多行公式，即使超过常规切分长度。阅读器支持独立的 `align`、`equation` 等 LaTeX 公式块。
-- **Agent 聊天记录搜索**命中导入的提问时，如果同一轮有已索引的回答，快速搜索会定位到回答原文。
-- **长文档预览**修复了分段加载时搜索命中位置偏移的问题。
-- **索引迁移**会为已有 Markdown 和 HTML 文档重建索引，让已收录的表格和公式使用新的切分规则。
+- **表格与公式检索**：Markdown 和 HTML 表格按完整行索引并保留表头，点击表格引用可高亮对应行；多行公式保持完整，阅读器支持 `align`、`equation` 等公式块。升级后会在后台重建 Markdown 和 HTML 索引。
+- **Agent 聊天记录搜索**：命中导入的提问时，直接定位到同一轮的回答。
+- **添加文件夹时切换磁盘**：新增位置菜单，可快速跳到常用目录和本机各磁盘，路径栏支持直接粘贴路径。
+- **CLI 多目录搜索**：`sag` 可重复使用 `--path`，一次搜索多个目录并统一排序（#196）。
+- **思考强度浮层**：优化滑块样式，恢复默认按钮只在需要时显示，点击有动画反馈。
 
 ### English
 
-- **Table search and citations** support Markdown and HTML tables. Short tables are indexed together when they fit. Long tables are split between rows, and each passage keeps its column headers. Merged HTML cells stay aligned with their rows and columns. Opening a table citation from an answer highlights the cited row.
-- **Formula search and rendering** keep multiline Markdown formulas intact even when they exceed the usual passage length. The reader supports standalone LaTeX environments such as `align` and `equation`.
-- **Agent chat search** opens the indexed reply from the same turn when Quick Search matches a question in an imported transcript.
-- **Long-document previews** keep the selected search match in view as more sections load.
-- **Index migration** rebuilds the indexes for existing Markdown and HTML documents so their tables and formulas use the new passage rules.
+- **Table and formula search** indexes Markdown and HTML tables by complete rows with their headers, and table citations highlight the cited row. Multiline formulas stay intact, and the reader renders `align`, `equation` and similar blocks. Markdown and HTML indexes are rebuilt in the background after upgrading.
+- **Agent chat search** opens the reply from the same turn when a search matches an imported question.
+- **The Add folder dialog** has a location menu for common folders and every drive on this computer, and the path field accepts pasted paths.
+- **`sag` searches several directories at once** when `--path` is repeated, with a single ranking (#196).
+- **The reasoning effort panel** has a refined slider, and its reset button appears only when needed and animates when clicked.
 
 ## 0.4.6
 

@@ -42,6 +42,26 @@ it('滑块用键盘选择强度，按模型保存并支持恢复默认',async()=
  document.querySelector<HTMLButtonElement>('[aria-label="恢复默认思考强度"]')!.click();
  await tick();
  expect(slider.getAttribute('aria-valuetext')).toBe('默认');
+ await vi.waitFor(()=>expect(document.querySelector('[aria-label="恢复默认思考强度"]')).toBeNull());
+});
+
+it('只有选了档位才显示恢复默认，默认档不显示填充',async()=>{
+ const onChange=vi.fn(),onCommit=vi.fn();
+ const open=async(value:'high'|null)=>{
+  app=mount(ReasoningControl,{target:document.body,props:{model:'qwen3.6-flash',endpoint:'https://api.302ai.cn/v1',value,onChange,onCommit}});
+  await tick();
+  document.querySelector<HTMLButtonElement>('[aria-label="思考强度"]')!.click();
+  await vi.waitFor(()=>expect(document.querySelector('[role="slider"]')).not.toBeNull());
+ };
+ await open(null);
+ expect(document.querySelector('[aria-label="恢复默认思考强度"]')).toBeNull();
+ expect(document.querySelector('.reasoning-slider')!.classList.contains('reasoning-slider-empty')).toBe(true);
+ await unmount(app);document.body.innerHTML='';
+ await open('high');
+ expect(document.querySelector('.reasoning-slider')!.classList.contains('reasoning-slider-empty')).toBe(false);
+ document.querySelector<HTMLButtonElement>('[aria-label="恢复默认思考强度"]')!.click();
+ expect(onChange).toHaveBeenCalledWith(null);
+ expect(onCommit).toHaveBeenCalledTimes(1);
 });
 
 it('上下文圆环使用最近一轮输入估算，不累计多次工具调用的用量',async()=>{

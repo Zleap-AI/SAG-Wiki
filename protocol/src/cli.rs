@@ -75,6 +75,10 @@ pub enum Command {
     AddWithTypes { extensions: Vec<String> },
     Remove,
     Search {
+        /// Every search directory when more than one is given; empty means the
+        /// request path alone, which keeps single-directory requests unchanged.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        paths: Vec<PathBuf>,
         #[serde(default)]
         exclude: Vec<String>,
         query: String,
@@ -92,6 +96,9 @@ pub enum MatchMode {
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchRequest {
+    /// Same meaning as `Command::Search::paths`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<PathBuf>,
     pub patterns: Vec<String>,
     pub mode: MatchMode,
     pub max_results: Option<usize>,
@@ -135,7 +142,11 @@ pub struct MatchFile {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MatchOutput {
     pub protocol_version: u32,
+    /// The first search directory, kept for single-directory clients.
     pub scope: String,
+    /// All search directories after removing repeats and nested ones.
+    #[serde(default)]
+    pub scopes: Vec<String>,
     pub results: Vec<SearchResult>,
     pub files: Vec<MatchFile>,
     pub matched: bool,
@@ -157,7 +168,11 @@ pub struct SearchResult {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SearchOutput {
     pub protocol_version: u32,
+    /// The first search directory, kept for single-directory clients.
     pub scope: String,
+    /// All search directories after removing repeats and nested ones.
+    #[serde(default)]
+    pub scopes: Vec<String>,
     pub results: Vec<SearchResult>,
     pub truncated: bool,
 }

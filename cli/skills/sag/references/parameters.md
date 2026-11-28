@@ -5,14 +5,15 @@
 ```bash
 sag "How is a session validated?" src -m 5
 sag "Where is the retry policy configured?" --path src --json
+sag "How is single sign-on configured?" --path docs/product --path docs/engineering -m 5
 ```
 
-Supply one directory, either positionally or with `--path`, not both. Omit it to search the current directory. File paths and multiple search directories are unsupported. Search covers supported, enabled file types in indexed knowledge-base folders and follows indexing exclusions; it does not search unindexed files. Use normal file tools when that is the required scope.
+Supply directories either with one positional argument or with `--path`, not both. Omit them to search the current directory. Repeat `--path` (SAG CLI 0.4.7 or later) to search several directories as one search: results are ranked together, `-m` limits the whole search, and the command fails if any directory is missing, unindexed or not ready. File paths are unsupported. Search covers supported, enabled file types in indexed knowledge-base folders and follows indexing exclusions; it does not search unindexed files. Use normal file tools when that is the required scope.
 
 | Option | Meaning |
 | --- | --- |
-| `--path DIRECTORY` | Search this directory instead of the current one. |
-| `--exclude GLOB` | Exclude matching basenames or paths relative to the search directory for this request. Supports semantic search and `-E` / `-F`; may repeat. Use `/` in path patterns, for example `archive/` or `src/generated/**`. Index and ignore rules remain unchanged. |
+| `--path DIRECTORY` | Search this directory instead of the current one; may repeat to search several directories at once. |
+| `--exclude GLOB` | Exclude matching basenames or paths relative to each search directory for this request. Supports semantic search and `-E` / `-F`; may repeat. Use `/` in path patterns, for example `archive/` or `src/generated/**`. Index and ignore rules remain unchanged. |
 | `-m N`, `--max-results N` | Select 1–100 semantic evidence chunks; default 10. Matching-mode limits are below. |
 | `-c`, `--content` | Include original content. Semantic search already includes it; matching modes otherwise show locations. |
 | `--json` | Return structured output instead of readable text. |

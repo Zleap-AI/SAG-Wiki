@@ -825,6 +825,7 @@ pub fn run() {
             list_roots,
             list_entries,
             folder_picker::browse_folders,
+            folder_picker::folder_locations,
             list_files,
             read_document,
             read_help_document,

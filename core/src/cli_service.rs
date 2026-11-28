@@ -247,11 +247,48 @@ impl CliService {
             .collect();
         Ok((path, roots))
     }
-    fn authorized(&self, requested: &Path) -> Result<(PathBuf, Vec<String>)> {
+    fn ensure_enabled(&self) -> Result<()> {
         let access = if self.standalone { Self::load_access(&self.data)? } else { self.access() };
         if !access.enabled {
             bail!("CLI 接入未启用，请运行 sag config --enable，或在桌面设置中启用")
         }
+        Ok(())
+    }
+    fn authorized(&self, requested: &Path) -> Result<(PathBuf, Vec<String>)> {
+        self.ensure_enabled()?;
+        self.indexed_scopes(requested)
+    }
+    /// Resolves every requested search directory, failing the whole request if any
+    /// one is unusable. Repeats and directories inside another requested one are
+    /// dropped so each indexed file is searched once.
+    fn authorized_all(&self, primary: &Path, paths: &[PathBuf]) -> Result<Vec<(PathBuf, Vec<String>)>> {
+        if paths.is_empty() { return Ok(vec![self.authorized(primary)?]); }
+        self.ensure_enabled()?;
+        let mut resolved = Vec::with_capacity(paths.len());
+        for path in paths {
+            if !path.is_absolute() { bail!("请求路径必须是完整路径") }
+            // One message, not an error chain: the service reports only the top
+            // message to the CLI, which must still say why the directory was rejected.
+            resolved.push(self.indexed_scopes(path).map_err(|error| anyhow::anyhow!("无法搜索目录：{}。{error:#}", path.display()))?);
+        }
+        let mut selected = Vec::with_capacity(resolved.len());
+        for (index, (path, scopes)) in resolved.iter().enumerate() {
+            let covered = resolved.iter().enumerate().any(|(other, (parent, _))| {
+                if parent == path { other < index } else { path.starts_with(parent) }
+            });
+            if !covered { selected.push((path.clone(), scopes.clone())); }
+        }
+        Ok(selected)
+    }
+    fn ensure_ready(&self, selected: &[(PathBuf, Vec<String>)], several: bool, ready: impl Fn(&Self, &Path) -> Result<bool>) -> Result<()> {
+        for (path, _) in selected {
+            if ready(self, path)? { continue; }
+            if several { bail!("目录索引未就绪：{}。请运行 sag add 重试或检查桌面端索引错误", store::path_text(path)?) }
+            bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
+        }
+        Ok(())
+    }
+    fn indexed_scopes(&self, requested: &Path) -> Result<(PathBuf, Vec<String>)> {
         let (path, roots) = self.indexed_scope(requested)?;
         if roots.is_empty() { bail!("该文件夹下没有已索引目录，请运行 sag add") }
         let scopes = roots.into_iter().map(|root| {
@@ -424,26 +461,27 @@ impl CliService {
                     || requested.options.before_context > 1000 || requested.options.after_context > 1000 {
                     bail!("搜索参数超出允许范围")
                 }
-                let (path, scopes) = self.authorized(&request.path)?;
-                if !self.local_files_ready(&path)? {
-                    bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
-                }
+                let paths = requested.paths.clone();
+                let selected = self.authorized_all(&request.path, &paths)?;
+                self.ensure_ready(&selected, !paths.is_empty(), Self::local_files_ready)?;
                 self.release_preparation()?;
+                let (bases, scopes): (Vec<_>, Vec<_>) = selected.into_iter().unzip();
                 let tools = SagTools {
                     store: self.store.clone(), http: self.model_http.clone(), data_dir: self.data.clone(),
-                    settings: self.store.settings()?, scope: scopes, references: vec![],
+                    settings: self.store.settings()?, scope: scopes.concat(), references: vec![],
                     enabled: vec![], cancel: cancel.clone(), progress: Arc::new(|_, _| {}),
                 };
                 let timeout = requested.timeout;
-                let task = tokio::task::spawn_blocking(move || crate::cli_match::run(tools, path, requested));
+                let task = tokio::task::spawn_blocking(move || crate::cli_match::run(tools, bases, requested));
                 let output = match tokio::time::timeout(Duration::from_secs(timeout), task).await {
                     Ok(result) => result.context("本地匹配任务失败")??,
                     Err(error) => { cancel.cancel(); return Err(error).context("搜索超时，请增加 --timeout 或缩小范围"); }
                 };
-                self.authorized(&request.path)?;
+                self.authorized_all(&request.path, &paths)?;
                 Ok(Response::Matches(output))
             }
             Command::Search {
+                paths,
                 exclude,
                 query,
                 max_results,
@@ -453,20 +491,34 @@ impl CliService {
                 if !(1..=100).contains(&max_results) || !(1..=86400).contains(&timeout) {
                     bail!("搜索参数超出允许范围")
                 }
-                let (path, _) = self.authorized(&request.path)?;
-                if !self.index_ready(&path)? {
-                    bail!("目录索引未就绪，请运行 sag add 重试或检查桌面端索引错误")
-                }
+                let selected = self.authorized_all(&request.path, &paths)?;
+                self.ensure_ready(&selected, !paths.is_empty(), Self::index_ready)?;
                 if !self.status()?.jev_configured {
                     bail!("JEV 未配置，请运行 sag config，或在 SAG Wiki 模型设置中配置")
                 }
                 self.release_preparation()?;
                 let operation = async {
-                    let (path, scopes) = self.authorized(&request.path)?;
-                    let scope = store::path_text(&path)?;
-                    let scopes = self.store.search_scopes_excluding(&path, &scopes, &exclude)?;
+                    let selected = self.authorized_all(&request.path, &paths)?;
+                    let bases = selected.iter().map(|(path, _)| path.clone()).collect::<Vec<_>>();
+                    let scope_texts = bases.iter().map(|path| store::path_text(path)).collect::<Result<Vec<_>>>()?;
+                    // Exclusion globs are relative to each requested directory, as in the HTTP API.
+                    let mut scopes = vec![];
+                    for (path, roots) in &selected {
+                        scopes.extend(self.store.search_scopes_excluding(path, roots, &exclude)?);
+                    }
+                    if selected.len() > 1 {
+                        scopes.sort();
+                        scopes.dedup();
+                    }
+                    let mut result = SearchOutput {
+                        protocol_version: VERSION,
+                        scope: scope_texts[0].clone(),
+                        scopes: scope_texts,
+                        results: vec![],
+                        truncated: false,
+                    };
                     if scopes.is_empty() {
-                        return Ok(Response::Search(SearchOutput { protocol_version: VERSION, scope, results: vec![], truncated: false }));
+                        return Ok(Response::Search(result));
                     }
                     let tools = SagTools {
                         store: self.store.clone(),
@@ -486,13 +538,7 @@ impl CliService {
                         tools.execute_with_file_scope("search", arguments).await?
                     };
                     // Recheck authorization after awaiting remote requests, including revocation.
-                    self.authorized(&request.path)?;
-                    let mut result = SearchOutput {
-                        protocol_version: VERSION,
-                        scope,
-                        results: vec![],
-                        truncated: false,
-                    };
+                    self.authorized_all(&request.path, &paths)?;
                     let mut groups = indexmap::IndexMap::<(String, String), (String, Vec<(usize, usize)>)>::new();
                     for candidate in output.sources {
                         let (_, ranges) = groups.entry((candidate.path, candidate.heading)).or_insert_with(|| (candidate.hash, vec![]));
@@ -504,10 +550,13 @@ impl CliService {
                             bail!("文件已修改，请重新搜索：{}", candidate_path)
                         }
                         let output_path = self.store.authorize(Path::new(&candidate_path))?;
-                        let canonical = if output_path.starts_with(&path) { output_path.clone() } else {
+                        let canonical = if bases.iter().any(|base| output_path.starts_with(base)) { output_path.clone() } else {
                             self.store.authorize(Path::new(document.source_path.as_deref().context("转换结果缺少原文件")?))?
                         };
-                        if !canonical.starts_with(&path) || !scopes.iter().any(|scope| {
+                        let Some(base) = bases.iter().find(|base| canonical.starts_with(base)) else {
+                            bail!("搜索结果超出授权目录")
+                        };
+                        if !scopes.iter().any(|scope| {
                             if exclude.is_empty() { canonical.starts_with(scope) } else { output_path == Path::new(scope) }
                         }) {
                             bail!("搜索结果超出授权目录")
@@ -523,7 +572,7 @@ impl CliService {
                         let lines = crate::text::Lines::new(&document.body);
                         for (start, end) in merged {
                             let span = lines.span(&document.body, start, end);
-                            let relative = canonical.strip_prefix(&path)?;
+                            let relative = canonical.strip_prefix(base)?;
                             result.results.push(SearchResult {
                                 heading: heading.clone(),
                                 path: format!("./{}", relative.to_string_lossy().replace('\\', "/")),

@@ -4,7 +4,7 @@ import {
  Clock3, Rss, Share2, Download, Ellipsis, FileText, Folder, FolderUp, Globe, History, Info, Italic, List, ListOrdered,
  Maximize, MessageSquareText, Minus, Moon, Network, PanelLeft, Pause, Play, Pencil, Plus, Quote,
  Redo2, RefreshCw, Route, Search, SlidersHorizontal, Square, Strikethrough, Sun, Trash2, Undo2, X, Plug, CircleAlert,
- Eye, EyeOff,
+ Eye, EyeOff, Computer, Disc, HardDrive, House, Monitor, Server, Usb,
  type LucideIconData,
 } from '@lucide/icons';
 import {buildLucideSvg} from '@lucide/icons/build';
@@ -18,6 +18,7 @@ const glyph:Record<string,LucideIconData>={
  codeBlock:CodeXml,undo:Undo2,redo:Redo2,stop:Square,minimize:Minus,maximize:Maximize,
  clock:Clock3,rss:Rss,share:Share2,copy:Copy,delete:Trash2,pause:Pause,play:Play,history:History,
  externalLink:ArrowUpRight,plug:Plug,network:Network,route:Route,switch:ArrowLeftRight,help:CircleHelp,alert:CircleAlert,
+ home:House,desktop:Monitor,drive:HardDrive,usb:Usb,server:Server,disc:Disc,computer:Computer,
 };
 export const icon=(name:string)=>buildLucideSvg(glyph[name],{
  className:'icon',hasA11yProp:false,attributes:{focusable:'false'},

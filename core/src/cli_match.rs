@@ -107,7 +107,9 @@ pub(crate) fn path_filter_matches(pattern: &glob::Pattern, relative: &std::path:
             pattern.matches_with(&parent, options) || pattern.matches_with(&format!("{parent}/"), options)
         })
 }
-pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Result<MatchOutput> {
+/// `bases` are the requested search directories (none nested in another); each
+/// file's output path and exclusion globs are relative to the one containing it.
+pub(crate) fn run(tools: SagTools, bases: Vec<PathBuf>, request: MatchRequest) -> Result<MatchOutput> {
     let matcher = Matcher::new(&request)?;
     let filters = request
         .options
@@ -130,9 +132,11 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
         bail!("上下文参数只能用于匹配行输出")
     }
     let paths = tools.scope.iter().map(PathBuf::from).collect();
+    let scopes = bases.iter().map(|base| store::path_text(base)).collect::<Result<Vec<_>>>()?;
     let mut output = MatchOutput {
         protocol_version: VERSION,
-        scope: store::path_text(&path)?,
+        scope: scopes.first().context("缺少搜索目录")?.clone(),
+        scopes,
         results: vec![],
         files: vec![],
         matched: false,
@@ -141,7 +145,7 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
     let mut used = serde_json::to_vec(&output)?.len();
     let mut selected_count = 0;
     let mut rules = tools.store.roots()?.into_iter()
-        .filter(|root| path.starts_with(&root.path) || std::path::Path::new(&root.path).starts_with(&path))
+        .filter(|root| bases.iter().any(|path| path.starts_with(&root.path) || std::path::Path::new(&root.path).starts_with(path)))
         .map(|root| {
         let path = PathBuf::from(root.path);
         let rules = crate::folder_index::Rules::new(&path, &tools.settings)?;
@@ -149,19 +153,20 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
     }).collect::<Result<Vec<_>>>()?;
     tools.visit(paths, true, |file, _, metadata| {
         if !metadata.is_file() { return Ok(true); }
+        let path = bases.iter().find(|base| file.starts_with(base)).context("匹配文件超出搜索目录")?;
         let (_, rules) = rules.iter_mut().find(|(root, _)| file.starts_with(root)).expect("authorized root");
         let options = rules.file(file)?;
         if crate::docling::is_source(file) {
             // Match converted sources through their output; skip ones without a valid conversion.
             if !crate::docling::should_convert(file, options) || !tools.store.has_valid_conversion(file)? { return Ok(true); }
-        } else if crate::docling::in_output(file) && !crate::docling::in_output(&path) {
+        } else if crate::docling::in_output(file) && !crate::docling::in_output(path) {
             // Converted outputs are already matched through their sources.
             return Ok(true);
         } else if !store::Store::indexable_path(file, options) { return Ok(true); }
         let mut included = filters.first().is_none_or(|(include, _)| !include);
         for (include, pattern) in &filters {
             let matches = if *include { pattern.matches_path(std::path::Path::new(file.file_name().unwrap())) }
-                else { path_filter_matches(pattern, file.strip_prefix(&path).unwrap_or(file)) };
+                else { path_filter_matches(pattern, file.strip_prefix(path).unwrap_or(file)) };
             if matches {
                 included = *include;
             }
@@ -176,7 +181,7 @@ pub(crate) fn run(tools: SagTools, path: PathBuf, request: MatchRequest) -> Resu
         // Windows client does not see backslashes where every other path has "/".
         let relative = format!(
             "./{}",
-            file.strip_prefix(&path)?.to_string_lossy().replace('\\', "/")
+            file.strip_prefix(path)?.to_string_lossy().replace('\\', "/")
         );
         let spans: Vec<_> = text::Lines::new(&document.body)
             .spans

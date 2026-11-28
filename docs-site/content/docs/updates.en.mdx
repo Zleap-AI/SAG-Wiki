@@ -7,15 +7,15 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="743c0e9e131c0548353fe8ff6f0c84ba1e9470e145c7b2e59f0813ac899ed3b5" aria-hidden="true" />
+<span data-docs-changelog-sha="e58060971c74ee4450f76840652252d775c9e08f7aa52acd1fed90ea5633bba8" aria-hidden="true" />
 
 ## 0.4.7
 
-- **Table search and citations** support Markdown and HTML tables. Short tables are indexed together when they fit. Long tables are split between rows, and each passage keeps its column headers. Merged HTML cells stay aligned with their rows and columns. Opening a table citation from an answer highlights the cited row.
-- **Formula search and rendering** keep multiline Markdown formulas intact even when they exceed the usual passage length. The reader supports standalone LaTeX environments such as `align` and `equation`.
-- **Agent chat search** opens the indexed reply from the same turn when Quick Search matches a question in an imported transcript.
-- **Long-document previews** keep the selected search match in view as more sections load.
-- **Index migration** rebuilds the indexes for existing Markdown and HTML documents so their tables and formulas use the new passage rules.
+- **Table and formula search** indexes Markdown and HTML tables by complete rows with their headers, and table citations highlight the cited row. Multiline formulas stay intact, and the reader renders `align`, `equation` and similar blocks. Markdown and HTML indexes are rebuilt in the background after upgrading.
+- **Agent chat search** opens the reply from the same turn when a search matches an imported question.
+- **The Add folder dialog** has a location menu for common folders and every drive on this computer, and the path field accepts pasted paths.
+- **`sag` searches several directories at once** when `--path` is repeated, with a single ranking (#196).
+- **The reasoning effort panel** has a refined slider, and its reset button appears only when needed and animates when clicked.
 
 ## 0.4.6
 
