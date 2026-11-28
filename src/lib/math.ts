@@ -9,6 +9,7 @@ import {Node} from '@tiptap/core';
 import type {MarkdownToken, MarkdownTokenizer} from '@tiptap/core';
 import type {DOMOutputSpec} from '@tiptap/pm/model';
 import 'katex/dist/katex.min.css';
+import {displayEnvironment} from './markdown-chunks';
 import './math.css';
 
 // One answer can stream hundreds of distinct formulas; cap the cache so a long
@@ -97,11 +98,13 @@ function bracketMath(tex:string):boolean{
 
 // Display math owns whole blocks so blank lines inside `aligned`/`cases` stay
 // inside one node instead of becoming separate paragraphs.
+const displayEnvironmentStart=new RegExp(displayEnvironment.source,'m');
 const blockMath:MarkdownTokenizer={
  name:'blockMath',
  level:'block',
  start(src){
-  const candidates=[src.search(/^ {0,3}\$\$/m),src.search(/^ {0,3}\\\[/m)].filter(index=>index>=0);
+  const candidates=[src.search(/^ {0,3}\$\$/m),src.search(/^ {0,3}\\\[/m),
+   src.search(displayEnvironmentStart)].filter(index=>index>=0);
   return candidates.length?Math.min(...candidates):-1;
  },
  tokenize(src){
@@ -109,6 +112,15 @@ const blockMath:MarkdownTokenizer={
   if(dollars)return mathToken('blockMath',dollars[0],dollars[1].trim());
   const brackets=/^ {0,3}\\\[[ \t]*\n?([\s\S]*?)\n?[ \t]*\\\][ \t]*(?:\n+|$)/.exec(src);
   if(brackets&&bracketMath(brackets[1]))return mathToken('blockMath',brackets[0],brackets[1].trim());
+  const environment=displayEnvironment.exec(src);
+  if(environment){
+   const close=new RegExp(`\\\\end[{]${environment[1].replace('*','\\*')}[}][ \\t]*(?:\\n+|$)`);
+   const match=close.exec(src.slice(environment[0].length));
+   if(match){
+    const end=environment[0].length+match.index+match[0].length;
+    return mathToken('blockMath',src.slice(0,end),src.slice(0,end).trim());
+   }
+  }
   return;
  },
 };

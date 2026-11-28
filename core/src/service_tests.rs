@@ -1476,7 +1476,7 @@ async fn save_note_writes_an_anchored_file_and_tracks_source_changes() {
         id: 1, document_id: 1, path: source.canonicalize().unwrap().to_string_lossy().into_owned(), source_path: None, title: "guard.md".into(), heading: "guard".into(),
         content: passage.into(), start_line: 3, end_line: 5, source_ranges: vec![(start, start + passage.len())],
         source_spans: vec![SourceSpan { start_byte: start, end_byte: start + passage.len(), start_line: 3, start_column: 1, end_line: 5, end_column: 1 }],
-        bm25: 0., score: 1., previous_score: None, order: 0, hash: crate::store::hash(&raw),
+        bm25: 0., score: 1., previous_score: None, table_row: false, order: 0, hash: crate::store::hash(&raw),
     };
     let message = Message {
         help: false,

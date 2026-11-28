@@ -17,12 +17,29 @@
  export let onOpen:(terms:string[])=>void;
  let generation=0,tracing:DocumentTrace|undefined,largeTerms:string[]=[];
  onDestroy(()=>{generation++;tracing?.cancel();});
+ function citedRow(pane:ParentNode){
+  const rows=pane.querySelector('table')?.rows;
+  return rows?.item(rows.length-1);
+ }
+ function markCitedRow(pane:HTMLElement){
+  const row=citedRow(pane);
+  row?.classList.add('cited-table-row');
+  row?.setAttribute('aria-current','true');
+ }
  async function load(candidate:Candidate){
   const request=++generation;largeTerms=[];const trace=beginDocumentTrace('reader');tracing=trace;
   const read=trace.stage('read-rpc');let document:Document;
   const help=isHelpDocument(candidate.path);
   try{document=await api<Document>(help?'read_help_document':'read_document',{path:candidate.path});}catch(e){trace.cancel();throw e;}finally{read();}
   if(request!==generation){trace.cancel();return null;}
+  if(candidate.table_row&&document.hash===candidate.hash){
+   trace.cancel();
+   const {renderMarkdown}=await import('../lib/markdown');
+   const html=renderMarkdown(candidate.content);
+   const row=citedRow(new DOMParser().parseFromString(html,'text/html'));
+   const terms=Array.from(row?.cells??[],cell=>cell.textContent?.trim()??'').filter(Boolean);
+   return {document,terms,initialMatch:0,html,reader:null,LargeReader:null,trace,tableRow:true};
+  }
   if(isLargeMarkdown(document)){
    const done=trace.stage('component');
    try{const {default:LargeReader}=await import('./LargeDocumentReader.svelte');
@@ -50,7 +67,12 @@
  <div class="context-body citation-body">
   {#if result.document.hash!==source.hash}<p class="source-warning">{@html icon('info')}{$t('原文件已更新，以下显示当前内容。')}</p>{/if}
   <div class="citation-document">
-   {#if result.LargeReader}<svelte:component this={result.LargeReader} doc={result.document} candidate={source} deriveTerms restrictCitation onTerms={value=>largeTerms=value} label={compact?'match':'citation'} showNavigation={!compact} trace={result.trace}/>
+   {#if result.tableRow}
+    <div class="search-preview-body citation-table" use:markCitedRow>
+     {#if source.heading}<p class="citation-table-heading">{source.heading}</p>{/if}
+     {@html result.html}
+    </div>
+   {:else if result.LargeReader}<svelte:component this={result.LargeReader} doc={result.document} candidate={source} deriveTerms restrictCitation onTerms={value=>largeTerms=value} label={compact?'match':'citation'} showNavigation={!compact} trace={result.trace}/>
    {:else if result.reader}<svelte:component this={result.reader.Reader} model={result.reader.model} terms={result.terms} target={result.reader.ranges[0].from} within={result.reader.ranges} path={source.path} label={compact?'match':'citation'} showNavigation={!compact}/>
    {:else if isHtml(source.path)}<HtmlDocument body={result.document.body} terms={result.terms} initialMatch={result.initialMatch} showNavigation={!compact}/>
    {:else}<HighlightedDocument html={result.html} terms={result.terms} path={source.path} initialMatch={result.initialMatch} showNavigation={!compact}/>{/if}
@@ -75,6 +97,11 @@
  /* Cited passages read as a soft highlight; the current one is a shade deeper. */
  .citation-document :global(.search-hit){background:color-mix(in srgb,var(--color-ink) 7%,transparent);color:inherit;box-shadow:none;border-radius:3px;padding:1px 0;-webkit-box-decoration-break:clone;box-decoration-break:clone}
  .citation-document :global(.search-hit.active){background:color-mix(in srgb,var(--color-ink) 14%,transparent);color:var(--color-ink);box-shadow:0 1px 0 color-mix(in srgb,var(--color-ink) 35%,transparent)}
+ .citation-document .citation-table{overflow-x:auto}
+ .citation-table-heading{margin:0 0 12px;color:var(--color-secondary)}
+ .citation-document .citation-table :global(table){width:max-content;min-width:100%;max-width:none;white-space:normal}
+ .citation-table :global(th),.citation-table :global(td){min-width:64px;max-width:250px;padding:8px 12px;overflow-wrap:normal;border:1px solid var(--color-rule)}
+ .citation-table :global(tr.cited-table-row > :is(td,th)){background:color-mix(in srgb,var(--color-ink) 14%,transparent)}
  .citation-hint{flex:1;min-width:0;font-size:12px;color:var(--color-muted)}
  :global(.citation-open){display:inline-flex;align-items:center;gap:6px;min-height:32px;padding:6px 12px;border-radius:9px;font-size:var(--text-caption)}
  :global(.citation-open .icon){width:13px;height:13px}

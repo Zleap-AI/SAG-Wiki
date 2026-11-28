@@ -922,6 +922,60 @@ fn render(source: ChatSource, parsed: &Parsed) -> ChatPreview {
     }
     ChatPreview { title, body }
 }
+/// The same-turn answer in an exported chat, using its original byte offsets.
+pub(crate) fn answer_range_for_question(body: &str, question: std::ops::Range<usize>) -> Option<std::ops::Range<usize>> {
+    use pulldown_cmark::{Event, HeadingLevel, Parser, Tag};
+
+    let mut lines = body.lines().filter(|line| !line.trim().is_empty());
+    if !lines.next()?.starts_with("# ") {
+        return None;
+    }
+    let (agent, _) = lines.next()?.split_once(" · ")?;
+    if ![ChatSource::Claude, ChatSource::ClaudeDesktop, ChatSource::Codex, ChatSource::WorkBuddy]
+        .into_iter().any(|source| label(source) == agent)
+    {
+        return None;
+    }
+
+    let mut depth = 0;
+    let mut turns = Vec::new();
+    for (event, span) in Parser::new(body).into_offset_iter() {
+        match event {
+            Event::Start(tag) => {
+                if depth == 0 && matches!(tag, Tag::Heading { level: HeadingLevel::H2, .. }) {
+                    if let Some((role, time)) = body[span.clone()].trim_end().strip_prefix("## ")
+                        .and_then(|heading| heading.split_once(" · "))
+                    {
+                        if matches!(role, "User" | "Assistant" | "Tool")
+                            && chrono::DateTime::parse_from_rfc3339(time).is_ok()
+                        {
+                            turns.push((role, span));
+                        }
+                    }
+                }
+                depth += 1;
+            }
+            Event::End(_) => depth -= 1,
+            _ => {}
+        }
+    }
+
+    let next = turns.partition_point(|(_, heading)| heading.start <= question.start);
+    let (role, heading) = turns.get(next.checked_sub(1)?)?;
+    if *role != "User" || question.start < heading.end {
+        return None;
+    }
+    if turns.get(next).is_some_and(|(_, heading)| question.end > heading.start) {
+        return None;
+    }
+    (next..turns.len())
+        .take_while(|&i| turns[i].0 != "User")
+        .filter(|&i| turns[i].0 == "Assistant")
+        .map(|i| turns[i].1.end..turns.get(i + 1).map_or(body.len(), |(_, heading)| heading.start))
+        .filter(|range| !body[range.clone()].trim().is_empty())
+        .last()
+}
+
 pub fn preview(
     source: ChatSource,
     root: &str,

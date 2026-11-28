@@ -1,5 +1,21 @@
 # 更新日志 / Changelog
 
+## 0.4.7
+
+- **表格检索与引用**支持 Markdown 和 HTML 表格。短表尽量整张索引，长表按完整行切分，每段保留表头。HTML 表格保留合并单元格与行、列的对应关系。点击问答中的表格引用可查看并高亮对应行。
+- **公式检索与显示**保留完整的 Markdown 多行公式，即使超过常规切分长度。阅读器支持独立的 `align`、`equation` 等 LaTeX 公式块。
+- **Agent 聊天记录搜索**命中导入的提问时，如果同一轮有已索引的回答，快速搜索会定位到回答原文。
+- **长文档预览**修复了分段加载时搜索命中位置偏移的问题。
+- **索引迁移**会为已有 Markdown 和 HTML 文档重建索引，让已收录的表格和公式使用新的切分规则。
+
+### English
+
+- **Table search and citations** support Markdown and HTML tables. Short tables are indexed together when they fit. Long tables are split between rows, and each passage keeps its column headers. Merged HTML cells stay aligned with their rows and columns. Opening a table citation from an answer highlights the cited row.
+- **Formula search and rendering** keep multiline Markdown formulas intact even when they exceed the usual passage length. The reader supports standalone LaTeX environments such as `align` and `equation`.
+- **Agent chat search** opens the indexed reply from the same turn when Quick Search matches a question in an imported transcript.
+- **Long-document previews** keep the selected search match in view as more sections load.
+- **Index migration** rebuilds the indexes for existing Markdown and HTML documents so their tables and formulas use the new passage rules.
+
 ## 0.4.6
 
 - **文档默认查看**：配置中没有记录打开方式时，已有文档默认进入查看模式。升级后沿用旧版记录的模式，可在“设置 → 通用”切换。新建文档直接编辑；从查看进入编辑后，保存会返回查看。转换文档的编辑入口标注为“编辑转换稿”。

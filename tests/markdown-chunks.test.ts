@@ -173,3 +173,10 @@ it.each(['- - -','* * *','_ _ _'])('keeps top-level headings after %s and preser
   expect(starts).not.toContain('  # Nested heading');
  }
 });
+
+it('同一行内闭合的编号公式不会让后面的正文失去分块',()=>{
+ const body='$$ y = f(x) $$ (1)\n\n'+('paragraph text '.repeat(20)+'\n\n').repeat(6);
+ expect(splitMarkdown(body,1).length).toBe(7);
+ const environment='\\begin{equation} a = b \\end{equation} (2)\n\n'+('paragraph text '.repeat(20)+'\n\n').repeat(3);
+ expect(splitMarkdown(environment,1).length).toBe(4);
+});

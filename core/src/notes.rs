@@ -613,7 +613,7 @@ mod tests {
             content: content.into(), start_line: 3, end_line: 4,
             source_ranges: vec![(start, start + content.len())],
             source_spans: vec![SourceSpan { start_byte: start, end_byte: start + content.len(), start_line: 3, start_column: 1, end_line: 4, end_column: 1 }],
-            bm25: 0., score: 0., previous_score: None, order: 0, hash: hash.into(),
+            bm25: 0., score: 0., previous_score: None, table_row: false, order: 0, hash: hash.into(),
         }
     }
 

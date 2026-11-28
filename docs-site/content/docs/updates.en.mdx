@@ -7,7 +7,15 @@ description: "Major features and improvements by version."
 
 Major changes by version. See the feature guides for instructions and the [Installation page](/en/docs/installation) for downloads.
 
-<span data-docs-changelog-sha="43bbda705f39b8a77b338ffeb6c8487d7e3cbc61a02ef0a83ca6a5849da7c3e2" aria-hidden="true" />
+<span data-docs-changelog-sha="743c0e9e131c0548353fe8ff6f0c84ba1e9470e145c7b2e59f0813ac899ed3b5" aria-hidden="true" />
+
+## 0.4.7
+
+- **Table search and citations** support Markdown and HTML tables. Short tables are indexed together when they fit. Long tables are split between rows, and each passage keeps its column headers. Merged HTML cells stay aligned with their rows and columns. Opening a table citation from an answer highlights the cited row.
+- **Formula search and rendering** keep multiline Markdown formulas intact even when they exceed the usual passage length. The reader supports standalone LaTeX environments such as `align` and `equation`.
+- **Agent chat search** opens the indexed reply from the same turn when Quick Search matches a question in an imported transcript.
+- **Long-document previews** keep the selected search match in view as more sections load.
+- **Index migration** rebuilds the indexes for existing Markdown and HTML documents so their tables and formulas use the new passage rules.
 
 ## 0.4.6
 
